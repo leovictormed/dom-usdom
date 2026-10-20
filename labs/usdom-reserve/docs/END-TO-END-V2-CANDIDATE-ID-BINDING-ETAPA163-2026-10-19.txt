@@ -1,0 +1,45 @@
+End-to-end V2 candidate identifier binding — stage 163
+Date: 2026-10-19
+
+Problem
+=======
+
+The authenticated node returned a nonzero candidate identifier, but the wallet
+did not prove that the acknowledgement named the exact envelope and witnesses
+it had sent. A stale, confused or malicious response could therefore be stored
+as the handle for a different candidate.
+
+Change
+======
+
+The minimal candidate protocol now owns candidate_id_v1. It validates the same
+independent component bounds, encodes each exact byte string with a canonical
+big-endian u32 length and hashes the pair under
+DOM:usdom-v2-mining-candidate:v1. The HTTP frame continues to use its distinct
+little-endian length words; the candidate identity commits to content rather
+than transport representation.
+
+NativeUsdomV2Runtime uses this shared function as the sole volatile-pool
+identifier derivation. The strict wallet client derives the expected ID before
+sending and rejects an otherwise well-formed queued acknowledgement unless its
+ID matches exactly. Changing the envelope, witnesses or either length changes
+the identifier.
+
+Validation
+==========
+
+Protocol tests cover exact identity derivation and input substitution. Wallet
+tests now reject a nonzero but mismatched ID and the socket server returns the
+actual derived ID. Both tests pass. dom-chain and candidate-feature dom-node
+compile, and strict all-target Clippy passes for the shared protocol, wallet,
+chain and node. Formatting and diff checks pass.
+
+Security boundary
+=================
+
+This binds queue acknowledgement to the exact public proof and witness pair. It
+does not make queue admission final, prove an Ethereum deposit or authorize a
+payout. Real settlement, production proof artifacts, controlled release
+testing, operations and independent audits remain open. The closed-mainnet and
+real-funds gates remain closed. No push, commit, deployment, transaction or use
+of funds occurred.

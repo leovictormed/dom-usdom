@@ -1,0 +1,41 @@
+Stage 176 - exact parsed-header to RandomX statement binding
+Date: 2026-10-19
+
+UDCRXST1 defines the values proved by a future RandomX receipt. The segment
+executor must not let an untrusted prover independently supply those values,
+because a valid receipt for another nonce, target or height could otherwise be
+paired with the parsed block under review.
+
+Implemented exact derivation
+
+1. checkpoint_randomx_statement_for_header accepts one already parsed
+   consensus BlockHeader plus immutable network, chain and authenticated seed
+   identities.
+2. Block height, the exact 224-byte BlockHeader::pow_preimage(), claimed
+   RandomX output and expanded target are copied or derived directly from that
+   header. The seed height is recomputed from the RFC-0011 schedule.
+3. The resulting UDCRXST1 undergoes its full identity, schedule, target and
+   work validation before being returned. No caller-controlled duplicate of a
+   header field can disagree with the block.
+
+Verification
+
+- A positive parsed candidate-v2 header produces the exact preimage, height,
+  seed schedule, hash and target expected by UDCRXST1.
+- Changing only the parsed header nonce changes the statement commitment, and
+  a zero authenticated seed is rejected.
+- The complete package passes 18 portable tests and 25 host-reference tests
+  with zero failures. Clippy passes for all targets and features with warnings
+  denied; rustfmt check passes. The 390-block release vector remains ignored in
+  the ordinary suite.
+
+Remaining boundary
+
+This constructor prevents host-level field substitution but does not verify a
+RandomX receipt. The future segment guest must reproduce the same derivation
+inside the proof and verify a receipt from the reviewed RandomX ImageID before
+advancing the segment state. A guest-compatible RandomX relation, economic
+worst-case coverage, recursive aggregation, measured limits, production
+ImageIDs, real vectors, bootstrap ratification and independent audits remain
+open. Mainnet and real funds remain blocked. No deploy, public transaction,
+funds, commit or push occurred.

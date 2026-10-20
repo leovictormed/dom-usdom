@@ -1,0 +1,63 @@
+Deterministic private-wallet recovery seed — etapa 99
+Date: 2026-10-18
+Status: recovery primitive implemented; production custody integration remains incomplete
+
+Finding USDOM-099
+
+Severity: Critical availability risk for real funds.
+Current public exposure: none; no key, wallet, transaction, commit, push or deployment was created.
+
+The wallet generated independent random owner and scanning secrets and stored
+them in encrypted snapshots. It had no deterministic recovery root. Loss or
+corruption of every current snapshot could therefore permanently destroy access
+to private USDOM notes even when the operator retained a general wallet backup
+procedure.
+
+Remediation
+
+dom-usdom-wallet now provides WalletRecoverySeed, an opaque 256-bit secret that:
+
+- is generated only from a caller-supplied CryptoRng and rejects the all-zero
+  result;
+- implements neither Clone, Debug nor serialization and is erased on drop by a
+  Zeroizing allocation;
+- deterministically derives the BN254 owner scalar and X25519 scanning key with
+  HKDF-SHA256;
+- includes the exact native chain scalar and distinct owner/scan purpose tags
+  in every expansion;
+- uses bounded deterministic rejection sampling for a nonzero canonical BN254
+  scalar and rejects an invalid X25519 public result;
+- exposes no plaintext seed accessor;
+- persists and restores only through the existing atomic wallet envelope using
+  Argon2id (64 MiB, three iterations, one lane), HKDF-SHA256 and
+  ChaCha20-Poly1305;
+- authenticates the expected chain identity inside the encrypted 64-byte
+  payload and rejects a backup opened for another chain.
+
+The restored seed deterministically recreates the same public recipient address.
+Changing the chain produces another address, preventing cross-network key reuse.
+Wrong passphrases, ciphertext changes, malformed plaintext, zero identities and
+chain substitutions fail closed.
+
+Validation
+
+- dom-usdom-wallet all-feature suite: 23 passed; 0 failed;
+- focused recovery/backup test: passed;
+- all-feature/all-target Clippy with warnings denied: passed;
+- cargo fmt --all --check: passed after formatting;
+- deterministic same-chain restoration: passed;
+- different-chain separation: passed;
+- wrong password, wrong chain and ciphertext corruption: rejected.
+
+Security boundary
+
+This supplies deterministic recovery and encrypted backup primitives, not a
+complete production key-management system. The project still lacks a reviewed
+user-facing creation/import ceremony, operating-system or hardware keystore
+integration, memory locking, secure backup distribution, disaster-recovery
+exercise and the production monotonic seal authority. Therefore
+native_private_wallet_key_management_implemented and mainnet_ready remain
+false. Raw seeds must never be logged, copied into command-line arguments or
+stored outside the encrypted backup boundary.
+
+No production status, deployment or real-funds authorization changed.

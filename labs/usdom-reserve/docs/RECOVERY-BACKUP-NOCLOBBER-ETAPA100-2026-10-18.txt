@@ -1,0 +1,59 @@
+Create-only deterministic recovery backup — etapa 100
+Date: 2026-10-18
+Status: local recovery-backup hardening implemented; production custody remains incomplete
+
+Finding USDOM-100
+
+Severity: High availability risk for real funds.
+Current public exposure: none; no wallet key, commit, push, deployment or transaction was created.
+
+The stage 99 encrypted recovery API reused the general wallet envelope's atomic
+replacement writer. Calling save_encrypted_backup twice with the same path
+could therefore silently destroy the only known-good recovery artifact. A
+mistyped path, repeated setup command or concurrent operator could turn an
+otherwise recoverable wallet into permanent loss.
+
+Remediation
+
+dom-wallet-crypto now exposes a create-only binary-envelope operation. It:
+
+- encrypts with the same Argon2id, HKDF-SHA256 and ChaCha20-Poly1305 envelope;
+- writes and fsyncs an exclusive same-directory temporary file;
+- publishes with tempfile persist_noclobber rather than a replacing rename;
+- returns the distinct DestinationExists error when any destination entry wins;
+- makes the collision decision atomically at publication time, closing the
+  check-then-create race;
+- retains the owner-only directory and regular-file identity audits;
+- fsyncs the retained parent authority after successful publication.
+
+WalletRecoverySeed::save_encrypted_backup uses this create-only operation. An
+existing regular file, hard link, symlink or concurrent winner is never
+followed or replaced. Recovery backup rotation must use a fresh operator-chosen
+path and separately retain previously verified generations.
+
+Validation
+
+- dom-wallet-crypto suite: 39 passed, 0 failed, 5 documented tests ignored;
+- replacement attempt: rejected with DestinationExists and original plaintext
+  still decrypts unchanged;
+- pre-existing symlink: rejected and its target remains unchanged;
+- dom-usdom-wallet all-feature suite: 23 passed, 0 failed;
+- focused deterministic recovery test: passed;
+- all-feature/all-target Clippy for both affected crates with warnings denied:
+  passed;
+- cargo fmt --all --check: passed.
+
+During validation the filesystem ran out of space in recompilable target/
+artifacts. cargo clean removed only build outputs, freeing 11 GiB; sources,
+reports and repository metadata were preserved. All listed tests were then run
+from a clean compilation.
+
+Security boundary
+
+This prevents accidental or raced backup replacement. It does not implement a
+production recovery ceremony, redundant backup distribution, hardware or OS
+keystore custody, memory locking, operator authentication or recovery drills.
+Consequently native_private_wallet_key_management_implemented, mainnet_ready,
+deploy_authorized and real_funds_authorized remain false.
+
+No production status, push, deployment or real-funds authorization changed.

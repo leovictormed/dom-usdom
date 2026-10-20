@@ -1,0 +1,80 @@
+Activation-bound checkpoint bootstrap — Stage 138
+Date: 2026-10-18
+Status: implemented and locally verified; production remains fail closed
+
+Finding
+
+The checkpoint registry previously committed an operator-ratified initial
+height, block and native state root, but did not enforce on chain that this root
+was the canonical empty USDOM state immediately before native v4 activation.
+Its constructor also emitted the same Checkpoint event as a proof-authorized
+consensus extension. Release review and the configuration hash prevented silent
+substitution, but this design placed too much security weight on human review
+of the bootstrap and made the constructor event eligible for the same Ethereum
+witness parser used by finalized burns.
+
+Implemented correction
+
+1. DOMCheckpointRegistry now pins independent immutable values for the DOM chain
+   ID, first v4 height and activation empty-state root. Construction requires:
+   - a nonzero chain ID and empty-state root;
+   - initialHeight + 1 == firstV4Height, with checked uint64 bounds; and
+   - initialStateRoot == activationEmptyStateRoot.
+2. These fields are included in CHECKPOINT_IDENTITY_TYPEHASH and therefore in
+   slot-zero checkpointConfigHash, source-derived runtime identity and complete
+   constructor initcode.
+3. Construction emits CheckpointBootstrap. Only a verifier-authorized state
+   extension emits Checkpoint. The Rust Ethereum witness relation still accepts
+   only the Checkpoint ABI, so constructor output cannot directly authorize a
+   finalized-burn statement.
+4. The release schema contains checkpointDomChainId,
+   checkpointFirstV4Height and checkpointActivationEmptyStateRoot. Readiness
+   recomputes the exact UDACTV01 bytes and tagged BLAKE2b-256 commitment and
+   rejects any mismatch with activationScheduleCommitment.
+5. The postdeployment finalized-state preflight reads all three new immutables
+   and authenticates the distinct CheckpointBootstrap creation log.
+6. Finalized-burn verifier manifest schema v4 explicitly commits the activation
+   empty-state root. The release gate cross-checks its network, chain, height
+   and empty root against the checkpoint registry configuration.
+
+Cross-language correction
+
+The first JavaScript implementation passed an ethers hexadecimal string
+directly to the BLAKE2b library. A new Rust/JavaScript known-answer test exposed
+that this hashed the text representation rather than its bytes. The SDK now
+performs an explicit hex-to-byte conversion before hashing. Both sides produce:
+
+  18e9a8c742efbc9601f49a16405a958a8b2e57da1f8691412ae8e0d7ac1fd4a4
+
+for the frozen UDACTV01 vector. @noble/hashes 1.3.2 was already pinned through
+ethers and is now declared directly because the SDK imports its variable-output
+BLAKE2b implementation.
+
+Security effect and limits
+
+The registry can no longer start from an arbitrary nonempty USDOM state or use
+its bootstrap log as if a consensus-extension proof had accepted it. The
+ratified initial DOM block remains a trusted light-client anchor: reviewers
+must still prove that its block identity is canonical for the configured DOM
+chain. Every later checkpoint remains dependent on the missing production
+verifier proving valid DOM headers, PoW/fork choice and native state transition
+from that exact predecessor.
+
+Validation
+
+- DOM chain native USDOM v4 library: 76 tests passed, 0 failed.
+- Solidity default/fuzz/invariant suite: 115 passed, 0 failed.
+- Node SDK/EVM/monitor/release suite: 53 passed, 0 failed.
+- Rust format and clippy with warnings denied: passed.
+- Offline npm clean install: passed, 0 reported vulnerabilities.
+- Source-derived registry runtime/initcode vectors were regenerated and every
+  new immutable and constructor field has a mutation test.
+
+Remaining production blockers
+
+The production consensus-extension verifier, positive finalized Checkpoint
+event witness, succinct proof backend, guest/circuit, keys and Solidity
+verifiers remain absent. Production parameters, bootstrap block, activation
+schedule, control plane, audits, rehearsals and signed release evidence remain
+unratified or unavailable. Deployment and real-funds authorization are absent.
+The mainnet and real-funds gates therefore remain intentionally closed.

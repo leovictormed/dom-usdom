@@ -1,0 +1,21 @@
+[package]
+name = "dom-usdom-economic-block-program"
+description = "Recursive composition of bounded DOM economic chunk receipts"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = []
+risc0-recursion = ["dep:risc0-zkvm"]
+
+[dependencies]
+dom-core.workspace = true
+dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", features = ["economic-chunks"] }
+risc0-zkvm = { version = "=3.0.6", default-features = false, optional = true }
+thiserror.workspace = true
+
+[lints]
+workspace = true

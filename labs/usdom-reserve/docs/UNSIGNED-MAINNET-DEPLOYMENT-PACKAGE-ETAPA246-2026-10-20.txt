@@ -1,0 +1,52 @@
+USDOM ETAPA 246 — PACOTE DE IMPLANTAÇÃO MAINNET SEM ASSINATURA
+Data: 2026-10-20
+Status: implementado e validado localmente
+
+Achado USDOM-246
+
+Severidade: Alta para segurança operacional de implantação.
+Exposição pública atual: nenhuma.
+
+O repositório verificava bytecode, configuração, endereços planejados e o
+estado pré/pós-implantação, mas não possuía um comando que materializasse os
+quatro initcodes exatos da release. O operador teria de montar manualmente as
+transações dos dois adaptadores RISC Zero, do registry e da reserva, criando
+risco de argumento, artefato, endereço, nonce ou ordem incorretos.
+
+Correção
+
+1. `sdk/compiled-runtime.mjs` agora deriva também o initcode dos dois
+   adaptadores RISC Zero a partir dos artefatos e manifests exatos.
+2. `sdk/deployment-package.mjs` cria um pacote determinístico, sem assinatura,
+   com schema fechado, chain ID 1, SHA-256 da release e quatro CREATEs.
+3. O pacote exige que cada endereço seja o CREATE(deployer, nonce), proíbe
+   colisões de endereço e de par deployer/nonce e impõe que cada adaptador seja
+   criado antes do contrato que o consulta quando usam o mesmo deployer.
+4. `scripts/prepare-mainnet-deployment.mjs` autentica fontes dos artefatos,
+   reconstrói runtimes/initcodes e compara todos os hashes configurados antes de
+   emitir JSON.
+5. O CLI não possui RPC, chave, carteira, assinatura ou função de broadcast.
+6. O requisito
+   `production_unsigned_mainnet_deployment_package_source_verified` torna a
+   capacidade parte do gate de produção.
+
+Validação focal
+
+- package builder: determinismo, ausência de assinatura, ordem e schema;
+- substituições de endereço, nonce, dependência, initcode e campo extra;
+- CLI rejeita a release não configurada sem emitir pacote;
+- EVM diferencial compara os dois novos hashes de initcode com as transações
+  reais construídas por ethers;
+- 43 testes focados passaram após recompilar os artefatos completos;
+- suíte Node completa: 111/111;
+- lint de produção e compilação Solidity forçada: passaram;
+- baseline Solidity vigente: 138/138, sem alteração de contrato nesta etapa;
+- os 11 blocos Bash do runbook passaram por `bash -n`;
+- proveniência importada e todos os limites/manifests: passaram;
+- manifesto raiz: 860 arquivos completos e ordenados;
+- gate closed-mainnet: NOT READY esperado, 152 bloqueios objetivos únicos;
+- gate real-funds: NOT READY esperado, 163 bloqueios objetivos únicos;
+- nenhum gate contém auditoria externa ou garantia absoluta de risco zero.
+
+Não houve assinatura, RPC, implantação, transação, push, mineração, fundos ou
+geração de prova RISC Zero.

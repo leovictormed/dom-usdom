@@ -1,0 +1,31 @@
+[package]
+name = "dom-ethereum-consensus-core"
+version = "0.12.0-dom.1"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Pinned Helios consensus-core adapter for deterministic DOM verification"
+
+[dependencies]
+alloy = { version = "=2.1.0", default-features = false, features = ["consensus", "rpc-types", "ssz", "rlp", "k256", "eips"] }
+alloy-rlp = "=0.3.16"
+bls12_381 = { version = "=0.8.0", features = ["experimental"] }
+ssz_types = { path = "../dom-ethereum-ssz-types" }
+ethereum_ssz_derive = "=0.9.1"
+ethereum_ssz = "=0.9.1"
+tree_hash_derive = "=0.10.0"
+tree_hash = { path = "../dom-ethereum-tree-hash" }
+typenum = "1.17.0"
+sha2 = "=0.9.9"
+eyre = "=0.6.12"
+serde = { version = "=1.0.229", features = ["derive"] }
+superstruct = "=0.7.0"
+thiserror = "=1.0.69"
+tracing = "=0.1.44"
+
+[dev-dependencies]
+serde_yaml = "=0.9.34"
+snap = "=1.1.1"
+
+[lints.rust]
+unsafe_code = "forbid"

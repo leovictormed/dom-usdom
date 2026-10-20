@@ -1,0 +1,75 @@
+USDOM ETAPA 121 — RECONCILIAÇÃO DO REGISTRO DE PRONTIDÃO
+Data: 2026-10-18
+
+OBJETIVO
+
+Reconciliar três declarações históricas da etapa 64 com o código integrado nas
+etapas 72–77 e 113–116. Esta etapa corrige somente a descrição do estado já
+implementado. Ela não seleciona finalidade, ativa uma rede pública, aprova um
+deploy nem autoriza fundos reais.
+
+CONSTATAÇÃO
+
+O registro ainda dizia que o pool volátil de candidatos era exclusivo do
+Regtest e que não existiam submissão remota ou submissão pela carteira. Essas
+declarações deixaram de ser verdadeiras após as integrações posteriores:
+
+1. o nó expõe endpoints Bearer separados para transfer e burn, valida o
+   framing canônico e submete um envelope de classe única ao mesmo caminho de
+   admissão usado pela mineração;
+2. a carteira possui cliente loopback estrito para os dois endpoints e só
+   envia os bytes exatos de uma pendência autorizada por permit durável;
+3. o pool permanece volátil, limitado e revalidado, mas agora pertence ao
+   runtime selecionado por um cronograma de ativação exato; o wrapper Regtest
+   continua existindo como uma restrição adicional para testes;
+4. o executável público só constrói esse runtime quando recebe um manifesto
+   não secreto, hash-pinned e compatível com a rede selecionada.
+
+CORREÇÃO
+
+- native_private_candidate_remote_submission_implemented = true;
+- native_private_candidate_wallet_submission_implemented = true;
+- native_private_candidate_pool_scope passa a registrar o runtime selecionado
+  pelo cronograma exato de ativação nativa.
+
+LIMITES PRESERVADOS
+
+O pool continua volátil: reiniciar o nó descarta candidatos não minerados. Isso
+é aceitável porque a carteira mantém a pendência durável e pode reenviar os
+mesmos bytes idempotentemente. Nenhuma configuração de runtime público foi
+aprovada ou instalada. Continuam falsos, entre outros:
+
+- native_scheduled_public_runtime_configured;
+- production_activation_schedule_implemented;
+- production_block_header_state_commitment_implemented;
+- verified_ethereum_checkpoint_native_burn_binding_enforces_dom_fork_choice;
+- native_private_wallet_production_monotonic_seal_authority_integrated;
+- mainnet_ready, closed_mainnet_test_ready, deploy_authorized e
+  real_funds_authorized.
+
+EVIDÊNCIA DE CÓDIGO
+
+- crates/dom-node/src/node_handle.rs: endpoints transfer/burn convertem somente
+  payloads canônicos em envelopes e chamam a admissão do runtime;
+- crates/dom-node/src/node.rs: o caminho geral admite no runtime instalado pelo
+  cronograma, enquanto o wrapper Regtest mantém sua checagem explícita;
+- crates/dom-usdom-wallet/src/rpc_client.rs: envio de transfer/burn exige a
+  pendência exata e o respectivo permit durável;
+- docs/AUTHENTICATED-TRANSFER-SUBMISSION-ETAPA72-2026-10-17.txt;
+- docs/STRICT-WALLET-RPC-CLIENT-ETAPA73-2026-10-17.txt;
+- docs/AUTHENTICATED-BURN-SUBMISSION-ETAPA77-2026-10-17.txt;
+- docs/SCHEDULED-PUBLIC-MINING-ADMISSION-ETAPA115-2026-10-18.txt.
+
+VERIFICAÇÃO
+
+- JSON canônico: aprovado;
+- testes unitários do gate de prontidão: 3 aprovados, 0 falhas;
+- closed-mainnet: rejeitado como esperado, exit 1, 70 condições abertas;
+- real-funds: rejeitado como esperado, exit 1, 78 condições abertas;
+- git diff --check: aprovado.
+
+As contagens do gate não mudaram porque as três declarações corrigidas são
+evidência auxiliar e não condições que liberam produção. Isso preserva o
+comportamento fail-closed e deixa o inventário coerente com o código.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.

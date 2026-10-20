@@ -1,0 +1,112 @@
+USDOM checkpoint economic-state authority — stage 142
+Date: 2026-10-18
+
+Finding
+=======
+
+The stage-141 continuation context authenticated Median-Time-Past history and
+historical RandomX seeds, but it did not authenticate ordinary DOM economic
+state. Header and native-USDOM validation alone cannot prove that transaction
+inputs exist, coinbase outputs are mature, new output commitments are unique,
+or kernel excesses have never appeared before. The live node obtains that
+authority from its canonical LMDB UTXO and kernel indexes. A prover must not be
+allowed to select different private indexes.
+
+Fail-closed protocol change
+===========================
+
+UDCCTX01 is superseded by UDCCTX02. The canonical context is now 695 bytes and
+adds one nonzero economicStateRoot. It remains committed with Keccak-256 and
+chained by DOMCheckpointRegistry through the existing previousContextHash and
+contextHash fields. The registry ABI does not need another mutable field.
+
+economicStateRoot is:
+
+  keccak256(
+    "DOM:checkpoint-economic-state:v1" ||
+    utxoSetRoot ||
+    kernelSetRoot
+  )
+
+The checkpoint verifier manifest is consequently v4, with prover-input version
+4, continuation-context version 2, and continuationContextBytes = 695. Any
+stage-141 verifier/configuration is incompatible and must fail release checks.
+
+Sparse economic state
+=====================
+
+The new dom-usdom-checkpoint-program crate defines two key-addressed, depth-256
+Keccak sparse trees:
+
+* UTXO leaves commit the path, creation height, and coinbase flag;
+* kernel leaves commit every historical kernel-excess path;
+* empty and internal nodes are domain-separated by tree and node kind;
+* distinct keys that collide on a sparse path are rejected;
+* snapshot ordering cannot change either root.
+
+Historical Bulletproof bytes are not retained in a UTXO leaf. The creating
+block already commits and verifies them. Future contextual validation needs the
+commitment's existence, creation height, and coinbase flag.
+
+The state transition is atomic. It rejects missing inputs, immature coinbase
+spends, existing output commitments, and historical kernel replays before
+publishing a new state. The sparse-root semantics permit a later proving guest
+to use authenticated multiproofs rather than ingest the complete state.
+
+Deterministic host reference
+============================
+
+The crate's explicit host-reference feature composes the authoritative DOM
+implementations instead of copying a weakened consensus model. For exactly one
+checkpoint interval plus confirmation suffix it validates:
+
+* public release, bridge, registry, policy, schedule, genesis, interval and
+  continuation-context identities;
+* the previous native state root and UDCCTX02 economic-state opening;
+* consecutive heights, parent links, strictly increasing timestamps and MTP;
+* scheduled v4 header syntax, network future-time bound, ASERT target, RandomX
+  seed selection, PoW, per-block work and accumulated difficulty;
+* complete ordinary block-body validation and native USDOM transition batches;
+* contextual UTXO/maturity/output/kernel effects;
+* exact target block, native state root, economic context and work;
+* exact confirmation block, work and timestamp; and
+* the unmodified UDCPST03 Solidity-compatible statement hash.
+
+The default crate graph keeps the economic commitment primitive separate from
+dom-chain, storage, RandomX and networking. The host-reference feature is an
+auditable executable specification, not a production zkVM guest or circuit.
+
+Frozen vectors
+==============
+
+UDCCTX02 context hash:
+  7bb5a7a3b2cfb770abe46d3c2050fc42429246b71acf0ed27523711ad24d1c80
+
+Economic component binding for UTXO root 0x83..83 and kernel root 0x84..84:
+  92b53aa48ec606fdff0e2159cd11ba2651de6d3c2ac6146092d3712a77e3e50f
+
+Sparse economic-state test vector:
+  c170632c857afe2a93f69cb508edb32a2a36e90598c4d765dd17e2aa08305519
+
+Remaining production blockers
+=============================
+
+This stage does not make the release suitable for real funds. The following
+items remain mandatory:
+
+1. Specify and implement a canonical bounded sparse multiproof/private-input
+   transport for the economic and native-state transitions.
+2. Port the reference relation into a selected proving backend and remove host
+   storage/runtime dependencies from the actual guest or circuit.
+3. Produce positive end-to-end vectors over real serialized v4 packages for a
+   full 360-block interval plus 30-block confirmation suffix.
+4. Generate, independently reproduce, and audit the proving program, verifier,
+   verification key or setup transcript, and Solidity verifier artifact.
+5. Ratify the activation schedule, bootstrap UDCCTX02 economic state, initial
+   native state, registry configuration, governance, guardian and operational
+   limits from the canonical DOM and Ethereum chains.
+6. Run independent protocol, cryptography, Solidity and operational audits,
+   followed by a value-free mainnet canary.
+
+Mainnet deployment and real USDT remain blocked by configuration and policy.
+No push, deployment, transaction, or use of funds was performed.

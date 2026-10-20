@@ -1,0 +1,40 @@
+USDOM ETAPA 124 — INTEGRIDADE DOS FONTES NO GATE MAINNET
+Data: 2026-10-18
+
+ACHADO
+
+As verificações de procedência e do manifesto completo existiam como comando
+separado, mas o gate mainnet ainda não as executava. Um operador podia omitir
+esse comando e avaliar um release com inventário de fontes divergente.
+
+CORREÇÕES
+
+- check-mainnet-readiness.mjs executa verify-import.py e source-manifest.py em
+  modo somente leitura e entrega os dois resultados ao avaliador puro;
+- qualquer falha produz source_import_provenance_unverified ou
+  source_manifest_unverified e mantém o release fechado;
+- fixtures que representam um release completo precisam comprovar ambas as
+  verificações;
+- testes negativos desligam cada comprovação separadamente;
+- toda mutação adversarial do gate exige códigos de bloqueio únicos.
+
+FRONTEIRA
+
+O manifesto cobre os fontes e dependências vendorizadas. Evidências externas,
+resultados históricos e o artefato compilado continuam validados nos campos
+hash-addressed próprios do release. Passar integridade de fontes não aprova
+consenso, circuito, parâmetros, deploy ou fundos reais.
+
+VERIFICAÇÃO
+
+- manifesto: 671 arquivos completos e SHA-256 verificados;
+- importação: 169 arquivos verificados e 15 mudanças registradas;
+- testes unitários do gate: 3 aprovados, 0 falhas;
+- todas as mutações adversariais produziram códigos únicos;
+- closed-mainnet: rejeitado como esperado, exit 1, 70 bloqueios;
+- real-funds: rejeitado como esperado, exit 1, 78 bloqueios;
+- nenhum dos dois relatórios apresentou bloqueio de procedência, comprovando
+  que o candidato atual satisfez as novas verificações;
+- git diff --check: aprovado.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.

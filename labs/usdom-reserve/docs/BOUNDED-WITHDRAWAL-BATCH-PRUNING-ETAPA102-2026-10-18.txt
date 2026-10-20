@@ -1,0 +1,78 @@
+Bounded withdrawal batch pruning — etapa 102
+Date: 2026-10-18
+Status: production reserve candidate hardened; production verifier and release remain unconfigured
+
+Superseded queue-lifetime detail (stage 210): production queue expiry is now a
+fixed renewable lease measured from proof admission. The irreversible native
+burn's validUntil no longer extinguishes its payout right. pruneDiscardable
+remains necessary for O(1) emergency-generation invalidation and bounded cleanup.
+
+Finding USDOM-102
+
+Severity: Medium operational availability and storage-cleanup risk.
+Current public exposure: none; no commit, push, deployment or transaction was performed.
+
+The proof reserve linked pending withdrawals by admission order, while each
+certificate selected its own validUntil inside the allowed window. A later
+entry could therefore expire before a still-valid head. pruneExpired correctly
+stopped at that head, leaving middle and tail entries removable only through
+one discardWithdrawal transaction per identifier. Emergency pause also
+invalidated the whole queue in O(1) but deliberately left each old mapping for
+individual cleanup. A large reviewed queue could make incident recovery and
+storage reclamation unnecessarily expensive.
+
+Remediation
+
+USDOMProofReserve now exposes pruneDiscardable(bytes32[]), which:
+
+- accepts at most MAX_PRUNE_BATCH (256) candidates per transaction;
+- removes an active entry only after its exact expiry;
+- removes entries from queue generations invalidated by emergency pause;
+- skips unknown, duplicate and currently valid identifiers instead of allowing
+  one candidate to revert independent cleanup;
+- uses the existing linked-list removal primitive so head, tail, neighboring
+  pointers, pendingCount, totalPendingAmount and pendingRequests remain
+  consistent;
+- never clears paid burn or request replay protection;
+- remains permissionless and nonReentrant and grants no payout authority.
+
+The original prefix-oriented pruneExpired remains available for cheap ordered
+cleanup. Relayers can use event-indexed burn identifiers with the bounded batch
+path when expiry order differs from admission order or after an emergency.
+
+Validation
+
+- normal Solidity suite: 104 passed, 0 failed;
+- deep Solidity suite: 104 passed, 0 failed;
+- maximum 256-entry invalidated batch: completely pruned in one call below the
+  test's conservative 20,000,000-gas ceiling;
+- proof-reserve deep invariant: 1,024 runs and 131,072 calls, including 10,148
+  pruneBatch calls, with zero reverts and conserved queue/accounting state;
+- Node SDK/EVM suite: 41 passed, 0 failed;
+- production-only Solidity build with warnings denied: passed;
+- forge fmt --check: passed;
+- source-verified runtime and constructor initcode cross-check: passed.
+- closed-mainnet gate: correctly rejected with 70 blocker assertions;
+- real-funds gate: correctly rejected with 79 blocker assertions.
+
+Reproducible production-only artifact
+
+- compiler: Solidity 0.8.37+commit.f401782d;
+- runtime size: 14,322 bytes (10,254 bytes below EIP-170);
+- runtime code hash for the fixed SDK vector:
+  0x4527788037a3cf3822cbae20b1d195bfd1fcf0c8f76ff67f7c5fffbc5ffc4277;
+- initcode size: 18,169 bytes (30,983 bytes below EIP-3860);
+- initcode hash for the fixed SDK vector:
+  0x4dc9145718befe3fceaec3780ebd2f9e5ba42fa84a0913c1e62ae1616811c9fd;
+- canonical artifact SHA-256:
+  8f141d1bbf1e2000bc5749c25e6e4359dae0aa4435b68b208a8bf38e229ddd85.
+
+Security boundary
+
+Batch pruning improves liveness and cleanup but does not select or approve the
+production verifier, finality mechanism, multisigs, limits or deployment plan.
+The three production constant pins remain zero and fail closed on Ethereum
+mainnet. mainnet_ready, deploy_authorized and real_funds_authorized remain
+false.
+
+No production status, push, deployment or real-funds authorization changed.

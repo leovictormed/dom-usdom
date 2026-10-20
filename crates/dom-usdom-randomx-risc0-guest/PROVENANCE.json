@@ -1,0 +1,21 @@
+{
+  "schema": "dom-usdom-randomx-risc0-guest-provenance-v2",
+  "date": "2026-10-19",
+  "risc0ZkvmVersion": "3.0.6",
+  "risc0CompatibilityKernel": "risc0-zkos-v1compat-2.2.3",
+  "target": "riscv32im-risc0-zkvm-elf",
+  "cargoLockSha256": "745b3c37903c47e71d55b640909e745922e97f5c05afab6970cb8f0aec7edf84",
+  "statementSchema": "UDCRXST1",
+  "statementBytes": 384,
+  "journalSchema": "keccak256-DOM:checkpoint-randomx-statement:v1",
+  "journalBytes": 32,
+  "userElfSha256": "1a8e491304763477094da84ff0701ea18d935600a3b3a79eb1c1250facd6903f",
+  "programBinarySha256": "0601bf022575b060edaeb0b32414b2f53e72f39d2284028069099414653591dd",
+  "candidateImageId": "8efa49d4fe0f616840013adb1d3029ef71642099cb336c577a2691f7eea1dc24",
+  "stableStatementBoundary": "dom-usdom-checkpoint-statement",
+  "aggregateAssumptionJournalCompatible": true,
+  "positiveReceiptExecuted": false,
+  "provingCostMeasured": false,
+  "productionApproved": false,
+  "cleanLocalRebuildsByteIdentical": true
+}

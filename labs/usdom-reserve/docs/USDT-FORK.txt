@@ -1,0 +1,67 @@
+USDOM v3 — regressão do destinatário congelado no USDT
+
+Achado confirmado antes da correção
+No bloco Ethereum 26201446, o USDT aceita transferência para um endereço
+congelado, embora esse endereço não possa gastar os tokens. O teste
+testV3PaysFrozenRecipientAndConsumesBurn, preservado como resultado histórico
+em results/usdt-fork-baseline.log, demonstrou que a reserva anterior marcava
+esse resgate como pago. A variação exata dos saldos não detectava a restrição.
+Impacto: uma queima válida podia consumir seu direito de resgate em troca de
+saldo já indisponível para o destinatário. Não é evidência de roubo arbitrário
+nem elimina a autoridade do emissor do USDT sobre o colateral.
+
+Correção implementada
+A reserva consulta paused, deprecated, basisPointsRate, maximumFee e
+isBlackListed no USDT. Implantação, depósito, admissão e execução rejeitam
+estado incompatível; cada caminho verifica os endereços que movimentam fundos.
+A execução confere novamente o destinatário, pois ele pode ser congelado após
+a admissão. Erros ou respostas inválidas nas consultas também impedem a operação.
+Após a decisão do operador de exigir provas DOM em produção, construtor e SDK
+passaram a recusar a Ethereum mainnet (chain ID 1), inclusive com o USDT correto.
+O endereço pretendido continua 0xdAC17F958D2ee523a2206206994597C13D831ec7.
+Em outras redes, o token de teste
+precisa implementar a mesma superfície de consulta; um ERC20 genérico de seis
+decimais já não é suficiente. Qualquer parâmetro de taxa não zero é recusado,
+inclusive se o arredondamento produzir taxa zero para uma operação pequena.
+
+Evidência histórica após a correção do USDT, antes do bloqueio de mainnet
+68 testes Solidity locais, incluindo seis novos testes de política; 27 testes
+Node; cinco testes do fork passaram. As duas invariantes usam 1024 sequências
+de até 128 chamadas cada. Os logs completos ficam em results/usdt-deep.log,
+results/usdt-node.log e results/usdt-fork-alchemy.log.
+O fork verifica pagamento normal do USDT sem retorno booleano, recebimento
+direto em conta congelada, proteção do resgate quando o destinatário é congelado
+após a fila e preservação do estado diante de reserva congelada ou token pausado.
+Os testes locais também cobrem migração, taxas, falha de consulta, depósito,
+admissão, nova tentativa após normalização e validação de configuração.
+
+Validação do bloqueio posterior de mainnet
+results/production-guard-solidity.log, production-guard-node.log e
+production-guard-fork.log registram a revisão que proíbe o protótipo na mainnet.
+O fork confirma a identidade original Ethereum e o runtime do USDT, mas muda
+o chain ID apenas da VM local para 31337 antes de implantar a reserva de teste.
+O caso testQuorumPrototypeRefusesMainnetEvenWithActualUSDT confirma separadamente
+que o construtor em chain ID 1 rejeita o deployment mesmo com o USDT real.
+Esse teste não autoriza nem executa uma implantação em rede pública.
+
+Identidade da observação
+Rede: Ethereum, chain ID 1; bloco: 26201446.
+Hash: 0x75877c601ee3dac64df04539ff3f667f1826b3957b36da6dbccd69172d5a73f6
+Keccak256 do runtime USDT:
+0xb44fb4e949d0f78f87f79ee46428f23a2a5713ce6fc6e0beb3dda78c2ac1ea55
+PublicNode forneceu o snapshot inicial; Alchemy confirmou o mesmo hash/runtime
+e executou o fork após a correção. Os dados continuam dependentes dos RPCs,
+sem verificação independente do consenso Ethereum. O endereço público Alchemy
+foi obtido de https://www.alchemy.com/rpc/ethereum.
+
+Limites
+Os testes usam personificação local do proprietário do USDT para alterar
+somente o estado da EVM de teste. Nenhuma transação foi enviada à mainnet.
+As queimas DOM são fixtures sintéticas. O fork não prova emissão, consenso,
+finalização nativa DOM nem funcionamento de multisigs de produção.
+Congelamento/confisco posterior pelo emissor continua possível. Se o estado
+do USDT deixar de ser aceito, os caminhos de fundos podem permanecer indisponíveis;
+não há migração administrativa, resgate alternativo ou sweep nesta reserva.
+Preservar a queima pendente evita consumir o direito indevidamente; não promete
+que ele será executado antes da expiração. Expiração exige nova atestação.
+O candidato continua sem aprovação para fundos reais ou implantação mainnet.

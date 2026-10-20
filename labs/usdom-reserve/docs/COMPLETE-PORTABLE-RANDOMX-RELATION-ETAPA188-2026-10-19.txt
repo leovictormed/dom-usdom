@@ -1,0 +1,64 @@
+Stage 188 - complete portable RandomX v1 relation and candidate RISC Zero guest
+Date: 2026-10-19
+
+Purpose
+
+Complete the missing consensus-critical RandomX relation without native FFI,
+host floating-point state, CPU AES instructions or a trusted dataset callback.
+This stage implements and compiles the relation. It does not claim that proving
+cost is acceptable and it does not create a positive receipt.
+
+Implemented
+
+1. The exact RandomX Argon2d v1.3 light cache: 262,144 one-KiB blocks
+   (256 MiB), three passes, one lane and the eight-byte RandomX\\x03 salt.
+2. The exact Ivy-Bridge-model superscalar generator, including decoder buffers,
+   port scheduling, dependency latency, register selection and reciprocal table.
+3. Portable execution of all fourteen superscalar instruction classes and all
+   eight cache accesses used to derive a 64-byte dataset item.
+4. Complete light-mode RandomX hashing: scratchpad initialization, eight chained
+   programs, 2,048 iterations per program, dynamic dataset items, persistent
+   explicit rounding state and final AES/Blake2b-256.
+5. A RISC Zero 3.0.6 guest that builds the epoch cache and superscalar programs
+   inside the zkVM, computes the complete hash, rejects a mismatched claimed
+   digest and commits UDRXH001 plus key/input commitments and the digest.
+6. A packaged candidate ProgramBinary with ImageID
+   b5188212cfe7c605049d0cc7945dcd38293ae5ea1f1f6efa3a6f027cef8f045c.
+
+Differential validation
+
+The safe-Rust cache has the same Blake2b-512 digest, first block and last block
+as upstream RandomX v1.2.1 for the fixed key. The generated program sizes are
+450, 447, 442, 435, 438, 448, 464 and 436 instructions; their address registers
+and 241-entry reciprocal table match upstream. A full dataset item matches the
+official implementation. The end-to-end light hash for the fixed input is
+2dc2bfdd2802c240734e57dbf934903da9dd714038bc6a875377696f12e2e2ef,
+identical to the official C++ implementation.
+
+The portable suite has 19 ordinary passing tests and one separately executed
+256-MiB exact-cache/end-to-end test. Strict Clippy passes. Both the library and
+the complete guest compile for riscv32im-risc0-zkvm-elf. The candidate raw ELF
+SHA-256 is 72de165ce5cffad20cef834bdc0f0fe2c5023f61e4296ea1ebc256bacaa28de3.
+The packaged ProgramBinary SHA-256 is
+d71661816c47d87ca90d87dea5b12cff4b6e240d0f0ed411a1d2154fdd88595d.
+
+Remaining production evidence
+
+The guest allocates and fills the full 256-MiB Argon2d cache inside the zkVM.
+Compilation and native differential execution do not establish zkVM execution
+or proving feasibility. A positive receipt, measured cycle count, peak prover
+memory, wall time, receipt size and reproducible proving artifact are still
+required. The per-block receipt ImageID must then be pinned into the aggregate
+and checkpoint verifier manifests, and positive recursive/outer receipts must
+be produced. Until those concrete artifacts exist,
+production_checkpoint_randomx_proof_receipt_implemented remains false.
+
+Release-policy boundary
+
+The complete RandomX relation is now implemented, so
+production_checkpoint_guest_randomx_relation_implemented is true. Mainnet is
+not blocked by absence of an external audit or by absence of a zero-risk
+guarantee. It remains blocked by the specific missing receipt, measured proving
+feasibility, verifier integration, operational configuration and authorization
+facts. This stage performs no deployment, public transaction, push, mining or
+use of real funds.

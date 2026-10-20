@@ -1,0 +1,23 @@
+{
+  "ported_at": "2026-10-17",
+  "source": "local isolated audit laboratory",
+  "source_path": "integration-check/labs/ethereum-finality",
+  "destination": "labs/usdom-ethereum-finality",
+  "helios": {
+    "repository": "https://github.com/a16z/helios",
+    "commit": "2af9b41887e069144ee56cd710f3ddca195473f8",
+    "version": "0.12.0",
+    "vendored_path": "vendor/helios",
+    "clean_at_copy": true,
+    "license": "MIT",
+    "license_file": "vendor/helios/LICENSE"
+  },
+  "changes_after_copy": [
+    "changed helios-consensus-core from an external sibling path to vendor/helios",
+    "added this provenance record and repository-local status note",
+    "added an opaque immutable checkpoint trust-policy commitment for native consensus handoff"
+  ],
+  "consensus_integrated": false,
+  "mainnet_activated": false,
+  "real_funds_ready": false
+}

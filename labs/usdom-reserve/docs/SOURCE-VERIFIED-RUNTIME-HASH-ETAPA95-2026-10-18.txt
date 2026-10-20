@@ -1,0 +1,74 @@
+Source-verified deployed runtime hash — etapa 95
+Date: 2026-10-18
+Status: deterministic build binding implemented; production release remains unconfigured
+
+Finding USDOM-095
+
+Severity: Critical release-integrity risk.
+Current public exposure: none; no transaction, commit, tag, push or deployment was made.
+
+Etapa 94 required reserveRuntimeCodeHash in the release and compared it with a
+future live deployment. The offline gate did not independently derive that hash
+from the current audited sources and exact immutable constructor values. A
+manually supplied or stale runtime hash could therefore be internally
+consistent with an observation while referring to a different build.
+
+Remediation
+
+Foundry builds now retain the compiler AST. The runtime derivation tool:
+
+1. loads the USDOMProofReserve artifact;
+2. checks every compiler-metadata source Keccak-256 against current raw source
+   bytes, including the pinned OpenZeppelin dependency files;
+3. maps all 15 immutable declarations by compiler AST identifier;
+4. validates every compiler immutable-reference offset and length;
+5. ABI-width encodes and patches the exact token, verifier, DOM domain, role,
+   delay, limit and reserveConfigHash values into runtime bytecode;
+6. computes the expected deployed runtime Keccak-256;
+7. requires exact equality with reserveRuntimeCodeHash in the release manifest.
+
+The derivation rejects missing AST or metadata, stale source files, linked
+runtime libraries, unexpected or duplicate immutables, malformed offsets,
+noncanonical addresses/hashes and out-of-range integers. The release gate now
+fails explicitly when the current unconfigured manifest prevents derivation.
+
+Independent execution check
+
+The EVM integration test deploys USDOMProofReserve on Anvil, reads every actual
+immutable getter, derives the runtime from the artifact and requires the result
+to equal Keccak-256 of eth_getCode for the deployed address. This validates the
+patching algorithm against constructor-produced EVM bytecode rather than only
+against a second software implementation.
+
+Fixed test vector
+
+For the committed immutable fixture in test/node/compiled-runtime.test.mjs:
+
+runtimeCodeHash 0xf7632a316b97937ed917533e7c7751bdb80a485ff3490b9e8275e881c5b84430
+runtimeSize     13772 bytes
+compiler        0.8.37+commit.f401782d
+sourceCount     11
+
+Every immutable is mutated independently and must change the runtime hash.
+Stale source bytes and corrupt reference lengths must be rejected.
+
+Validation
+
+- Foundry source/artifact rebuild with AST: passed;
+- Node/SDK/EVM suite: 41 passed; 0 failed;
+- derived-runtime/local-deployment cross-check: passed;
+- 15 independent immutable mutations: all changed the hash;
+- stale source and malformed immutable-reference regressions: rejected;
+- synthetic complete release modes with compiled runtime binding: passed;
+- closed-mainnet gate: correctly rejected with 67 blocker assertions;
+- real-funds gate: correctly rejected with 76 blocker assertions.
+
+Security boundary
+
+This proves the relationship between the checked tree, compiler artifact,
+constructor values and expected runtime. It does not replace reproducible builds
+by independent machines, source/compiler audits, live finalized-state checks or
+deployment authorization. Those remain separate mandatory release evidence.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

@@ -1,0 +1,67 @@
+Immutable proof-reserve deployment commitment — etapa 86
+Date: 2026-10-17
+Status: isolated implementation; no deployment, push, mainnet activation, or real funds
+
+Finding USDOM-086
+
+Severity: High for a production release.
+Current public exposure: none; Ethereum mainnet deployment remains fail closed.
+
+The proof reserve already pinned the intended mainnet USDT runtime and required
+audited verifier bytecode and configuration hashes. It did not require one
+independently reviewed commitment to the complete deployment. A release could
+therefore compile correct verifier hashes while supplying a wrong DOM domain,
+administrative role, delay, exposure limit, outflow capacity, chain, reserve
+address, token or verifier address. Some mistakes could accept collateral into
+an unusable deployment; others could weaken the reviewed operating policy.
+
+Remediation
+
+USDOMProofReserve now derives an immutable reserveConfigHash from two canonical
+ABI commitments:
+
+1. ReserveIdentity binds Ethereum chain ID, exact reserve address, token
+   address and runtime hash, verifier address/runtime/configuration hashes, and
+   DOM domain;
+2. ReservePolicy binds governance, guardian, withdrawal delay, governance
+   delay, maximum outstanding collateral and daily outflow capacity;
+3. ReserveConfig binds both hashes under explicit versioned type strings.
+
+On chain ID 1, construction now also requires a nonzero
+PRODUCTION_RESERVE_CONFIG_HASH compiled into the audited release and exact
+equality with the constructor-derived commitment. The existing token and
+verifier pins remain independent checks. All three production release hashes
+are deliberately zero, so the present candidate cannot deploy on mainnet.
+
+The SDK independently validates all commitment inputs, preserves integer
+precision and reproduces the Solidity ABI hash. A fixed cross-tool vector was
+recomputed with Foundry cast:
+
+identityHash  0x191ed9d9c4fdb91c05805efde9d148f309297e53b2cb97a7bc9a8c9e71fcd960
+policyHash    0xb95c8e9599325fb2e4d3bad198a564ccf5c5168f6fb29a0aaa5fa2fd8abeef5c
+reserveConfig 0x0980910fd82504842c6ce39fcde82efe919cf944c477ec91d320648d94f3f1b0
+
+Validation
+
+- Solidity default suite: 99 passed; 0 failed;
+- Solidity deep suite: 99 passed; 0 failed, including 16,384 fuzz cases per
+  fuzz property and 1,024 x 128-call runs for each state invariant;
+- Node/SDK/integration suite: 35 passed; 0 failed;
+- focused Solidity deployment commitment regression: passed;
+- contract-only Forge lint with compiler warnings denied: passed;
+- forge fmt check: passed;
+- USDOMProofReserve runtime size: 13,408 bytes, 11,168 bytes below EIP-170;
+- deterministic configuration vector independently reproduced with cast.
+
+Production boundary
+
+This closes accidental or substituted constructor configuration after a
+production artifact and deployment address have been ratified. It does not
+supply the missing production verifier, verifier audit, trusted setup review,
+mainnet finality registry, exact multisig addresses, production limits,
+activation manifest, operational exercises or external audit. Mainnet remains
+cryptographically disabled until those values exist and the three zero release
+constants are replaced through a separately reviewed release.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

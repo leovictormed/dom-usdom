@@ -1,0 +1,60 @@
+USDOM security hardening — etapa 110
+Scheduled direct ChainState ingress
+Date: 2026-10-18
+
+Finding
+
+Schedule-bound package verification, state restoration, audit and rewind were
+available, but ChainState could atomically connect a native-v4 block only
+through the explicit Regtest method. Production integration would otherwise
+need to duplicate the direct-extension path that validates PoW, target,
+accumulated difficulty, timestamps, fork choice, transaction inputs, replay
+indexes, checkpoint ancestry and native persistence.
+
+Change
+
+ChainState now exposes connect_usdom_v4_package_for_schedule for a direct
+canonical extension. The caller must supply an exact activation schedule and a
+private-spend verifying key whose configuration hash is committed by the
+bridge. The method independently derives the chain ID from the current chain
+and genesis and rejects any schedule whose network or chain ID differs.
+
+The scheduled path then:
+
+1. restores the exact persisted schedule/state at the current tip;
+2. proves the caller's state equals canonical persistence;
+3. validates package framing and immutable duplicate identity;
+4. requires the immediate next height and canonical parent;
+5. validates parent/MTP/future time, branch-aware RandomX, target, accumulated
+   difficulty and ordinary DOM fork choice;
+6. verifies the complete USDOM package with the same schedule and proof key;
+7. checks UTXO and kernel replay, and checkpoint target ancestry;
+8. derives all native and checkpoint updates from verified capabilities;
+9. atomically commits block, ordinary indexes, native state, package and undo;
+10. updates in-memory state only after the LMDB commit succeeds.
+
+The Regtest method remains a wrapper selecting only the fixed Regtest schedule.
+It preserves the research mode in which transfer/burn proofs remain disabled
+when no verifier is supplied. Public scheduled entry requires a verifier even
+for an empty block, preventing a node from starting a production chain without
+the immutable proof key.
+
+Validation
+
+- complete dom-chain library suite: 75 passed, 0 failed;
+- native ChainState integration suite: 5 passed, 0 failed;
+- directed scheduled-ingress test generates a real Groth16 verifier, commits
+  its hash to the bridge, rejects a wrong height schedule without mutation and
+  atomically accepts the exact schedule;
+- native node runtime integration suite: 8 passed, 0 failed;
+- Clippy for dom-chain and dom-node, all targets, warnings denied: passed;
+- cargo fmt --check, JSON parse and git diff --check: passed;
+- closed-mainnet and real-funds gates remain fail-closed.
+
+Production status
+
+Only the direct canonical-extension path is schedule-enabled. Public side
+branches, reorganization promotion, headers-first IBD, node runtime and miner
+wiring remain closed, and no production schedule is ratified. The release
+flags therefore remain false. No push, commit, deployment or funds operation
+was performed.

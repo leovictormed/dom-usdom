@@ -1,0 +1,43 @@
+USDOM ETAPA 70 — BUILDER COMPLETO DE TRANSFERÊNCIA PRIVADA
+Data: 2026-10-17
+
+Esta etapa liga carteira, witnesses e prover offline em um fluxo completo de
+construção de transferência. Ela não ativa mainnet, RPC ou fundos reais.
+
+SELEÇÃO E TROCO
+
+A carteira considera somente notas próprias não gastas. Ela procura em O(n log
+n) a combinação de uma ou duas notas com menor excesso, prefere menos inputs em
+empates e usa compromissos como desempate determinístico. Somas u64 com overflow
+são descartadas. Pedidos zero, outra chain ou sem cobertura em dois inputs
+falham antes do prover.
+
+O recipient recebe o valor exato. Se necessário, uma segunda nota devolve troco
+privado para a carteira; a ordem recipient/change é aleatória. Cada output usa
+rho BN254 canônico aleatório, memo X25519/HKDF/XChaCha20 autenticado e compromisso
+recomputado. Colisão com o histórico ou entre outputs falha fechado.
+
+CIRCUITO E PAYLOAD
+
+Os inputs são ordenados pelo nullifier, como exige o consenso. O builder inclui
+paths atuais, anchor completo, outputs, memo digest e conservação exata no
+SpendCircuit. SpendProver usa somente chave externa ligada ao verifier esperado,
+gera prova aleatória e a autoverifica. Só então o builder cria o payload canônico
+de transferência e seu identifier BLAKE2b domain-separated.
+
+O teste integrado realizou setup descartável apenas dentro do teste, construiu
+uma prova real, autoverificou, parseou o payload e decriptou recipient e change.
+A chave de teste não foi exportada e não possui autoridade de produção.
+
+LIMITAÇÕES
+
+1. a construção ainda não reserva inputs; dois builders concorrentes podem
+   produzir gastos conflitantes, embora o consenso aceite no máximo um;
+2. faltam fila pendente persistente, cancelamento seguro e reconciliação;
+3. falta envelope v4 e submissão local autenticada ao nó;
+4. falta builder de burn e registro da nota emitida por depósito;
+5. faltam cerimônia MPC, verificadores Ethereum de produção, auditorias e shadow
+   testing multinó.
+
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

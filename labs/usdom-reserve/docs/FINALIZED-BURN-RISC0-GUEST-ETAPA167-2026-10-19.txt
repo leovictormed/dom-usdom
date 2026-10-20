@@ -1,0 +1,75 @@
+Finalized-burn RISC Zero guest — Stage 167
+Date: 2026-10-19
+Status: isolated implementation and reproducible build; no deployment, funds,
+        production activation, commit or push
+
+Outcome
+
+The portable UDFINL02 finalized-burn relation now has a concrete RISC Zero
+guest. The guest reads one bounded private byte string, executes
+dom-usdom-finalized-burn-program::execute and commits exactly the unframed
+32-byte Solidity-compatible statement hash. It has no filesystem, network,
+clock, process or arbitrary host-call authority.
+
+Pinned backend and security boundary
+
+- risc0-zkvm is pinned exactly to 3.0.6 with default features disabled.
+- The guest uses the reviewed `std` guest profile only.
+- RISC Zero 3.0.3 was the first 3.x release containing the fix for
+  CVE-2025-61588; 3.0.6 is therefore above the fixed floor. The advisory is:
+  https://github.com/risc0/risc0/security/advisories/GHSA-jqq4-c7wq-36h7
+- The checked lock selects risc0-binfmt 3.0.5 and risc0-zkvm-platform 2.2.3.
+- Input length is checked before allocation and cannot exceed the portable
+  relation's MAX_FINALIZED_BURN_PROVER_INPUT_BYTES.
+- Invalid decoding, burn inclusion, checkpoint finality or cross-domain binding
+  panics the guest before a successful receipt can exist.
+- The journal contains only the relation's 32-byte public output.
+
+Reproducible artifact
+
+Builder image:
+  docker.io/risczero/risc0-guest-builder:r0.1.97.0
+Builder image digest:
+  sha256:7ae0a27fa72b10fb5c1066005bd949ae43dc4ead8a284f2d6572b99c82ab4468
+Guest Rust version: 1.97.0
+Cargo.lock SHA-256:
+  3e9768113e223032ee85e0bce6128a59bc44be55b301b63a5d11400ad272e08d
+ProgramBinary SHA-256:
+  a7b7c9a139f50b01f6544bc3a2bf8b877f27c4040a8a8a429ed4f4525c1b9819
+ImageID:
+  7fc186e926dcebb10e123f08bcfcae71c67904a9568b147cbaaabb3258d51b62
+
+The canonical build was repeated from a clean Docker layer with the full image
+digest present in the FROM reference. The resulting 1,883,912-byte
+ProgramBinary matched the checked-in artifact byte for byte. Its embedded user
+ELF is 1,851,488 bytes and its version-compatible kernel ELF is 32,392 bytes.
+The ImageID matched independently across cargo-risczero, r0vm and the official
+risc0-binfmt computation API. A separate host-only local bake produced a
+different binary and is deliberately not the canonical artifact.
+
+Executed checks
+
+- real RV32IM guest compilation under the digest-pinned Docker builder;
+- byte-for-byte second-build reproduction;
+- R0BF framing, user/kernel payload and artifact SHA verification;
+- Cargo manifest, complete lock copy and exact RISC Zero dependency versions;
+- real r0vm rejection of zero-length input before allocation;
+- real r0vm rejection of declared input above the fixed limit;
+- real r0vm rejection of a malformed one-byte UDFINL02 payload;
+- source policy ensuring the exact length check, portable execute call and raw
+  32-byte journal commit remain present.
+- native Cargo test/benchmark harness exclusion, because executing zkVM guest
+  syscalls as a Linux process is invalid and previously caused a host abort.
+
+Open production gates
+
+There is no positive raw Ethereum checkpoint witness for this relation yet.
+The existing opaque VerifiedCheckpoint unit fixture cannot substitute for a
+Beacon-finalized registry receipt/account/storage witness. Therefore the valid
+path has not been executed or cycle/memory benchmarked inside RISC Zero.
+
+A RISC Zero receipt has not been generated, compressed for Ethereum or checked
+by an immutable Solidity verifier. The verifier manifest remains unconfigured,
+the separate checkpoint consensus-extension prover is absent, production chain
+identities are unratified and no independent review has assessed the guest or
+its verifier. Closed-mainnet and real-funds gates must remain closed.

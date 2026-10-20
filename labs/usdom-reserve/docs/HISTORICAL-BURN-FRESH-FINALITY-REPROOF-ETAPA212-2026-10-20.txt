@@ -1,0 +1,51 @@
+Stage 212 — historical irreversible burn under fresh Ethereum finality
+Date: 2026-10-20
+
+Purpose
+
+Stage 210 made an expired Ethereum queue lease renewable. This must be supported
+by the production proof relation, not only by the Solidity queue. A stale native
+validUntil must remain authenticated as part of the original burn intent while a
+new proof binds the same burn-set inclusion to a recent finalized Beacon slot.
+
+Verified relation
+
+The finalized-burn program already enforces the required separation:
+
+- BurnStateWitness authenticates the permanent burn record and its original
+  validUntil under the native USDOM state root;
+- the verified checkpoint authenticates that same state root through the
+  Ethereum-finalized checkpoint-registry event;
+- finalityBeaconSlot is taken from the current verified finality head;
+- no comparison treats the historical validUntil as a forfeiture condition;
+- the resulting Solidity-compatible statement binds both the unchanged native
+  intent deadline and the fresh finality slot.
+
+Regression vector
+
+The new test creates a valid irreversible burn, verifies its original checkpoint,
+then moves Ethereum finality 30 days past the burn's validUntil. It advances the
+finalized Beacon slot and execution identity while preserving the exact DOM
+checkpoint record and native burn witness. Verification must succeed, produce a
+different statement from the original finality head and equal the independently
+reconstructed statement containing:
+
+- the original burnId, requestId, recipient, amount and validUntil;
+- the original authenticated DOM block/state identity;
+- the new finalized Beacon slot;
+- the same chain, reserve and activation-schedule bindings.
+
+Validation
+
+- directed historical-burn/fresh-finality test: passed;
+- complete dom-usdom-finalized-burn-program suite: passed;
+- strict all-target/all-feature Clippy: passed;
+- cargo fmt --all -- --check: passed;
+- proof-program panic/input checker and pinned manifest: passed;
+- the closed-mainnet gate now requires every renewable-claim and fresh-finality
+  property independently, plus the exact 604800-second Ethereum queue lease;
+- mutation tests prove that false, absent, mistyped or off-by-one release claims
+  fail closed, while the fully configured synthetic release remains admissible.
+
+No RISC Zero proof generation, mining, deployment, fund movement, commit or push
+was performed.

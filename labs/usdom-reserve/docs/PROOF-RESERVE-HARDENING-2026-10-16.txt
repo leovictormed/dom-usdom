@@ -1,0 +1,82 @@
+USDOM PROOF RESERVE HARDENING — 2026-10-16
+
+Scope
+This phase implements and reviews the Ethereum custody boundary that will
+consume a future finalized native USDOM burn proof. It does not implement that
+proof, the native USDOM state transition, DOM checkpoint enforcement or private
+issuance. It does not authorize deployment or real funds.
+
+Implemented boundary
+- Added USDOMProofReserve as a separate non-quorum contract. It has no notary
+  fallback, upgrade, arbitrary call, collateral sweep, refund or mint function.
+- Bound every proof to the burn and request identifiers, recipient, amount, DOM
+  domain, height, block hash, USDOM state root, finalized Beacon slot, deadline,
+  Ethereum chain ID and exact reserve address.
+- Pinned the immutable verifier runtime hash and configuration hash. Deposits,
+  proof admission and resume fail closed if either changes.
+- Limited proof calldata to 64 KiB and verifier execution to 5,000,000 gas. The
+  static-call adapter copies exactly one return word and rejects short or
+  oversized return data without allocating attacker-selected returndata.
+- Required distinct deployed-contract governance and guardian roles, and made
+  token, verifier and both roles distinct.
+- Reserved collateral at proof admission; replayed burn/request identifiers,
+  oversubscription, donations and failed transfers cannot create credit or
+  consume a valid unpaid claim.
+- Retained delayed execution, renewable queue-lease expiry, daily outflow
+  capacity, exact balance deltas and USDT pause/deprecation/fee/blacklist checks.
+- Added a bounded linked pending queue and permissionless expired-entry cleanup.
+- Added a canonical JavaScript statement-hash implementation and checked it
+  against the deployed Solidity implementation.
+- Added an exact-schema configuration validator. It rejects missing/extra
+  fields, zero identities, duplicate roles, unsafe bounds, any claim of
+  production readiness or real-funds authorization, and every Ethereum mainnet
+  configuration until the audited verifier release is compiled into the code.
+
+Mainnet gate
+PRODUCTION_VERIFIER_CODE_HASH and PRODUCTION_VERIFIER_CONFIG_HASH are both zero.
+The constructor therefore reverts on Ethereum chain ID 1, including with the
+real USDT address. These constants may be replaced only by hashes from the exact
+reproducibly built and independently audited final verifier release. A caller-
+supplied hash or configuration file cannot open the gate.
+
+Verification evidence
+- Default Solidity suite: 93 passed, 0 failed.
+- Deep fuzzing: 16,384 cases for every fuzz property with a fixed recorded seed.
+- Stateful invariants: 1,024 runs x depth 128 = 131,072 calls for each of three
+  independent models, with zero unexpected reverts.
+- Targeted USDOMProofReserve coverage: 179/188 lines, 309/319 statements, 44/46
+  branches and 24/24 functions. The targeted coverage build uses Foundry's
+  --ir-minimum workaround because the instrumented large statement otherwise
+  reaches Solidity's stack limit. Normal and deep release-profile tests do not
+  use that workaround.
+- Optimized USDOMProofReserve runtime: 11,612 bytes, leaving 12,964 bytes below
+  the EIP-170 limit.
+- Ethereum fork: 7 passed, 0 failed against block 26201446 and the pinned USDT
+  runtime. Tests execute only on a local fork and submit no public transaction.
+- SDK/monitor: 32 passed, 0 failed.
+- Formatting passed. Contract lint reports only deliberate block.timestamp
+  comparisons for delay and expiry boundaries.
+
+Security conclusion
+No unresolved reserve-boundary correctness defect was found under the tested
+model. This conclusion does not make the system production ready. The mock
+verifier used by tests only isolates reserve behavior and proves nothing about
+DOM.
+
+Real-funds blockers
+1. Implement native USDOM issuance, private transfer and burn validation in DOM
+   consensus, with no mining reward and exact conservation/nullifier rules.
+2. Implement the selected checkpoint/finality rule so independent DOM nodes
+   refuse reorganizations that would reverse an already redeemable burn.
+3. Build a sound zero-knowledge proving program and immutable Ethereum verifier
+   meeting docs/PROOF-RESERVE-SPEC.txt, then reproduce and independently audit
+   the circuit/guest, setup and verifier artifacts.
+4. Prove Ethereum deposits are the only native USDOM issuance source and bind
+   their canonical finalized Ethereum state into DOM consensus.
+5. Select and rehearse production multisigs, limits, delays, monitoring,
+   incident response and disaster recovery.
+6. Repeat adversarial multi-node, reorganization, outage, censorship and exact
+   release-bytecode fork tests, followed by independent contract/system audit.
+
+Until all six are complete, the correct readiness flag is false and the
+mainnet constructor gate must remain closed.

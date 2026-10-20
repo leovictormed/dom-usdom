@@ -1,0 +1,77 @@
+USDOM nativa — ingresso P2P autenticado e transição canônica compartilhada
+Etapa 47, 2026-10-17
+
+Estado: ingresso P2P implementado somente no POC Regtest; fan-out P2P ainda fechado.
+Sem commit, push, deploy ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Problema tratado
+
+A etapa 46 autenticava bilateralmente a capacidade native-USDOM-v4, mas o
+message_loop ainda rejeitava Command::UsdomV4Package em todas as sessões. Além
+disso, criar um segundo caminho de aplicação exclusivo da rede poderia fazer a
+injeção local e a recepção P2P divergirem em parsing, ordem de locks ou efeitos
+pós-commit.
+
+2. Autorização da sessão
+
+PeerConn agora carrega o resultado derivado do prologue Noise e dos dois Hello
+autenticados até message_loop. Command 0x0d só alcança o runtime quando essa
+sessão usou exatamente wire v4 e ambos os lados anunciaram
+CAPABILITY_NATIVE_USDOM_V4.
+
+Pacote recebido sem essa autoridade é classificado como Malformed, pontuado
+pela política existente e encerra a sessão. Compilar o feature sem instalar um
+runtime não anuncia a capacidade e não autoriza o comando. A ausência de um
+runtime depois de uma negociação positiva é tratada como quebra de invariante
+local, sem culpar o peer.
+
+3. Um caminho de transição
+
+NativeUsdomV4Ingress é usado tanto pela API Regtest local quanto pelo handler
+P2P. Ele:
+- exige Network::Regtest;
+- decodifica o envelope UDOMV4W1 com comprimento exato;
+- decodifica o pacote canônico antes de adquirir locks;
+- adquire ChainState antes de NativeUsdomV4Runtime;
+- entrega os mesmos bytes internos ao ingresso atômico chain/native-state;
+- reconcilia o mempool apenas para BestChain ou Reorg;
+- aplica avanço ou rollback/replay à carteira canônica quando configurada;
+- atualiza métricas e notifica observadores; e
+- publica no canal local somente os bytes exatos de uma mudança canônica.
+
+SideChain e AlreadyHave não são retransmitidos. Pacotes malformados ou
+consensus-invalid não mudam o tip e não entram no canal de relay.
+
+4. Sem falso rollback após commit
+
+Quando o runtime retorna BestChain ou Reorg, a transação LMDB de consenso já
+foi confirmada. Uma falha posterior na persistência auxiliar do snapshot do
+mempool é registrada, mas não converte o bloco aceito em erro nem suprime
+carteira, métricas, notificação e relay local. Isso evita pontuar um peer ou
+deixar outros nós sem o pacote por uma falha auxiliar posterior ao commit.
+
+5. Evidência
+
+O teste integrado restaura uma base explicitamente ativada, prova que framing
+inválido mantém o tip e o canal de relay intactos, minera um bloco-v4 Regtest
+válido, envolve-o no pacote canônico, ingressa pelos mesmos componentes usados
+pelo handler, avança o tip para a altura 1 e observa exatamente os mesmos bytes
+no relay.
+
+A suíte dom-node passou no build padrão e no build opt-in. O teste dirigido
+confirma que a barreira de sessão aceita o booleano autenticado e rejeita o
+caso negativo com a pontuação Malformed esperada. Clippy com -D warnings,
+release check, rustfmt e git diff --check também são registrados nas evidências.
+
+6. Limites restantes
+
+O canal native-v4 ainda não é consumido pelas tarefas de peers. Portanto esta
+etapa recebe e valida de um peer autorizado, mas não faz fan-out para os demais.
+A próxima etapa deve criar receivers por conexão e enviar somente em sessões
+com a capacidade bilateral, sem eco imediato ao peer de origem nem loops.
+
+IBD/GetBlockData, retenção de bytes exatos em órfãos e fila futura, mineração
+do pacote, snapshots, contabilidade de custo de prova, witness Ethereum real,
+provas privadas revisadas, ativação/migração e auditorias independentes seguem
+pendentes. mainnet_ready e real_funds_ready continuam false.

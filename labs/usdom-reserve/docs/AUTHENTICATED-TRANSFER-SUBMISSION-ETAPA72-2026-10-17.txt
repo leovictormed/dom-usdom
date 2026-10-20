@@ -1,0 +1,68 @@
+USDOM ETAPA 72 — SUBMISSÃO AUTENTICADA E CONFIRMAÇÃO EXATA
+Data: 2026-10-17
+
+Esta etapa cria a fronteira autenticada entre a carteira offline e o caminho de
+validação/mineração USDOM do nó. O escopo continua Regtest e feature-gated; não
+ativa mainnet, deploy ou fundos reais.
+
+SUBMISSÃO
+
+POST /usdom/v4/transfer/submit/v1 pertence ao grupo RPC protegido por Bearer,
+rate limit e limite global de corpo. O cliente envia somente um payload privado
+de transferência e schema_version 1. Não pode enviar envelope arbitrário,
+emissão, burn ou checkpoint por esse endpoint.
+
+O nó exige framing canônico e limite específico, calcula o identifier estável
+do payload exato, cria um envelope de uma única transferência e o entrega ao
+pool Regtest existente. O pool verifica prova, chave vinculada, anchor, estado e
+replays na admissão; a mineração e o ingresso final do bloco repetem a
+verificação. A resposta contém transition_id e candidate_id. Reenvio dos mesmos
+bytes enquanto a entrada está na fila é idempotente.
+
+A carteira e o prover continuam ausentes do grafo de dependências de dom-node.
+Somente prova, nullifiers, commitments e memo cifrado atravessam o RPC. Segredos
+de owner, scan, openings e randomness do prover permanecem fora do nó.
+
+CONFIRMAÇÃO EXATA
+
+POST /usdom/v4/transfer/scan/v1 procura um transition_id em uma página canônica
+de no máximo 256 blocos. A chamada exige identidade de rede/chain, anchor do
+bloco imediatamente anterior e Bearer. O nó mantém um único try_lock da cadeia,
+valida o anchor e examina os sidecars canônicos. Ausência de sidecar em bloco v4
+falha fechado; blocos legados sem sidecar continuam válidos.
+
+A resposta informa tip, intervalo examinado, continuação restart-safe e a
+posição exata no envelope, quando encontrada. Ela declara explicitamente
+finality_claimed=false: inclusão canônica não substitui o checkpoint de
+finalidade.
+
+CARTEIRA
+
+WalletTransitionObservation agora deriva o mesmo identifier dos bytes privados
+exatos após comparar os efeitos com uma VerifiedTransition. WalletState mantém
+identifiers canônicos por bloco e os remove em rollback. A fila pendente expõe
+se os inputs foram gastos e, separadamente, se o payload exato apareceu. Assim,
+uma transação diferente com os mesmos inputs não é confundida com confirmação.
+
+O snapshot passou a USD-WALLET-S3/USWSTA03 e autentica esse histórico exato.
+Ainda não existe limpeza automática: mesmo uma inclusão exata continua
+reservada até existir uma regra autenticada de checkpoint/finalidade.
+
+ENDURECIMENTO DO RPC
+
+BearerToken agora possui contrato ZeroizeOnDrop. NodeConfig também limpa em
+drop o password da carteira e o bearer configurado. A comparação do Bearer
+continua em tempo constante. O executável standalone aceita RPC somente com
+token owner-only e endereço loopback.
+
+LIMITAÇÕES RESTANTES
+
+1. falta um cliente da carteira que execute submit/scan, valide todas as
+   respostas e faça save-CAS do snapshot antes e depois da comunicação;
+2. falta ligar a liberação da reserva a um checkpoint final autenticado;
+3. falta builder de burn privado e registro de nota emitida por depósito;
+4. faltam parâmetros/chaves de produção, cerimônia MPC, ativação, testes
+   multinó prolongados e auditorias independentes.
+
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

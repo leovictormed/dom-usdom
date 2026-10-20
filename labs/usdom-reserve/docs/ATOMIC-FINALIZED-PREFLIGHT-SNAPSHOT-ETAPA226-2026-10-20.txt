@@ -1,0 +1,35 @@
+Stage 226 - Single finalized-block preflight snapshot
+Date: 2026-10-20
+
+Finding USDOM-226 (Medium)
+
+The mainnet preflight first recorded one finalized block hash but submitted
+each concurrent code, nonce, token-policy, verifier and contract-state query
+with the moving `finalized` tag. Ethereum finality can advance while those
+queries are in flight. The resulting report could therefore combine values
+from several blocks while attributing the complete observation to the first
+block hash. This weakened the evidentiary claim even when each individual
+value was valid at some finalized height.
+
+Correction
+
+1. The observer validates and captures the exact hexadecimal block number
+   returned by the initial finalized-block query.
+2. Every eth_getCode, eth_getTransactionCount, eth_getStorageAt and eth_call is
+   now pinned to that exact block number, including token policy, reserve and
+   checkpoint state, both adapters, governance roles and upstream RISC Zero
+   health.
+3. After all reads, the observer fetches the same block number again and
+   records its hash.
+4. The pure preflight assessment requires the ending hash to equal the initial
+   finalized hash. A missing or changed hash fails closed with
+   finalized_snapshot_changed.
+5. Both predeployment and postdeployment test fixtures prove that an otherwise
+   valid observation is rejected when its ending snapshot hash differs.
+
+This is an objective observation-integrity check, not a zero-risk demand. RPC
+honesty and unknown implementation defects remain residual risks that can be
+documented and accepted for an exact release. External audit remains optional.
+
+No deployment, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred.

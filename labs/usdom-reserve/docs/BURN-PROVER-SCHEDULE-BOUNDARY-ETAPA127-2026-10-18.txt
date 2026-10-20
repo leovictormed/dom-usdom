@@ -1,0 +1,50 @@
+USDOM ETAPA 127 — EXPORTAÇÃO DE PROVA DE QUEIMA VINCULADA À AGENDA
+Data: 2026-10-18
+
+ACHADO
+
+O formato canônico NativeBurnBlockProverInput já vinculava pacote, cabeçalho,
+lote de transições, undo, raiz de estado e testemunho da queima. Porém, a API
+pública que o extraía do armazenamento aceitava somente a agenda fixa de
+Regtest. O caminho de restauração e auditoria já suportava uma agenda de
+ativação exata, mas o exportador ainda não a propagava. Isso impedia usar o
+mesmo limite de evidência em uma futura agenda ratificada sem duplicar código.
+
+CORREÇÃO
+
+- foi criada export_native_usdom_v4_burn_block_prover_input_for_schedule;
+- a API exige a NativeUsdomV4ActivationSchedule exata e a propaga tanto para
+  a restauração autenticada quanto para a auditoria da janela de reorganização;
+- divergências de rede, chain ID, altura de ativação, identidade da ponte ou
+  raiz vazia comprometida falham antes da exportação;
+- o exportador Regtest anterior foi mantido como wrapper de compatibilidade e
+  agora delega ao caminho agendado;
+- a nova API foi reexportada por dom-chain;
+- o ledger de requisitos registra escopo
+  exact_activation_schedule_read_only_export e vínculo de agenda verdadeiro.
+
+LIMITE DE SEGURANÇA
+
+O objeto exportado continua sendo somente entrada de evidência. A canonicidade
+é demonstrada contra o armazenamento local auditado; ela não prova por si só
+PoW, seleção global de fork ou finalidade e não autoriza pagamento da reserva.
+production_finalized_burn_verifier_implemented e todos os indicadores de
+prontidão de produção permanecem false.
+
+VERIFICAÇÃO
+
+- equivalência byte a byte entre o wrapper Regtest e a API agendada;
+- rejeição de rede divergente, chain ID divergente e altura divergente;
+- teste focal do exportador: 1 aprovado, 0 falhas;
+- suíte unitária dom-chain com native-usdom-v4-poc: 75 aprovados, 0 falhas;
+- cargo fmt --check, procedência, manifesto e gates fail-closed verificados.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.
+
+ADENDO DA ETAPA 129
+
+A etapa 127 vinculou corretamente a seleção e a leitura do armazenamento à
+agenda fornecida, mas o transporte UDBBLK01 ainda não carregava essa agenda.
+A etapa 129 substituiu o formato por UDBBLK02 e tornou o vínculo verificável
+pelos próprios bytes portáteis, inclusive com validação completa do corpo sob o
+chain ID agendado. Este adendo restringe a alegação original ao limite da API.

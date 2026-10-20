@@ -1,0 +1,87 @@
+USDOM ETAPA 65 — PROVER GROTH16 OFFLINE E FRONTEIRA DE SEGREDOS
+Data: 2026-10-17
+Escopo: implementação isolada no branch local codex/usdom-reserve-v3
+
+DECISÃO
+
+Esta etapa cria a primeira biblioteca de geração de provas para uma futura
+carteira USDOM. Ela não libera mainnet, deploy, depósitos ou fundos reais. O
+prover fica em um crate separado e não entra no grafo de dependências do nó.
+Assim, o processo que valida consenso não recebe a proving key nem testemunhas
+privadas da carteira.
+
+CHAVE E IDENTIDADE
+
+O prover não contém API de setup e não incorpora proving key. Ele aceita apenas
+uma chave externa com serialização canônica comprimida Arkworks, limita o input
+a 64 MiB, recusa bytes restantes e exige que a resserialização seja idêntica ao
+input. A verifying key embutida é extraída da proving key e precisa produzir
+exatamente o verifier_config_hash já comprometido na identidade da ponte.
+A forma fixa do circuito é sintetizada em modo setup no carregamento, e os
+tamanhos de a_query, b_g1_query, b_g2_query, l_query e h_query precisam coincidir
+exatamente com as variáveis, constraints e domínio de avaliação esperados. Uma
+chave canônica truncada é recusada antes de alcançar indexações do backend.
+
+Também é calculado um proving_key_id com domínio próprio sobre o privacy policy
+hash e os bytes canônicos completos da chave. Esse identificador serve para
+inventário e diagnóstico; ele não substitui o verifier_config_hash de consenso.
+
+GERAÇÃO FAIL-CLOSED
+
+Antes de chamar o backend Groth16, a biblioteca sintetiza a mesma relação e
+confere se a testemunha satisfaz o statement público. Isso evita o panic que o
+backend Arkworks provoca para uma constraint system insatisfeita. Uma
+testemunha inconsistente retorna UnsatisfiedWitness e nenhuma prova é entregue.
+
+Cada prova usa aleatoriedade fornecida pelo chamador, é serializada no formato
+canônico e passa obrigatoriamente pelo SpendVerifier ligado à própria proving
+key. Se a autoverificação falhar, os bytes são retidos.
+
+HIGIENE DE MEMÓRIA
+
+NoteOpening, InputWitness e OutputWitness agora aplicam ZeroizeOnDrop. Os
+scalars usam a implementação de zeroização do campo Arkworks, e a cópia de
+assignments privados criada pela pré-validação também é apagada explicitamente.
+Isso reduz resíduos controláveis no código USDOM, embora Rust, Arkworks, o
+alocador, swap e o sistema operacional não ofereçam uma garantia absoluta de
+ausência de todas as cópias. Uma carteira de produção ainda precisa isolamento
+de processo, política de core dump/swap, armazenamento protegido e revisão
+específica de memória.
+
+TESTE DE SETUP
+
+Somente o módulo #[cfg(test)] executa um setup determinístico de uma parte para
+construir um vetor positivo. Essa chave nunca é exportada, não integra a API e é
+explicitamente imprópria para fundos. Produção continua exigindo cerimônia MPC,
+transcript reproduzível, contribuições independentes e auditoria da chave final.
+
+O teste cobre chave canônica, binding exato de configuração, prova Groth16 real,
+autoverificação, rejeição de configuração diferente, rejeição de bytes extras e
+de tabela interna truncada, além da rejeição tipada de testemunha insatisfeita
+sem panic.
+
+O QUE AINDA NÃO É UMA CARTEIRA
+
+A biblioteca recebe um SpendCircuit já montado. Ainda faltam:
+
+1. derivação e armazenamento seguro de chaves e recuperação;
+2. protocolo de memo autenticado e criptografado;
+3. scanning de blocos e detecção de notas destinadas à carteira;
+4. manutenção e atualização de witness Merkle sob blocos e reorganizações;
+5. seleção de notas, construção de transações e política de taxas;
+6. submissão local autenticada ao pool de candidatos e acompanhamento;
+7. backup, restauração, proteção contra rollback e UX operacional;
+8. vetores ponta a ponta com depósito USDT finalizado e chave de cerimônia.
+
+BLOQUEIOS PARA FUNDOS REAIS
+
+Permanecem a cerimônia Groth16 de produção, auditorias independentes do circuito,
+Rust e Solidity, a carteira completa, o verificador Ethereum de queima final,
+um ambiente shadow multinó, procedimentos operacionais e parâmetros aprovados.
+O verificador e o prover continuam limitados ao trabalho experimental Regtest.
+
+STATUS
+
+Existe agora uma fronteira offline fail-closed para provar gastos privados, mas
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

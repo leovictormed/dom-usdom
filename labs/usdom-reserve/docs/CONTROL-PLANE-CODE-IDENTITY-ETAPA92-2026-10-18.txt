@@ -1,0 +1,57 @@
+Control-plane runtime-code identity — etapa 92
+Date: 2026-10-18
+Status: isolated implementation; mainnet configuration and authorization remain absent
+
+Finding USDOM-092
+
+Severity: High for a production deployment.
+Current public exposure: none; no transaction, commit, tag, push or deployment was made.
+
+The immutable reserve configuration bound the governance and guardian addresses
+but did not bind their deployed runtime code. A role contract could therefore be
+destroyed and recreated with different code at the same address, or otherwise
+change runtime code on a network that permits it, without changing the committed
+reserve policy. Value paths would continue to trust an identity different from
+the one reviewed before release.
+
+Remediation
+
+USDOMProofReserve now captures governance.codehash and guardian.codehash during
+construction and includes both in ReservePolicy and reserveConfigHash. Deposit,
+proof admission, payout, resume scheduling and resume execution all compare the
+live extcodehashes with the immutable values and revert with ControlPlaneChanged
+on any mismatch. Construction already requires both roles to be distinct
+contracts, so the committed hashes cannot be the empty-account code hash.
+
+The SDK and fail-closed mainnet release gate independently require and reproduce
+both role code hashes. The unconfigured manifest keeps both fields null, adding
+two explicit blockers until actual reviewed deployments exist. The prior etapa
+86 policy vector is superseded by this code-identity-bound vector:
+
+policyTypeHash 0x593f2abff6d662558e2a88e0f91e665c16c3be48a9e6ccd53c78f55599a7ad7b
+identityHash   0x191ed9d9c4fdb91c05805efde9d148f309297e53b2cb97a7bc9a8c9e71fcd960
+policyHash     0x1e25521a3eff1018a9f65fb94e5b6f35069b5a3145c5e86f464f2c8dbe769eb8
+reserveConfig  0x37d3f7bb297c0c65150121ba5fd43da6dfc6832ad7efed62941c794fa73dc266
+
+Validation
+
+- Solidity default suite: 102 passed; 0 failed;
+- Solidity deep suite: 102 passed; 0 failed, including 16,384 fuzz cases per
+  fuzz property and 1,024 x 128-call runs for each state invariant;
+- Node/SDK/integration suite: 38 passed; 0 failed;
+- focused role-code identity regressions: 3 passed; 0 failed;
+- contract-only Forge lint with warnings denied: passed;
+- USDOMProofReserve runtime size: 13,772 bytes, 10,804 bytes below EIP-170;
+- closed-mainnet gate: correctly rejected with 49 blocker assertions;
+- real-funds gate: correctly rejected with 57 blocker assertions.
+
+Security boundary
+
+An extcodehash identifies runtime bytecode, not mutable state behind that code.
+In particular, a proxy or Safe can keep the same runtime while changing its
+implementation, owners, threshold, guards or modules. Production role custody
+therefore still requires exact configuration evidence, independent review and
+live preflight checks. The generic contract cannot safely infer those semantics.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

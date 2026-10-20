@@ -1,0 +1,37 @@
+USDOM deployment package initcode release binding — stage 249
+Date: 2026-10-20
+
+Finding
+
+The unsigned deployment CLI source-derived all four initcodes and bound the
+package to the SHA-256 of the exact release file. It compared the registry and
+reserve initcodes with their release fields before building the package, but
+for both RISC Zero adapters it compared only runtime code. The pure builder
+accepted transaction data without receiving any approved initcode hash.
+
+Consequently, a package could truthfully contain source-derived adapter data
+and still claim a release-file SHA-256 whose approved adapter initcode field was
+different. Readiness would reject that release elsewhere, but the package
+artifact did not enforce the identity it declared on its own boundary.
+
+Resolution
+
+1. Every plan now has an exact `expectedInitcodeHash` field.
+2. The pure builder requires that field to be a canonical nonzero bytes32 and
+   requires it to equal `keccak256(data)` before emitting a transaction.
+3. The CLI passes the four corresponding initcode hashes from the exact release,
+   including `verifierInitcodeHash` and `checkpointVerifierInitcodeHash`.
+4. Exact-schema, missing-field and independent adapter-hash substitutions fail.
+5. The package's emitted `initcodeHash` is asserted to equal the plan's approved
+   release value for every transaction.
+
+Security effect
+
+The package SHA-256 label, release configuration and all four transaction data
+payloads now form one checked identity. A source, constructor, configuration or
+release-field substitution cannot survive package construction.
+
+Operational boundary
+
+The builder remains deterministic and offline. It has no RPC, private-key,
+signing or broadcast interface.

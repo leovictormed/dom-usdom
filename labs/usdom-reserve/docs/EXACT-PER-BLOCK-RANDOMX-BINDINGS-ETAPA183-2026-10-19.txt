@@ -1,0 +1,56 @@
+Stage 183 - exact per-block RandomX receipt bindings
+Date: 2026-10-19
+
+Finding
+
+Stage 182 prevented direct construction of a receipt assumption and constrained
+its height to a valid UDCSTN02 interval. The old constructor nevertheless still
+accepted a caller-supplied UDCRXST1 statement and was public. A future guest
+could therefore request a receipt for a different header at another valid
+height in the same segment, use a substituted seed, duplicate one height, or
+skip another while still satisfying the coarse interval check.
+
+Implemented host-reference boundary
+
+1. checkpoint_segment_randomx_bindings first validates the complete UDCSTN02
+   transition, parses every private input component through its canonical
+   consensus decoder, and requires the exact UDCSPI01 commitment and block
+   count named by the public transition.
+2. Every UsdomV4BlockPackage supplies the header directly. Heights must be the
+   exact sequence previous.height + 1 through next.height, each prev_hash must
+   equal the canonical identifier of the preceding header, and the final
+   identifier must equal next.block_hash.
+3. The only auxiliary seed input is the DOM genesis hash. It is accepted only
+   when derive_chain_id(network_magic, genesis_hash) equals the chain ID already
+   authenticated by UDCSEG02. Later seed hashes are selected solely by the
+   consensus RandomX schedule from the previous context's recent headers or
+   seed anchors, or from an earlier linked header in the same segment.
+4. UDCRXST1 height, preimage, claimed RandomX output and target are copied from
+   the exact parsed BlockHeader. The state-pinned ImageID and its statement
+   commitment then form the private receipt assumption.
+5. The entire rolling 11-header context, max_span, terminal identifier and all
+   seed anchors required by the next context must equal the projections derived
+   from the authenticated inputs. This rejects a valid block sequence paired
+   with a forged continuation context.
+6. Both CheckpointSegmentRandomXBinding and its nested receipt assumption have
+   private fields. The former public arbitrary-statement constructor is now
+   crate-private and absent outside host-reference/test builds. Two compile-fail
+   tests prove external code cannot construct the assumption or call the old
+   constructor.
+
+Adversarial coverage
+
+The tests derive two distinct ordered receipt journals from exact packages and
+reject a wrong genesis hash, a private-input commitment substitution, swapped
+packages, a duplicated package, a forged next context and a changed context
+span. A boundary vector crosses height 2,048 and proves both statements use the
+authenticated height-1,984 seed anchor rather than a prover-selected seed.
+
+Security status
+
+This is a host-reference implementation of the exact loop the checkpoint guest
+must reproduce. It does not yet compile that complete loop for zkVM, execute or
+aggregate real RandomX receipts, or provide a production RandomX guest/ImageID.
+Those release requirements remain false, so closed mainnet and real funds stay
+fail closed. No deploy, public transaction, funds, commit or push occurred. The
+node and miner remained stopped.

@@ -1,0 +1,58 @@
+USDOM / DOM — ETAPA 116
+MANIFESTO IMUTÁVEL DO RUNTIME NATIVO NO BINÁRIO DO NÓ
+Data: 2026-10-18
+
+Resultado
+
+O executável dom-node passou a oferecer um caminho explícito para iniciar o
+runtime USDOM v4 agendado. A seleção exige simultaneamente o arquivo de
+manifesto e o SHA-256 exato de seus bytes. Ausência de um dos dois valores,
+hash incorreto, rede diferente ou qualquer inconsistência interna encerra a
+inicialização antes da abertura do armazenamento.
+
+Controles implementados
+
+- JSON com versão fixa, campos desconhecidos proibidos e tamanho máximo de
+  64 KiB.
+- SHA-256 externo do manifesto em hexadecimal minúsculo, canônico e de tamanho
+  exato.
+- Vinculação à rede DOM já selecionada e à codificação canônica da programação
+  de ativação.
+- Forks Ethereum, checkpoint confiável, registry, reserve, hashes de código,
+  slots, domínios, limites e política temporal reconstruídos e validados.
+- Identidade da ponte derivada das políticas estáticas, com verificações
+  cruzadas de chain ID, domínio e reserve.
+- Estado vazio derivado da identidade da ponte deve coincidir com a raiz
+  comprometida na programação de ativação.
+- Chave Groth16 fornecida como um único nome relativo, em arquivo regular não
+  vazio, sem symlink e, em Unix, sem hardlink, limitado a 64 MiB e vinculado
+  por SHA-256.
+- O construtor do runtime ainda analisa a chave e exige que sua configuração
+  coincida com o compromisso da identidade da ponte.
+- As variáveis DOM_USDOM_V4_MANIFEST_FILE e
+  DOM_USDOM_V4_MANIFEST_SHA256 são documentadas na ajuda do binário e devem ser
+  fornecidas em conjunto.
+
+Validação
+
+- Loader de manifesto: 2 testes aprovados, 0 falhas.
+- Seleção parcial antes do armazenamento: 1 teste aprovado, 0 falhas.
+- dom-chain: 75 testes aprovados, 0 falhas.
+- dom-node native runtime: 8 testes aprovados, 0 falhas.
+- Testes Node de configuração e prontidão: 10 aprovados, 0 falhas.
+- Clippy default e native para dom-node, todos os alvos, warnings negados:
+  aprovado.
+- cargo fmt --all -- --check: aprovado.
+- Gate closed-mainnet: fechado, 70 bloqueios declarados.
+- Gate real-funds: fechado, 78 bloqueios declarados.
+
+Limites e trabalho externo ainda necessário
+
+Esta etapa implementa o carregamento fail-closed, mas não cria valores de
+produção. Continuam ausentes uma programação de ativação aprovada, identidade
+final da ponte e reserve, mecanismo de finalidade aprovado, checkpoint inicial,
+chave verificadora de produção resultante de cerimônia aceita, vetores reais de
+depósito finalizado, ensaio em fork de mainnet, recuperação operacional,
+auditorias independentes e autorizações de deploy e fundos reais.
+
+Nenhum push, deploy ou uso de fundos foi realizado ou autorizado.

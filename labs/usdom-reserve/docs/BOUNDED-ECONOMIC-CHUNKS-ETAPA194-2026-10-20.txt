@@ -1,0 +1,39 @@
+USDOM — DECOMPOSIÇÃO ECONÔMICA LIMITADA — ETAPA 194
+Data: 2026-10-20
+
+RESULTADO
+
+Foi implementado o testemunho canônico `UDECCW01` para dividir os efeitos
+econômicos ordinários de um bloco DOM em partes autenticadas. Cada parte avança
+no máximo 512 chaves da árvore esparsa e tem limite absoluto de 4.232.743 bytes.
+O peso máximo de bloco limita a composição futura a no máximo 80 partes.
+
+ORDEM E INVARIANTES
+
+Os efeitos são derivados do bloco, sem escolha do provador. A ordem é única:
+
+1. todos os gastos e criações de UTXO, ordenados pelo caminho esparso;
+2. todas as inserções de kernels históricos, na mesma ordem canônica.
+
+O cursor seleciona a próxima faixa. Uma parte não pode mudar de árvore no meio,
+exceder 512 chaves, substituir chaves, pular efeitos ou começar após o fim. A
+prova autentica as raízes anteriores antes de produzir as raízes seguintes. As
+regras de entrada ausente, maturidade de coinbase, saída duplicada e replay de
+kernel continuam sendo aplicadas.
+
+VALIDAÇÃO
+
+O transporte rejeita magic, versão, contagens, flags, bytes finais e limites
+inválidos e exige recodificação idêntica. Um vetor simples comprovou a passagem
+UTXO para kernel. Um vetor diferencial com 601 efeitos percorreu duas partes de
+UTXO e uma de kernel, terminando nas mesmas raízes obtidas por `apply_block` no
+estado completo. Clippy estrito passou.
+
+LIMITE ATUAL
+
+Esta etapa implementa o primitivo portátil e o vetor host. Ainda faltam a
+declaração pública da transição de parte, o guest RISC Zero, a agregação dos
+recibos de todas as partes de um bloco e a verificação desse recibo pelo guest
+de segmento. Por isso, a cobertura de todos os blocos válidos permanece falsa
+no gate. Auditoria externa e garantia de risco zero continuam fora do gate.
+Nenhum push, commit, deploy, mineração, prova ou uso de fundos ocorreu.

@@ -1,0 +1,67 @@
+USDOM ETAPA 165 — FRONTEIRA MÍNIMA DO HASH DE CONSENSO
+Data: 2026-10-19
+
+ACHADO
+
+O programa determinístico UDFINL02 usa Blake2b-256 apenas para recomputar
+compromissos de consenso, mas esse helper vivia em dom-crypto. A dependência
+normal arrastava para o futuro guest as implementações completas de assinatura,
+Bulletproof e secp256k1 nativo. Essas bibliotecas não participavam da relação de
+queima e aumentavam a superfície de compilação, supply chain e portabilidade.
+
+CORREÇÃO
+
+1. A implementação única de blake2b_256, blake2b_256_tagged e DomHasher foi
+   movida para dom-core::hash. Ela mantém exatamente o enquadramento anterior:
+   u16 little-endian do comprimento do domínio, domínio e dados.
+2. dom-crypto preserva sua API pública por reexportação; consumidores existentes
+   não recebem uma segunda implementação nem mudam os hashes.
+3. dom-pmmr, dom-usdom-privacy, dom-usdom-state, o verificador Ethereum e o
+   programa UDFINL02 usam diretamente o helper mínimo.
+4. dom-crypto deixou de ser dependência normal de todos esses componentes.
+5. O gate check-finalized-burn-program-boundary.py agora rejeita regressões que
+   reintroduzam dom-crypto, grin_secp256k1zkp, secp256k1-sys,
+   secp256k1-zkp ou secp256k1-zkp-sys na árvore normal do programa.
+
+VETORES CONGELADOS
+
+Blake2b-256("DOM test vector"):
+adc9da746270bcde5e37291ec3f228b845d29985fbf14d3e29e4e915a5ae56a9
+
+Blake2b-256(u16le(11) || "DOM:test:v1" || "hello world"):
+528814152b04831e28fee797e809cf44f2d4ec18e23a0140bede9d84bfd17102
+
+O teste incremental exige o mesmo segundo valor quando "hello " e "world" são
+fornecidos em chamadas separadas. Os cinco testes antigos de dom-crypto também
+passam pela reexportação, comprovando compatibilidade da API.
+
+RESULTADO
+
+A árvore normal congelada do UDFINL02 caiu de 184 para 169 nomes de pacotes
+únicos. Foram removidos dom-crypto e quinze dependências exclusivas do backend
+completo, incluindo os backends secp256k1/Bulletproof nativos. Permanecem fora da
+árvore o nó DOM, LMDB, RandomX, Tokio, RPC e rede.
+
+Verificações executadas:
+
+- 49 testes de dom-core;
+- 19 testes de dom-pmmr;
+- 13 testes de dom-usdom-privacy;
+- 29 testes de dom-usdom-state;
+- 19 testes de usdom-ethereum-finality-experiment;
+- 6 testes de dom-usdom-finalized-burn-program;
+- 5 testes de compatibilidade do módulo hash de dom-crypto;
+- Clippy -D warnings em todos os alvos alterados;
+- cargo tree fail-closed e git diff --check.
+
+LIMITES RESTANTES
+
+Esta etapa não seleciona SP1, RISC Zero ou outro backend e não afirma que o
+programa já compila em uma zkVM. tree_hash ainda introduz ethereum_hashing/ring,
+e o backend escolhido precisa confirmar ou substituir esse caminho. Também
+continuam ausentes guest/ELF reproduzível, ImageID/VK, benchmark de memória e
+ciclos, prova real, verificador Solidity auditado e vetor positivo de checkpoint
+Ethereum real. Por isso os requisitos production_finalized_burn_* permanecem
+false e os gates de mainnet e fundos reais continuam fechados.
+
+Nenhum push, commit, deploy, transação pública ou fundo real foi usado.

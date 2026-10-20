@@ -1,0 +1,99 @@
+Raw finalized-checkpoint vector and guest execution — Stage 233
+Date: 2026-10-20
+Status: implemented and locally verified; no proof generation, deployment,
+        funds, mining, commit or push
+
+Finding
+
+The UDFINL02 transport encoded `max_current_slot` as the checkpoint's finalized
+Beacon slot. This made the production raw-witness path impossible: Ethereum
+light-client validation requires `signature_slot > attested_slot >=
+finalized_slot`, while transcript replay rejected every recorded current slot
+above `finalized_slot`. The earlier opaque VerifiedCheckpoint unit capability
+did not execute this boundary and therefore could not reveal the contradiction.
+
+Correction
+
+The checkpoint witness now derives its minimal replay ceiling from the exact
+canonical transcript. For proof witnesses, each recorded `current_slot` must
+equal the update's authenticated `signature_slot`; a relayer cannot insert a
+later local clock. UDFINL02 stores that derived ceiling, verifies it again on
+decode and uses it only to bound full cryptographic transcript replay.
+
+The finalized Beacon slot remains in the public FinalizedBurn statement. The
+Ethereum reserve independently computes the current mainnet slot from the EVM
+block timestamp and rejects future or stale finalized slots. The correction
+therefore restores liveness without granting the private transcript authority
+over payout freshness.
+
+Deterministic positive vector
+
+The new integration vector constructs and verifies, without the unsafe
+VerifiedCheckpoint test constructor:
+
+- a prior weak-subjectivity bootstrap with explicit test trust root;
+- a 512-member sync committee and a valid BLS supermajority finality update;
+- valid SSZ execution, current-committee and finality branches;
+- a successful receipt with the exact Checkpoint event ABI;
+- Ethereum receipt, account and slot-zero storage Merkle-Patricia proofs;
+- a pinned runtime-code hash and checkpoint configuration word;
+- a complete native USDOM issuance, private burn and burn inclusion witness;
+- canonical UDFINL02 construction, re-decoding and public-output execution.
+
+The synthetic trust domain is a deterministic conformance vector. It does not
+claim that a production registry exists on Ethereum mainnet and does not close
+the separate finalized-mainnet-event requirement.
+
+Frozen identities
+
+- Checkpoint witness bytes: 62,638
+- UDFINL02 bytes: 64,070
+- UDFINL02 SHA-256:
+  975383b1ad8dbf8e7ec471673314e6b26250ca6e325456f8380cbaef3529ff4e
+- Raw public journal:
+  881ebff15b6a4ee9939138160651119b4107713397d362b550355aae22fafaf8
+- Rebuilt ProgramBinary bytes: 1,884,432
+- Rebuilt ProgramBinary SHA-256:
+  438adf4a9a50832da0dfbb77c0b8588d9ba1fbb41d216875e874dfa1db5dfcb0
+- Rebuilt ImageID:
+  3975a5f01dc85b6e89925913c5555ade4aefb951c65261142384fd829a70f88a
+
+The ProgramBinary was built twice with the same RISC Zero 1.97 builder image
+selected by immutable digest. Both outputs matched byte for byte. The source,
+artifact checker, Solidity adapter test and current requirements ledger use the
+new identities.
+
+Guest execution benchmark
+
+The official risc0-r0vm 3.0.6 executor ran the frozen positive input against
+the rebuilt ProgramBinary with a `2^20` segment limit:
+
+- successful halt: yes
+- journal matched: yes
+- user cycles: 562,418,750
+- segments: 570, all `po2 = 20`
+- measured wall time: 14.798 seconds on the recorded local host
+- maximum resident set: 78,556 KiB
+
+This is a guest execution and cycle/memory benchmark. No RISC Zero receipt or
+cryptographic proof was generated, so it is not a proving-latency, prover-cost
+or Ethereum verification-gas claim.
+
+Adversarial checks
+
+- a transcript whose recorded clock differs from its signed slot is rejected;
+- a mutated encoded replay ceiling is rejected during canonical UDFINL02
+  decoding;
+- the raw checkpoint is recreated from the transcript and MPT evidence rather
+  than an opaque test oracle;
+- the complete input is canonically re-encoded and its hash and output are
+  frozen;
+- guest success requires the exact expected unframed 32-byte journal.
+
+Remaining release boundaries
+
+The production mainnet registry event, production identities, a generated
+receipt/proof, configured immutable EVM verifier, proving capacity and the
+other release-specific evidence remain open. External review may improve
+confidence but is not treated as an absolute release prerequisite. This stage
+does not authorize deployment or real funds.

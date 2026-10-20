@@ -1,0 +1,57 @@
+Stage 178 - RandomX receipt ImageID binding
+Date: 2026-10-19
+
+Purpose
+
+The Stage 175 statement fixes what a RandomX proof must establish and Stage 177
+provides a native reference relation. The recursive segment state still did not
+fix which proof program was allowed to establish that relation. A prover-chosen
+ImageID would make receipt verification meaningless because a different guest
+could simply journal the expected statement commitment without running RandomX.
+
+Implemented boundary
+
+1. UDCSEG02 adds a required 32-byte randomx_receipt_image_id to the complete
+   recursive frontier. Zero is rejected. The state grows from 1,073 to 1,105
+   bytes and uses a new v2 domain-separated commitment.
+2. UDCSTN02 carries two complete UDCSEG02 states, grows from 2,190 to 2,254
+   bytes and rejects every ImageID change across a transition. Its commitment
+   domain is also versioned to v2.
+3. checkpoint_randomx_receipt_assumption derives the exact ImageID from the
+   chained state and the exact 32-byte journal from the canonical UDCRXST1
+   commitment. It rejects invalid state, invalid statement, network mismatch
+   and chain mismatch.
+4. A proof relayer cannot provide an independent ImageID through this boundary.
+   The eventual segment guest must convert the stored bytes to the RISC Zero
+   Digest representation without reordering and verify the exact journal.
+5. UDCSEG01 and UDCSTN01 remain historical Stage 171/172 formats. They are
+   superseded and must never be accepted by the production checkpoint path.
+
+Threats closed by this stage
+
+- substitution of an attacker-controlled RandomX proof guest;
+- silent verifier-program rotation between recursive segments;
+- reuse of a receipt statement from another DOM network or chain;
+- ambiguous migration from the earlier state and transition encodings.
+
+Verification
+
+- canonical round trips and strict length/version rejection cover UDCSEG02 and
+  UDCSTN02;
+- mutation tests prove ImageID changes alter the state commitment and fail
+  transition continuity;
+- zero ImageID fails closed;
+- receipt-assumption tests cover the exact journal, authorized ImageID, network
+  mismatch, chain mismatch, invalid state and invalid statement;
+- portable and host-reference tests, strict Clippy, rustfmt and manifest checks
+  are recorded in results-stage178-2026-10-19.
+
+Security status
+
+This closes the verifier-identity substitution gap in the public recursive
+state. It does not supply a production ImageID, a guest-compatible RandomX
+implementation, a RandomX receipt, the segment guest or recursive aggregation.
+The first ratified state must pin an independently reviewed production ImageID;
+state continuity cannot make an unreviewed initial ImageID trustworthy. Mainnet
+and real funds remain fail closed. No deploy, public transaction, funds, commit
+or push occurred. The node and miner remained stopped.

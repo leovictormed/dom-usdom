@@ -1,0 +1,41 @@
+USDOM / DOM — ETAPA 114
+PROGRAMAÇÃO EXATA NO NÓ, IBD, P2P E INGRESSO DO MINERADOR
+Data: 2026-10-18
+
+Resultado
+
+DomNode ganhou um construtor agendado que exige BridgeIdentity, políticas
+Ethereum estáticas, chave verificadora de gastos e
+NativeUsdomV4ActivationSchedule. A programação é instalada antes de o estado
+da cadeia ser compartilhado e é mantida separadamente no nó para o IBD.
+
+Controles
+
+- A rede da programação deve coincidir com NodeConfig antes de abrir o banco.
+- A restauração do runtime confirma chain ID, registro de ativação, estado,
+  janela de reorg e provas persistidas antes do networking.
+- A capacidade v4 bilateral continua obrigatória na sessão Noise.
+- Um IBD v4 negociado sem programação instalada falha fechado.
+- Lote novo e retomada de IBD recebem a programação imutável do nó e usam os
+  validadores ChainState agendados.
+- O ingresso P2P, fila futura, órfãos, reprocessamento e corpos de IBD usam o
+  runtime agendado; não há mais uma autorização Regtest dentro desse núcleo.
+- O minerador entrega seu pacote final ao mesmo ingresso genérico agendado.
+- A API com nome Regtest foi preservada como wrapper que rejeita outras redes.
+
+Validação
+
+- dom-chain: 75 testes aprovados, 0 falhas.
+- dom-node native runtime: 8 testes aprovados, 0 falhas.
+- O vetor de dois nós sincronizou por Noise v4, validou o lote headers-first
+  com a programação persistida e conectou o pacote exato pelo runtime agendado.
+- Clippy default e native para dom-chain/dom-node, todos os alvos, warnings
+  negados: aprovado.
+- cargo fmt --all -- --check: aprovado.
+
+Limites
+
+Nenhuma programação pública está configurada no binário ou NodeConfig. A
+admissão operacional de envelopes de mineração ainda expõe somente o wrapper
+Regtest. production_activation_schedule_implemented, mainnet_ready, deploy e
+fundos reais continuam false.

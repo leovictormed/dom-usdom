@@ -1,0 +1,34 @@
+USDOM receipt contract-address binding — stage 250
+Date: 2026-10-20
+
+Finding
+
+The finalized deployment collector populated `creates` by applying Ethereum's
+CREATE address formula to transaction sender and nonce. The formula is correct,
+and other checks required a successful creation transaction, but the evidence
+did not preserve the independent `contractAddress` value returned by the
+receipt. It therefore described a derived address as a receipt observation.
+
+Resolution
+
+1. Every exact deployment record now contains `creates` and
+   `derivedCreateAddress` as separate required fields.
+2. `creates` is read from `receipt.contractAddress`; null or a different address
+   fails closed.
+3. `derivedCreateAddress` is independently calculated from transaction sender
+   and nonce; a mismatch also fails closed.
+4. Both values must equal the release address for each adapter, checkpoint
+   registry and reserve in predeployment/postdeployment as applicable.
+5. Direct and release-level tests independently substitute the receipt and
+   formula results and reject schema omissions or additions.
+
+Security effect
+
+The evidence now reconciles transaction semantics, receipt output and release
+plan instead of using one calculation as a proxy for two observations. This
+improves resistance to malformed, inconsistent or misleading RPC evidence.
+
+Operational boundary
+
+Collection remains read-only. No key, signer, deployment or fund-moving
+capability was added.

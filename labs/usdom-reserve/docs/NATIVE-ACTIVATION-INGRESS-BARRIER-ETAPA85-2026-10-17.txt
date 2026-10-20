@@ -1,0 +1,62 @@
+Native USDOM activation ingress barrier — etapa 85
+Date: 2026-10-17
+Status: isolated Regtest implementation; no deployment, push, mainnet activation, or real funds
+
+Finding USDOM-085
+
+Severity: High for any network that activates the native USDOM runtime.
+Current public exposure: none; native USDOM v4 remains Regtest-only.
+
+The native runtime previously authenticated v4 packages and committed DOM and
+USDOM state atomically, but the ordinary ChainState path remained callable.
+Because the ordinary Regtest schedule requires block v3, an unknown valid v3
+block could pass the legacy header/body path after the native activation marker
+had been installed. That could advance the canonical DOM tip without advancing
+the native monetary state tip. The next native operation would fail its state
+binding, but the node could already be left unable to progress coherently.
+
+Remediation
+
+The persisted native tip is now a consensus-path activation barrier. Once the
+atomic marker exists:
+
+1. unknown ordinary blocks are rejected before legacy header/body validation;
+2. ordinary header-only validation is rejected;
+3. ordinary IBD batch validation is rejected;
+4. ordinary incremental/resumed IBD validation is rejected;
+5. the exact native v4 package paths remain the only way to advance the chain;
+6. the marker's block identifier must equal the canonical ChainState tip;
+7. malformed markers and marker/chain divergence fail as storage corruption;
+8. the ordinary DomNode constructor refuses an activated data directory.
+
+An activated node must use the dedicated constructor that restores the exact
+bridge identity, Ethereum checkpoint and deposit policies, and the committed
+private-spend verifying key when private-spend history exists. Restoration and
+the complete reorganizable history audit still finish before networking gains a
+native runtime.
+
+Before activation, the ordinary v3 path remains available. Existing known
+blocks short-circuit as before; the barrier applies to unknown work that could
+change state. Public networks remain unactivated and fail closed.
+
+Validation
+
+- complete dom-chain suite with native-usdom-v4-poc: 242 passed; 0 failed;
+- focused activation/chainstate suite: 4 passed; 0 failed;
+- native node runtime and two-node IBD suite: 8 passed; 0 failed;
+- dom-node library: 328 passed; 0 failed; 1 manual cadence probe ignored;
+- dom-chain and dom-node Clippy with the native feature and -D warnings passed;
+- default dom-chain/dom-node Clippy without the feature and -D warnings passed;
+- cargo fmt and git diff whitespace validation passed.
+
+Production boundary
+
+This barrier prevents the legacy and native state machines from being advanced
+independently after activation. It does not select or authorize a public-network
+activation height. Production still requires the ratified activation manifest,
+production verifier keys and audits, finality verifier/registry, real finalized
+USDT vector, operational key custody, network migration tests and independent
+end-to-end review.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

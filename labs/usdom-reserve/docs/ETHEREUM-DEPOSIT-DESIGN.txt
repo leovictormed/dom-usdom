@@ -1,0 +1,147 @@
+USDOM — autenticação de depósitos Ethereum para emissão nativa
+Estado: projeto e experimento local, não implementado no consenso DOM.
+Data: 2026-10-15. Sem seleção de finalidade DOM, ativação, push ou deploy.
+
+1. Resultado da revisão
+
+A reserva só deve gerar direito de emissão quando a origem do depósito e a
+finalidade Ethereum estiverem autenticadas. A prova de inclusão de um recibo
+não autentica a raiz usada para verificá-la. Na experiência local, uma raiz
+fabricada aceitou uma prova do valor fabricado; a raiz verdadeira rejeitou-a.
+Essa é uma demonstração da fronteira de confiança, não uma falha da árvore MPT.
+
+O código DOM existente em crates/adapters/evm/src/finality.rs lê o cabeçalho
+RPC da tag finalized e compara alturas. Ele é um observador dependente do RPC,
+não um cliente de consenso criptográfico. Não reutilizar seu FinalizedHead
+como autorização de emissão nativa. A análise não afirma que ele já esteja
+integrado à USDOM, nem modifica seu contrato de uso em outros componentes.
+
+2. Evidência executada
+
+Laboratório: integration-check/labs/ethereum-receipts, separado do nó DOM.
+Anvil local, chain ID 31337, HostileToken e reserva v3 já compilada. Nenhum
+depósito real. Dois depósitos no mesmo bloco: um recibo legacy e um tipo 2.
+@ethereumjs/trie 6.2.1 reconstruiu a árvore a partir dos recibos RLP e sua raiz
+coincidiu com receiptsRoot calculada pelo Anvil. Foram produzidas/verificadas
+provas dos dois eventos e comparadas com deposits no contrato executado.
+
+Os 10 subtestes passaram (Node reporta 11 contando o teste externo): raiz
+reconstruída; dois depósitos; raiz incorreta; índice inexistente; nó alterado;
+emissor errado; índice global de log; metadados RPC não autenticados pelo
+recibo; e prova fabricada que só passa contra sua própria raiz fabricada.
+Logs, recibos, bloco e provas estão em results do laboratório.
+O ensaio não verifica finalidade, BLS, SSZ, blocos reais mainnet, todos os tipos
+de recibo ou consenso nativo. Não há função que autorize emissão USDOM.
+
+3. Cadeia de autenticação proposta, ainda a implementar
+
+A. Estado inicial Ethereum fixado no protocolo: rede, genesis_validators_root,
+checkpoint de bootstrap autenticado e tabelas de forks. Não aprender esses
+valores de um RPC escolhido pelo proponente de uma emissão.
+B. Atualização autenticada do estado Ethereum: verificar assinaturas/domínios,
+participação, slots, períodos, composição/transição dos comitês e prova de
+finalidade. Definir explicitamente se será cliente leve ou validação de consenso
+mais completa; seus custos e hipóteses não são equivalentes.
+C. Vincular o cabeçalho de execução ao cabeçalho beacon autenticado, com prova
+e formato SSZ correspondentes ao fork. Para um depósito anterior ao checkpoint,
+provar que seu bloco pertence à mesma história finalizada. Altura menor ou igual
+à do checkpoint, sem prova de ancestralidade, não é suficiente.
+D. Extrair receiptsRoot somente desse cabeçalho autenticado. Verificar a prova
+MPT com chave RLP(transactionIndex), sem hash adicional da chave. Respeitar o
+envelope do tipo de recibo e a codificação canônica apropriada ao fork.
+E. Exigir recibo bem-sucedido, log na posição relativa ao recibo, emissor da
+reserva autorizada, assinatura/tópicos/ABI exatos, montante no intervalo e
+compromisso de recebimento válido. Evento Transfer de USDT não é autorização
+de emissão: pode ser doação, transferência entre terceiros ou outra operação.
+F. Aplicar a emissão e marcar o depósito consumido na mesma transição nativa.
+Atualizar raiz USDOM, contador e undo atomicamente, inclusive em IBD/snapshots.
+
+O contrato/reserva autorizado também precisa de identidade autenticada: rede,
+endereço, código/versão e configuração de token/domínio aprovados. Um contrato
+arbitrário pode emitir um evento com a mesma assinatura. O código de produção
+ainda não existe, e a reserva por quórum v3 não será automaticamente promovida
+a essa identidade. Alterar registro de reservas pode alterar a autoridade de
+emissão; exige uma regra de migração explícita, não uma lista editável sem limite.
+
+4. Armadilhas verificadas na integração
+
+Metadados do RPC: transactionHash, blockHash e logIndex global não fazem parte
+dos bytes de cada recibo. O teste modificou esses campos e preservou a mesma
+raiz. Se transactionHash for necessário, autenticá-lo separadamente pelo trie
+de transações no mesmo índice; ele não é necessário para localizar o recibo.
+O hash de bloco vem do cabeçalho autenticado, não do JSON do recibo.
+
+Índice de log: usar a posição dentro da lista logs do recibo provado. Não usar
+diretamente o logIndex global retornado por eth_getLogs; no segundo depósito do
+teste esses índices diferem. Uma prova de um recibo não conta logs anteriores.
+
+Identidade: separar localizador da evidência e chave de consumo. Proposta de
+chave semântica é hash com codificação canônica de domínio de emissão, rede,
+reserva e depositId emitido pela reserva. Não incluir bytes da prova, a raiz de
+um checkpoint posterior ou rótulos RPC na chave; novas apresentações do mesmo
+depósito não podem gerar novo crédito. Reemissões em migrações precisam manter
+o conjunto de consumo anterior ou provar sua transferência, sem resetá-lo.
+O depositId do protótipo já vincula chain ID, contrato, funder e salt, mas o
+formato e suas hipóteses terão de ser congelados na versão de produção.
+
+Privacidade: a autorização de emissão vincula valor e compromisso de destino,
+mas não pode criar um identificador público que toda transferência ou resgate
+tenha de repetir. A carteira deve construir notas e nullifiers com domínios
+distintos. Conhecer o depósito não deve permitir reconhecer seu gasto posterior.
+Na entrada, endereço e valor Ethereum são públicos; isso permanece uma fonte
+de correlação, mesmo que a associação criptográfica ao resgate seja ocultada.
+
+5. Cliente leve não é sinônimo de finalidade autenticada em todo estado
+
+A especificação Altair distingue atualizações otimistas das finalizadas e usa
+assinaturas de sync committees. Há também process_light_client_store_force_update:
+após timeout, pode promover um cabeçalho atestado no estado do cliente para
+permitir progresso. A palavra finalized_header, isoladamente, não demonstra
+que uma atualização passou pelo caminho normal de finalidade.
+
+Para emissão, projetar um estado separado de finalidade estritamente autenticada.
+Ele não pode avançar por timeout, atualização otimista ou forçada. Também é
+necessário impedir que um comitê aprendido por uma transição não autenticada
+contamine atualizações futuras aceitas como finais. Uma flag no cabeçalho não
+basta se a origem do conjunto de assinantes já perdeu essa garantia.
+
+Bootstrap recente, comitês nativos Ethereum e suas hipóteses devem ser explícitos;
+não se trata do quórum independente de operadores da ponte. Ainda assim, cliente
+leve tem hipóteses próprias e não equivale a reexecutar consenso e execução.
+Falhas/atrasos devem interromper emissão, não acionar fallback para RPC/quórum.
+
+Fonte examinada: ethereum/consensus-specs, commit
+12c8b24bc09b12f62688d439ba20ef00b1fdfe1f,
+specs/altair/light-client/sync-protocol.md, funções process_light_client_update
+e process_light_client_store_force_update. Este commit fixa a referência de
+pesquisa, não autoriza usar apenas Altair na mainnet atual.
+https://github.com/ethereum/consensus-specs/blob/12c8b24bc09b12f62688d439ba20ef00b1fdfe1f/specs/altair/light-client/sync-protocol.md
+Capella documenta a ligação do execution payload ao beacon; mudanças posteriores
+de fork precisam ser incorporadas e testadas antes de implementação real.
+https://github.com/ethereum/consensus-specs/blob/12c8b24bc09b12f62688d439ba20ef00b1fdfe1f/specs/capella/light-client/sync-protocol.md
+Formato de recibos tipados: https://eips.ethereum.org/EIPS/eip-2718.
+Árvore e chave de recibos: https://ethereum.org/developers/docs/data-structures-and-encoding/patricia-merkle-trie/.
+
+6. Critérios de implementação e validação
+
+- Formatos/limites determinísticos para provas, cabeçalhos, logs e atualizações;
+  rejeitar overflow, ambiguidades, trabalho excessivo e versões não suportadas.
+- Testes de BLS/SSZ e transição de comitês com vetores oficiais do fork adotado;
+  assinatura inválida, domínio errado, participação insuficiente e raiz falsa.
+- Estado autenticado não avança em caminhos otimista/forçado, inclusive quando
+  o atacante espera uma rotação e apresenta uma atualização aparentemente normal.
+- Provar ancestralidade, incluindo duas histórias distintas na mesma altura.
+- Cobrir recibos legacy e todos os tipos habilitados na rede/fork escolhidos,
+  índice zero, limites de RLP, ausência, nós embutidos e truncamento de provas.
+- Duplicar o depósito com outra prova/checkpoint/metadados não aumenta emissão;
+  duas transações nativas concorrentes não podem consumir o mesmo identificador.
+- Desconexão/reconexão DOM restaura consumo e notas consistentemente. Finalidade
+  DOM e pagamentos externos permanecem tratados na comparação de finalidade.
+- Não usar relógio local diferente em cada nó para decidir validade monetária;
+  regras de tempo precisam de entrada/referência determinística de consenso.
+- Verificar recuperação e snapshots: um estado importado não pode inserir um
+  checkpoint Ethereum ou depósito consumido sem a autenticação correspondente.
+
+Esses critérios não são testes já concluídos. O ensaio cobre somente a camada
+local de inclusão descrita na seção 2. Emissão nativa, autenticador Ethereum e
+finalidade DOM continuam ausentes. Nenhuma conclusão de prontidão mainnet.

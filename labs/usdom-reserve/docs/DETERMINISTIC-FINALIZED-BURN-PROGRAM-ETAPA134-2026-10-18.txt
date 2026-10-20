@@ -1,0 +1,86 @@
+USDOM ETAPA 134 — PROGRAMA DETERMINÍSTICO DE QUEIMA FINALIZADA
+Data: 2026-10-18
+
+ACHADO
+
+UDFINL01 definia a entrada completa, mas ainda não existia um entrypoint mínimo
+que um backend de prova pudesse executar. O manifesto do verificador também
+registrava somente burnProverInputVersion=2, que correspondia a UDBBLK02 e não
+diferenciava a entrada nativa, a entrada final composta e a saída pública. Essa
+ambiguidade permitiria que artefatos aparentemente compatíveis interpretassem
+protocolos de transporte diferentes.
+
+CORREÇÃO
+
+Foi criado o crate dom-usdom-finalized-burn-program. Sua função execute:
+
+1. aceita somente uma entrada privada não vazia dentro do limite canônico;
+2. decodifica e reexecuta UDFINL01 pela implementação comum;
+3. não recebe checkpoint pronto, horário, arquivo, rede, aleatoriedade, hash
+   esperado ou configuração fornecida pelo host;
+4. emite somente os 32 bytes não enquadrados do FinalizedBurnStatement hash;
+5. não emite saída parcial quando qualquer validação falha.
+
+O binário de referência lê stdin com teto MAX_FINALIZED_BURN_PROVER_INPUT_BYTES
++ 1, chama a mesma função e escreve os 32 bytes em stdout somente após sucesso.
+Uma futura integração zkVM deve chamar a função de biblioteca e comprometer
+exatamente esses bytes com commit_slice/journal equivalente. Serialização bincode,
+JSON, prefixos, comprimentos ou campos extras são incompatíveis com output v1.
+
+O schema do manifesto passou para
+usdom-finalized-burn-verifier-config-v2 e agora separa:
+
+- nativeBurnProverInputVersion = 2 (UDBBLK02);
+- finalizedBurnProverInputVersion = 1 (UDFINL01);
+- publicOutputVersion = 1 (hash cru de 32 bytes).
+
+O VerifierProtocol typehash inclui os três valores. Manifests v1 não são aceitos
+pelo parser v2. Novo vetor sintético congelado:
+
+- verifierConfigHash:
+  0x45021717ffce064fd661df5bf10c4e22e580f0b5ddf570c47c81f54d342dd7d7
+- SHA-256 do JSON canônico:
+  0xc3eaffdd42e94579b2ef9c7a46e0f3c60caf10aca7bc6054788afc01060f0832
+- protocolHash:
+  0xc95bede030ccd86360d51b6b9e2ce942e44a126ba53c913a3f77b9fae5a714cb
+
+PORTABILIDADE E BACKEND
+
+O entrypoint não fixa SP1, RISC Zero ou outro backend. Isso evita transformar
+uma dependência experimental em política de produção antes de benchmarks e
+revisão. A documentação atual do SP1 descreve prova on-chain por compressão
+Groth16/PLONK, requisitos de segurança do programa e aproximadamente 100 bits
+para sua pilha atual; também deixa explícito que o ELF e seus inputs precisam
+ser auditados. Fonte:
+https://docs.succinct.xyz/docs/sp1/security/security-model
+
+A documentação RISC Zero v3 descreve guest RV32IM identificado por ImageID,
+journal público, receipts STARK e compressão Groth16 para Ethereum. Fonte:
+https://dev.risczero.com/api/zkvm/zkvm-specification
+https://dev.risczero.com/proof-system/
+https://dev.risczero.com/api/blockchain-integration/risc-zero-on-eth
+
+Ambos exigem avaliar a camada de compressão, contrato verificador, setup,
+toolchain, audits, custo e tratamento de versões. Nenhum foi aprovado aqui.
+
+LIMITE VERIFICADO
+
+O crate de referência ainda depende de dom-chain completo. A árvore transitiva
+inclui dom-store/LMDB, Tokio e RandomX nativo, embora execute somente a relação
+de prova. Portanto ele compila e executa no host, mas ainda não é um guest zkVM
+portável. O próximo refactor técnico precisa separar o kernel puro de validação
+das APIs de nó, banco e runtime, compilar esse kernel no target do backend e
+medir BLS12-381/SSZ/MPT com a testemunha máxima.
+
+Também continua ausente uma fixture positiva combinada contendo um evento de
+checkpoint real finalizado. Sem registry, guest/circuito, backend, ImageID/VK e
+verificador Solidity auditados, production_finalized_burn_verifier_implemented
+permanece false.
+
+Os gates fail-closed agora tratam separadamente seleção do backend, compilação
+do guest e benchmark do guest. A configuração candidata permanece rejeitada
+com 81 bloqueios únicos no modo closed-mainnet e 89 no modo real-funds. Esses
+números incluem parâmetros, artefatos, evidências, revisões e autorizações ainda
+não fornecidos; não representam 82 ou 90 defeitos independentes no código.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.

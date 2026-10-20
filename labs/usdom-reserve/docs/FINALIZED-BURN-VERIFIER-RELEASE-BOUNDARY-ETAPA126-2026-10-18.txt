@@ -1,0 +1,52 @@
+USDOM ETAPA 126 — FRONTEIRA DE RELEASE DO VERIFICADOR DE QUEIMA FINAL
+Data: 2026-10-18
+
+ACHADO
+
+USDOMProofReserve define e chama IDOMFinalizedBurnVerifier, mas o repositório
+não contém a implementação Solidity de produção capaz de autenticar, em uma
+única relação, o consenso/fork choice DOM, a finalidade adotada, a raiz de
+estado e a inclusão do BurnIntent exato. Os laboratórios existentes verificam
+finalidade Ethereum e a ponte de checkpoints no lado DOM; eles não substituem
+essa prova Ethereum-verificável da queima.
+
+O gate exigia um verifierCodeHash e relatórios de auditoria, mas não possuía uma
+condição explícita para a implementação nem slots separados para o artefato e
+o build reproduzível do verificador. Um manifesto preenchido manualmente podia
+parecer mais completo do que a implementação real.
+
+CORREÇÃO FAIL-CLOSED
+
+- production_finalized_burn_verifier_implemented foi adicionado às condições
+  obrigatórias de closed-mainnet e permanece false;
+- mainnet-release-evidence agora exige verifierArtifact com SHA-256 exato;
+- exige também verifierReproducibleBuildReport separado do build da reserva;
+- os dois entram na regra que proíbe reutilizar um único caminho em posições de
+  evidência independentes;
+- a fixture completa do gate demonstra que esses requisitos podem ser
+  satisfeitos quando a implementação futura existir.
+
+POR QUE NÃO FOI CRIADO UM VERIFICADOR FICTÍCIO
+
+Aceitar uma assinatura administrativa, um checkpoint postado por operadores ou
+um Merkle proof contra uma raiz não autenticada recriaria o quórum proibido. Um
+Groth16 vazio ou com chave de teste apenas mudaria a aparência do mesmo risco.
+A implementação exige primeiro uma relação formal que prove seleção do fork
+DOM e inclusão da queima sob o mecanismo de finalidade aprovado; depois exige
+circuito/provador, parâmetros de produção, contrato verificador e auditoria.
+
+VERIFICAÇÃO
+
+- JSON de requisitos e evidências: válido;
+- testes unitários do gate: 3 aprovados, 0 falhas;
+- a fixture completa satisfaz os dois modos quando recebe implementação,
+  artefato e relatório coerentes;
+- o candidato atual apresenta separadamente os três novos bloqueios;
+- closed-mainnet: rejeitado como esperado, exit 1, 73 bloqueios únicos;
+- real-funds: rejeitado como esperado, exit 1, 81 bloqueios únicos;
+- procedência: 169 importados e 673 fontes verificados;
+- git diff --check: aprovado.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized e
+real_funds_authorized permanecem false. Nenhum commit, push, deploy, transação
+ou fundo real foi usado.

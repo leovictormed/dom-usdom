@@ -1,0 +1,85 @@
+USDOM SAFE CONTROL HARDWARE BOOTSTRAP — STAGE 252
+Date: 2026-10-20
+
+Decision
+
+The first closed test may use one human signer, but it still uses three distinct
+Safe smart accounts: governance, reserve guardian and checkpoint guardian. Each
+Safe has threshold 1 and the same hardware-wallet EOA as its only owner. This is
+a temporary closed-test custody topology, not evidence of independent control.
+
+Finding closed
+
+The prior Linux runbook used @safe-global/safe-cli 0.1.2 to import a Ledger and
+then deploy accounts. Inspection of that published package found two unsafe
+assumptions:
+
+1. account creation starts at salt nonce zero and advances only past addresses
+   already deployed on-chain. Repeating prediction three times with the same
+   owner and threshold can reproduce one address.
+2. account deployment unconditionally obtains a stored private key, while the
+   wallet store rejects private-key access for Ledger wallets. The documented
+   Ledger import therefore cannot execute this deployment path.
+
+Implementation
+
+- The builder encodes the Safe 1.4.1 factory and setup ABIs directly with
+  ethers, which is pinned exactly to 6.17.0 in package.json and the lockfile.
+  Its recorded npm SRI is
+  sha512-BpyrpIPJ3ydEVow8zGaz1DuPS7YU8DcWxuBnY9a0UA/lvAPwrMr+EPXsfrul628SRaekPNeIM4UFh/91GWZang==.
+  @safe-global/protocol-kit is not an operational dependency.
+- scripts/prepare-safe-controls.mjs accepts only the public owner address and a
+  read-only RPC URL. It never accepts a seed, mnemonic or private key.
+- Fixed salt nonces 1, 2 and 3 produce the three role addresses. Safe version
+  1.4.1 and threshold 1 are explicit.
+- Every factory call is decoded. The initializer must contain exactly the
+  approved owner, threshold 1, no delegatecall target/data and no payment.
+- Factory, singleton and fallback-handler code must exist at a finalized
+  Ethereum mainnet block. Their addresses, runtime hashes and the factory
+  proxy-creation-code hash are fixed in the builder and must equal:
+  - factory 0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67,
+    code hash 0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317;
+  - singleton 0x41675C099F32341bf84BFc5382aF534df5C7461a,
+    code hash 0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4;
+  - fallback handler 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99,
+    code hash 0x7c6007a5d711cea8dfd5d91f5940ec29c7f200fe511eb1fc1397b367af3c42f9;
+  - proxy creation code hash
+    0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f.
+- The builder fetches proxyCreationCode and derives every address directly from
+  the factory, initcode and CREATE2 salt. Its result does not depend on whether
+  a previously derived Safe has already been deployed, so the three packages
+  remain reproducible across the sequential deployment process.
+- The Linux runbook runs the builder against two independent RPCs and requires
+  byte-identical packages. Before each separately authorized broadcast it
+  rebuilds and compares the package, checks its recorded SHA-256, estimates gas,
+  prints the target/predicted address/calldata hash, and signs through
+  `cast send --ledger`.
+
+Validation
+
+- A read-only Ethereum mainnet smoke run produced three distinct addresses and
+  the canonical Safe 1.4.1 factory, singleton and fallback handler identities.
+- Five deterministic tests pass: valid three-role preparation, reproducibility
+  after earlier Safe deployments, contract-owner rejection, wrong-chain RPC
+  rejection and rejection of a non-pinned identity.
+- npm reported zero known vulnerabilities after installing the exact package.
+
+Residual risk and limits
+
+Compromise or loss of the one hardware-wallet authority affects all three
+control planes. The shared owner also makes the roles publicly linkable and
+does not provide organizational separation, signer redundancy or threshold
+fault tolerance. Safe deployments and owner/threshold state are public. A
+hardware wallet may not display complete contract calldata, so the reviewed
+factory address, predicted address and calldata hash must be checked in the
+terminal before physical approval. Ethers, its locked dependencies and the
+canonical Safe deployments remain supply-chain and implementation trust inputs.
+These risks require explicit acceptance for the closed test and cannot be
+represented as production custody independence.
+
+Authorization boundary
+
+No Safe was deployed, no hardware signature was requested, no transaction or
+fund was sent, and no commit or push was performed in this stage. The runbook's
+broadcast subsection remains prohibited until the operator explicitly
+authorizes the three Safe deployments.

@@ -1,0 +1,35 @@
+[package]
+name = "dom-usdom-state"
+description = "Native USDOM consensus-state transition core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+# Deliberately unavailable in optimized builds; production transitions must
+# come from reviewed proof verifiers rather than fixture capabilities.
+unsafe-test-oracle = []
+# Production-shaped adapter from the repository-local authenticated Ethereum
+# finality/checkpoint capability. Consensus builds must opt in explicitly.
+ethereum-finality = ["dep:usdom-ethereum-finality-experiment"]
+
+[dependencies]
+dom-core.workspace = true
+dom-pmmr.workspace = true
+dom-usdom-privacy = { path = "../dom-usdom-privacy" }
+sha3 = { version = "0.10", default-features = false, features = ["std"] }
+thiserror.workspace = true
+usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", optional = true }
+
+[dev-dependencies]
+usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", features = ["unsafe-test-oracle"] }
+ark-bn254 = "=0.5.0"
+ark-groth16 = "=0.5.0"
+ark-serialize = "=0.5.0"
+hex.workspace = true
+rand = "0.8.6"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

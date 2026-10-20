@@ -1,0 +1,20 @@
+[package]
+name = "usdom-ethereum-finality-experiment"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+# Explicitly unsafe fixture constructor. Never enable in consensus builds.
+unsafe-test-oracle = []
+
+[dependencies]
+helios-consensus-core = { package = "dom-ethereum-consensus-core", path = "../../crates/dom-ethereum-consensus-core" }
+alloy = { version = "=2.1.0", default-features = false, features = ["consensus", "eips", "rlp"] }
+alloy-trie = { version = "=0.9.8", features = ["ethereum"] }
+alloy-rlp = "=0.3.16"
+tree_hash = { path = "../../crates/dom-ethereum-tree-hash" }
+eyre = "=0.6.12"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+dom-core = { path = "../../crates/dom-core" }

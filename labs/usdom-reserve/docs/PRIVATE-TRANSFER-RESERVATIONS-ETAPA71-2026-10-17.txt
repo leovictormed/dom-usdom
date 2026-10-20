@@ -1,0 +1,66 @@
+USDOM ETAPA 71 — RESERVAS PERSISTENTES DE INPUTS PRIVADOS
+Data: 2026-10-17
+
+Esta etapa elimina a construção local concorrente de dois gastos sobre a mesma
+nota. Ela mantém o escopo isolado: não ativa mainnet, submissão RPC, deploy ou
+fundos reais.
+
+RESERVA ATÔMICA
+
+O builder continua sem alterar a carteira se preparação, geração da prova,
+autoverificação ou codificação falharem. Somente depois de obter o payload
+canônico completo ele verifica novamente os inputs e, numa única mutação da
+WalletState, grava a transação pendente e associa seu identifier às notas.
+Saldo disponível, seleção e exportação de witness excluem notas reservadas.
+
+O identifier é BLAKE2b-256 com separação de domínio sobre o payload exato, que
+inclui a prova aleatória. A fila retém anchor, tip e altura de criação,
+commitments selecionados, nullifiers e os bytes exatos para futura submissão.
+Os resumos informam quantos nullifiers foram observados na cadeia canônica.
+
+PERSISTÊNCIA E REORGANIZAÇÕES
+
+O snapshot canônico passou para USWSTA02 e o envelope para USD-WALLET-S2,
+versão 2. Ele autentica as reservas e toda a fila pendente. A restauração exige
+que o identifier corresponda ao payload, que seu parse seja canônico, que os
+nullifiers estejam ordenados e que cada nota presente tenha vínculo único com
+a reserva e produza um dos nullifiers esperados.
+
+Se uma reorganização remove uma nota selecionada, a intenção assinada continua
+pendente. Caso a mesma nota retorne à cadeia canônica, a carteira reconhece seu
+commitment e restaura a reserva automaticamente. Uma confirmação seguida de
+rollback também mantém os inputs indisponíveis. Assim, reinício ou reorganização
+não liberam silenciosamente uma nota já usada num payload que possa ter sido
+compartilhado.
+
+CANCELAMENTO E CONFIRMAÇÃO
+
+Cancelamento só é aceito se nenhum nullifier da transação estiver canônico.
+A carteira informa quantos inputs foram gastos, mas não remove automaticamente
+a intenção quando todos aparecem: os mesmos nullifiers poderiam pertencer a
+outro payload criado com as mesmas notas. Limpeza só será segura depois que o
+nó autenticar a inclusão do identifier do payload exato e sua finalidade. Até
+essa integração, a reserva permanece fail-closed inclusive após confirmação e
+rollback.
+
+VALIDAÇÃO
+
+- cargo fmt --all -- --check;
+- cargo check -p dom-usdom-wallet;
+- cargo clippy -p dom-usdom-wallet --all-targets -- -D warnings;
+- teste integrado com prova Groth16 real, persistência, cancelamento, remoção e
+  retorno de input por reorg, confirmação, rollback e bloqueio fail-closed;
+- suíte completa da carteira USDOM;
+- verificação de que dom-node continua sem dependência em wallet ou prover.
+
+BLOQUEADORES RESTANTES
+
+1. envelope de submissão versão 4 e canal local autenticado entre carteira e nó;
+2. política de confirmação/finalização ligada ao checkpoint reconhecido pelo nó;
+3. builder de burn privado e registro na carteira da nota emitida por depósito;
+4. autoridade monotônica de produção para os seals dos snapshots;
+5. cerimônia MPC, chaves e parâmetros de produção, verificadores Ethereum
+   imutáveis, testes multinó prolongados e auditorias externas independentes.
+
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

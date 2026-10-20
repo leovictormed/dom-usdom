@@ -1,0 +1,53 @@
+Native DOM integration assessment — pinned source d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c
+
+Authoritative inputs
+The operator identified dom-protocol as the implementation repository and
+atualia as the source of the prototype. No external local protocol directory
+is evidence. This checkout's branch is mainnetswap; main is a different commit.
+The initial module is under labs/usdom-reserve and does not change core crates.
+
+Finality evidence in the actual target
+crates/dom-chain/src/reorg.rs defines MAX_REORG_DEPTH=360 and rejects a candidate
+that disconnects at least 360 blocks when local tip height is at least 360.
+crates/dom-chain/src/chain_state.rs invokes this rule in its reorganization
+path before disconnecting blocks. docs/RELEASE_V3.md documents this behavior
+and the fresh-node/bootstrap exception. This is evidence of local node policy,
+not an Ethereum-verifiable certificate binding all independent nodes to a
+unique historical burn. The prototype sequencer is a different chain.
+Do not infer a production bridge finality rule merely from a confirmation count.
+
+Remaining native monetary boundary
+The current native source search found no USDOM transaction/issuance/burn
+implementation. Search alone is not proof: the actual prototype documentation
+also explicitly identifies this integration as unimplemented. Production work
+must define and enforce, in all consensus validation paths:
+1. An authenticated deposit identity binding chain, token, reserve, event,
+   recipient commitment and amount; durable replay protection for issuance.
+2. USDOM state/proofs committed by canonical DOM blocks, conserving credited
+   supply and enforcing unique nullifiers and redemption request identities.
+3. Atomic connect/disconnect, persistent state and crash recovery for issuance,
+   spends and burns. Wallet or RPC-only checks cannot enforce consensus rules.
+4. Burn evidence binding every EIP-712 field and the supported remote checkpoint
+   policy, with revalidation after reorganizations and replay protection across
+   deployments and chains. Historical paid obligations must survive recovery.
+5. Ethereum-verifiable DOM proofs, now explicitly required by the operator.
+   Quorum remains prototype-only. Native asset/privacy design and the precise
+   finality/proof mechanism still need implementation and validation; a quorum
+   adapter cannot satisfy this requirement. See NATIVE-USDOM-DESIGN.txt.
+6. Explicit activation/network-version policy and tests for initial sync,
+   competing histories, database recovery and independent nodes. This additive
+   prototype import does not activate any new monetary/consensus rule.
+
+Next concrete work
+The Rust private-note verifier from atualia was built in isolation and exercised
+through its proof/privacy tests and the real Node snapshot adapter. See
+RUST-VERIFIER.txt. Native DOM-regtest runtime composition remains unverified in
+this run, and cannot substitute for the missing native USDOM state transitions.
+Resolve the finality and proof-system design before choosing trust roots,
+verifier contracts or activation rules. Ethereum USDT was read at pinned block 26201446
+and exercised in a local fork. The initial HTTP 403 was transient; later archive
+access failed again on PublicNode and Cloudflare, while Alchemy completed the
+post-fix tests. See USDT-FORK.txt and results/usdt-fork-verification.json for the
+exact state, reproduced finding and limits. No transactions were sent to Ethereum.
+Production custody, parameters and independent operational rehearsals remain
+missing. Local tests are evidence for this module, not mainnet approval.

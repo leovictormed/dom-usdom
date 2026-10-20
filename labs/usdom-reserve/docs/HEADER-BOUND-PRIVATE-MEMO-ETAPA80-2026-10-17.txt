@@ -1,0 +1,64 @@
+USDOM ETAPA 80 — MEMO PRIVADO VINCULADO AO CABECALHO
+Data: 2026-10-17
+
+PROBLEMA CORRIGIDO
+
+O circuito de gasto ja provava o escalar derivado do memo cifrado, mas a
+capacidade VerifiedTransfer/VerifiedBurn descartava esse escalar depois da
+verificacao. O compromisso de transicao continha nullifiers, compromissos de
+notas e, para queimas, a obrigacao publica, mas nao continha o compromisso do
+memo. Consequentemente, o transitions_root e o cabecalho DOM nao autenticavam
+os bytes cifrados necessarios para a recuperacao historica da carteira.
+
+Mesmo sem criar ou gastar valor, um armazenamento auxiliar poderia perder ou
+substituir o memo por outro payload com os mesmos efeitos monetarios. A carteira
+nao teria como ligar criptograficamente o payload historico ao cabecalho que
+aceitou a transicao. Isso impedia construir um rescan remoto sem introduzir
+confianca adicional no servidor de historico.
+
+CORRECAO DE CONSENSO
+
+VerifiedTransfer e VerifiedBurn agora preservam o memo_commitment autenticado
+pelo verificador Groth16. O compromisso canonico de transicao inclui esse campo
+depois dos compromissos de saida e antes da obrigacao publica de queima. O
+transitions_root ordenado e o compromisso de lote carregado pelo cabecalho DOM
+passam, portanto, a vincular o memo cifrado.
+
+A codificacao recebeu TRANSITION_COMMITMENT_VERSION = 2, o envelope de lote
+recebeu TRANSITION_BATCH_VERSION = 2 e ambos os dominios de hash foram
+atualizados para v2. A alteracao e intencionalmente incompativel com a versao 1
+ainda nao ativada. Emissao e checkpoint tambem recebem novos hashes de
+transicao por causa da separacao de versao, evitando que duas codificacoes de
+consenso compartilhem a mesma identidade. O receipt informa v2 inclusive em
+lotes vazios.
+
+Uma transferencia sempre possui saidas e memo nao vazio. Uma queima com troco
+usa o hash-to-field do memo cifrado. Uma queima exata, sem saida privada, exige
+memo vazio no decodificador e compromete o elemento de campo zero. Essa regra e
+reproduzida pela projecao publica consumida pela carteira.
+
+VALIDACAO DA CARTEIRA
+
+WalletTransitionObservation nao confia no memo recebido pelo sidecar. Para uma
+transferencia ou queima verificada, ela decodifica o payload canonico, compara
+nullifiers e compromissos de saida, recalcula memo_scalar sobre os bytes exatos
+e exige igualdade com TransitionPublicEffects.memo_commitment. Ausencia de
+payload, memo vazio com saidas, memo nao vazio sem saidas, ou qualquer bit
+substituido falha fechado antes da varredura privada.
+
+Os testes cobrem mutacao independente do memo em transferencias e queimas,
+substituicao do payload na carteira, vetores v2 congelados, lote/cabecalho,
+persistencia LMDB, reinicio e reorganizacao exata. As provas Groth16 reais da
+carteira e do nucleo de estado continuam passando.
+
+LIMITES
+
+Esta etapa fornece a ancora criptografica necessaria para autenticar o memo
+historico, mas nao fornece o transporte historico, prova de inclusao por pagina,
+ancora inicial confiavel nem o bootstrap/rescan remoto completo. Tambem nao
+fornece finalidade DOM de producao, verificador Ethereum imutavel, parametros
+economicos, chaves, cerimonias ou auditoria independente.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized e
+real_funds_authorized permanecem false. Nenhum commit, push, deploy ou fundo
+real foi usado.

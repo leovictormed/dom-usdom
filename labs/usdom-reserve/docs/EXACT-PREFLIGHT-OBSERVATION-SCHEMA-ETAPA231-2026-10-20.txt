@@ -1,0 +1,33 @@
+Stage 231 - Exact preflight observation schema and transaction identifiers
+Date: 2026-10-20
+
+Finding USDOM-231 (Medium)
+
+The postdeployment collector records the public transaction hashes used to
+fetch the reserve and checkpoint-registry creations, but semantic recomputation
+did not require or validate either field. A report could remove or replace
+those identifiers and still pass. Observation objects also admitted unexpected
+nested fields that the canonical collector never emits, weakening the claim
+that accepted evidence has the exact machine-generated structure.
+
+Correction
+
+The preflight assessor now enforces exact key sets for the phase-specific
+top-level observation, code hashes, token state, RISC Zero identities,
+deployment records, checkpoint bootstrap event, reserve state, checkpoint
+registry state and pending candidate. Missing and unexpected keys fail closed.
+Both deployment records must include a canonical nonzero bytes32 transaction
+hash. Existing checks continue to bind sender, nonce, CREATE address, zero
+value, initcode hash, receipt success, canonical block and finalized inclusion.
+
+Tests remove, zero and corrupt transaction identifiers and add unexpected
+fields at the top level and inside token, deployment, bootstrap-event and
+candidate objects. Both direct preflight and parsed cold-start evidence reject
+the substitutions while unmodified collector-shaped fixtures pass.
+
+The transaction identifier remains RPC-observed evidence. RPC honesty and
+unknown defects remain residual risks that may be explicitly accepted for an
+exact release. External audit and a zero-risk guarantee remain optional.
+
+No deployment, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred.

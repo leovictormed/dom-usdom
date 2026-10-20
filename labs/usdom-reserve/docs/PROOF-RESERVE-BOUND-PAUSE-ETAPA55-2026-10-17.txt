@@ -1,0 +1,46 @@
+USDOM proof reserve: generation-bound emergency pause (stage 55, 2026-10-17)
+
+Problem
+-------
+An authorized pause transaction can be delayed by a multisig workflow, RPC
+outage, fee market or transaction ordering. After another incident has already
+invalidated the old queue, governance may review proofs, resume and build a new
+queue generation. Executing the old transaction at that point would pause the
+reserve and invalidate the replacement queue even though its observation was
+about the prior generation. This is a liveness and incident-handling failure,
+not a direct collateral theft.
+
+Change
+------
+pauseQueueEpoch(expectedQueueEpoch) checks the caller is the immutable guardian
+or governance contract and then requires equality with the current queueEpoch.
+Only then does it enter the same pause state transition as pause(). A stale
+transaction reverts with StaleEmergency before it can change pause state,
+resume authorization, queue endpoints or collateral reservations.
+
+The unbound pause() remains available to the authorized contracts for a human
+emergency action that deliberately targets whatever generation is current.
+Both entry points share the same private state transition, so their invalidation
+and event behavior cannot diverge.
+
+Validation
+----------
+The regression queues a withdrawal, pauses generation 1, resumes after the
+governance delay, queues a reviewed replacement in generation 2 and then submits
+the delayed generation-1 pause. It proves the transaction reverts while the
+replacement reservation remains intact. A current-generation call still pauses
+and invalidates the queue, and an unauthorized caller is rejected first.
+
+The normal and deep Foundry suites each pass 98/98 tests. Deep fuzz properties
+use 16,384 runs, and each of the three stateful invariants completes 1,024 runs
+and 131,072 calls without an unexpected revert. Node/Anvil passes 33/33 tests.
+Targeted proof-reserve coverage is 94.12% lines, 95.59% statements, 96.30%
+branches and 100% functions. Runtime is 13,074 bytes, leaving 11,502 bytes below
+the EIP-170 limit.
+
+Boundary
+--------
+No production automation uses this entry point yet. Any future watcher must
+read queueEpoch from the same pinned reserve instance it inspected and include
+that exact value in its administrative proposal. The production verifier pins
+remain zero; mainnet and real-funds readiness remain false.

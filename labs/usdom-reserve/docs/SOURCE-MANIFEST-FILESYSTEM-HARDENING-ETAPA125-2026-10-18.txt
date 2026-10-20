@@ -1,0 +1,35 @@
+USDOM ETAPA 125 — ENDURECIMENTO DO MANIFESTO NO SISTEMA DE ARQUIVOS
+Data: 2026-10-18
+
+ACHADO
+
+Path.is_file segue links simbólicos. A primeira versão do manifesto podia,
+portanto, aceitar no escopo de fontes um symlink cujo conteúdo real estivesse
+fora da árvore auditada. O hash ainda detectaria alteração de bytes, mas o
+inventário não representaria um conjunto autossuficiente de arquivos regulares.
+
+CORREÇÃO
+
+- a enumeração consulta lstat antes de ler qualquer conteúdo;
+- links simbólicos são proibidos no escopo de fontes;
+- sockets, FIFOs, devices e demais tipos não regulares também são proibidos;
+- diretórios e áreas geradas explicitamente excluídas continuam sem conteúdo
+  no manifesto;
+- o próprio MANIFEST.sha256 também não pode ser symlink;
+- o modo --self-test usa uma árvore temporária e comprova aceitação do conjunto
+  íntegro e rejeição de alteração, caminho extra e symlink;
+- check:provenance executa esse autoteste antes da verificação real.
+
+Essas regras afetam somente o pacote de fontes. Evidências externas continuam
+hash-addressed separadamente pelo gate de release.
+
+VERIFICAÇÃO
+
+- autoteste adversarial: aprovado;
+- importação: 169 arquivos verificados, 15 modificações registradas;
+- manifesto: 672 arquivos completos, ordenados e verificados;
+- testes unitários do gate: 3 aprovados, 0 falhas;
+- closed-mainnet/real-funds: rejeitados como esperado, exit 1, 70/78 bloqueios;
+- git diff --check: aprovado.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.

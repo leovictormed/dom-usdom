@@ -1,0 +1,49 @@
+USD0M — ETAPA 198
+COMPILAÇÃO DO DOM-CONSENSUS PORTÁTIL PARA O GUEST RISC ZERO
+Data: 2026-10-20
+
+RESULTADO
+
+O crate completo dom-consensus agora foi compilado com sucesso para
+riscv32im-risc0-zkvm-elf usando exatamente:
+
+  cargo +risc0 check --locked -p dom-consensus \
+    --no-default-features --features portable-crypto \
+    --target riscv32im-risc0-zkvm-elf
+
+O teste ocorreu em target directory isolado, com o toolchain RISC Zero já
+fixado no ambiente. Não foi necessário alterar código para obter o resultado:
+as mudanças de portabilidade das etapas 190 e 191 já haviam removido RandomX
+FFI, o backend secp256k1-zkp nativo e a entropia do sistema desse grafo. O ledger
+estava desatualizado e agora registra:
+
+  production_checkpoint_dom_consensus_no_default_features_rv32_compiled = true
+
+FRONTEIRA VERIFICADA
+
+O script check-dom-consensus-pow-feature-boundary.py também passou e confirmou:
+
+- o grafo portátil exclui criptografia nativa, RNG do sistema e RandomX FFI;
+- o grafo padrão de dom-consensus continua contendo RandomX nativo;
+- o grafo padrão do node continua contendo RandomX nativo.
+
+Portanto, a compilação do guest não enfraquece o nó de produção nem troca o PoW
+usado pelo nó. Ela apenas prova que as regras portáveis do crate de consenso
+podem ser ligadas no alvo RV32 do provador.
+
+LIMITES
+
+Esta compilação não é recibo criptográfico, benchmark nem aprovação do ImageID.
+Ela também não substitui os guests segmentado e externo, que compõem a prova
+recursiva e continuam sujeitos aos seus próprios vetores positivos e medições
+de custo. Esses itens permanecem declarados separadamente.
+
+Auditoria externa e garantia absoluta de risco zero não são gates. Riscos
+residuais devem ser documentados e aceitos. Nenhum push, commit, deploy,
+mineração, carteira, transação ou fundo foi usado.
+
+EVIDÊNCIA
+
+Os logs da compilação e do verificador de dependências estão em
+results-stage198-2026-10-20. O source manifest foi refeito e verificado depois
+desta documentação e da atualização do ledger.

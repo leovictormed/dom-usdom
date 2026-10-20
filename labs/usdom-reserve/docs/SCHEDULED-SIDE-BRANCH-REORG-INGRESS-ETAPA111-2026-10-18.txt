@@ -1,0 +1,63 @@
+USDOM security hardening — etapa 111
+Scheduled side-branch and reorganization ingress
+Date: 2026-10-18
+
+Finding
+
+The schedule-bound ChainState path could atomically connect only a direct
+extension. A PoW production network must also retain fully validated competing
+branches and promote a heavier branch without separating DOM fork choice from
+native USDOM state. Leaving those paths Regtest-only would make the generic
+direct connector unsuitable for real consensus operation.
+
+Change
+
+ChainState now exposes three schedule-bound public methods, all requiring the
+bridge-committed private-spend verifier:
+
+- store_usdom_v4_side_package_for_schedule;
+- promote_usdom_v4_known_tip_for_schedule;
+- ingest_usdom_v4_package_for_schedule.
+
+Side-package retention independently matches the schedule network and derived
+chain ID, restores exact canonical state, finds and authenticates the common
+ancestor, replays every retained side package with the same schedule and proof
+policies, and stores the block plus exact proof sidecar without changing the
+canonical tip.
+
+Scheduled promotion enforces the ordinary DOM accumulated-work fork choice,
+rolling-finality and maximum-depth policies. It rewinds through
+header-authenticated undos, replays every candidate package, reconstructs
+checkpoint target state on the candidate ancestry, validates UTXO/kernel
+effects, and commits canonical height pointers, UTXOs, kernels, native state,
+undos and disconnected sidecars in one LMDB transaction. Caller state and the
+in-memory checkpoint floor change only after that commit succeeds.
+
+Unified scheduled ingress performs exact duplicate detection, chooses direct
+connection or side retention, and invokes promotion only when ordinary fork
+choice selects the candidate. The explicit Regtest methods remain wrappers
+around the same internals and continue to reject non-Regtest callers.
+
+Directed reorganization test
+
+The test creates a real Groth16 verifier and commits its configuration hash to
+the bridge, rejects a substituted activation height without mutation, connects
+the first and second canonical blocks, retains a distinct competing block at
+height two without moving the tip, then ingests its height-three child. The
+heavier branch is atomically promoted and the reconstructed USDOM state equals
+the expected state.
+
+Validation
+
+- complete dom-chain library suite: 75 passed, 0 failed;
+- native ChainState integration suite: 5 passed, 0 failed;
+- native node runtime integration suite: 8 passed, 0 failed;
+- Clippy for dom-chain and dom-node, all targets, warnings denied: passed;
+- cargo fmt --check, JSON parse and git diff --check: passed;
+- closed-mainnet and real-funds gates remain fail-closed.
+
+Production status
+
+Scheduled headers-first IBD and node runtime/miner wiring remain absent, and no
+Mainnet activation schedule has been ratified. The public release flags remain
+false. No push, commit, deployment or funds operation was performed.

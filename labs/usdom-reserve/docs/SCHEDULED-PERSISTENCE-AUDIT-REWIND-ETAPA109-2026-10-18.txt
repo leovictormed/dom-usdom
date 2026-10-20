@@ -1,0 +1,61 @@
+USDOM security hardening — etapa 109
+Scheduled persistence audit and authenticated rewind
+Date: 2026-10-18
+
+Finding
+
+Exact-schedule restoration and public-network-neutral block validation existed,
+but the structural reorganization-window audit and state rewind still rejected
+every network except Regtest. A future public-network ingress would therefore
+need to duplicate those security-critical persistence rules or weaken the
+Regtest guard.
+
+Change
+
+Two schedule-bound, read-only primitives now support every recognized DOM
+network:
+
+- audit_persisted_usdom_v4_reorg_window_for_schedule;
+- rewind_persisted_usdom_v4_state_to_ancestor_for_schedule.
+
+Both require the schedule network to equal the selected network and restore
+the tip through the exact persisted activation record. The audit walks only
+canonical header/package/undo bindings, enforces the maximum reorganization
+depth, and rejects v4 below the ratified first-v4 height. If it reaches a
+non-v4 block, that block must be exactly `first_v4_height - 1` and the rewound
+state must equal the canonical empty bridge state.
+
+The scheduled rewind authenticates every undo through the exact block header
+batch commitment, bounds the walk by the reorganization policy, requires a
+known nonzero ancestor and rejects an ancestor below the activation parent.
+Neither function mutates the store.
+
+The existing Regtest functions remain explicit wrappers that select only the
+fixed Regtest schedule. They still reject Mainnet and Testnet callers, so the
+new generic primitives cannot accidentally turn the research runtime into a
+public-network activation.
+
+Mainnet identity vector
+
+A directed test constructs an empty native state using the repository's exact
+configured Mainnet genesis hash and derived chain ID, installs a synthetic
+first-v4-height-one schedule atomically at genesis, then proves that exact
+schedule restoration, audit and zero-step rewind succeed. A substituted height
+fails, and the Regtest wrapper continues to reject Mainnet. This is a structural
+test vector; it is not a ratified production activation schedule.
+
+Validation
+
+- complete dom-chain library suite: 75 passed, 0 failed;
+- native node runtime integration suite: 8 passed, 0 failed;
+- Clippy for dom-chain and dom-node, all targets, native feature, warnings
+  denied: passed;
+- cargo fmt --check, JSON parse and git diff --check: passed;
+- closed-mainnet and real-funds gates remain fail-closed.
+
+Production status
+
+This removes Regtest-only assumptions from structural persistence verification.
+Scheduled public-network chain ingress, IBD, runtime/miner wiring and a ratified
+production schedule are still absent. No push, commit, deployment or funds
+operation was performed.

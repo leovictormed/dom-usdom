@@ -1,0 +1,60 @@
+USDOM — EXECUÇÃO POSITIVA DO GUEST ECONÔMICO — ETAPA 196
+Data: 2026-10-20
+
+RESULTADO
+
+O ProgramBinary congelado do guest de parte econômica foi executado com sucesso
+no executor oficial risc0-r0vm 3.0.6. O guest consumiu um pacote DOM v4, a
+testemunha econômica UDECCW01 e a transição UDECTN01 construídos pelo caminho de
+referência do host. Ele terminou com Halted(0) e publicou exatamente o compromisso
+esperado pelo host.
+
+ARTEFATO E AMBIENTE
+
+- ELF SHA-256:
+  eb4091a118e19205ae4ff6d776e18e811aa2a80063695e768be2a26be45fb3a0
+- ProgramBinary SHA-256:
+  5e7bc30f65ab4eae7c8b19a8c1c386cd023cd648c85f64008be2bd4729231842
+- ImageID candidato:
+  67d286e04444b52305ec409de3c0d22b2131a42f2aa6706f087ace253048e350
+- executor: risc0-r0vm 3.0.6
+- limite de segmento: 2^20 ciclos
+- máquina: Intel Core i5-8250U, 4 núcleos/8 threads, 7,7 GiB de RAM
+
+MEDIÇÃO POSITIVA
+
+- pacote canônico: 1.207 bytes
+- testemunha: 105 bytes
+- ciclos de usuário: 56.677.238
+- segmentos: 57
+- tempo observado do executor: 1.619 ms
+- journal:
+  22c9ffd32489de5750c135f199b474b0e87b0e241153db31fc1a1ce85d1661ae
+
+O arquivo de resultado preserva a lista de ciclos de cada segmento. O processo
+não minerou blocos, não usou carteira, não transmitiu transação e não acessou
+fundos.
+
+INTERPRETAÇÃO
+
+Este teste fecha a dúvida sobre a execução positiva do guest econômico isolado:
+o binário realmente roda na zkVM e concorda com a implementação de referência.
+Ele também fornece uma contagem real de ciclos para planejar a prova.
+
+Não foi gerado recibo criptográfico. A contagem de ciclos de execução não deve
+ser apresentada como custo ou tempo de prova. Uma tentativa exploratória com
+segmentos 2^22 ficou em espera de disco antes de iniciar o guest e foi encerrada;
+nenhum processo continuou em segundo plano. Por isso continuam falsos os campos
+de recibo positivo e custo de prova.
+
+POLÍTICA DE LIBERAÇÃO
+
+A ausência de garantia total de risco zero não é bloqueio de mainnet. Auditoria
+externa também não é condição obrigatória do gate. A liberação poderá aceitar
+risco residual explicitamente documentado. Permanecem bloqueios somente fatos
+concretos ainda não satisfeitos, como a cadeia recursiva positiva completa,
+provas/custos compatíveis, configuração de produção, ensaio de recuperação e
+autorizações correspondentes.
+
+Nenhum push, commit, deploy, prova criptográfica, mineração ou uso de fundos
+ocorreu nesta etapa.

@@ -1,0 +1,65 @@
+USDOM nativa — adaptador opaco estado/lote/cabeçalho v4
+Etapa 33, 2026-10-17
+
+Estado: composição isolada somente para Regtest, sem ingresso em ChainState,
+mineração, P2P ou IBD. Sem ativação pública, deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Fronteira eliminada
+
+A etapa 32 aceitava um batch_header_commitment na estrutura do validador de
+consenso. Isso é correto para a primitiva, mas uma futura integração não pode
+confiar em um hash fornecido separadamente pelo chamador. O novo recurso opt-in
+native-usdom-v4-poc cria a fronteira de composição:
+
+- recebe o estado nativo anterior e capacidades VerifiedTransition opacas;
+- aplica o lote ordenado somente a uma cópia do estado;
+- deriva o recibo, as raízes anterior/posterior e o header_commitment;
+- usa esse valor calculado para validar o corpo e o vínculo do bloco v4;
+- retorna uma capacidade opaca contendo estado candidato, recibo e undo exatos;
+- em qualquer erro, mantém o estado de entrada inalterado.
+
+O resultado não implementa Clone e seus campos são privados. Um teste
+compile-fail impede construção direta. Isso reduz a chance de separar ou trocar
+estado, recibo e undo antes da futura persistência atômica.
+
+2. Falha fechada e escopo correto
+
+A função rejeita antes de aplicar o lote se rede, versão ou altura do contexto
+não coincidirem com o caminho Regtest v4. Depois, o consenso recalcula PMMRs,
+corpo e vínculo USDOM. Os testes substituem transições, compromisso no cabeçalho,
+rede e altura e comprovam que o estado original não muda.
+
+O tipo se chama VerifiedUsdomV4Candidate de propósito. Ele valida a transição
+nativa e o corpo v4, mas não afirma ter executado pai, median-time-past, limite de
+tempo futuro, alvo, dificuldade acumulada ou PoW. Esses controles contextuais
+pertencem ao ChainState e continuam fora deste experimento. A API e a documentação
+não permitem confundir o candidato com um bloco conectado.
+
+3. Validação
+
+- 58 testes da biblioteca dom-chain com o recurso habilitado passaram;
+- 1 compile-fail da capacidade opaca passou;
+- Clippy de todos os alvos com warnings como erros passou;
+- cargo check release da biblioteca com o recurso habilitado passou sem a
+  feature unsafe-test-oracle;
+- os testes adversariais de balanço agregado e ingresso foram executados
+  separadamente;
+- rustfmt e git diff --check passaram.
+
+Uma tentativa adicional da suíte integral, que inclui um proptest existente de
+sincronização, atingiu o timeout de 600 segundos enquanto o sistema aguardava I/O
+de journal em disco quase cheio. Nenhuma falha de asserção ocorreu antes do
+limite. Artefatos regeneráveis foram limpos e os conjuntos acima foram repetidos
+com sucesso. O timeout não é contado como teste aprovado.
+
+4. Limites restantes
+
+Ainda não existe envelope canônico limitado que transporte as provas pela rede
+e produza VerifiedTransition. A capacidade desta etapa não é persistida por
+ChainState e não cobre side branches ou reorg. A versão v4 permanece rejeitada em
+todos os ingressos normais.
+
+Também faltam circuito/verificador privado, testemunho real do registry Ethereum,
+carteira privada, ativação/migração, parâmetros e multisigs, shadow run e auditorias
+independentes. mainnet_ready e real_funds_ready permanecem false.

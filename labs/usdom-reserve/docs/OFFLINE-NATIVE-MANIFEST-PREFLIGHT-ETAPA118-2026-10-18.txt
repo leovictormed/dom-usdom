@@ -1,0 +1,51 @@
+USDOM / DOM — ETAPA 118
+PRÉ-VALIDAÇÃO OFFLINE DO MANIFESTO NATIVO
+Data: 2026-10-18
+
+Resultado
+
+Foi adicionado o executável dom-usdom-manifest-check, disponível somente no
+build com native-usdom-v4-poc. Ele recebe caminho, SHA-256 e rede por argumentos
+não secretos e chama o mesmo carregador usado pelo dom-node. Nenhum banco,
+listener, peer, carteira ou minerador é aberto.
+
+Fronteira verificada
+
+- SHA-256 exato do manifesto e da chave verificadora.
+- JSON versionado e estrito, rede DOM e programação canônica.
+- Checkpoint inicial, forks e políticas imutáveis Ethereum.
+- Identidade da ponte, reserve, chain ID e domínios cruzados.
+- Raiz vazia comprometida pela programação.
+- Chave Groth16 canônica, forma dos inputs públicos e config_hash da ponte.
+
+Saída para revisão
+
+Após sucesso, o utilitário imprime somente valores públicos: rede e magic,
+chain ID, altura, raiz vazia, compromisso da programação, domínio DOM, genesis
+validators root Ethereum, chain ID Ethereum, reserve, hashes das políticas,
+política de privacidade, configuração do verificador e SHA-256 da chave. Isso
+permite comparar uma configuração ratificada em duas máquinas antes de iniciar
+qualquer nó.
+
+Validação
+
+- Parser: 3 testes aprovados; configuração completa aceita e opções parciais,
+  duplicadas, desconhecidas ou de rede inválida rejeitadas.
+- Ajuda é a única ação sem valores.
+- Clippy do binário com warnings negados: aprovado.
+- cargo fmt --all -- --check e git diff --check: aprovados.
+
+Uso
+
+cargo run -p dom-node --features native-usdom-v4-poc \
+  --bin dom-usdom-manifest-check -- \
+  --manifest-file CAMINHO \
+  --manifest-sha256 SHA256_HEX_MINÚSCULO \
+  --network mainnet
+
+Limites
+
+O utilitário verifica consistência e identidade, mas não aprova os valores. Um
+manifesto de produção, sua chave, checkpoint, programação e parâmetros ainda
+precisam ser definidos, revisados e ratificados externamente. Nenhum push,
+deploy ou uso de fundos foi realizado.

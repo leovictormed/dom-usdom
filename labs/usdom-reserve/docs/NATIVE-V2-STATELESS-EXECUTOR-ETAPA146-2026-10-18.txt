@@ -1,0 +1,77 @@
+USDOM candidate-v2 stateless native executor — stage 146
+Date: 2026-10-18
+
+Purpose
+=======
+
+Stage 145 authenticated every native replay-protection and Ethereum-identity
+set, but its sparse and accumulator witnesses still advanced separate parts of
+the candidate state. This stage composes those openings with the complete
+state-dependent transition relation and binds the supplied decomposition to an
+independently authenticated previous root.
+
+Complete transition witness
+===========================
+
+NativeTransitionWitness combines UDAFRT01 and UDNSET01. UDNVW001 is its unique
+bounded transport: an eight-byte magic, exact u32 lengths, and the two canonical
+component encodings. Decoding rejects oversized input, arithmetic overflow,
+truncation, trailing data, altered lengths, invalid component encodings and any
+representation that does not re-encode byte for byte.
+
+Keccak-256 of the frozen initial-issuance UDNVW001 vector:
+  af43c6bc5675031cdd5a8844ec89cebe07dd8e444d3f45876ea4f58b4f310487
+
+Authenticated execution
+=======================
+
+apply_v2 requires the expected previous root separately and rejects zero or a
+decomposition whose DOM:usdom-state:v2 hash differs. It checks structural v2
+invariants before and after execution, including note/set counts, burn/request
+counts, supply bounds, anchor-history bounds, issuance identity counts, all
+nonzero component roots, immutable bridge policy and Ethereum chain identity.
+
+After the transition has been converted into an opaque VerifiedTransition by
+the deposit, Ethereum-finality or private-spend verifier, the stateless executor
+reproduces the full state-dependent rules:
+
+* issuance uniqueness, note insertion, amount accounting, Ethereum genesis,
+  execution/Beacon identity consistency and high-water advancement;
+* transfer nullifier/note uniqueness, canonical shape and retained input anchor;
+* burn uniqueness, retained anchor, canonical shape, bridge target, private
+  burn-id derivation, supply bound, Ethereum freshness, clock margins, deadline
+  bounds and exact Solidity obligation commitment; and
+* checkpoint genesis identity, monotonicity and strict advancement.
+
+It advances PMMR, Poseidon and retained-anchor frontiers and all seven sparse
+roots without historical notes or complete sets. Tests compare the entire
+resulting StateCommitmentV2 byte-for-byte with the full-state executor for all
+four transition kinds.
+
+Ordered block batches
+=====================
+
+apply_v2_transition_batch executes up to the consensus maximum of 1,024
+transitions, chaining every returned root into the next witness. The generator
+constructs witnesses against a cloned full state and applies the same ordered
+batch while producing them. Tests prove equality with atomic full-state batch
+execution and reject missing or reordered witnesses. Empty batches still
+authenticate the supplied previous root and validate the v2 decomposition.
+
+Security boundary and remaining work
+====================================
+
+The executor accepts only opaque VerifiedTransition capabilities; raw deposit,
+checkpoint or private proof bytes cannot construct them. This stage does not
+activate v2 or change the current v1 consensus root. Production still requires:
+
+1. Expose an equally bounded proof-verified block-envelope capability so the
+   checkpoint program can use UDNVW001 without opening NativeUsdomState.
+2. Freeze and test the v1-to-v2 activation snapshot, header commitment version,
+   persistence/rebuild procedure and reorg behavior.
+3. Select and benchmark the production proving backend, complete the 360+30
+   positive checkpoint vector and publish immutable verifier/key artifacts.
+4. Ratify production identities, limits and incident procedures, then obtain
+   independent audits and complete a capped public rehearsal.
+
+No push, deployment, transaction or use of funds was performed.

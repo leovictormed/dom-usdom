@@ -1,0 +1,67 @@
+Ethereum mainnet cold start — etapa 87
+Date: 2026-10-17
+Status: isolated implementation; no deployment, push, mainnet activation, or real funds
+
+Finding USDOM-087
+
+Severity: Medium operational risk, potentially High during a production launch.
+Current public exposure: none; Ethereum mainnet deployment remains fail closed.
+
+A future production artifact satisfying every compiled hash would previously
+begin unpaused. Deposit admission would therefore be open as soon as the
+deployment transaction became final, before operators had a mandatory window
+to compare deployed bytecode and immutables, validate both multisigs, observe
+the verifier and monitoring stack, and complete a launch exercise.
+
+Remediation
+
+USDOMProofReserve now has a chain-bound cold-start rule. Any successful chain
+ID 1 deployment starts paused and emits Paused from construction. Deposit,
+proof admission and payout remain unavailable. Governance must call
+scheduleResume and wait the immutable governanceDelay before permissionless
+executeResume can open the reserve. executeResume still revalidates verifier
+identity/configuration and the USDT safety policy.
+
+Local EVM networks retain the unpaused test behavior. The production config
+commitment already binds chain ID and governanceDelay, and the audited runtime
+hash binds this cold-start implementation.
+
+Validation
+
+- Solidity default suite: 100 passed; 0 failed;
+- Solidity deep suite: 100 passed; 0 failed, including 16,384 fuzz cases per
+  fuzz property and 1,024 x 128-call runs for each state invariant;
+- Node/SDK/integration suite: 35 passed; 0 failed;
+- contract-only Forge lint with compiler warnings denied: passed;
+- forge fmt and git diff whitespace checks: passed;
+- USDOMProofReserve runtime size: 13,439 bytes, 11,137 bytes below EIP-170.
+
+Remaining mainnet blockers
+
+The code is not ready for an actual closed mainnet deployment or real funds.
+The remaining gates are substantive, rather than ordinary contract cleanup:
+
+1. select and implement the production DOM activation schedule and block-header
+   state commitment; the complete native v4 path is still Regtest-only;
+2. produce the Ethereum-verifiable finalized-burn verifier and immutable
+   finality registry, including audited circuit/guest code, production
+   verification key and any trusted-setup ceremony;
+3. validate a real finalized USDT deposit through native issuance, private
+   transfer, burn, finality proof and Ethereum payout end to end;
+4. complete independent reviews of issuance commitments, privacy circuits,
+   consensus changes, Solidity custody and operational procedures;
+5. define and ratify the DOM domain, exact reserve/verifier addresses,
+   governance and guardian multisigs, delays, exposure and outflow limits;
+6. integrate production key custody and the wallet monotonic rollback seal,
+   monitoring, archival recovery and incident exercises;
+7. compile the three audited nonzero release hashes and verify the exact
+   deployment manifest reproducibly;
+8. obtain explicit deployment authorization. Real-funds authorization is a
+   later and separate decision after the paused deployment is verified.
+
+Mainnet-fork tests can continue locally now. An actual Ethereum mainnet
+transaction remains deliberately impossible with the present zero release
+hashes and is not authorized.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

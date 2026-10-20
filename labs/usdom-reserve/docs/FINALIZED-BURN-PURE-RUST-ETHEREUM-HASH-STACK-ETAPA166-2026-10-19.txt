@@ -1,0 +1,79 @@
+USDOM ETAPA 166 — PILHA ETHEREUM HASH/SSZ SEM RING
+Data: 2026-10-19
+
+ACHADO
+
+Depois da separação do hash Blake2b da etapa 165, a árvore normal do programa
+UDFINL02 ainda continha ring 0.17.14. O caminho era:
+
+tree_hash 0.10.0 -> ethereum_hashing 0.7.0 -> ring
+
+O ethereum_hashing publicado escolhe em tempo de execução entre RustCrypto e
+ring. Isso não altera o SHA-256, mas introduz C/assembly, build scripts e seleção
+dependente da arquitetura no futuro guest. O programa não precisa dessa
+otimização para definir a relação criptográfica.
+
+CORREÇÃO
+
+Foram adicionados três crates locais explicitamente selecionados por path:
+
+- ethereum_hashing 0.7.0: implementação no_std/alloc, somente RustCrypto SHA-256;
+- tree_hash 0.10.0: fontes publicadas preservadas, apontando para o hash local;
+- ssz_types 0.11.0: fontes publicadas preservadas, apontando para tree_hash local.
+
+Nenhum [patch] global foi adicionado. dom-ethereum-consensus-core e o laboratório
+de finalidade declaram os paths diretamente, tornando a origem visível em cada
+manifest. O gate resolve cargo metadata e exige exatamente esses três manifests;
+um pacote de registry com o mesmo nome/versão é rejeitado no closure do UDFINL02.
+
+O hash local preserva hash, hash_fixed, hash32_concat, Context,
+Sha256Context, Sha256, Sha2CrateImpl, DynamicImpl e a escada ZERO_HASHES de
+profundidade 0..48. Não usa unsafe, relógio, aleatoriedade, arquivo, rede,
+runtime dispatch, C ou assembly.
+
+PROVENIÊNCIA
+
+As versões, checksums crates.io, repositórios e modificações estão congelados em
+crates/dom-ethereum-hashing/PROVENANCE.json. O script
+check-ethereum-proof-hash-stack.py verifica cada fonte Rust/README de
+tree_hash e ssz_types contra hashes dos pacotes publicados. A única diferença
+de fonte permitida é o teste de tamanho do Context: 232 bytes no backend duplo
+upstream e 120 bytes no backend RustCrypto único. Lints modernos são permitidos
+pontualmente nos manifests para não reescrever fontes importadas.
+
+VERIFICAÇÃO
+
+- 4 testes SHA-256: vazio, abc, hello world, milhão de 'a', incremental,
+  concatenação e toda a escada de zero hashes;
+- 36 testes ssz_types;
+- 42 testes unitários e 5 de integração tree_hash;
+- 3 doctests ssz_types; 7 exemplos tree_hash continuam marcados ignored pelo
+  upstream e não foram contados como aprovação;
+- feature opcional arbitrary de ssz_types compilada e testada;
+- 4/4 testes executáveis do dom-ethereum-consensus-core; 1 teste oficial ficou
+  ignored porque exige o corpus externo CONSENSUS_SPEC_TESTS;
+- 19 testes de finalidade/recibos/checkpoints e 6 do programa UDFINL02;
+- Clippy --all-targets --all-features -D warnings;
+- compilação do ethereum_hashing com e sem ZERO_HASHES para
+  riscv32im-unknown-none-elf;
+- proveniência, fronteira de dependências, formatação e git diff verificados.
+
+RESULTADO
+
+A árvore normal do UDFINL02 caiu de 169 para 167 nomes de pacotes únicos. ring
+deixou o closure, assim como os backends secp256k1/Bulletproof já removidos. O
+hash Ethereum isolado agora compila para RISC-V sem sistema operacional. Os
+fixtures históricos Helios, provas MPT, statement de queima e hashes de estado
+continuam válidos.
+
+LIMITES
+
+Isto ainda não é um guest SP1/RISC Zero nem uma prova de produção. tree_hash,
+ssz_types, Alloy, BLS12-381, Arkworks e o restante da relação ainda precisam ser
+compilados no target exato do backend selecionado e medidos com a testemunha
+máxima. Continuam faltando ELF/ImageID ou circuito/VK reproduzíveis, prova real,
+verificador Solidity auditado e checkpoint Ethereum real positivo. Os requisitos
+production_finalized_burn_* permanecem false e os gates de mainnet/fundos reais
+continuam fechados.
+
+Nenhum push, commit, deploy, transação pública ou fundo real foi usado.

@@ -1,0 +1,54 @@
+Stage 184 - portable zkVM segment receipt bindings
+Date: 2026-10-19
+
+Finding
+
+Stage 183 derived exact ordered RandomX receipt requirements, but the public
+implementation was gated by host-reference. That feature links dom-chain,
+dom-consensus, native RandomX, storage and the complete native USDOM verifier
+stack. It cannot be the dependency boundary of a deterministic RISC Zero guest.
+The checkpoint program also depended unconditionally on dom-pow merely for the
+seed schedule, compact-target expansion and target comparison. That pulled
+primitive-types, RNG support and host-oriented code into the nominally portable
+graph.
+
+Implemented portable boundary
+
+1. A dependency-free segment-bindings feature now exposes the exact Stage 183
+   relation without adding any normal dependency to the checkpoint program.
+2. The relation parses bounded USDOMBL4 package framing, the fixed 256-byte DOM
+   v4 header and canonical USDOMV41 envelope framing directly. It derives the
+   224-byte RandomX preimage by the consensus field order, copies the claimed
+   RandomX output and compact target, and hashes the exact serialized header for
+   its non-genesis canonical identifier.
+3. Genesis-to-chain-ID derivation uses the portable dom-core tagged Blake2b
+   implementation. The previous UDCSEG02 state still authenticates the expected
+   chain ID, so a caller cannot select another genesis.
+4. Seed-height selection, compact-target expansion and big-endian target
+   comparison are small portable functions. A deterministic 100,000-vector
+   differential test compares them to dom-pow, in addition to epoch and boundary
+   vectors. Host tests also prove the portable header projection produces the
+   exact same UDCRXST1 statement as the typed consensus BlockHeader path.
+5. Host-reference retains full typed decoding of the package, native witness and
+   economic witness before invoking the portable binding relation. A future
+   complete guest must likewise validate those bodies in its transition loop;
+   the portable header projection grants no native/economic transition authority.
+
+Portability evidence
+
+The default and segment-bindings normal dependency graphs are identical at 34
+packages. Both exclude dom-pow, primitive-types, getrandom, randomx-rs,
+dom-chain, dom-consensus, dom-store, LMDB, Tokio, dom-usdom-state and
+dom-usdom-privacy. The segment-bindings library compiles successfully with the
+installed RISC Zero toolchain for riscv32im-risc0-zkvm-elf. The enforced Python
+boundary checker fails if a forbidden dependency returns.
+
+Security status
+
+This makes exact per-block receipt binding compilable in the zkVM, but it is
+still only one component of the complete checkpoint transition guest. The guest
+must also execute ordinary DOM consensus/economic validation, native USDOM
+state transitions, one recursive RandomX receipt per block and final public
+state emission. No production RandomX guest, ImageID or receipt exists yet.
+Closed mainnet and real funds remain fail closed. No deploy, public transaction,
+funds, commit or push occurred. The node and miner remained stopped.

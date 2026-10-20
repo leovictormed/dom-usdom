@@ -1,0 +1,57 @@
+Stage 223 - RISC Zero upstream emergency-stop monitoring
+Date: 2026-10-20
+
+Finding USDOM-223 (High)
+
+USDOM intentionally pins RISC Zero's direct immutable Groth16 verifier. The
+official emergency-stop contract is a separate wrapper, so stopping that
+wrapper does not disable the direct verifier. If RISC Zero signals a critical
+proof-system defect by pausing the wrapper, an unmonitored USDOM deployment
+could continue accepting proofs from the affected direct verifier.
+
+Correction
+
+1. The strict upstream reference is upgraded to v3 and now also pins the
+   emergency-stop wrapper runtime code hash.
+2. sdk/risc0-health.mjs performs a fail-closed pure assessment at one finalized
+   Ethereum block. It validates the chain and finalized block identity, direct
+   verifier address/code/selector/version, wrapper address/code, wrapper-to-
+   verifier binding and paused state.
+3. scripts/check-risc0-health.mjs provides a read-only recurring health command.
+   It returns nonzero for any mismatch, stopped state, unavailable call or
+   malformed reference and redacts the configured RPC URL from errors.
+4. The mainnet predeployment and cold-start preflight use the same health
+   assessment, so a stopped upstream verifier signal blocks activation.
+5. The release gate now requires an operator drill that demonstrates the USDOM
+   guardian response to a failed health check. That drill is still pending and
+   is an objective operational blocker, independent of audit availability.
+
+Current read-only observation
+
+The health command was executed against finalized Ethereum mainnet state:
+
+- finalized block: 26233306
+- finalized block hash:
+  0xe0a59587204c97ebf600f9689098e7becd743810a64fd08493416a33757c2a62
+- direct verifier identity: matched the reviewed pin
+- emergency-stop wrapper runtime code: matched the reviewed pin
+- wrapper verifier(): 0x2a098988600d87650Fb061FfAff08B97149Fa84D
+- wrapper paused(): false
+- result: healthy, zero blockers
+
+This observation is time-specific evidence, not a permanent safety claim. The
+check must run continuously in operations and immediately before activation.
+On failure, the reserve guardian must pause new deposits, proof admission and
+payout execution. If proof soundness is in doubt, the checkpoint guardian must
+also prevent new checkpoints according to the rehearsed incident procedure.
+
+Risk policy
+
+Unknown defects in a currently healthy verifier remain residual risk and can be
+accepted for an exact release. A live upstream emergency stop or identity
+mismatch is known evidence that the reviewed assumptions no longer hold, so it
+is an objective pause condition rather than a demand for zero risk. External
+audit remains optional.
+
+No deploy, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred. The Ethereum interaction was read-only.

@@ -1,0 +1,110 @@
+USDOM nativa — estado monetário, persistência atômica e fronteira de provas
+Etapa 24, 2026-10-17
+
+Estado: prova de conceito isolada. Sem ativação, deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Resultado implementado
+
+O novo crate crates/dom-usdom-state implementa o estado canônico da USDOM como
+ativo separado da DOM. Ele mantém uma árvore PMMR de compromissos de notas,
+nullifiers gastos, depósitos Ethereum consumidos, obrigações públicas de queima,
+histórico limitado de âncoras, totais emitido/queimado e identidade de finalidade
+Ethereum. A raiz composta compromete todos esses componentes e o domínio imutável
+da ponte. Nenhuma recompensa, emissão ou regra monetária da DOM foi alterada.
+
+Emissão, transferência e queima entram no estado somente como capacidades opacas
+Verified*. Os campos são privados e um doctest compile_fail prova que consumidores
+externos não conseguem fabricá-las. Os únicos construtores artificiais exigem a
+feature unsafe-test-oracle; uma compilação otimizada com essa feature falha por
+compile_error. Ainda não existe construtor de produção porque ainda não existe
+um circuito/verificador de privacidade revisado. Isso deixa a integração de
+produção fechada em vez de promover fixtures a autoridade monetária.
+
+A aplicação clona o estado candidato e só o publica após todas as verificações.
+Rejeita domínio errado, depósito repetido, compromisso repetido, nullifier gasto,
+ID de queima repetido, raiz de nota fora da janela, formatos fora dos limites,
+queima acima da oferta e conflitos de identidade Ethereum. Nullifiers públicos
+devem estar em ordem canônica para impedir duas codificações com a mesma mudança
+de estado. O undo canônico é limitado a 16 KiB, rejeita truncamento, bytes extras,
+flags e ordens alternativas, exige a raiz posterior exata e recompõe a raiz
+anterior antes de substituir o estado.
+
+2. Identidade Ethereum correta
+
+Cada emissão registra o genesis_validators_root, número/hash do bloco de execução
+que contém o depósito e slot/raiz do checkpoint Beacon finalizado que autenticou
+esse bloco. A verificação completa do depósito no laboratório agora preserva e
+expõe esses quatro fatos junto do depósito opaco.
+
+Bloco de depósito e checkpoint finalizador são identidades diferentes. Vários
+blocos históricos podem ser autenticados pelo mesmo checkpoint posterior, e um
+depósito antigo pode ser apresentado depois de um mais novo. O estado permite
+esses casos, mas exige um único hash para cada altura de execução, uma única raiz
+para cada slot Beacon e um único genesis_validators_root. A marca d'água é escolhida
+deterministicamente pelo maior slot finalizado e, em empate, pela maior altura de
+execução. Aplicação em memória e reconstrução após reinício executam a mesma regra.
+
+3. Persistência e reorganização
+
+dom-store possui o banco LMDB consensus_state. commit_block_with_consensus_state
+e apply_reorg_with_consensus_state alteram cabeçalho, corpo, índice de altura,
+tip, UTXOs, kernels, estado USDOM e undo em uma única transação LMDB durável.
+Chaves, valores, lote agregado, quantidade de atualizações e chaves repetidas
+têm limites explícitos validados antes da transação.
+
+NativeUsdomState exporta pares versão usdom/v1, reconstrói o PMMR e recalcula
+raízes, totais e identidades em startup. Estado desconhecido, ausente, alterado
+ou não canônico é rejeitado. O teste integrado conecta o estado inicial, emite,
+fecha/reabre o LMDB, transfere e reorganiza de volta usando undo persistido; tip,
+estado e undo mudam atomicamente. Pmmr::rewind restaura exatamente cada raiz
+anterior e recusa avançar para uma contagem futura.
+
+4. Evidência desta etapa
+
+- dom-usdom-state: 8 testes unitários e 1 compile-fail.
+- dom-store: suíte completa, inclusive SIGKILL, reabertura, corrupção dirigida,
+  equivalência de recuperação e integração USDOM.
+- dom-pmmr: 46 testes unitários, vetores, propriedades e adversariais.
+- verificador Ethereum: 44 testes funcionais e 5 compile-fail.
+- rustfmt, clippy com warnings como erros (mantida apenas a exceção documentada
+  para uma API deprecated no fonte Helios copiado byte a byte) e diff check.
+- build release com unsafe-test-oracle é rejeitado como exigido.
+
+Os logs e hashes estão em results-stage24-2026-10-17. Testes demonstram as
+propriedades exercitadas, não substituem revisão criptográfica independente.
+
+5. Decisão sobre o backend de privacidade
+
+Nenhum backend foi integrado nesta etapa. O repositório arkworks/groth16 alerta
+explicitamente que sua implementação é protótipo acadêmico sem revisão cuidadosa
+e não está pronta para produção; ela não será introduzida como atalho.
+Fonte: https://github.com/arkworks-rs/groth16
+
+Halo2/Orchard é uma base de pesquisa mais próxima de um protocolo de notas em uso,
+mas não pode ser copiada como se já provasse a relação USDOM. A USDOM precisa de
+circuito próprio para emissão vinculada ao depósito, gasto, conservação, queima,
+nullifier, pertença e domínio. A correção exige chave/verificador versionados,
+comprimento canônico de prova e auditoria do circuito. Uma falha de soundness no
+circuito Orchard exigiu correção e hard fork em 2026, reforçando esse bloqueio.
+Fontes:
+https://github.com/zcash/halo2
+https://github.com/zcash/orchard
+https://github.com/zcash/zcash/security/advisories/GHSA-ghc3-g8w4-whf9
+
+Próximo experimento permitido: benchmark isolado do circuito candidato e dos
+inputs públicos congelados. Nenhuma chave, circuito ou fixture experimental pode
+autorizar fundos antes de revisão independente e ativação explícita de consenso.
+
+6. Bloqueadores restantes
+
+- formato de transação/bloco USDOM e compromisso da raiz no cabeçalho por hard fork;
+- verificador ZK real para emissão, transferência e queima, com vetores negativos;
+- caminho idêntico em mempool, mineração, blocos de peers, IBD, snapshot e reorg;
+- criptografia de notas, scanning, testemunhas, recuperação e privacidade de taxas;
+- prova Ethereum de queima final DOM e contrato verificador imutável/versionado;
+- bootstrap de weak subjectivity, política de forks Ethereum e recuperação testada;
+- limites e parâmetros de produção, multisigs independentes e ensaio shadow;
+- auditorias independentes de circuito, consenso, contratos, carteira e operação.
+
+Até esses itens serem concluídos, real_funds_ready e mainnet_ready permanecem false.

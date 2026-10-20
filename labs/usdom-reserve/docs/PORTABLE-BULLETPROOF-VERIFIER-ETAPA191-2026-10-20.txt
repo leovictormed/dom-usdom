@@ -1,0 +1,64 @@
+USD0M — VERIFICADOR BULLETPROOF PORTÁTIL — ETAPA 191
+Data: 2026-10-20
+
+RESULTADO
+
+Foi removida a maior dependência criptográfica nativa que impedia a execução do
+consenso DOM no guest externo de checkpoint. O novo crate
+`dom-bulletproof-portable` implementa em Rust puro e `no_std` a verificação do
+formato Bulletproof já usado pela DOM: prova agregada fixa de 739 bytes, dois
+compromissos `(v, MAX-v)`, 64 bits, gerador H_DOM e o transcript clássico do
+grupo secp256k1-zkp/Grin. O verificador preserva a vinculação opcional de
+`extra_commit` usada pela carteira V3.
+
+A tabela congelada contém os 256 geradores exigidos, totaliza 8.448 bytes e tem
+SHA-256:
+
+  7e4332307e2b6bd8788ddfa76641e92645edae37c6a33ec2dea12a843d36255d
+
+Cada ponto foi comparado, antes de congelar a tabela, com duas implementações
+independentes da mesma derivação: a API Rust fixada do Blockstream
+secp256k1-zkp e a API C antiga usada pelo Grin. Os 256 pontos coincidiram.
+
+FRONTEIRAS DE DEPENDÊNCIA
+
+- `dom-crypto` preserva o backend nativo como default para nó, carteira e
+  criação de provas.
+- A feature `portable-verifier` seleciona somente o verificador Rust puro.
+- `dom-consensus` preserva por default `native-crypto` e `native-randomx`.
+- A feature `portable-crypto`, usada sem defaults, remove do grafo RandomX FFI,
+  grin-secp256k1zkp, secp256k1-sys, zkp-sys, rand e getrandom.
+- A validação de chaves públicas e secretas em `dom-crypto` passou a usar k256,
+  removendo outra dependência C do caminho portável.
+
+VALIDAÇÃO
+
+- 6 testes do crate portátil passaram;
+- compilação do crate portátil para `riscv32im-unknown-none-elf` passou;
+- 2 testes diferenciais contra o backend nativo passaram para valores 0,
+  42.424.242 e MAX, mutações em escalares, pontos, inner proof e byte final,
+  além de `extra_commit` correto, ausente e incorreto;
+- 65 testes de `dom-consensus` passaram;
+- 83 testes de biblioteca de `dom-crypto` passaram, incluindo os dois ensaios
+  de 10.000 ciclos; o ensaio redundante `random_1000_match` foi filtrado desta
+  rodada por seu custo prolongado, depois de todos os casos focados passarem;
+- `dom-node` compila com os backends nativos padrão;
+- Clippy estrito passou para o crate portátil, `dom-crypto` portátil e
+  `dom-consensus` portátil;
+- os gates de dependência confirmaram que o caminho portátil não reintroduz
+  backend nativo, RNG do sistema ou RandomX.
+
+LIMITES CONCRETOS
+
+O crate criptográfico isolado compila para RV32. O crate completo de consenso
+DOM ainda não compila para o alvo bare-metal `riscv32im-unknown-none-elf`
+porque partes gerais do workspace ainda ativam `std`; isso não invalida o
+backend criptográfico. O alvo final é o guest RISC Zero, cuja integração do
+segmento externo ainda precisa executar as transições completas de consenso,
+estado econômico e estado USDOM.
+
+Também continuam pendentes recibos positivos RandomX, medição de custo de
+prova, ImageIDs/configuração de produção e exercícios operacionais. Esses são
+riscos técnicos objetivos. Auditoria externa e garantia absoluta de risco zero
+permanecem explicitamente fora dos bloqueadores de release. Nenhum push,
+commit, deploy, mineração, transação ou uso de fundos ocorreu.

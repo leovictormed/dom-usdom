@@ -1,0 +1,39 @@
+Finalized-burn receipt release gate — Stage 234
+Date: 2026-10-20
+Status: fail-closed gate correction; no proof generation, deployment, funds,
+        mining, commit or push
+
+Finding USDOM-234 (High)
+
+The production requirements ledger already distinguished three boundaries:
+the portable finalized-burn relation, successful execution of the RISC Zero
+guest and acceptance of a non-development receipt by the release-pinned EVM
+verifier. The third field,
+production_finalized_burn_risc0_evm_receipt_verifier_implemented, correctly
+remained false because no receipt has been generated or verified.
+
+The readiness gate required the broad
+production_finalized_burn_verifier_implemented flag and the guest execution
+and benchmark fields, but omitted the existing EVM receipt-verification field.
+A release author could therefore mark only the broad flag true and allow a
+successful executor run to stand in for cryptographic proof verification.
+
+Correction
+
+Both closed-mainnet and real-funds readiness now require
+production_finalized_burn_risc0_evm_receipt_verifier_implemented explicitly.
+The complete ready fixture supplies it, and a dedicated mutation test proves
+that changing only this field to false produces its exact unique blocker.
+
+Release boundary
+
+This condition may become true only after the complete raw finalized-burn
+witness produces a non-development RISC Zero receipt and that receipt is
+accepted by the release-pinned verifier bytecode under the exact ImageID and
+journal. Stage 233 executed the guest and measured cycles; it did not generate
+a proof and therefore does not satisfy this boundary.
+
+Independent external review may strengthen confidence but remains optional.
+An absolute zero-risk guarantee is not required. Receipt generation and exact
+verifier acceptance are objective technical evidence and cannot be replaced by
+residual-risk acceptance.

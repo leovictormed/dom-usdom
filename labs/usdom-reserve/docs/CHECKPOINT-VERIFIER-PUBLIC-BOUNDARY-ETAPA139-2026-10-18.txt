@@ -1,0 +1,62 @@
+Checkpoint verifier public boundary — Stage 139
+Date: 2026-10-18
+Status: public I/O and release identity implemented; consensus-extension program absent
+
+Problem
+
+DOMCheckpointRegistry already required an immutable verifier, but there was no
+independent Rust implementation of the exact public statement accepted by the
+contract and no canonical manifest defining which consensus, fork-choice, PoW,
+state-transition and witness rules a production verifier artifact must enforce.
+A backend could otherwise be compiled against a subtly different statement or
+rule set while still exposing a superficially plausible verifierConfigHash.
+
+Implemented boundary
+
+1. crates/dom-usdom-checkpoint-statement defines the fixed-width 306-byte
+   UDCPST01 public statement and the exact raw 32-byte output expected by the
+   registry verifier. It validates all nonzero identities and requires a
+   strictly advancing height and distinct block identifier.
+2. Its Solidity ABI encoder reproduces
+   keccak256(abi.encode(DOMCheckpoint(...))) without importing an EVM SDK. The
+   frozen Rust result equals the existing Solidity/JavaScript vector:
+
+     dc9d346c9d7a3a3a9d3135d63347f2511005c39836d5053eb647b5d2e1693edc
+
+3. The host tool reads at most 307 bytes and writes the 32-byte hash only after
+   complete validation. Empty, truncated, legacy, zero, trailing and
+   nonextending inputs fail without partial stdout.
+4. sdk/checkpoint-verifier-config.mjs defines the exact
+   usdom-checkpoint-verifier-config-v1 manifest. The configuration hash commits:
+   - statement, private-input, transition, activation and output versions;
+   - statement and PROOF_ACCEPTED type hashes;
+   - DOM genesis/network/chain/activation identity and a maximum checkpoint
+     span no greater than the 360-block native reorganization policy;
+   - consensus, fork-choice, RandomX/PoW, native-state and private witness rules;
+   - proof system, verification key, trusted setup, proving program/source,
+     Solidity verifier artifact and 64-KiB proof ceiling.
+5. The mainnet release gate independently parses this manifest, recomputes its
+   hash, cross-checks its DOM/activation identity against the registry release,
+   and binds four separate hash-addressed checkpoint-verifier artifacts.
+   Checkpoint trusted-setup evidence is separate from burn-verifier evidence.
+
+Validation
+
+- Rust checkpoint statement: 4 tests passed, 0 failed; clippy warnings denied.
+- Node checkpoint verifier manifest/readiness tests: 5 targeted tests passed.
+- Every statement field and every manifest rule/artifact field has a mutation
+  test. Unsupported versions, spans above 360, mismatched type hashes, ambiguous
+  objects, invalid setup semantics and artifact substitutions fail closed.
+
+Remaining security boundary
+
+UDCPST01 is a public statement codec, not a consensus proof. The production
+checkpoint private input and guest/circuit still must verify the complete DOM
+extension from previousHeight/previousBlock/previousStateRoot through
+height/block/stateRoot. This includes header ancestry, RandomX work, expected
+difficulty, accumulated-work fork choice, timestamp rules, ordinary DOM body
+validity, every native USDOM proof and state transition, activation schedule and
+the bounded witness model. Until that relation exists, is compiled, benchmarked
+and independently audited, production_checkpoint_registry_verifier_implemented
+and production_checkpoint_registry_verifier_proves_consensus_extension remain
+false. Mainnet deployment and real funds remain unauthorized.

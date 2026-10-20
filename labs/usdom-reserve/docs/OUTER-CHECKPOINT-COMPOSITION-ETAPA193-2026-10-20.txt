@@ -1,0 +1,87 @@
+USD0M — COMPOSIÇÃO EXTERNA DO CHECKPOINT — ETAPA 193
+Data: 2026-10-20
+
+RESULTADO
+
+Foi implementada a relação externa que transforma uma sequência de recibos de
+segmentos completos no hash exato `UDCPST04` aceito pelo
+`DOMCheckpointRegistry`. O transporte canônico `UDCOUT01` contém de 1 a 720
+transições `UDCSTN02`, totalizando no máximo 1.622.892 bytes.
+
+Cada segmento consome entre 1 e 32 blocos e não pode atravessar a altura pública
+alvo nem a ponta de confirmação. Isso permite reduzir o segmento quando os
+limites de bytes do pacote ou dos testemunhos não comportam 32 blocos. O
+contexto público de no máximo 720 blocos limita a quantidade de suposições
+recursivas a 720, mesmo no caso extremo de um recibo por bloco.
+
+RELAÇÃO PROVADA
+
+Antes de aceitar recibos, o executor externo:
+
+- decodifica e valida o `CheckpointStatementV4` de 518 bytes;
+- autentica `UDCSPOL1` e a abertura `UDCSNS01` contra o primeiro estado;
+- confere domínio da ponte, rede DOM, chain ID Ethereum, registry, configuração
+  imutável, agenda de ativação e todos os campos do checkpoint anterior;
+- exige que `context.max_span` seja exatamente a distância entre o checkpoint
+  anterior e a ponta de confirmação, limitada a 720;
+- encadeia por igualdade integral `next -> previous`, preservando políticas,
+  contexto, roots econômicos e estado nativo;
+- compara bloco, root nativo, contexto e trabalho exatamente na altura alvo;
+- compara bloco, trabalho e timestamp exatamente na ponta de confirmação;
+- deriva para cada transição o journal `keccak256` canônico `UDCSTN02`.
+
+GUEST EXTERNO
+
+O guest `dom-usdom-checkpoint-outer-risc0-guest` fixa em código o ImageID do
+guest completo de segmento:
+
+  3a30945b4d5e78a14b774e5bd0a3638b3f3fb42210129356fa798f5d6b28529f
+
+O provador não pode substituí-lo. Cada recibo é verificado sob esse ImageID e o
+journal exato da transição antes de o guest publicar o hash Solidity de 32
+bytes. O adaptador Ethereum já existente usa esse formato de journal.
+
+O guest externo compilou para `riscv32im-risc0-zkvm-elf`:
+
+  ELF bytes:          942.848
+  ELF SHA-256:        2918cb7d865639818213e0bc158a6561c06807dd87fbcd2bcd2308f265c05e45
+  ProgramBinary bytes: 975.272
+  ProgramBinary SHA:  275092a0f7c51958ff9a4ac361707f2ed68fb92fce9d32f31caa8583a8b4edd1
+  ImageID candidato:  fa01b92b810d6ebd972b953e39d27177580754f48fa4fa42cc320a53aea66c20
+
+O grafo do guest externo não contém dom-consensus, dom-pow, dom-chain, RandomX
+nativo ou bibliotecas C de secp256k1. O backend de aleatoriedade do host não é
+habilitado.
+
+VALIDAÇÃO
+
+O vetor integrado constrói políticas reais, uma abertura candidate-v2, dois
+estados de segmento, a fronteira alvo e a ponta de confirmação. Ele confere o
+hash público e os dois journals de recibo. Foram rejeitados truncamentos, bytes
+finais, magic incorreto, troca de ordem, root alvo alterado, ImageID zero e um
+segmento que atravessa a fronteira alvo. Os 35 testes de biblioteca do programa
+de checkpoint, os dois testes de integração não pesados, Clippy estrito e a
+compilação do nó padrão passaram.
+
+LIMITES CONCRETOS
+
+A composição lógica e o guest externo estão implementados, compilados e foram
+reconstruídos com `target` vazio; ELF, ProgramBinary e ImageID coincidiram byte
+a byte. O particionamento variável elimina a exigência indevida de acomodar 32
+blocos em uma entrada privada de 64 MiB. Ainda permanece um limite real: o
+testemunho econômico esparso de um único bloco DOM válido pode, no pior caso,
+ultrapassar o teto prático atual de 16 MiB. Cobrir esse caso exige decomposição
+recursiva dos efeitos econômicos do bloco; aumentar memória sem limite não é
+uma solução aceitável.
+
+Ainda não foi gerado um recibo positivo completo: isso exige recibos
+RandomX reais, recibos dos segmentos e finalmente o recibo externo. Também
+faltam medição de custo, fixação do ImageID no manifesto e no adaptador de
+produção, configuração dos parâmetros reais e um vetor finalizado ponta a
+ponta na Ethereum.
+
+Esses itens são bloqueios técnicos e operacionais objetivos. Auditoria externa
+e garantia absoluta de risco zero não são bloqueadores de release. O gate atual
+registra 125 bloqueios objetivos para mainnet fechada e 133 para fundos reais,
+sem bloqueio por auditoria externa ou risco zero. Nenhum push, commit, deploy,
+mineração, geração de prova ou uso de fundos ocorreu.

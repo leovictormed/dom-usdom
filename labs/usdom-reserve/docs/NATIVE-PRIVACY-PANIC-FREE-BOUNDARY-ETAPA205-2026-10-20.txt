@@ -1,0 +1,44 @@
+USD0M — ETAPA 205
+FRONTEIRA DE PRIVACIDADE NATIVA SEM PRIMITIVAS DE PANIC
+Data: 2026-10-20
+
+ACHADOS E CORREÇÕES
+
+A fronteira Poseidon mantinha o formato canônico e limites antes da
+deserialização, mas o acumulador incremental dependia de cinco `expect` para
+invariantes da frontier. Uma regressão ou estado corrompido poderia encerrar o
+nó, wallet ou prover em vez de falhar de forma controlada.
+
+- consultas de caminho e subtree agora retornam `InvalidFrontier` quando falta
+  um nó exigido pelo contador;
+- append valida primeiro a frontier e calcula a fusão sem mutar o objeto; só
+  depois limpa níveis consumidos e publica o novo nó, preservando atomicidade;
+- o accessor de raiz permanece compatível e total, retornando o escalar zero
+  reservado para forçar rejeição downstream se existir corrupção interna; e
+- a extração do único elemento Poseidon não usa indexação que possa abortar.
+
+LIMITES E TESTES
+
+O verifying key é rejeitado antes do parser acima de 4096 bytes e provas têm
+tamanho exato de 128 bytes. O decoder de frontier permanece limitado por
+`MAX_NOTE_TREE_FRONTIER_BYTES` antes de processar valores. Um corpus
+determinístico percorre todos os tamanhos até o limite mais um, três padrões
+hostis e o magic correto sem causar panic.
+
+`scripts/check-native-privacy-panic-boundary.py` inventaria os três fontes de
+produção, proíbe primitivas de panic e valida o manifesto exato de quatro
+arquivos. O checker é executado diretamente pela proveniência e pelos dois
+modos do gate de release.
+
+POLÍTICA
+
+Esta correção remove um risco técnico concreto. Risco residual continuará
+existindo em qualquer protocolo; ausência de garantia absoluta de risco zero e
+ausência de auditoria externa não são bloqueadores automáticos de mainnet.
+Validação objetiva e aceitação explícita dos riscos documentados continuam
+obrigatórias.
+
+ESCOPO
+
+Não houve push, commit, deploy, conexão mainnet, mineração, prova RISC Zero,
+carteira, transação ou uso de fundos.

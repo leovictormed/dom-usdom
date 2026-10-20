@@ -1,0 +1,26 @@
+Stage 218 — canonical Git signature status parsing
+Date: 2026-10-20
+
+Finding USDOM-218 — Low parser-confusion hardening
+
+The Stage 217 fingerprint parser searched for the OpenPGP VALIDSIG token anywhere
+inside a line and accepted an SSH key token without requiring the complete Git
+success-line grammar. The surrounding verify command still had to succeed, but
+accepting partial/decorated lines unnecessarily enlarged the authentication
+parser's input language.
+
+Remediation
+
+OpenPGP is now accepted only from a complete line beginning exactly with
+"[GNUPG:] VALIDSIG ". SSH is accepted only from a complete Git success line with
+an explicit key algorithm and one terminal canonical SHA-256 fingerprint. Prefix,
+suffix, BAD/ERR status and decorative fingerprint text return no identity.
+
+Regression validation
+
+The existing primary-key, SSH and malformed-value tests pass. New vectors prove
+that prefixed OpenPGP status and an otherwise valid SSH line with trailing text
+are rejected.
+
+No key was created or accessed. No proof generation, mining, deployment, fund
+movement, commit or push was performed.

@@ -1,0 +1,72 @@
+Native USDOM burn-state prover witness (stage 56, 2026-10-17)
+
+Problem
+-------
+Native consensus persisted public BurnRecord values and committed their ordered
+set root inside the composite USDOM state root, but there was no bounded object
+that a future finalized-burn prover could consume. Exporting only a BurnRecord
+would leave the public payout obligation disconnected from the stateRoot in the
+Ethereum reserve statement.
+
+State and inclusion witness
+---------------------------
+NativeUsdomState now exports BurnStateWitness for a selected burn identifier.
+It contains:
+
+- the exact BurnRecord, including burn/request identifiers, amount, recipient,
+  target chain, reserve, deadline and Solidity-compatible intent commitment;
+- its zero-based position and leaf count in the burn-id-ordered burn set;
+- the logarithmic sibling path under the existing domain-separated Blake2b
+  burn-set root; and
+- the complete structured decomposition that recomputes the existing composite
+  native USDOM state root without changing its bytes or consensus vector.
+
+Odd final leaves follow the existing consensus tree rule: they are promoted to
+the next level without inventing a duplicate sibling. Verification derives that
+shape from leaf index and count, consumes every supplied sibling exactly once
+and rejects missing or surplus nodes. Paths are bounded to 64 siblings.
+
+Canonical prover input
+----------------------
+USDBRN01 is the sole canonical byte encoding. It is at most 2,846 bytes and
+contains an explicit Ethereum-anchor option and sibling count. Decoding is
+bounded, checks immutable bridge and timing identities, burn shape, monetary
+bounds, anchor identity, intent commitment, burn-set inclusion and exact
+roundtrip equality. Every truncation and trailing data are rejected.
+
+The witness contains only public obligations and commitments already present in
+native consensus state. It contains no note openings, owners, private values,
+transfer path or original deposit association.
+
+Security boundary
+-----------------
+BurnStateWitness::verify proves internal relations against an independently
+supplied state root. It does not authenticate that root. It does not prove:
+
+- a DOM header contains the corresponding batch/state commitment;
+- RandomX/DOM consensus validity or canonical fork choice;
+- Ethereum-recognized additional finality;
+- correctness of private issuance, transfer or burn proof systems; or
+- an Ethereum-verifiable succinct proof.
+
+A production proving program must establish those relations and recompute or
+recursively authenticate every subordinate state component. Treating the roots
+inside USDBRN01 as trusted inputs would be unsound. Ethereum has no native
+Blake2b-256 precompile for this construction, so the final verifier is expected
+to verify a reviewed succinct proof rather than replay this witness directly.
+
+Validation
+----------
+The state test covers every tree size from one through seventeen, including
+multiple odd promotion shapes, every included burn, persistence restoration,
+record/path/count/state tampering, canonical roundtrip, every truncation and
+trailing bytes. Results:
+
+- dom-usdom-state: 16/16 unit tests and 1/1 compile-fail documentation test;
+- dom-chain native-v4: 66/66 library tests;
+- dom-node native runtime: 7/7 integration tests;
+- native feature Clippy with -D warnings: passed;
+- native release check, default node check, rustfmt and diff check: passed.
+
+No production transition verifier, proving program or Ethereum verifier was
+added. Mainnet and real-funds readiness remain false.

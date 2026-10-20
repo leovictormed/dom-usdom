@@ -1,0 +1,126 @@
+USDOM verified Ethereum checkpoint handoff — stage 22
+Date: 2026-10-17
+Status: local proof of concept; no deployment, push, activation, or real funds.
+
+Result
+
+The prior 417-byte checkpoint record is no longer only a test-oracle shape. The
+Ethereum verifier now composes a successful receipt, exact checkpoint event,
+registry account proof, runtime bytecode, configuration storage proof, execution
+ancestry, and Beacon finality anchor into an opaque VerifiedCheckpoint. The
+caller cannot construct that result from JSON or a caller-selected state root.
+
+The optional dom-chain feature ethereum-checkpoint-verified-poc accepts that
+opaque type and reaches the real persistent ChainState reorganization barrier.
+The existing test-oracle entry point remains separate. Both paths remain
+regtest-only. Mainnet installation still fails because current DOM block headers
+do not commit a native USDOM state root that can be compared with the root in
+the Ethereum checkpoint.
+
+Authenticated composition
+
+The checkpoint event is fixed as:
+
+  Checkpoint(bytes32 indexed bridgeDomain,
+             uint32 indexed domNetworkMagic,
+             uint64 domHeight,
+             bytes32 domBlock,
+             bytes32 domStateRoot,
+             bytes32 checkpointConfigHash)
+
+Verification requires all of the following from one authenticated execution
+state:
+
+- a successful receipt included under the authenticated receipts root;
+- the exact event signature, emitter, topic count, receipt-relative log index,
+  bridge domain, DOM network, canonical uint64 height, DOM block, state root and
+  configuration hash;
+- the registry account included under the authenticated state root;
+- runtime bytecode whose Keccak hash equals both the account code hash and the
+  immutable policy pin;
+- a storage proof at the immutable configuration slot whose 32-byte value equals
+  the event and policy configuration hash;
+- the mainnet chain ID and genesis validators root fixed by policy; and
+- a retained finalized execution header or a bounded parent-hash ancestry ending
+  exactly at one retained Beacon-finalized execution anchor.
+
+The output uses the exact v2 417-byte wire form already decoded by dom-chain. A
+shared fixture has SHA-256
+ffa77c1f700755e145ea371f1f635f4a99b1c0128be1d736ac585262a8eacddb.
+Both producer and consumer tests use that fixture and recompute the event digest.
+
+Build and provenance boundary
+
+The unmodified Helios checkout remains under labs/usdom-ethereum-finality/vendor
+at commit 2af9b41887e069144ee56cd710f3ddca195473f8. The workspace consumes a
+separate dom-ethereum-consensus-core adapter. Its ten Rust source files are byte-
+identical to ethereum/consensus-core/src in that checkout; only packaging was
+adapted to explicit dependency constraints. UPSTREAM.json records each source
+hash. check-checkpoint-boundary.py recomputes both copies on every run and fails
+on additions, deletion, or drift.
+
+The verified feature's normal dependency graph contains no HTTP transport, RPC
+client, operational EVM adapter, or provider. Proof witnesses must be supplied
+as consensus-visible bytes by a future protocol integration; an RPC label such
+as "finalized" cannot create the opaque result. The unsafe fixture constructor
+exists only behind unsafe-test-oracle and compilation is forbidden when that
+feature is combined with a release build.
+
+Ethereum fork boundary
+
+The client supports finalized light-client headers through Fulu and rejects
+Gloas. As of this review, the Ethereum consensus specification lists Fulu as the
+latest stable fork at epoch 411392 and Gloas as unstable/TBD. Ethereum.org lists
+Glamsterdam/Gloas for Q4 2026 with no confirmed mainnet date. The fail-closed
+rejection must be replaced by reviewed Gloas support and official vectors before
+that fork activates; it must never be bypassed by interpreting a new header as
+an older variant.
+
+References:
+https://github.com/ethereum/consensus-specs/blob/master/README.md
+https://ethereum.org/roadmap/glamsterdam/
+
+Reserve hardening in the same stage
+
+USDOMProofReserve now pins tokenCodeHash as well as the verifier runtime and
+configuration. Ethereum chain ID 1 additionally requires the reviewed USDT
+runtime hash b44fb4e949d0f78f87f79ee46428f23a2a5713ce6fc6e0beb3dda78c2ac1ea55
+at 0xdAC17F958D2ee523a2206206994597C13D831ec7. Every token-sensitive path
+fails with TokenChanged if the runtime identity differs. The pinned historical
+fork test confirms the actual USDT runtime and no-return transfer behavior.
+
+Validation
+
+- dom-chain verified checkpoint suite: 26 passed, 0 failed;
+- Ethereum verifier: 42 functional tests and 5 compile-fail API isolation tests,
+  0 failed;
+- reserve Solidity suite: 94 passed, 0 failed, including 3 x 16,384 invariant
+  calls in the default profile;
+- Ethereum fork at block 26201446: 7 passed, 0 failed;
+- SDK/monitor Node suite: 32 passed, 0 failed;
+- rustfmt and forge fmt: passed;
+- project clippy with warnings denied: passed; the byte-identical upstream Helios
+  source retains one known deprecated generic-array warning;
+- boundary/provenance guard: passed for both the 103-package local barrier graph
+  and the 181-package verified graph, with no RPC/EVM authority.
+
+Remaining production blockers
+
+1. DOM consensus still lacks native USDOM issuance, note commitments, nullifiers,
+   private transfers, burns, undo data, snapshots, and a block/header commitment
+   to the resulting USDOM state root.
+2. The verified checkpoint witness/transcript is not yet a versioned, bounded
+   consensus object propagated and replayed by every DOM node atomically with
+   block connection, disconnect, IBD, snapshot import, and fork choice.
+3. A recent governed weak-subjectivity bootstrap, deterministic time/slot rule,
+   fork schedule, update availability, and conflict/recovery policy are absent.
+4. No deployed checkpoint registry with an audited validity rule exists. A code
+   pin authenticates the selected rule but does not make a weak rule sound.
+5. The private finalized-burn proving program and immutable Ethereum verifier do
+   not exist. Production verifier hashes therefore remain zero.
+6. Production multisigs, limits, delays, monitoring, release ceremony, recovery
+   drills, multi-node adversarial shadow tests, and independent cryptographic,
+   consensus, and contract audits remain incomplete.
+
+These blockers keep real_funds_ready and mainnet_activation false. The new work
+closes the in-process authentication handoff but does not authorize deposits.

@@ -1,0 +1,69 @@
+Canonical native activation schedule — etapa 105
+Date: 2026-10-18
+Status: production-oriented mechanism implemented; public-network values remain unset and activation remains disabled
+
+Finding USDOM-105
+
+Severity: High for any future public-network activation.
+Current public exposure: none; native USDOM remains Regtest-only and no push,
+deployment, activation or transaction was performed.
+
+The existing atomic activation marker recorded the current native tip, state
+root and package commitment. It did not persist a separately ratified schedule
+or the original activation parent. A future public-network adapter could
+therefore install internally consistent native state under the wrong network,
+chain ID, height or bridge configuration unless every caller reproduced those
+checks. Later tip updates also replaced the original activation-parent identity.
+
+Remediation
+
+- NativeUsdomV4ActivationSchedule introduces canonical fixed-width UDACTV01
+  encoding for network magic, chain ID, first mandatory v4 height and canonical
+  empty native-state root.
+- The empty root commits the complete BridgeIdentity through NativeUsdomState,
+  including Ethereum checkpoint/deposit policies, reserve identity, privacy
+  policy, verifying-key configuration and burn timing.
+- A domain-separated schedule commitment is available for release manifests.
+- Activation persists the exact schedule plus original canonical parent under
+  a dedicated consensus-state key in the same atomic batch as the native tip.
+- A marker without its record, a record without its marker, malformed bytes or
+  a zero activation parent is treated as fatal storage corruption.
+- ChainState::prepare_native_usdom_v4_activation independently derives the
+  actual chain ID and requires the schedule network, chain, first height and
+  activation parent to match the current canonical tip.
+- Activation requires the canonical empty monetary state and rejects bridge
+  root mismatch, non-successor height and arithmetic overflow.
+- Restore on a public network now requires the caller to supply the exact
+  ratified schedule. The existing convenience restore remains Regtest-only.
+- Existing Regtest activation uses a fixed first-v4 height of one and persists
+  the same canonical record, so restart and reorg tests exercise the format.
+
+Integration regression fixed
+
+The integrated node build exposed that the legacy wallet did not exhaustively
+map the create-only envelope DestinationExists error added in etapa 100. It now
+maps to an explicit wallet I/O failure and has a directed regression test.
+
+Validation
+
+- complete dom-chain suite with native-usdom-v4-poc: 244 passed, 0 failed;
+- native node runtime/two-node IBD suite: 8 passed, 0 failed;
+- activation schedule encoding, truncation, trailing data, bridge-root and
+  exact-height tests: passed;
+- marker/record absence and corruption fail-closed tests: passed;
+- canonical current-tip network/chain/height checks: passed;
+- legacy wallet DestinationExists mapping test: passed;
+- affected dom-chain, dom-node and dom-wallet Clippy with all targets and
+  -D warnings: passed;
+- cargo fmt and git diff whitespace checks: passed;
+- closed-mainnet and real-funds gates correctly remain closed with 70 and 78
+  blockers respectively.
+
+Production boundary
+
+The mechanism needed to encode, persist and verify a schedule now exists. No
+mainnet/testnet activation height, chain-specific empty root or release
+commitment has been selected or ratified, and the native runtime/proof verifier
+remains unavailable on public networks. Therefore
+production_activation_schedule_implemented remains false, as do mainnet_ready,
+closed_mainnet_test_ready, deploy_authorized and real_funds_authorized.

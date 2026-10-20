@@ -1,0 +1,44 @@
+Stage 170 - canonical immutable deposit-policy transport
+Date: 2026-10-19
+
+The checkpoint consensus prover must reconstruct every policy inside the proven
+relation. StaticCheckpointTrustPolicy already had a canonical transport, but
+StaticDepositTrustPolicy could only be constructed as a host-language object.
+That gap allowed a future guest wrapper to depend on implicit host configuration
+instead of parsing the exact configuration committed by native USDOM state.
+
+Implemented UDDPSP01
+
+1. UDDPSP01 is an exact 302-byte encoding with an eight-byte magic, version 1,
+   Ethereum trusted checkpoint, Beacon genesis identity, EVM chain, reserve,
+   runtime code hash, bridge domain, maximum deposit amount and all eight fork
+   epoch/version pairs.
+2. The dynamic maximum-current-slot value is deliberately absent. It continues
+   to be derived from authenticated DOM block time and cannot be selected by a
+   proof relayer.
+3. The policy hash and the new wire encoding now consume the same canonical
+   preimage helper, preventing field-order drift.
+4. Decoding validates all semantic policy constraints, requires exact length,
+   re-encodes the result and rejects any noncanonical representation.
+
+Verification
+
+- The focused round-trip test verifies the exact 302-byte length and unchanged
+  policy hash.
+- Every truncated prefix, trailing data, wrong magic, wrong version and a zero
+  trusted checkpoint are rejected.
+- The complete Ethereum-finality crate passed 50 runtime tests plus 5 compile-
+  fail doctests with zero failures.
+- Clippy passed for all targets and all features with warnings denied; rustfmt
+  check passed.
+
+Remaining boundary
+
+This transport removes one host-authority dependency but is not a checkpoint
+proving input or guest. A production design must use bounded per-block/chunk
+inputs and recursive aggregation; a monolithic 390-block input could inherit a
+multi-gigabyte theoretical block ceiling and is not acceptable without measured
+resource bounds. RandomX proof feasibility, a compiled checkpoint ImageID, real
+receipts, bootstrap ratification and independent audits remain open. Mainnet and
+real funds remain blocked. No deploy, public transaction, funds, commit or push
+occurred.

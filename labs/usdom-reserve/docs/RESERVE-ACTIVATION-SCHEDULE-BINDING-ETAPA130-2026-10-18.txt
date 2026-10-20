@@ -1,0 +1,43 @@
+USDOM ETAPA 130 — RESERVA VINCULADA À AGENDA DE ATIVAÇÃO DOM
+Data: 2026-10-18
+
+ACHADO
+
+UDBBLK02 passou a transportar e validar a agenda completa, mas a reserva
+Ethereum ainda fixava apenas domDomain e o verifierConfigHash opaco. O hash da
+declaração entregue ao verificador não identificava diretamente a agenda DOM.
+Uma configuração de verificador incorretamente revisada poderia aceitar outra
+rede, chain ID, altura de ativação ou identidade vazia sem que o statementHash
+ou o hash de implantação da reserva mudassem de forma explícita.
+
+CORREÇÃO
+
+- Config exige activationScheduleCommitment não nulo;
+- o compromisso é immutable e não possui caminho de alteração;
+- RESERVE_IDENTITY_TYPEHASH e reserveConfigHash incluem o compromisso;
+- BURN_STATEMENT_TYPEHASH inclui o compromisso após a identidade Ethereum da
+  reserva, tornando toda prova específica à agenda;
+- o SDK reproduz exatamente ambos os hashes e possui vetores congelados;
+- derivação de runtime e initcode cobre o novo immutable/argumento;
+- o manifesto de release exige o campo;
+- preflight lê o getter no bloco finalized e rejeita qualquer divergência.
+
+O compromisso UDACTV01 já contém network magic, chain ID DOM, primeira altura
+v4 e raiz vazia que compromete ponte, políticas Ethereum e verificador privado.
+Manter um único bytes32 evita duplicar identidades e preserva a política de
+compilação sem via-IR. O desenho inicial com campos separados foi rejeitado
+pelo compilador por stack-too-deep e não foi mantido.
+
+VERIFICAÇÃO
+
+- build canônico Solidity 0.8.37, optimizer 200, Cancun, metadata none e sem
+  via-IR: aprovado;
+- Solidity: 104 testes, 0 falhas, incluindo invariantes;
+- Node/SDK/EVM: 45 testes, 0 falhas;
+- mutações da agenda alteram statementHash, reserveConfigHash, runtime,
+  initcode e reprovam o preflight pós-implantação.
+
+Isso fecha substituição de agenda na reserva, mas não cria o verificador de
+finalidade. A agenda de produção continua não ratificada e o campo permanece
+nulo no manifesto não configurado. Nenhum commit, push, deploy, transação ou
+fundo real foi usado.

@@ -1,0 +1,65 @@
+USDOM nativa — runtime restaurado no DomNode com ingresso local fechado
+Etapa 45, 2026-10-17
+
+Estado: integração opt-in e exclusivamente Regtest; tráfego P2P ainda bloqueado.
+Sem commit, push, deploy ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Problema tratado
+
+O codec da etapa 44 ainda não tinha um proprietário do estado no processo do
+nó. Ligar o comando diretamente ao message_loop seria inseguro: o Hello atual
+não anuncia capacidade native-v4, portanto um peer não consegue provar que os
+dois lados interpretam 0x0d da mesma forma.
+
+2. Construção fechada do runtime
+
+O feature native-usdom-v4-poc do dom-node propaga somente os features isolados
+de dom-chain e dom-wire. Os construtores normais continuam criando nós sem
+runtime nativo.
+
+Os dois construtores nativos verificam Network::Regtest antes de tocar o banco,
+abrem a ChainState e restauram NativeUsdomV4Runtime antes que o Arc da chain
+seja compartilhado. A restauração exige identidade da ponte, política Ethereum
+imutável, tip/raiz persistidos e auditoria autenticada da janela de reorg. Um
+banco comum sem ativação USDOM falha fechado; o construtor não inventa nem
+instala estado de ativação.
+
+3. Ingresso local único
+
+ingest_native_usdom_v4_wire_payload_regtest recebe o framing exato da etapa 44,
+decodifica o pacote canônico e adquire locks sempre na ordem chain -> runtime.
+O runtime chama o ingresso único da ChainState, que decide duplicata, extensão,
+side chain ou promoção atômica por fork choice.
+
+Somente BestChain e Reorg reconciliam a mempool, notificam observadores e
+publicam os mesmos bytes de wire no canal dedicado. SideChain e AlreadyHave não
+geram relay. Erro de framing, pacote ou consenso não altera tip nem estado.
+
+4. Rede continua fechada
+
+O canal de relay não tem assinantes P2P nesta etapa. Mesmo no build opt-in, o
+message_loop rejeita Command::UsdomV4Package como Malformed quando não existe
+capacidade negociada. O comando usa a categoria limitada de blocos para que
+uma ligação futura não crie uma classe sem rate limit.
+
+5. Evidência
+
+Passaram 316 testes unitários dom-node no build padrão e os mesmos 316 no build
+opt-in; um teste de cadência manual permaneceu ignorado em ambos. Passaram ainda
+dois testes específicos: rejeição de Mainnet antes de criar banco, rejeição de
+banco Regtest não ativado, restauração após ativação explícita e não mutação do
+tip diante de framing/pacote inválidos. O teste dirigido da categoria de rate
+limit, Clippy --all-targets -D warnings, release check e rustfmt passaram.
+
+6. Limites restantes
+
+Ainda falta uma extensão versionada do Hello que autentique capacidade em ambos
+os sentidos, preserve compatibilidade e impeça downgrade. Só depois o handler e
+o relay podem entrar no message_loop. IBD/GetBlockData, órfãos, fila futura,
+mineração, snapshots e contabilização de custo de prova também precisam carregar
+o pacote exato.
+
+Permanecem os bloqueadores de witness real, provas privadas revisadas, carteira,
+ativação/migração, parâmetros de produção, shadow run e auditorias independentes.
+mainnet_ready e real_funds_ready continuam false.

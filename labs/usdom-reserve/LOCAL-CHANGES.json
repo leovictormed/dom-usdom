@@ -1,0 +1,87 @@
+{
+  "purpose": "Preserve initial import provenance and explicitly identify intentional local modifications. New files are covered by MANIFEST.sha256.",
+  "modified_imported_files": {
+    ".gitignore": {
+      "original_sha256": "102509c17feaca876383a25657c95da367f1a7c004c9b6bab51fdeeb6f511e3b",
+      "current_sha256": "d4195cde1f97294c9b126771a032cf6c3cc07d0fd447ac2ccd5f0a1a99083797",
+      "reason": "Exclude separate fork artifacts and cache."
+    },
+    "foundry.toml": {
+      "original_sha256": "7b2542f488a46e6df1f7f364696bb909906c7e9c2d7bf10414305bab7ac7f941",
+      "current_sha256": "8052dee4b0c547fc63681165aa75452d3a9578cf224e28aaf10d8f2728052b9f",
+      "reason": "Retain the opt-in fork profile, update the vendored OpenZeppelin remapping to authenticated v5.6.1, and select the Cancun EVM target required by its MCOPY implementation."
+    },
+    "sdk/configuration.mjs": {
+      "original_sha256": "a3c4c0c61a7351123ed8516071427959a93877d057ac8cfb5fc845fc53bbd3c2",
+      "current_sha256": "9b9dd9a1f24561e4442451d5d2b34e7a2ef3ea79220052ac52539678271099bc",
+      "reason": "Retain the quorum prototype mainnet guard and add exact fail-closed validation and deployment commitments for the proof reserve, including immutable verifier, code hashes, reserve policy and DOM activation-schedule identities, safe bounds and unconditional rejection of premature readiness or mainnet claims."
+    },
+    "docs/MONITOR.txt": {
+      "original_sha256": "244c1fdd8f167e3572b1461d9ae91e88d0e3f77b9aed8081064e6a8be30d2214",
+      "current_sha256": "59de1d5d466e6bd4a90f84673dfdecdc86d4882afcca86658e2a412408b2b7ee",
+      "reason": "Record selected production-proof requirement, laboratory limits and optional real Rust adapter evidence."
+    },
+    "contracts/USDOMReserve.sol": {
+      "original_sha256": "50e74749135f92fb28e24c8750775a5234111be7989bb3ff4519c0bbc1a0b0dd",
+      "current_sha256": "bcc648caaea5635f485b8adca3da268d24e13fe64ed392402d237e9cc5315836",
+      "reason": "Retain USDT policy and prototype-only mainnet guards; require contract-based governance and guardian roles; fail closed on every uint64 timestamp/bucket narrowing conversion; extract the shared IUSDTPolicy interface without changing prototype behavior."
+    },
+    "test/solidity/TestBase.sol": {
+      "original_sha256": "7d87a11394721378969f22832ad0234fce2f06513e9164bab46e6335a8f271de",
+      "current_sha256": "5c819420e1014471122697eb3f1eaf5ff16801376b08a4fc500d6cd7e648438c",
+      "reason": "Add log recording and storage-read cheatcodes used to prove the checkpoint registry event ABI and authenticated configuration slot, while retaining prior helpers."
+    },
+    "test/solidity/Mocks.sol": {
+      "original_sha256": "051d3cb85db2b1733f1adaa1313ce94f75df56ffc291000b1f3fb3386751c09e",
+      "current_sha256": "a462e65fd422bbdabf7c05b0f68f9c2c8e54911a7b681b802b635f3cad531e5a",
+      "reason": "Model USDT policy reads, changes and lookup failure; normalize helper assembly formatting with the pinned Foundry formatter."
+    },
+    "test/node/configuration.test.mjs": {
+      "original_sha256": "a1fa3f3df4956882d09a7f86a733907dc054d0dcd5b862738a38bd42f71ffcf0",
+      "current_sha256": "7fb6f198a53e37a7343a165408fe9210c55aa06b3f4646098cd9ff9a75e54b2f",
+      "reason": "Cover both quorum and proof-reserve mainnet rejection, exact proof and deployment configuration identities including code hashes, reserve policy and the DOM activation schedule, bounds, and rejection of false readiness/real-funds assertions."
+    },
+    "config/operator-intent.json": {
+      "original_sha256": "339113e7940c9cc86084df20107307f851ff6b1187dae603a99d12983d719968",
+      "current_sha256": "84284b16eca1f9ae54fa255a762165fc4a614305a90da5274cd8fe960495b36c",
+      "reason": "Record explicit native/private USDOM requirements and the isolated checkpoint research direction; preserve the quorum as prototype-only, remove notary/threshold/testnet parameters from the proof-reserve mainnet gate, retain explicit no-deploy/no-real-funds authorization, record the operator's reaffirmed policy that every protocol has residual risk and objective validation plus explicit risk acceptance replace external-audit and zero-risk release requirements, require that future acceptance bind the exact release, source, configuration hashes, report, governance authority and timestamp, and leave the exact release-signing key fingerprint unset until the operator selects it. Add schema 1 so the signed release-intent envelope can be validated with an exact top-level field set and cannot type-confuse the pending-parameter list."
+    },
+    "test/solidity/USDOMReserve.t.sol": {
+      "original_sha256": "9cbe1783093924a14857e3ed4e2e0bba577e63da15fe7d62acfb858067147384",
+      "current_sha256": "bc7ad9e12441bed58f31900d554b77a9560039571ebbac9e69fba64bc21f79b5",
+      "reason": "Model the guardian as a contract, reject EOA guardians, and prove timestamp narrowing fails closed instead of wrapping."
+    },
+    "package.json": {
+      "original_sha256": "2b3fd915edd5c671f2bb7bfc87d045543be67a355379d9f302af35fe6592bf3a",
+      "current_sha256": "9928a85c0e9775d467bd665faa71ba0ac64ef0f25d3285dfa425b1c3f84e64b0",
+      "reason": "Force a normal Foundry artifact build before Node integration tests so coverage artifacts cannot make the result depend on command ordering; expose fail-closed release, preflight, finalized-state RISC Zero upstream-health and source-verified unsigned mainnet deployment-package commands; verify import plus complete source-manifest provenance, bounded RISC Zero and host proof-program inputs, panic-free Ethereum-finality, native-state, native-privacy, native-wallet and proof-program production paths; bind the canonical raw-checkpoint positive execution evidence to provenance; and pin the Blake2b implementation used for the cross-language DOM activation commitment."
+    },
+    "package-lock.json": {
+      "original_sha256": "636f26ec46b96c6f55a3803e8daa457d9c10f55b96ea327fdee280a1a67dc679",
+      "current_sha256": "61311e2e1f536853fa4e5b07f9c8a97b32e1e1891fe7aee32e730fa6cffd58e1",
+      "reason": "Lock the direct authenticated @noble/hashes dependency used to reproduce the Rust Blake2b activation-schedule commitment in the JavaScript release gate."
+    },
+    "scripts/candidate-monitor.mjs": {
+      "original_sha256": "95f605907dd63d83e52cce00d4187a6a8a1990a3a8c2e3bfa74fce0aa7802e6e",
+      "current_sha256": "cb4a5f2512fabd1b4f469bc787999498efd4851ea7a1fb8ebac15b4ee101f5aa",
+      "reason": "Define the guardian boundary as a contract-address transaction executor suitable for a multisig or module adapter."
+    },
+    "test/node/evm.test.mjs": {
+      "original_sha256": "d7a7688a81d65b62f30bac74b23696f5fc24b80badbe4230552ce269cd2010ee",
+      "current_sha256": "120a9b657458cdf1beae08e7f51299d9815b963df031e53a185517af6e258b54",
+      "reason": "Retain the reserve and checkpoint integration; add cross-stack deployment checks for authenticated continuation contexts, confirmation timestamps and finalized-event flow; and differentially prove that both source-derived RISC Zero adapter runtimes, initcodes and configuration hashes equal actual EVM constructor deployments."
+    },
+    "test/node/candidate-monitor.test.mjs": {
+      "original_sha256": "c9f1ae6bafc5ee4efc710bc8a6efb3f442ee068c7005ecf0a6786345848973b9",
+      "current_sha256": "8f99dd3d1ca16db9e11b4c3a578536fe31eeef59a65adf458e7a151000c1faa7",
+      "reason": "Exercise pause transactions through a contract-based guardian adapter, including epoch-bound incident evidence and rotation-race fallback behavior."
+    },
+    "scripts/check-configuration.mjs": {
+      "original_sha256": "37da5496d2598ec9238254f6312828411b70866d201804abb41572896191000a",
+      "current_sha256": "7b68e8a3841f702bc029ff02c2fabacd958dfc515c88658a12611f9ff95ff549",
+      "reason": "Select the exact quorum or proof-reserve validator, reject duplicate or resource-exhausting JSON before validation, and preserve the explicit non-readiness result."
+    }
+  },
+  "production_ready": false,
+  "pushed": false
+}

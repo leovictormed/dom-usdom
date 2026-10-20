@@ -1,0 +1,61 @@
+USDOM ETAPA 243 — VÍNCULO DO MANIFESTO NATIVO AO RELEASE
+Data: 2026-10-20
+Status: implementado e validado localmente
+
+Achado USDOM-243
+
+Severidade: Alta para integridade do runtime de produção.
+Exposição pública atual: nenhuma.
+
+O nó aceita a configuração nativa somente quando os bytes completos do
+manifesto correspondem a um SHA-256 informado no startup. Esse manifesto
+seleciona cronograma, políticas de checkpoint e depósitos Ethereum, identidade
+da ponte, tempos de queima, configuração do verificador privado e chave
+Groth16. O gate de release não recebia esse manifesto. A atestação operacional
+assinava apenas `activationScheduleCommitment`, que não cobre os demais campos.
+Assim, um release sinteticamente pronto podia aprovar o cronograma esperado e
+iniciar os nós com outro manifesto hash-pinned.
+
+Correção
+
+- o manifesto nativo e sua chave de verificação de spends são evidências
+  obrigatórias, distintas e endereçadas por SHA-256;
+- o CLI de readiness executa o checker Rust construído dos fontes atuais, em
+  modo mainnet e sem abrir estado, rede, carteira ou minerador;
+- o gate exige o envelope exato de saída e compara rede DOM, chain ID, altura e
+  raiz de ativação, compromisso do cronograma, domínio, raiz genesis e chain ID
+  Ethereum, reserva, seis tempos de queima e SHA-256 da chave;
+- hashes derivados das políticas de checkpoint, depósito e privacidade devem
+  ser não nulos;
+- a atestação de ativação assina o SHA-256 dos bytes completos do manifesto;
+- a atestação do setup privado assina o hash da configuração do verificador de
+  privacidade derivado pelo checker;
+- o ledger de requisitos contém
+  `production_native_runtime_manifest_release_bound`.
+
+O manifesto não configurado permanece nulo e o fato operacional
+`native_scheduled_public_runtime_configured` permanece falso. A correção não
+declara parâmetros de produção, autorização de deploy ou autorização de fundos.
+
+Validação focal
+
+- Rustfmt do checker: passou;
+- sintaxe Node e JSON: passaram;
+- readiness focal: 37/37, incluindo substituições independentes de manifesto,
+  chave, rede, cronograma, política temporal e compromissos assinados.
+- checker Rust: 3/3;
+- suíte Node completa: 108/108;
+- suíte Solidity completa: 138/138;
+- lint de produção e compilação forçada: passaram.
+
+Proveniência e gates
+
+- 169 fontes importadas e 16 modificações registradas: passaram;
+- todos os limites de guest/pânico e manifests subordinados: passaram;
+- manifesto raiz: 853 arquivos antes desta atualização final do próprio
+  documento; o hash final será registrado no resumo externo;
+- closed-mainnet: NOT READY, 151 bloqueios objetivos únicos;
+- real-funds: NOT READY, 162 bloqueios objetivos únicos;
+- os dois novos bloqueios são a ausência esperada do manifesto de runtime e da
+  chave de verificação reais;
+- nenhum gate exige auditoria externa ou garantia absoluta de risco zero.

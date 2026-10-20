@@ -1,0 +1,45 @@
+Candidate-v2 authenticated wire envelope — stage 154
+Date: 2026-10-18
+
+Change
+======
+
+The feature-gated DOM wire protocol now reserves a distinct command and
+bilateral capability for candidate state-v2. UDOMV2W1 transports the exact
+proof-bearing block package and the exact UDV2W001 stateless witness bundle in
+one canonical, length-separated payload. Empty, oversized, truncated, trailing
+and cross-command encodings fail before either component reaches consensus.
+
+The command is deliberately separate from the earlier native-v4 command. A
+mixed release cannot interpret one authenticated command under V1 on one node
+and V2 on another. Negotiation requires wire version 4 and the V2 capability
+bit in both authenticated Hello messages.
+
+Resource bounds
+===============
+
+The package retains the 16 MiB consensus-block ceiling and witnesses retain
+their 4 MiB candidate-v2 ceiling. The Noise reassembly limit is derived from
+the compiled maximum payload plus its fixed wire frame only when this feature
+is enabled. Ordinary builds keep the prior block-sized global ceiling. The
+node classifies both native commands under the block-rate budget.
+
+Validation
+==========
+
+- dom-wire with the native feature: 132 unit tests, 13 eclipse-resistance
+  tests, seven property tests and two write-timeout tests passed.
+- the dom-node rate-category test passed with both native commands.
+- dom-wire and dom-node all-target Clippy passed with warnings denied.
+- all-target dom-node compilation with the native feature passed.
+
+Security boundary
+=================
+
+This stage defines and bounds the V2 transport representation. The node does
+not yet advertise the V2 capability or route this command into a V2 runtime,
+IBD, orphan replay, relay or mining. The V1-to-V2 activation marker also still
+needs an atomic live consensus installation path. Those absences are explicit
+fail-closed blockers, along with real Ethereum settlement, production proving
+artifacts, operations and independent audits. No push, commit, deployment,
+transaction or use of funds occurred.

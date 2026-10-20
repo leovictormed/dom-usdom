@@ -1,0 +1,47 @@
+USDOM / DOM — ETAPA 117
+PRÉ-VALIDAÇÃO DA CHAVE VERIFICADORA ANTES DO ARMAZENAMENTO
+Data: 2026-10-18
+
+Achado
+
+O carregador da etapa 116 autenticava os bytes da chave verificadora pelo
+SHA-256 antes de construir o nó. A decodificação Groth16 canônica, a forma dos
+inputs públicos e a correspondência com privacy_verifier_config_hash ainda eram
+verificadas pelo construtor do runtime, depois de DomStore::open. A inicialização
+falhava fechada, mas uma chave inválida ou de outro circuito podia criar ou abrir
+o diretório do nó antes da rejeição.
+
+Correção
+
+- dom-node agora depende do módulo de verificação, sem setup ou provador, quando
+  native-usdom-v4-poc está habilitado.
+- O carregador analisa a chave como uma VerifyingKey BN254 comprimida, exige uma
+  codificação canônica sem bytes residuais e exige exatamente os nove inputs
+  públicos congelados do circuito.
+- O config_hash derivado do verificador e da política de privacidade deve
+  coincidir com privacy_verifier_config_hash da identidade da ponte.
+- Essa validação ocorre depois dos hashes de arquivo e das verificações cruzadas
+  do manifesto, mas antes da entrega da configuração ao construtor do nó.
+- O limite do arquivo caiu de 64 MiB para 4 KiB, igual ao limite do
+  SpendVerifier. A chave de prova, que pode ser grande, permanece exclusivamente
+  no provador offline e nunca deve ser carregada pelo nó.
+- O construtor do runtime repete a análise e a vinculação, mantendo defesa em
+  profundidade.
+
+Validação
+
+- 4 testes do manifesto aprovados, incluindo chave malformada com hash correto e
+  chave válida vinculada a outro compromisso da ponte.
+- Seleção parcial ou manifesto inválido antes do armazenamento: 2 testes
+  aprovados.
+- dom-chain: 75 testes aprovados, 0 falhas.
+- dom-node native runtime: 8 testes aprovados, 0 falhas.
+- Clippy default e native, todos os alvos, warnings negados: aprovado.
+- cargo fmt --all -- --check e git diff --check: aprovados.
+
+Limites
+
+A chave usada nos testes é gerada deterministicamente apenas no módulo de teste
+e não possui autoridade de produção. A chave e a cerimônia de produção, a
+programação pública, o checkpoint inicial e as demais evidências externas
+continuam ausentes. Nenhum push, deploy ou uso de fundos foi realizado.

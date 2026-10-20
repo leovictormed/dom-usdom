@@ -1,0 +1,76 @@
+Stage 222 - trusted RISC Zero mainnet verifier pin
+Date: 2026-10-20
+
+Finding USDOM-222 (High)
+
+The release manifests committed a RISC Zero verifier address, runtime code hash
+and selector, but the readiness gate did not compare that identity with a
+reviewed upstream deployment. A release author could therefore configure an
+arbitrary contract that exposed SELECTOR 0x73c457ba and accepted fabricated
+proofs. The manifests, adapters and on-chain configuration hash could all agree
+while the proof root of trust was malicious.
+
+Correction
+
+1. sdk/risc0-verifier-reference.mjs now contains the reviewed Ethereum mainnet
+   v3 identity as an exact source pin. Any update requires a source change and
+   a newly authenticated USDOM release.
+2. config/risc0-ethereum-mainnet-v3.json uses strict schema v2 and records the
+   upstream v3.0.1 tag and commit, deployment-manifest URL and SHA-256, direct
+   verifier source URL and SHA-256, address, selector and observed runtime code
+   hash.
+3. The reference distinguishes the direct immutable verifier from RISC Zero's
+   router and emergency-stop wrapper. All three addresses must remain distinct.
+4. The release gate requires both the finalized-burn and checkpoint adapter
+   manifests to match the reviewed chain, direct-verifier address, runtime code
+   hash and selector.
+5. Changing the repository reference and both adapter manifests together does
+   not bypass the pin: the exact reference validator still rejects the change.
+6. The live finalized-state preflight now reads the direct verifier's code,
+   SELECTOR and VERSION and rejects any mismatch before deployment and again at
+   cold start.
+
+Reviewed upstream identity
+
+- RISC Zero Ethereum release: v3.0.1
+- release commit: 365e7b2db4f620fa256580c27558d2623362b9ae
+- direct verifier: 0x2a098988600d87650Fb061FfAff08B97149Fa84D
+- selector: 0x73c457ba
+- VERSION: 3.0.0
+- runtime code hash:
+  0xfe03c66078969d097f867351171b4639d726c8376c35022675ed44cbbcbaa720
+- deployment.toml SHA-256:
+  08718c12bc06afb0dc8f54978e28a787bcce4d919f1c5b0c1e090015fbbd01f6
+- direct verifier source SHA-256:
+  f24784fb625b8a82232c79f21db28f759593e29a287a4f9865cc6e78d36eb283
+
+The upstream source shows that the direct verifier holds its control root,
+BN254 control ID and selector as immutable values and performs verification in
+a view call. The separately deployed emergency-stop wrapper can pause itself
+permanently, but it cannot mutate or stop the direct verifier that USDOM pins.
+USDOM must therefore use its own guardian and incident process if the pinned
+proof system is later reported vulnerable.
+
+Risk policy
+
+This pin prevents selection of a different proof authority. It does not claim
+that RISC Zero or USDOM has zero residual risk. A reviewed verifier can still
+contain an unknown defect; that risk belongs in the release-specific residual
+risk report and operational response plan. External audit availability remains
+optional. A live code or identity mismatch is an objective technical failure
+and cannot be converted into residual-risk acceptance.
+
+Primary upstream references
+
+- https://github.com/risc0/risc0-ethereum/blob/v3.0.1/contracts/deployment.toml
+- https://github.com/risc0/risc0-ethereum/blob/v3.0.1/contracts/src/groth16/RiscZeroGroth16Verifier.sol
+- https://github.com/risc0/risc0-ethereum/blob/v3.0.1/contracts/src/RiscZeroVerifierEmergencyStop.sol
+
+No deploy, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred.
+
+Superseding note
+
+Stage 223 upgrades the reference from v2 to v3 by pinning the emergency-stop
+wrapper runtime code hash and adds live wrapper health monitoring. The direct
+verifier identity established here is unchanged.

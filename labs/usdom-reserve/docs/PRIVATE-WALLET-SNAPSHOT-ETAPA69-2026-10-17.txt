@@ -1,0 +1,79 @@
+USDOM ETAPA 69 — SNAPSHOT CRIPTOGRAFADO E REINÍCIO SEGURO
+Data: 2026-10-17
+Escopo: implementação isolada no branch local codex/usdom-reserve-v3
+
+DECISÃO
+
+Esta etapa torna persistentes os secrets, notas, cursor canônico, log global de
+compromissos e histórico de rollback da carteira USDOM. O arquivo sozinho não é
+chamado de anti-rollback: a API exige o WalletSnapshotSeal mais recente mantido
+por uma autoridade externa monotônica. Sem TPM, HSM, serviço quorum ou âncora
+equivalente, um invasor com controle do disco pode restaurar juntos arquivo e
+selo local.
+
+ENVELOPE E DURABILIDADE
+
+O formato externo usa magic USD-WALLET-S1, versão fechada, Argon2id com 64 MiB,
+três iterações e paralelismo um, seguido de HKDF-SHA256 e ChaCha20Poly1305 com
+salt e nonce aleatórios por save. A escrita compartilhada de dom-wallet-crypto
+permanece temp file, fsync, rename e fsync do diretório.
+
+A leitura do envelope compartilhado foi endurecida para:
+
+- abrir e ler pelo mesmo file descriptor;
+- exigir diretório do proprietário em modo 0700;
+- exigir arquivo regular, não symlink, do proprietário, modo 0600 e link único;
+- comparar inode/dispositivo antes e depois da leitura;
+- rejeitar padding de header não zero;
+- aplicar limite antes do KDF e retornar plaintext em memória zeroizante.
+
+Os wallets DOM v1 e v2 foram recompilados e suas 82 e 123 regressões passaram.
+
+SNAPSHOT CANÔNICO
+
+USWSTA01 possui limite de 64 MiB e framing binário exato. Ele contém geração,
+selo predecessor, chain, owner e scan secrets, tip, compromissos em ordem,
+aberturas das notas e undo por bloco. O snapshot não persiste roots ou paths
+como autoridade. Durante load, a carteira:
+
+1. autentica e decripta o envelope;
+2. compara o digest integral com o selo externo esperado;
+3. valida geração e predecessor;
+4. verifica scalars, contagens, unicidade, ownership, flags de gasto e cadeia do
+   histórico;
+5. reconstrói a árvore e todos os paths Merkle a partir do log ordenado;
+6. exige que tip, histórico, notas, nullifiers e compromissos concordem.
+
+O decoder rejeita toda truncagem e bytes finais. Senha errada, ciphertext
+alterado e restauração de uma geração antiga falham fechado. O rollback de tip
+continua funcionando após fechar e reabrir a carteira.
+
+CONTROLE DE CONCORRÊNCIA E SELO
+
+Save e load usam um lock file exclusivo 0600. Antes de sobrescrever, save
+decripta o arquivo atual e exige igualdade com previous_seal, além de incremento
+de geração exatamente igual a um. O selo USWSL001 possui 48 bytes: magic,
+geração u64 e digest BLAKE2b-256 domain-separated do plaintext canônico.
+
+O chamador deve publicar o novo selo em armazenamento monotônico somente após o
+save retornar sucesso e deve fornecer exatamente esse selo no próximo load ou
+save. A integração concreta com TPM/HSM ainda não foi escolhida.
+
+LIMITAÇÕES RESTANTES
+
+1. falta integrar o selo a uma autoridade monotônica de produção e definir
+   backup, rotação de senha, recuperação e teste de desastre;
+2. falta registro da nota própria emitida por depósito Ethereum;
+3. falta adaptador canônico detach/attach entre nó e carteira;
+4. faltam coin selection, outputs/troco, circuito, chamada do prover, framing,
+   submissão autenticada e acompanhamento;
+5. faltam cerimônia MPC, chave auditada, verificadores Ethereum de produção,
+   auditorias externas e testes shadow multinó.
+
+STATUS
+
+Persistência confidencial, crash-safe e restaurável está implementada; detecção
+de rollback é efetiva quando o selo esperado vem de uma autoridade realmente
+externa e monotônica. Esta integração operacional ainda bloqueia mainnet.
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

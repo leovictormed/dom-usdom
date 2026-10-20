@@ -1,0 +1,43 @@
+USDOM ETAPA 129 — AGENDA PORTÁTIL NA PROVA DE QUEIMA
+Data: 2026-10-18
+
+ACHADO
+
+A API da etapa 127 restaurava e auditava o armazenamento usando a agenda exata,
+mas NativeBurnBlockProverInput ainda codificava UDBBLK01: network magic, bloco,
+pacote, undo e testemunho. Chain ID, altura de ativação e raiz vazia não estavam
+nos bytes transportados. Além disso, a verificação interna ainda rejeitava redes
+diferentes de Regtest e não repetia a validação completa do corpo com o chain ID
+agendado. Um provador ou verificador externo não podia sustentar o vínculo de
+agenda apenas com a evidência recebida.
+
+CORREÇÃO
+
+- UDBBLK02 incorpora os 86 bytes canônicos de NativeUsdomV4ActivationSchedule;
+- network magic é derivado da agenda, eliminando duas fontes divergentes;
+- verify exige igualdade com a agenda selecionada externamente;
+- o bloco deve ser v4 e estar na altura ou depois da ativação;
+- a raiz vazia da agenda é recalculada a partir da identidade completa da ponte
+  contida no testemunho de estado;
+- validate_block_v4_scheduled é repetido sobre o pacote transportado usando o
+  chain ID da agenda, cobrindo assinaturas, balanço, estrutura, PMMR e binding
+  do lote USDOM;
+- NativeBurnBlockBinding exporta chain ID, altura, raiz vazia e o compromisso
+  domain-separated da agenda para uso pelo futuro circuito/verificador;
+- substituições de chain ID, raiz de ativação, bloco, pacote, undo ou testemunho
+  falham fechadas.
+
+LIMITE
+
+UDBBLK02 autentica as relações internas e a agenda escolhida. Ele não demonstra
+que essa agenda foi socialmente ratificada, não prova a cadeia de cabeçalhos/PoW
+até o bloco e não decide finalidade. Esses elementos ainda pertencem ao
+verificador de produção ausente, cujo config hash deverá fixar a agenda aceita.
+
+VERIFICAÇÃO
+
+- teste focal de exportação, codec, substituições e checkpoint: aprovado;
+- suíte dom-chain com native-usdom-v4-poc: 75 aprovados, 0 falhas;
+- cargo fmt e clippy com warnings negados: aprovados.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.

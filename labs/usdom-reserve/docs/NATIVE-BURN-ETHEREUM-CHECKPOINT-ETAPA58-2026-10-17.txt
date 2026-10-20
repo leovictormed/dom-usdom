@@ -1,0 +1,85 @@
+Verified Ethereum checkpoint binding for a native burn (stage 58, 2026-10-17)
+
+Problem
+-------
+UDBBLK01 binds a burn to one exact DOM block and native state, while the
+repository-local Ethereum verifier independently authenticates a finalized
+checkpoint-registry event. Before this stage there was no typed boundary that
+required both results to describe the same DOM block and state. Comparing only
+one hash, or trusting decoded event bytes, could mix bridge domains, networks or
+checkpoint policies.
+
+Opaque composition
+------------------
+bind_verified_ethereum_checkpoint_to_native_burn accepts:
+
+- a canonical NativeBurnBlockProverInput;
+- an independently selected DOM network and block identifier; and
+- VerifiedCheckpoint, whose fields are private and which production code can
+  obtain only after the checkpoint verifier has replayed Ethereum BLS/SSZ
+  finality, execution ancestry, receipt inclusion, registry code and storage.
+
+The function first repeats every UDBBLK01 block, PMMR, batch, state and burn
+relation. It then requires exact equality for:
+
+- DOM height, canonical block identifier and native USDOM state root;
+- DOM network magic and bridge domain;
+- target Ethereum chain ID and genesis validators root; and
+- the immutable checkpoint trust-policy hash committed by native state.
+
+The returned NativeBurnCheckpointBinding retains the fully verified native
+binding, checkpoint event execution block/hash and receipt/log indices, the
+newer authenticated Ethereum finality execution block/hash/timestamp and Beacon
+slot/root, and the exact event digest. It rejects zero or regressing event and
+finality identities even though the opaque producer already checks them.
+
+Trust boundary
+--------------
+Decoded 417-byte checkpoint records have no authority. The production call
+requires the unforgeable opaque Rust capability. The unsafe fixture constructor
+exists only behind the explicit unsafe-test-oracle feature and is used to test
+field substitution without claiming cryptographic verification.
+
+The composition proves that a cryptographically authenticated Ethereum-finalized
+event names the same native burn block/state. It does not prove that the
+checkpoint registry correctly chose the canonical DOM fork unless the pinned
+registry implementation and its DOM proof verifier establish that rule. No such
+production registry or succinct DOM verifier is deployed.
+
+Consensus boundary still open
+-----------------------------
+This stage is read-only. It does not install a checkpoint into DOM consensus or
+fork choice. A node that observes the event and a node that does not can still
+disagree unless checkpoint evidence is made consensus-visible under a versioned
+activation rule, accepted atomically with native state and applied during direct
+connection, IBD, reorganization, restart and snapshot validation.
+
+Before payout can rely on this architecture, the protocol must also specify:
+
+- how every upgraded node derives the same latest finalized Ethereum checkpoint;
+- how checkpoint carriage and data unavailability affect DOM liveness;
+- how a checkpoint survives an attempted reorganization of its carrier block;
+- bootstrap floors and exceptional Ethereum-finality conflict handling; and
+- how the Ethereum registry validates DOM ancestry, work/fork choice and the
+  native state transition without trusting the first or fastest publisher.
+
+Validation
+----------
+The native composition test starts from an audited persisted issue-and-burn
+block, produces UDBBLK01, constructs an opaque test capability and checks all
+exported event/finality fields. Individual substitutions of DOM block, state,
+network, chain ID, genesis, bridge domain and trust policy are rejected.
+
+- dom-chain native-v4 library: 67/67 tests;
+- dom-chain compile-fail API documentation: 1/1;
+- Ethereum finality laboratory: 47/47 tests and 5/5 compile-fail API tests,
+  including current Fulu signatures, committee rotation, ancestry, receipts,
+  state/code/storage proofs and resource bounds;
+- native ChainState integration: 2/2 tests;
+- native DomNode runtime integration: 7/7 tests;
+- native all-target Clippy with -D warnings, release build and default DomNode
+  check: passed.
+
+No production fork-choice installation, registry deployment, succinct DOM
+proof, push, activation or real-funds operation was performed. Mainnet and
+real-funds readiness remain false.

@@ -1,0 +1,70 @@
+USDOM ETAPA 68 — WITNESSES MERKLE DA CARTEIRA PRIVADA
+Data: 2026-10-17
+Escopo: implementação isolada no branch local codex/usdom-reserve-v3
+
+DECISÃO
+
+Esta etapa mantém, em memória, o path Merkle de profundidade 32 para cada nota
+possuída e exporta o InputWitness exato aceito pelo SpendCircuit. Ela não libera
+mainnet, deploy, depósitos ou fundos reais. A carteira continua fora do processo
+do nó e depende de blocos canônicos autenticados pelo integrador.
+
+PRIMITIVAS DE ÁRVORE
+
+IncrementalNoteTree agora expõe duas operações somente de leitura:
+
+- next_leaf_path deriva o path que a próxima folha terá no instante da inserção;
+- prospective_subtree_root calcula a raiz preenchida com vazios do subtree
+  direito que receberia uma nova folha, sem alterar a árvore.
+
+Ambas usam o mesmo frontier, Poseidon e empty roots do consenso, recusam árvore
+cheia, folhas zero e profundidades inválidas. Um teste independente acompanha 17
+folhas, cruza limites binários até 16 e exige que cada path de cada prefixo
+reproduza a raiz canônica.
+
+ATUALIZAÇÃO DA CARTEIRA
+
+Para cada novo compromisso público, WalletState identifica o nível mais alto no
+qual o índice de uma nota antiga difere do novo índice. Somente esse sibling é
+substituído pela raiz prospectiva do subtree que recebeu a folha. Notas recebidas
+no mesmo bloco também são atualizadas. Antes do commit, todos os paths antigos e
+novos são verificados contra a raiz candidata.
+
+Atualizações de paths de notas existentes ficam em um overlay temporário. Uma
+falha de parsing, duplicidade, decriptação, árvore ou witness não altera o estado
+publicado. O undo guarda os paths anteriores e rollback_tip os restaura junto com
+raiz, tip, nullifiers, compromissos e flags de gasto.
+
+EXPORTAÇÃO AO PROVER
+
+spend_witness aceita somente uma nota conhecida, não gasta e controlada pelos
+WalletSecrets fornecidos. Ele reverifica o path sob a raiz atual e retorna:
+
+- valor e rho da abertura;
+- owner secret correspondente;
+- índice global da folha;
+- exatamente 32 siblings.
+
+InputWitness aplica zeroização no descarte. Notas desconhecidas, gastas, de outra
+carteira ou com path inconsistente falham antes da construção do circuito.
+
+LIMITAÇÕES RESTANTES
+
+1. secrets, notas, paths, cursor e undo ainda não possuem armazenamento durável
+   criptografado, snapshots autenticados, anti-rollback, backup ou recuperação;
+2. reinício sobre árvore não vazia ainda não é suportado;
+3. não existe registro da nota própria derivada de um depósito emitido;
+4. falta adaptador de notificações canônicas detach/attach do nó;
+5. histórico e conjuntos globais ainda crescem sem compactação persistente;
+6. faltam coin selection, construção de outputs e efeitos, chamada do prover,
+   framing da transação, submissão autenticada e acompanhamento;
+7. faltam cerimônia MPC e chave final auditada, verificadores Ethereum de
+   produção, auditorias independentes e testes shadow multinó.
+
+STATUS
+
+Witnesses Merkle em memória e exportação segura ao formato do circuito estão
+implementados e testados. Persistência segura e o transaction builder passam a
+ser os bloqueadores imediatos da carteira. mainnet_ready, deploy_authorized e
+real_funds_authorized permanecem false. Nenhum commit, push, deploy ou fundo real
+foi usado.

@@ -1,0 +1,84 @@
+USDOM nativa — promoção e reorganização atômica de ramo validado
+Etapa 40, 2026-10-17
+
+Estado: prova de conceito opt-in e exclusiva de Regtest. Sem ativação de
+consenso público, deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Falha tratada
+
+A etapa 39 validava e retinha ramos laterais, mas não podia promovê-los. Ligar
+somente o novo tip deixaria UTXOs, kernels e estado USDOM no ramo antigo. Fazer
+essas alterações em transações separadas criaria estados mistos após falha ou
+queda do processo. Outro risco era calcular o delta USDOM apenas do ancestral
+para o novo ramo: isso não apagaria entradas que existem somente no tip antigo.
+
+2. Replay e estado final
+
+ChainState::promote_usdom_v4_known_tip_regtest exige Regtest, restaura e compara
+o estado canônico persistido, encontra o ancestral comum e exige que o novo tip
+vença a escolha de fork. Profundidade, finalidade móvel e comprimento do ramo
+são limitados pela política existente.
+
+Todos os cabeçalhos promovidos são novamente verificados em ordem: identidade,
+encadeamento, altura, progressão de tempo, MTP, limite futuro, seed RandomX do
+próprio ramo, PoW, alvo ASERT e dificuldade acumulada. O estado USDOM é recuado
+ao ancestral por undos autenticados e cada pacote/sidecar é reexecutado contra o
+resultado anterior.
+
+O delta monetário final é calculado diretamente do estado canônico antigo para
+o estado final do ramo promovido. Assim, notas, nullifiers, âncoras ou índices
+exclusivos do ramo removido geram exclusões explícitas. Cada bloco promovido
+persiste seu undo autenticado; apenas o marcador do tip final sobrevive à fusão
+determinística das atualizações.
+
+3. Uma única transação LMDB
+
+O mesmo caminho existente calcula overlays completos de UTXO e kernel para o
+disconnect/connect e o índice final de alturas. A nova fronteira
+apply_reorg_with_consensus_state_and_sidecars grava, numa única transação:
+
+- tip e ocupantes finais das alturas afetadas;
+- UTXOs e kernels finais;
+- delta final do estado USDOM, undos e marcador do pacote do novo tip;
+- sidecars imutáveis dos blocos que deixam o ramo canônico.
+
+Sidecars do ramo removido só podem ser anexados a pares de cabeçalho/corpo já
+existentes. Repetição byte a byte é idempotente; substituição, duplicata, valor
+vazio, excesso individual ou excesso agregado abortam toda a transação. O estado
+em memória e os campos de ChainState são atualizados somente após o commit.
+
+Pacotes promovidos usam os sidecars já persistidos como fonte canônica, evitando
+duplicar envelopes grandes no consensus_state. A reconstrução aceita esse modo
+somente quando o sidecar canônico e o corpo produzem o identificador esperado.
+Conexões diretas continuam armazenando os chunks pelo caminho anterior.
+
+4. Evidência
+
+O teste de integração minera uma cadeia canônica v4 e um ramo lateral de dois
+blocos. Ele corrompe o sidecar do novo tip e confirma que promoção, tip e estado
+falham sem mutação. Após restaurar os bytes, a promoção troca o bloco da altura
+2, adiciona a altura 3, preserva o sidecar do antigo bloco canônico, restaura o
+estado pelo novo tip e reconstrói os dois pacotes promovidos.
+
+Passaram:
+
+- 65 testes unitários dom-chain;
+- 1 integração ChainState com conexão, rewind, replay, corrupção e reorg;
+- 66 testes completos dom-store, incluindo SIGKILL e reopen;
+- 16 testes do estado USDOM e 1 compile-fail;
+- Clippy dom-chain e dom-store com warnings como erros;
+- build release dom-chain, rustfmt e diff check.
+
+5. Limites restantes
+
+A reorganização nativa existe apenas na API opt-in. A entrada viva de blocos,
+P2P, IBD e mineração ainda não transporta nem seleciona automaticamente pacotes
+v4. Snapshots e recuperação precisam declarar e verificar a cobertura dos
+sidecars e do estado de extensão. A política de custo ainda limita bytes, mas
+não mede o custo criptográfico total das provas.
+
+Continuam faltando witness positivo do registry Ethereum real, verificadores
+privados de emissão/transferência/queima revisados, carteira, ativação/migração,
+parâmetros de produção, shadow run e auditorias independentes. mainnet_ready e
+real_funds_ready permanecem false.

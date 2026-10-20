@@ -1,0 +1,54 @@
+USDOM nativa — compromisso versionado de transições por bloco
+Etapa 27, 2026-10-17
+
+Estado: núcleo isolado, ainda não ativado no consenso DOM. Sem deploy, push ou
+fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Implementação
+
+Cada capacidade de transição já verificada agora produz um compromisso v1
+determinístico e separado por domínio. Emissão compromete depósito, nota, valor e
+identidade finalizada da Ethereum. Transferência compromete âncora, nullifiers e
+notas de saída na ordem da árvore. Queima compromete âncora, nullifiers, troco e
+toda a obrigação pública de resgate.
+
+Um lote ordenado de até 1.024 transições calcula folhas que incluem o índice,
+uma raiz Merkle própria e um único header_commitment sobre:
+
+  versão || domínio || quantidade || raiz-das-transições ||
+  raiz-USDOM-anterior || raiz-USDOM-posterior
+
+O lote vazio também tem raiz própria e compromete a continuidade de estado. A
+aplicação ocorre em cópia: qualquer falha descarta o lote inteiro. O rollback v2
+persiste a sequência exata de undos, verifica sua cadeia de raízes e só é aceito
+quando corresponde ao recibo de lote e ao compromisso recalculado. A integração
+LMDB exercita commit, reinício e reorganização com esse formato.
+
+2. Vetores congelados
+
+Para o lote de teste canônico:
+
+- transição 0: 4406a13aaa3ad0b2a6fd7723f1830bde3b0da14d3e2b09f2bd0051cc9acb1e36
+- transição 1: e674e790f2bef1fc3071601cba6e2dbf9f6309e9bc803f0c32b12ee8541fa287
+- raiz do lote: dbfc074d0f58da6edb1d41db3dbff36288d5feb4f4d8b149dd8bcc27cd338e7a
+- compromisso do cabeçalho: 0553f5e91fb7ac25d98231c45d09957107ce7f4d4cfc45af65422067eefac24a
+
+A suíte verifica sensibilidade à ordem e aos campos, atomicidade, lote vazio,
+limite de tamanho, truncamentos, bytes extras, recibo substituído e reversão
+exata. Passaram 13 testes unitários, 1 compile-fail de isolamento de capacidade,
+a integração LMDB e a suíte completa dom-store. rustfmt, clippy com warnings como
+erros e diff check passaram.
+
+3. Fronteira restante
+
+O BlockHeader atual da DOM ainda não contém esse compromisso, e o Block ainda não
+carrega o envelope/prova privada que o verificador transformará em capacidades
+VerifiedTransition. Alterar a serialização atual sem versão e altura de ativação
+seria um hard fork inseguro. Por isso, esta etapa congela o núcleo e os vetores,
+mas não muda o cabeçalho v2/v3 nem a política monetária da DOM.
+
+Ainda faltam: formato público limitado das provas, circuito/verificador real,
+versão v4 e cronograma de ativação, validação idêntica em mempool/mineração/P2P/
+IBD/reorg, migração/snapshot e testes multinó. mainnet_ready e real_funds_ready
+continuam false.

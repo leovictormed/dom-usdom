@@ -1,0 +1,44 @@
+USDOM ETAPA 241 — ESQUEMA EXATO DOS METADADOS DE RELEASE
+Data: 2026-10-20
+Status: implementado e validado localmente
+
+Achado USDOM-241
+
+Severidade: Média para integridade operacional da cerimônia de release.
+Exposição pública atual: nenhuma.
+
+Os registros assinados de evidência e intenção aceitavam propriedades
+desconhecidas. `operatorIntent.undefined` só era examinado quando já era um
+array; outro tipo eliminava o bloqueio de parâmetros pendentes. Referências de
+documentos, decisões de setup, papéis de controle e aceite de risco também
+ignoravam propriedades extras, permitindo interpretações paralelas por outras
+ferramentas ou operadores.
+
+Correção
+
+- o envelope de evidência exige exatamente os 41 campos suportados;
+- a intenção do operador ganhou `schema: 1` e exige exatamente seus 20 campos;
+- `undefined` deve ser array de strings não vazias, sem duplicatas;
+- cada documento exige somente `path` e `sha256`;
+- setups, envelope de três papéis, snapshots de cada papel e aceite de risco
+  usam esquemas exatos;
+- campos ausentes e extras falham fechados, inclusive nos relatórios opcionais
+  quando eles forem fornecidos.
+
+Auditorias externas continuam opcionais e risco zero não é requisito. A
+correção elimina ambiguidade de formato; não declara fatos de produção ainda
+ausentes.
+
+Validação focal inicial: 35/35 testes de prontidão passaram, incluindo
+propriedades extras/ausentes, `undefined` com string, número, vazio e duplicata,
+documento adulterado, setups, papéis e aceite de risco.
+
+Validação final
+
+- lint de produção e compilação forçada: passaram;
+- suíte Node completa: 106/106;
+- suíte Solidity vigente: 138/138, sem alteração de contrato nesta etapa;
+- procedência completa: 169 fontes importadas, 16 modificações registradas,
+  todos os limites/manifests subordinados e 851 arquivos no manifesto raiz;
+- gates esperadamente não prontos: 148/159 bloqueios objetivos únicos, sem
+  requisito de auditoria externa ou risco zero.

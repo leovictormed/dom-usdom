@@ -1,0 +1,39 @@
+Stage 219 — out-of-repository release trust anchor
+Date: 2026-10-20
+
+Finding USDOM-219 — High circular release trust
+
+Stage 217 compared Git signatures with a fingerprint declared in
+operator-intent.json. That declaration is useful release metadata but cannot be
+the root of trust for its own commit: an attacker able to replace the repository
+could replace the declared fingerprint, sign commit and tag with the attacker's
+key, and make all three values agree.
+
+Remediation
+
+The command-line gate now obtains the release trust anchor only from
+USDOM_RELEASE_SIGNING_KEY_FINGERPRINT, supplied by the operator's independently
+controlled release environment. The pure assessor receives it as a separate
+input. A release passes only when:
+
+- the external value has canonical OpenPGP or SSH fingerprint syntax;
+- operator-intent.json declares the exact same fingerprint;
+- the verified commit fingerprint equals it;
+- the verified annotated-tag fingerprint equals it.
+
+If the external anchor is absent or malformed, the gate emits one explicit
+trusted_release_signing_key_unconfigured blocker. It does not fall back to the
+repository declaration. The checked-in declaration and external environment are
+both intentionally unset until the operator selects and independently records a
+release key.
+
+Regression validation
+
+Besides missing/malformed anchor and independent commit/tag substitution tests,
+a dedicated adversarial vector changes the repository declaration and both Git
+signer fingerprints to the same attacker key while leaving the external anchor
+unchanged. The release remains NOT READY with the exact declaration-mismatch
+blocker. Fully consistent synthetic releases pass both modes.
+
+No key was created or accessed. No proof generation, mining, deployment, fund
+movement, commit or push was performed.

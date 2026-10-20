@@ -1,0 +1,38 @@
+Stage 182 - unforgeable segment-bound RandomX assumption
+Date: 2026-10-19
+
+Finding
+
+Stage 181 fixed the RISC Zero byte conversion and guest call, but the assumption
+value still exposed public image_id and journal fields. External guest code
+could construct that value directly and bypass the state-derived constructor.
+The constructor also accepted a segment state without proving that the RandomX
+statement belonged to one of the segment's block heights. Correct callers could
+avoid both mistakes, but the API did not make misuse impossible.
+
+Implemented boundary
+
+1. CheckpointRandomXReceiptAssumption fields are private. Read-only accessors
+   expose the exact bytes after validation; external code cannot construct or
+   mutate an assumption.
+2. The only public constructor now accepts a complete UDCSTN02 transition and
+   validates both endpoints, immutable policies, span, work and private-input
+   commitment before deriving anything.
+3. The statement height must be greater than previous.height and no greater
+   than next.height. Receipts from the preceding frontier, following segment or
+   an unrelated height reject.
+4. Network and chain identity, canonical UDCRXST1 validation and the exact
+   statement commitment remain mandatory.
+5. A compile-fail documentation test proves external field construction is
+   rejected by Rust privacy, while runtime tests cover invalid transition,
+   before/after heights, identity mismatch and invalid statements.
+
+Security status
+
+The eventual segment guest can now obtain an assumption only from a validated
+transition and one of its heights. It must still derive each UDCRXST1 from the
+matching parsed private block header and consume exactly one receipt per block;
+that complete guest loop is not implemented. The RandomX guest and production
+ImageID also remain absent. Mainnet and real funds remain fail closed. No
+deploy, public transaction, funds, commit or push occurred. The node and miner
+remained stopped.

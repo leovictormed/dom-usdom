@@ -1,0 +1,7 @@
+Network: Ethereum mainnet
+Beacon API: https://ethereum-beacon-api.publicnode.com
+Execution RPC: https://ethereum-rpc.publicnode.com
+Bootstrap slot: 15446016
+Trusted checkpoint root: 0xa8f19965d0082e1f0c6099cc2a73aa6315d3a7eae012731480140defae43e30f
+Execution ancestry blocks: 26208720-26208724
+Retrieved: 2026-10-16

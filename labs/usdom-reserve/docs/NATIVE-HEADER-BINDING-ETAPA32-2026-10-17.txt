@@ -1,0 +1,57 @@
+USDOM nativa — vínculo do lote no cabeçalho e no PoW
+Etapa 32, 2026-10-17
+
+Estado: primitiva de consenso e validador isolado somente para Regtest. Nenhuma
+ativação em Mainnet/Testnet, deploy, push ou uso de fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Implementação
+
+A versão 4 fica reservada para blocos que comprometem exatamente um lote nativo
+USDOM. O formato congelado de 256 bytes do BlockHeader não foi alterado. Em v4,
+o rangeproof_root já ligado ao corpo completo do bloco é ligado novamente ao
+header_commitment calculado pelo estado USDOM:
+
+  BLAKE2b-256_tagged(
+    "DOM:usdom-header-v4:v1",
+    body_bound_rangeproof_root || usdom_batch_header_commitment
+  )
+
+Como rangeproof_root participa da serialização do cabeçalho e do pow_preimage,
+qualquer alteração no lote USDOM muda o trabalho que precisa ser minerado. A
+ordem dos dois valores, o domínio e a rejeição de zeros são explícitos.
+
+2. Isolamento de ativação
+
+O cronograma público continua exigindo somente as versões já ativadas. Um bloco
+v4 enviado ao caminho normal de Mainnet, Testnet ou Regtest é rejeitado. O único
+validador v4 é explícito e aceita apenas NETWORK_MAGIC_REGTEST; ele também exige
+que o timestamp do contexto USDOM seja idêntico ao timestamp autenticado no
+cabeçalho. A função interna que escolhe uma versão de hard fork não é API
+pública, evitando que consumidores contornem a política de rede por acidente.
+
+O validador recalcula primeiro os PMMRs e o vínculo completo do corpo. Depois
+aplica o compromisso USDOM esperado e compara o resultado com o cabeçalho. Não
+há confiança em um root fornecido pelo sidecar. O valor do sidecar é útil apenas
+quando já foi recalculado pela máquina de estado nativa.
+
+3. Validação adversarial
+
+Os testes cobrem o caso positivo Regtest, rejeição pelo caminho de consenso
+normal, rejeição fora de Regtest, lote substituído, timestamp substituído,
+compromisso ausente, entradas zero, inversão das entradas e alteração efetiva
+do pow_preimage. A suíte completa dom-consensus, rustfmt, clippy com warnings
+como erros e diff check são preservados no diretório de resultados da etapa.
+
+4. Limites restantes
+
+Esta etapa autentica o compromisso de um lote que já tenha sido verificado, mas
+o Block ainda não carrega o envelope público limitado nem as provas que geram
+VerifiedTransition. ChainState, mineração, P2P, IBD, side branches e reorganização
+ainda usam o caminho v3 e não ativam v4. A ativação exigirá um formato canônico e
+limitado para o envelope, validação idêntica em todos os ingressos, migração e
+cronograma de hard fork revisados.
+
+Ainda faltam também o circuito/verificador privado, um caso positivo com registro
+Ethereum real, carteira privada, parâmetros/multisigs, shadow run e auditorias
+independentes. mainnet_ready e real_funds_ready permanecem false.

@@ -1,0 +1,49 @@
+Bounded authenticated-history memory — etapa 104
+Date: 2026-10-18
+Status: isolated wallet/library hardening; no push, deployment, activation or real funds
+
+Finding USDOM-104
+
+Severity: High local availability risk for a wallet connected to a compromised
+or malfunctioning authenticated loopback node.
+Current public exposure: none; no commit, push, deployment or transaction was performed.
+
+The strict wallet client limited each authenticated-history response to 3 MiB
+and one complete scan to 65,536 blocks. It intentionally retained every parsed
+block until the complete chain reached the exact trusted tip. A server could
+therefore return thousands of individually valid maximum-size pages and make
+the wallet accumulate roughly 12 GiB before completion. The per-page and block
+count limits did not provide a useful aggregate memory bound.
+
+Remediation
+
+- The client now measures the exact response-body bytes for every authenticated
+  page and accumulates them with checked arithmetic.
+- A complete scan is rejected once cumulative response bytes exceed 64 MiB.
+- Overflow in the cumulative counter fails closed.
+- The aggregate check occurs before page blocks are appended to the retained
+  complete-tip sequence.
+- Existing 3 MiB per-page, 65,536-block, 16-block page, canonical ancestry,
+  native-state-root, transition, payload and exact trusted-tip checks remain.
+- Operators needing longer history must use a separately authenticated bounded
+  snapshot/resume design rather than increasing untrusted in-memory growth.
+
+Validation
+
+- exact 64 MiB boundary is accepted;
+- one byte above the boundary is rejected;
+- arithmetic overflow is rejected;
+- complete rpc-client wallet suite: 26 passed, 0 failed;
+- affected-package Clippy with all targets and -D warnings: passed;
+- cargo fmt, JSON syntax and git diff checks: passed;
+- closed-mainnet and real-funds gates correctly remain closed with 70 and 78
+  blockers respectively.
+
+Security boundary
+
+The byte ceiling bounds retained response material; it does not make the
+operator-pinned DOM tip final and does not replace process-level memory limits,
+sealed wallet persistence or an authenticated snapshot protocol.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

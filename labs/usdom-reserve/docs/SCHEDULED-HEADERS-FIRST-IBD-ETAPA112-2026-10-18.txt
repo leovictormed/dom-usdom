@@ -1,0 +1,65 @@
+USDOM / DOM — ETAPA 112
+IBD HEADERS-FIRST V4 VINCULADO À PROGRAMAÇÃO CANÔNICA
+Data: 2026-10-18
+
+Escopo
+
+Esta etapa fecha a lacuna entre a programação canônica de ativação do USDOM
+v4 e a pré-validação headers-first usada pelo IBD. Ela não escolhe nem ativa
+uma programação de produção e não autoriza deploy, push ou fundos reais.
+
+Implementação
+
+1. ChainState agora expõe validação agendada para os dois caminhos de IBD:
+   - lote inicial de cabeçalhos;
+   - retomada determinística por cursor depois de persistência/reinício.
+2. O chamador deve fornecer NativeUsdomV4ActivationSchedule exato.
+3. Antes de validar PoW ou solicitar corpos, o código confere:
+   - network magic da cadeia local;
+   - chain ID derivado do genesis local;
+   - programação persistida no registro atômico de ativação;
+   - pai de ativação na cadeia canônica;
+   - marcador de estado preso ao tip canônico atual;
+   - altura do cabeçalho igual ou posterior a first_v4_height;
+   - sintaxe obrigatória do cabeçalho v4.
+4. A leitura do registro, marcador, tip e pai usa uma única visão LMDB, evitando
+   aceitar uma combinação rasgada durante mudança concorrente da cadeia.
+5. Os wrappers Regtest continuam disponíveis, mas agora também derivam a
+   programação do registro persistido e passam pelas mesmas verificações.
+6. O modo legado continua bloqueado depois da ativação nativa.
+
+Teste dirigido
+
+native_ibd_header_mode_is_explicit_and_matches_batch_and_resume_paths confirma:
+- o modo legado rejeita o cabeçalho v4 após ativação;
+- lote e retomada Regtest retornam a mesma fila;
+- lote e retomada agendados retornam exatamente o mesmo resultado;
+- uma programação substituta, mesmo bem formada, é rejeitada nos dois caminhos.
+
+Validação executada
+
+- cargo test -p dom-chain --features native-usdom-v4-poc --lib
+  75 aprovados, 0 falhas.
+- cargo test -p dom-chain --features native-usdom-v4-poc \
+  --test native_usdom_v4_chainstate
+  5 aprovados, 0 falhas.
+- cargo clippy -p dom-chain --all-targets -- -D warnings
+  aprovado.
+- cargo clippy -p dom-chain --all-targets \
+  --features native-usdom-v4-poc -- -D warnings
+  aprovado.
+- cargo test -p dom-node --features native-usdom-v4-poc \
+  --test native_usdom_v4_runtime
+  8 aprovados, 0 falhas.
+- cargo fmt --all -- --check
+  aprovado.
+- gates deliberadamente fechados: 70 bloqueios em closed-mainnet e 78 em
+  real-funds.
+
+Limites preservados
+
+native_scheduled_public_ibd_ingress_implemented descreve a primitiva de
+ChainState. O runtime público ainda não recebe uma programação ratificada por
+configuração e continua sem ativação de produção. Por isso
+production_activation_schedule_implemented, mainnet_ready e as autorizações de
+deploy/fundos permanecem false.

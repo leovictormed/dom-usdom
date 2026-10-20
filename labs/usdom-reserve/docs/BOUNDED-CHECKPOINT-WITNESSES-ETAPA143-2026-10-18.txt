@@ -1,0 +1,102 @@
+USDOM bounded checkpoint witnesses — stage 143
+Date: 2026-10-18
+
+Finding
+=======
+
+Stage 142 authenticated the ordinary DOM economic-state root, but its host
+reference still opened the entire UTXO and historical-kernel sets. That is an
+executable specification, not a bounded prover input. A production checkpoint
+relation must update those roots from the exact effects of each authenticated
+block without trusting host storage or ingesting all historical state.
+
+Economic witness formats
+========================
+
+dom-usdom-checkpoint-program now defines three canonical Keccak sparse-proof
+frames:
+
+* UDECPR01: one compressed membership/nonmembership path;
+* UDECMP01: a canonical multi-key proof that shares unchanged side nodes; and
+* UDECBW01: two block-level multiproofs plus authenticated UTXO creation-height
+  and coinbase metadata.
+
+Keys are sorted by their domain-separated sparse paths. Duplicate keys, path
+collisions, explicit default siblings, nonzero bitmap padding, trailing bytes,
+wrong tree domains and inconsistent counts fail closed. A UDECBW01 verifier
+derives the complete input, output and kernel effect set from the already
+body-valid DOM block; witness bytes cannot add, omit or reorder an effect.
+
+The witness verifies the previous UTXO and kernel component roots and returns
+the exact new roots. It independently rejects missing inputs, immature coinbase
+spends, existing outputs and historical kernel replay. Tests compare the
+witness result with the full EconomicState transition.
+
+The complete checkpoint executor now has a second entry point,
+execute_checkpoint_extension_with_economic_witnesses. It executes the same
+header, RandomX, work, body, native USDOM and public-statement relation as the
+full-state reference while advancing the economic commitment from exactly one
+UDECBW01 witness per block. A witness-count mismatch fails before execution.
+
+Frozen vectors
+==============
+
+UDECPR01 path:
+  55444543505230314b0303030303030303030303030303030303030303030303030303030303030303030000000000000000000000000000000000000000000000000000000000000040000132490a9ae8b38b1eee22d5dacc8ec3e34d2c1f80f5628e81a34f3f4d239be393
+
+UDECMP01 multiproof:
+  554445434d5030314b00000003000000010303030303030303030303030303030303030303030303030303030303030303030808080808080808080808080808080808080808080808080808080808080808080707070707070707070707070707070707070707070707070707070707070707070000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000009259eeda31b53046f292fd10763eebf76c912bad0cc13a8253f5e5f4d75bd122
+
+Keccak-256 of the UDECBW01 block witness test vector:
+  27d567fe1fb791d9f8f2422f22f8eaf6924a6e2839298151ae3428f84c95acb2
+
+Native authenticated-set research
+=================================
+
+dom-usdom-state now exposes the canonical UDSMPR01 compressed Blake2b sparse
+path and an in-memory SparseMerkleTree. The tree stores only leaves and actual
+branch points, updates one insertion with a bounded 256-level rehash, generates
+membership and nonmembership paths, preserves its root after rejected duplicate
+insertions, and is checked against the independent full-tree reference across
+64 sequential updates. Invalid tree domains cannot alias or poison another
+domain's cached empty roots.
+
+An attempted direct replacement of the current native ordered-set roots was
+deliberately not retained. Recomputing an ordinary depth-256 sparse tree from
+all history after every transition is correct but creates an unacceptable
+denial-of-service cost. The consensus migration must instead persist and
+atomically update the compressed tree/cache, implement rollback and recovery,
+add a separate burn-request root, and transport the PMMR, Poseidon note-tree and
+anchor-history frontiers. UDSMPR01 and SparseMerkleTree are therefore primitives
+for that migration; they do not change the current native state root.
+
+Bounds and release policy
+=========================
+
+The codecs have absolute arithmetic bounds derived from the 40,000 DOM block
+weight ceiling and depth 256. Those worst-case bounds can be hundreds of
+megabytes for an adversarially populated historical tree. A production proving
+release must either demonstrate a safe practical cap that covers every valid
+block or split proof execution into authenticated chunks. Silently selecting a
+smaller cap would create checkpoint liveness failures for consensus-valid DOM
+blocks.
+
+Remaining production blockers
+=============================
+
+This stage is not suitable for mainnet funds. The mandatory remaining work is:
+
+1. Persist, atomically update, roll back and recover the compressed native
+   authenticated sets, then version the native state commitment.
+2. Provide bounded PMMR, Poseidon note-tree and retained-anchor frontier
+   witnesses and a complete stateless native transition executor.
+3. Select a proving backend, port the full relation into its deterministic
+   guest/circuit, and establish measured memory/time/input limits.
+4. Produce a positive 360-block plus 30-confirmation serialized checkpoint
+   vector and adversarial vectors over both witness paths.
+5. Reproduce and audit the program image, key/setup transcript and immutable
+   Ethereum verifier artifacts.
+6. Ratify bootstrap state, multisigs, operators, limits and incident procedure;
+   then complete independent audits and a value-free mainnet canary.
+
+No push, deployment, transaction or use of funds was performed.

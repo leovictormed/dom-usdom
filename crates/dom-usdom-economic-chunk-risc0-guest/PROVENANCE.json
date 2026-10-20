@@ -1,0 +1,23 @@
+{
+  "risc0ZkvmVersion": "3.0.6",
+  "risc0BinfmtVersion": "3.0.5",
+  "risc0PlatformVersion": "2.2.3",
+  "risc0V1CompatVersion": "2.2.3",
+  "guestRustVersion": "1.97.0-dev-e638c6cfe-2026-07-15",
+  "guestLlvmVersion": "22.1.6",
+  "cargoLockSha256": "e9e3696164e4cef4d20194457333c48fea709ab2960ba387e60720831e5ee745",
+  "hostRandomnessEnabled": false,
+  "cleanLocalRebuildsByteIdentical": true,
+  "positiveReceiptExecuted": false,
+  "provingCostMeasured": false,
+  "productionApproved": false,
+  "schema": "dom-usdom-economic-chunk-risc0-guest-provenance-v1",
+  "userElfSha256": "eb4091a118e19205ae4ff6d776e18e811aa2a80063695e768be2a26be45fb3a0",
+  "programBinarySha256": "5e7bc30f65ab4eae7c8b19a8c1c386cd023cd648c85f64008be2bd4729231842",
+  "imageId": "67d286e04444b52305ec409de3c0d22b2131a42f2aa6706f087ace253048e350",
+  "transitionSchema": "UDECTN01",
+  "witnessSchema": "UDECCW01",
+  "journalBytes": 32,
+  "maximumKeysPerChunk": 512,
+  "maximumWitnessBytes": 4232743
+}

@@ -1,0 +1,69 @@
+USDOM private lifecycle checkpoint vector — stage 149
+Date: 2026-10-18
+
+Purpose
+=======
+
+Stage 148 recomputed the complete 360-block checkpoint and 30-block
+confirmation suffix, but every native USDOM batch was empty. This stage places
+real private state changes inside that same versioned V2 checkpoint relation.
+
+Ratified activation input
+==========================
+
+The vector restores a canonical NativeUsdomState snapshot containing one
+10-unit issuance before V2 activation. The snapshot is fully reconstructed and
+its stored root is recomputed by restore_entries. It is then bound by UDACTV02
+as both the V1 source and V2 activation state.
+
+This fixture is deliberately labelled as a ratified pre-activation issuance.
+It is not a finalized Ethereum deposit witness and cannot be cited as evidence
+that the deposit verifier accepted a real Ethereum event. No unsafe-test-oracle
+feature is compiled into the release-profile test.
+
+Private lifecycle inside 360+30
+===============================
+
+The first extension block spends the issuance note into a new private note.
+The second extension block spends that note in a total burn. Both transitions
+use the frozen SpendCircuit and canonical proof payloads. Groth16 proofs are
+generated with deterministic, process-local test parameters, verified through
+the bridge-committed SpendVerifier, converted into opaque transition
+capabilities and executed again by the stateless V2 checkpoint relation with
+bounded native witnesses.
+
+The burn binds its nullifier, amount, recipient, request ID, reserve, chain ID,
+deadline and obligation commitment. The full-state mirror and stateless V2
+executor agree after every block. At the checkpoint target, total issued is 10,
+total burned is 10 and outstanding supply is zero.
+
+Validation
+==========
+
+- The ignored release-profile integration test recomputed 390 PoW blocks,
+  coinbases, economic witnesses, private transfer, private burn, V2 native
+  witnesses, target checkpoint and confirmation suffix in 74.08 seconds.
+- The ordinary checkpoint-program suite passed 11 unit tests; the expensive
+  integration vector remains ignored by default and must be invoked explicitly.
+- Checkpoint-program clippy passed for every target with warnings denied.
+- Cargo formatting and Git whitespace validation passed.
+
+Security boundary and remaining work
+====================================
+
+This stage closes the empty-native-batch gap for private transfer and burn. It
+does not complete the real-funds lifecycle. Production still requires:
+
+1. A positive finalized Ethereum reserve-deposit witness from deployed,
+   reviewed reserve bytecode, consumed as issuance inside the 360+30 vector.
+2. A finalized-burn proof accepted by the immutable Ethereum verifier followed
+   by queue and payout execution, including duplicate and expiry rejection.
+3. Restart, persistence, V1-to-V2 activation, rollback and competing-reorg
+   exercises across the same nonempty lifecycle.
+4. A selected production proving backend, reproducible guest/circuit build,
+   ceremony-generated keys, immutable verifier artifacts and gas benchmarks.
+5. Ratified multisigs, limits, delays, monitoring and recovery drills, followed
+   by independent consensus, privacy-circuit and Solidity audits.
+
+Production pins remain zero and every public-network gate remains fail closed.
+No push, commit, deployment, transaction or use of funds was performed.

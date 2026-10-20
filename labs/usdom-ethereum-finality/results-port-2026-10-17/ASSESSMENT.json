@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-17",
+  "scope": "repository-local isolated Ethereum Fulu finality, ancestry, receipt and state verifier",
+  "helios_commit": "2af9b41887e069144ee56cd710f3ddca195473f8",
+  "helios_files_verified": 372,
+  "offline": true,
+  "dom_consensus_integrated": false,
+  "mainnet_activated": false,
+  "real_funds_ready": false,
+  "deployment_authorized": false,
+  "pushed": false,
+  "validation": {
+    "functional_tests": 39,
+    "api_isolation_compile_fail_doc_tests": 4,
+    "failed": 0,
+    "format": "passed",
+    "clippy_project": "passed",
+    "upstream_warning": "one deprecated generic-array API in vendored Helios"
+  },
+  "authenticated_fixture_scope": {
+    "ethereum_fork": "Fulu",
+    "receipt_proofs": 167,
+    "usdt_transfer_logs": 32,
+    "failed_receipts": 5
+  },
+  "remaining_blockers": [
+    "pin and govern a current weak-subjectivity bootstrap and fork schedule",
+    "persist and replay the verifier state atomically",
+    "compose verifier output into deterministic multi-node DOM checkpoint consensus",
+    "native USDOM state and private finalized-burn proof",
+    "independent audit and operational recovery"
+  ],
+  "evidence_sha256": {
+    "clippy.log": "35882882c077dde3fa3159b27195a6ea34b173c437ddea794620ceb3ce620766",
+    "format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests.log": "e51fd3e1b8996f7d1578debbeabcb1f0a4acdbfc18437f15430565363981cd2d"
+  },
+  "helios_manifest_sha256": "35d5cab5d34fee79be62d2d55f6398d6b69815d9a4dc93c8d779f46ba461d5cf"
+}

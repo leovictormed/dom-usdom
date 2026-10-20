@@ -1,0 +1,33 @@
+Proof operational-envelope release gate — Stage 236
+Date: 2026-10-20
+Status: fail-closed gate correction; no proof generation, deployment, funds,
+        mining, commit or push
+
+Finding USDOM-236 (Medium)
+
+The finalized-burn guest has a deterministic positive r0vm execution count,
+but no cryptographic proof-generation latency or throughput measurement. The
+checkpoint gate now requires proving-cost measurements for every mandatory
+recursive layer, but neither Ethereum-facing path requires the gas consumed by
+its exact receipt through the release-pinned adapter and verifier.
+
+Guest execution cycles do not prove that a production prover can produce a
+receipt within the operational deadline. Adapter unit tests with a mock
+verifier do not prove that the real seal fits the release gas envelope. A
+release could therefore satisfy implementation flags while remaining unable to
+produce or verify proofs within practical bounds.
+
+Correction
+
+Both readiness modes now independently require:
+
+- measured finalized-burn proving capacity for the release workload;
+- measured EVM gas for the exact finalized-burn receipt through its adapter;
+- measured EVM gas for the exact outer-checkpoint receipt through its adapter.
+
+Each false value produces a stable independent blocker and is covered by a
+mutation test. The fields intentionally remain false: no expensive proof run
+is authorized, and synthetic estimates cannot replace measured receipts.
+
+These requirements establish operational feasibility. They do not demand
+zero risk or an external audit, and neither policy was added to the gate.

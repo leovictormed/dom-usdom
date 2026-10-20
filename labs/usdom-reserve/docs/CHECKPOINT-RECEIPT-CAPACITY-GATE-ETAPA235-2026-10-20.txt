@@ -1,0 +1,42 @@
+Checkpoint receipt and proving-capacity release gate — Stage 235
+Date: 2026-10-20
+Status: fail-closed gate correction; no proof generation, deployment, funds,
+        mining, commit or push
+
+Finding USDOM-235 (High)
+
+The production checkpoint path is a recursive chain. The outer checkpoint
+guest verifies segment receipts. Each segment verifies exact per-block RandomX
+receipts and, for blocks that exceed the direct economic witness bound, a
+complete economic-block receipt composed from bounded economic-chunk receipts.
+
+The readiness gate required broad implementation flags for recursion, RandomX
+and complete block coverage. It did not require the existing facts that record
+positive cryptographic receipts, measured proving capacity at the mandatory
+layers or configuration of the outer guest in the Ethereum adapter. An
+operator could set the broad flags true while every executable composition
+boundary remained unproved.
+
+Correction
+
+Closed-mainnet and real-funds readiness now independently require:
+
+1. a positive receipt from the complete per-block RandomX guest and a measured
+   proving cost;
+2. a cryptographic economic-chunk receipt and measured chunk proving cost;
+3. a positive composed economic-block receipt and measured block proving cost;
+4. a positive complete checkpoint-segment receipt and measured segment cost;
+5. a positive outer-checkpoint receipt, measured outer cost and immutable
+   adapter configuration for that exact outer guest.
+
+Each fact has a dedicated mutation test and stable requirement blocker. The
+older optional RandomX aggregate guest is deliberately excluded: the current
+authoritative segment guest verifies exact per-block RandomX receipts directly,
+and the aggregate is explicitly not the outer checkpoint authority.
+
+Boundary
+
+An r0vm execution or candidate ImageID does not establish receipt generation,
+recursive verification or production throughput. The new fields remain false
+until those objective artifacts and measurements exist. External audit and an
+absolute zero-risk guarantee remain optional; neither was added to the gate.

@@ -1,0 +1,48 @@
+Exact authenticated V2 wallet candidate client — stage 161
+Date: 2026-10-19
+
+Problem
+=======
+
+Stage 160 exposed a bounded canonical binary V2 candidate endpoint, but the
+offline wallet/prover path had no client for it. Reimplementing UDV2RPC1 in an
+operator script would create a second framing implementation and a high-risk
+place for envelope/witness substitution, hexadecimal expansion, or response
+confusion.
+
+Change
+======
+
+The rpc-client feature of dom-usdom-wallet now depends on the public dom-rpc
+codec and exposes submit_v2_candidate. It accepts the exact canonical proof
+envelope and ordered execution-witness bytes, obtains the sole UDV2RPC1 body
+from encode_usdom_v2_candidate_submission_v1, and posts it only to the strict
+loopback authenticated endpoint with application/octet-stream. Wallet and
+proving secrets remain outside the node request; only public proofs and native
+state witnesses cross the boundary.
+
+The acknowledgement is decoded with deny_unknown_fields and accepted only when
+schema_version is one, accepted is true, state is exactly queued, and the
+candidate identifier is canonical lowercase nonzero 32-byte hexadecimal. The
+client never infers confirmation from queue admission.
+
+Validation
+==========
+
+A socket-level test reads the complete HTTP request according to its declared
+Content-Length and proves the exact method, path, bearer header, media type and
+binary body. A second test rejects a wrong schema, false acceptance, zero
+identifier, a non-queued state and an extra response field. Both targeted tests
+pass. All-target Clippy for dom-usdom-wallet with rpc-client passes with
+warnings denied.
+
+Security boundary
+=================
+
+This closes the operator-side transport gap between an offline proof producer
+and the authenticated V2 node candidate pool. It does not prove a real
+finalized Ethereum reserve deposit, execute an Ethereum payout, select or
+compile a production proof backend, ratify release configuration, complete a
+controlled release test run or provide independent audits. The closed-mainnet
+and real-funds gates remain closed. No push, commit, deployment, transaction or
+use of funds occurred.

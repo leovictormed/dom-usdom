@@ -1,0 +1,55 @@
+Stage 177 - native RandomX reference relation
+Date: 2026-10-19
+
+Purpose
+
+UDCRXST1 already fixed the exact public values of a future RandomX proof and
+the host constructor bound those values to one parsed DOM header. The missing
+reference boundary was an executable check that the claimed output really is
+RandomX(seed_hash, pow_preimage), rather than a low value supplied by a prover.
+
+Implemented boundary
+
+1. verify_checkpoint_randomx_relation evaluates the native RandomX v1
+   implementation over the exact 32-byte seed and 224-byte preimage and rejects
+   every output mismatch.
+2. execute_checkpoint_randomx_reference first performs strict canonical
+   UDCRXST1 decoding and all schedule, target and work checks, then evaluates
+   RandomX, and returns the domain-separated statement commitment only if every
+   relation agrees.
+3. Native execution errors are collapsed to a fail-closed public error. No
+   unchecked or claimed hash can reach the success path.
+4. The boundary remains under host-reference. The portable proof-program graph
+   does not acquire randomx-rs, C FFI or unsafe code.
+
+Known-answer evidence
+
+The fixed 224-byte input uses seed 0x12 repeated 32 times and commits the label
+DOM/checkpoint/randomx/vector/v1, height 2048 and nonce
+0x0102030405060708. Native RandomX v1 produces:
+
+851b96702ac00d43d4a594fb22ecefcb9924f2964cc259dbc9b5b6b9cf639a1e
+
+The test accepts that exact relation and rejects independent mutations of the
+hash and preimage. A canonical UDCRXST1 carrying a low but invented hash is
+also rejected after real RandomX execution. Generating the vector required one
+hash evaluation, took about 5.1 seconds and peaked at 268 MiB RSS. It did not
+search a nonce, allocate the approximately 2 GiB mining dataset, start a node
+or mine a block.
+
+Verification
+
+- host-reference suite: 27 passed, 0 failed, one long release vector ignored;
+- portable suite: 18 passed, 0 failed;
+- strict all-target/all-feature Clippy passed;
+- rustfmt and git diff checks passed.
+
+Security status
+
+This is an authoritative native development oracle, not a zero-knowledge
+proof. A production checkpoint still needs a guest-compatible RandomX relation
+or a sound recursively verified equivalent, a pinned production ImageID, real
+receipt verification inside the segment guest, measured proving limits and
+independent audit. Large within-block witnesses and recursive segment
+aggregation also remain open. Mainnet and real funds remain fail closed. No
+deploy, public transaction, funds, commit or push occurred.

@@ -1,0 +1,29 @@
+USD0M — ETAPA 207
+FRONTEIRA DA CARTEIRA NATIVA SEM PRIMITIVAS DE PANIC
+Data: 2026-10-20
+
+ACHADOS E CORREÇÕES
+
+Nove `expect` permaneciam em caminhos de produção. Embora viessem depois de
+validações, respostas RPC, estado persistido ou uma regressão interna poderiam
+converter inconsistência em encerramento da wallet.
+
+- seleção de transfer e burn reserva notas por caminhos falíveis antes de
+  publicar a operação pendente;
+- histórico autenticado exige anchor e bloco terminal por erros tipados;
+- rollback da autorização persistente exige reaquisição falível do payload e
+  entra em recuperação quando o estado mudou; e
+- sumários de emissão usam identidade zero não canônica em estado interno
+  corrompido, impedindo que seja reportada como emissão canônica.
+
+CONTROLE E EVIDÊNCIA
+
+`check-native-wallet-panic-boundary.py` inventaria os cinco fontes de produção,
+proíbe primitivas de panic, executa mutation self-test e valida manifesto
+SHA-256 exato de seis arquivos. O controle integra proveniência e ambos os
+gates. A suite passou 18 testes, incluindo uma prova Groth16 completa, e Clippy
+passou com todos os targets/features e warnings como erro.
+
+Auditoria externa e garantia absoluta de risco zero não são bloqueadores.
+Validação objetiva e aceitação explícita dos riscos residuais permanecem
+necessárias. Não houve push, commit, deploy, mineração, transação ou fundos.

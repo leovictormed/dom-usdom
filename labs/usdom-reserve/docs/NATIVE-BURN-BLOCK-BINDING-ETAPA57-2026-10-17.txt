@@ -1,0 +1,102 @@
+Native USDOM block-bound burn prover input (stage 57, 2026-10-17)
+
+Problem
+-------
+USDBRN01 proved that one public burn obligation belonged to a supplied native
+USDOM state root, but it did not connect that state root to a particular DOM
+block. A future Ethereum-verifiable finalized-burn proof needs one exact public
+statement spanning the burn, post-batch native state and header committed by
+DOM proof of work.
+
+Canonical transport
+-------------------
+NativeBurnBlockProverInput introduces the bounded UDBBLK01 transport. It carries:
+
+- the network magic and canonical DOM header identifier;
+- the exact canonical USDOM v4 block package, including the ordinary block and
+  proof envelope;
+- the exact canonical BatchUndo accepted atomically with that package; and
+- the exact canonical USDBRN01 burn-state witness.
+
+The fixed header declares each component length before allocation. Independent
+limits remain in force: 16 MiB for the complete v4 package, the existing
+MAX_BATCH_UNDO_BYTES bound for at most 1,024 transitions, and 2,846 bytes for
+USDBRN01. Overflow, truncation, trailing bytes, wrong magic/version, oversized
+components and noncanonical nested encodings fail closed.
+
+Relations recomputed
+--------------------
+Verification decodes the full package, undo and burn witness and then recomputes:
+
+1. the canonical header identifier under the selected network domain;
+2. equality between proof-envelope entries and authenticated batch transitions;
+3. the complete native USDOM state root and burn-set inclusion path;
+4. equality between that state root and BatchUndo.after_root;
+5. equality between the batch and DOM header timestamps;
+6. the ordinary block body's output, kernel and raw range-proof PMMR roots;
+7. the batch header commitment from the domain, transition root, before/after
+   roots, transition count and block timestamp; and
+8. the rangeproof_root produced by binding the raw PMMR root to that batch
+   commitment.
+
+The returned NativeBurnBlockBinding exposes the recomputed block identity,
+height, timestamp, post-state root, batch commitment, package commitment and
+public BurnRecord. Verification requires the independently selected expected
+network and block identifier rather than silently treating embedded metadata as
+an external trust anchor.
+
+Audited local export
+--------------------
+export_native_usdom_v4_burn_block_prover_input is read-only and Regtest-only.
+Before exporting, it restores the native state against the supplied canonical
+tip and bridge identity, audits every retained package and header-authenticated
+undo in the permitted reorganization window, loads the exact tip package and
+undo, creates the burn witness from restored state and repeats all UDBBLK01
+relations. A missing burn, activation-only tip, mismatched package, corrupt undo,
+noncanonical height or altered state fails closed.
+
+Privacy
+-------
+The transport contains a public DOM block, public commitments, the public bridge
+obligation and proof bytes already needed to validate the block. It adds no note
+openings, owner identities, private values, transfer path or deposit-to-burn
+association. The eventual proving system must define which transported values
+remain private and expose only the Ethereum reserve statement needed for one
+payout.
+
+Security boundary
+-----------------
+UDBBLK01 authenticates internal relations and, during export, confirms that they
+match one locally audited canonical store. It does not independently prove:
+
+- RandomX proof validity, cumulative-work fork choice or canonical ancestry;
+- that the embedded proof envelope's issuance/transfer/burn proofs are valid;
+- an Ethereum-recognized additional-finality checkpoint for the selected block;
+- availability or censorship resistance on DOM or Ethereum; or
+- a succinct proof accepted by an immutable Ethereum verifier.
+
+The future proving program must verify the block and transition proofs, ancestry
+and selected additional-finality rule. The Ethereum contract must bind its
+public inputs to the same DOM network, block, burn/request identifiers, amount,
+recipient, chain, reserve and deadline. Neither decoding nor local export grants
+consensus or payout authority.
+
+Validation
+----------
+The stage test persists an activation boundary plus an issue-and-burn block,
+restores and audits that store, exports the selected burn and checks the exact
+block/state/batch/package values. It rejects a wrong trusted network or block,
+an absent burn, every truncated fixed header, trailing data, wrong magic/version,
+mutated package/undo/witness and a package/batch transition-count mismatch.
+
+- dom-chain native-v4 library: 67/67 tests;
+- dom-usdom-state: 16/16 unit and 1/1 compile-fail documentation tests;
+- native ChainState integration: 2/2 tests;
+- native DomNode runtime integration: 7/7 tests;
+- native all-target Clippy with -D warnings: passed;
+- native release build and default all-target DomNode check: passed;
+- rustfmt, configuration gates, provenance and archive integrity: passed.
+
+No production proof verifier, finality proof, Ethereum verifier, activation,
+deployment, push or real-funds operation was performed. Mainnet and real-funds
+readiness remain false.

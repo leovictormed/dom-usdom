@@ -1,0 +1,61 @@
+USD0M — ETAPA 199
+PADRONIZAÇÃO ABI DOS ADAPTADORES RISC ZERO
+Data: 2026-10-20
+
+PROBLEMA
+
+DOMFinalizedBurnRiscZeroVerifier e DOMCheckpointRiscZeroVerifier já limitavam a
+leitura de SELECTOR() a 50.000 gas e exigiam exatamente 32 bytes de retorno.
+Entretanto, ambos convertiam diretamente a palavra retornada para bytes4. Uma
+implementação hostil podia devolver os quatro bytes esperados seguidos por 28
+bytes de padding não zero. A conversão truncava o padding e tratava duas palavras
+ABI distintas como a mesma identidade de seletor.
+
+CORREÇÃO
+
+Os dois adaptadores agora exigem a codificação ABI canônica de bytes4:
+
+- o seletor ocupa os quatro bytes mais significativos;
+- os 224 bits restantes são obrigatoriamente zero;
+- tamanho incorreto, return bomb, seletor incorreto e padding sujo falham antes
+  de o adaptador ser construído;
+- a mesma leitura canônica é repetida durante cada verificação, junto do chain ID
+  e do code hash imutáveis.
+
+A chamada verify(bytes,bytes32,bytes32) também declara retorno vazio. Uma chamada
+Solidity de alto nível aceitava qualquer retorno de uma execução bem-sucedida,
+inclusive uma palavra ABI equivalente a false ou um retorno arbitrariamente
+grande. Os adaptadores agora fazem staticcall sem reservar buffer de saída e
+exigem returndatasize exatamente zero. Falha da chamada ou qualquer byte de
+retorno produz InvalidProof; os bytes hostis não são copiados para a memória.
+
+VETORES NEGATIVOS
+
+Foram adicionados contratos hostis que retornam uma palavra de 32 bytes com
+0x73c457ba corretamente alinhado e um único bit ligado no padding. Antes da
+correção, essa palavra era truncada para o seletor esperado. Agora os construtores
+dos dois adaptadores revertem com InvalidConfiguration.
+
+Outros vetores simulam um verificador que retorna 32 bytes de false e outro que
+declara um retorno de 1 MiB. Ambos são rejeitados com InvalidProof. O adaptador
+observa apenas o tamanho do retorno e não paga pela cópia do conteúdo hostil.
+
+VALIDAÇÃO
+
+- 18 testes direcionados dos adaptadores e integrações passaram;
+- a suíte Solidity completa passou: 138 testes, incluindo 3 invariantes com
+  16.384 chamadas cada e fuzzing de 1.024 casos;
+- forge fmt passou nos quatro arquivos alterados;
+- forge lint high/med passou nos dois adaptadores;
+- o manifesto de fontes e os gates foram novamente avaliados após a mudança.
+
+IMPACTO
+
+A mudança não concede autoridade nova e não altera ImageID, journal, statement
+hash ou prova. Ela reduz ambiguidades na identidade e no resultado do verificador
+subjacente. Os hashes de bytecode de produção continuam deliberadamente sem
+ratificação e a implantação mainnet permanece fechada até a configuração final.
+
+Auditoria externa e risco zero não são gates; risco residual documentado e os
+requisitos técnicos concretos continuam obrigatórios. Não houve push, commit,
+deploy, mineração, carteira, transação ou uso de fundos.

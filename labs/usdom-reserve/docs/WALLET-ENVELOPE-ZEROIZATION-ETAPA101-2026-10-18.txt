@@ -1,0 +1,48 @@
+Wallet envelope secret-intermediate zeroization — etapa 101
+Date: 2026-10-18
+Status: local memory-hygiene hardening implemented; production custody remains incomplete
+
+Finding USDOM-101
+
+Severity: Medium defense-in-depth risk.
+Current public exposure: none; no wallet key, commit, push, deployment or transaction was created.
+
+The shared wallet KDF placed its final 32-byte HKDF output in a plain stack
+array and then passed that array by value into WalletKey. Because fixed arrays
+are Copy, the compiler was permitted to leave an unprotected copy on the stack.
+Older ignored audit probes also still claimed that save and load plaintext
+buffers were not erased, although those two paths had already been migrated to
+Zeroizing allocations.
+
+Remediation
+
+- the HKDF output is now allocated directly as Zeroizing<[u8; 32]>;
+- WalletKey::from_bytes takes ownership of that Zeroizing allocation, avoiding
+  a plain-array handoff at the source level;
+- the Argon2 output, serialized save plaintext, decrypted load plaintext and
+  HKDF output are all held by Zeroizing wrappers;
+- the three stale ignored findings were replaced with an active source-policy
+  regression test that pins every secret-bearing intermediate to Zeroizing.
+
+The test is intentionally source-based. Reliably reading stack or freed heap
+storage after drop would require undefined behavior and would not establish a
+sound portable guarantee. Zeroizing remains a best-effort process-memory
+control; it does not provide locked pages, swap exclusion or protection from a
+fully privileged live process attacker.
+
+Validation
+
+- dom-wallet-crypto suite: 40 passed, 0 failed, 2 known-answer tests ignored;
+- zeroization source-policy regression: passed;
+- all-feature/all-target Clippy for dom-wallet-crypto and dom-usdom-wallet with
+  warnings denied: passed;
+- cargo fmt --all --check: passed.
+
+Security boundary
+
+Production still needs OS or hardware-backed custody, memory-locking policy,
+backup distribution, operator authentication and recovery exercises. Therefore
+native_private_wallet_key_management_implemented, mainnet_ready,
+deploy_authorized and real_funds_authorized remain false.
+
+No production status, push, deployment or real-funds authorization changed.

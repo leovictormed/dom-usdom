@@ -1,0 +1,65 @@
+USDOM nativa — transição monotônica de checkpoint Ethereum
+Etapa 31, 2026-10-17
+
+Estado: núcleo e adaptador isolados, sem ativação no BlockHeader ou consenso DOM.
+Sem deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Correções
+
+VerifiedTransition ganhou EthereumCheckpoint, uma capacidade opaca que atualiza a
+âncora Ethereum sem emitir USDOM, criar notas, consumir nullifiers ou alterar os
+contadores monetários. A transição entra no compromisso ordenado do lote, na raiz
+de estado, na persistência canônica e no undo autenticado.
+
+O adaptador opcional ethereum-finality converte somente VerifiedCheckpoint do
+light client. Antes da conversão ele compara versão do handoff, domínio da ponte,
+chain ID e genesis validators root com BridgeIdentity. Bytes v2 decodificados não
+conseguem fabricar VerifiedCheckpoint. O build release habilita o adaptador sem a
+feature insegura de fixtures.
+
+A âncora só avança. Slot Beacon maior não pode regredir altura nem timestamp de
+execução. Repetição exata é rejeitada como transição sem avanço; identidade
+diferente no mesmo slot é conflito. Checkpoints de outra Beacon chain falham.
+Uma emissão histórica posterior não reduz a âncora independente.
+
+2. Semântica corrigida
+
+A revisão encontrou uma ambiguidade anterior: EthereumAnchor podia parecer o
+bloco histórico que continha o depósito. Isso permitiria associar execuções
+diferentes ao mesmo slot Beacon. A semântica agora é única: EthereumAnchor é o
+cabeçalho de execução do checkpoint finalizado. A prova de depósito autentica o
+bloco/evento histórico separadamente e seu depositId identifica a ocorrência.
+Depósitos sob a mesma finalidade compartilham uma âncora exatamente igual.
+
+O verificador também separa o bloco histórico do evento da cabeça finalizada
+mais recente. O record v2 continua descrevendo o evento/checkpoint registrado,
+enquanto a capacidade opaca carrega a cabeça finalizada usada pela política de
+tempo USDOM. O adaptador usa esta última.
+
+3. Persistência e reorg
+
+Um estado contendo apenas checkpoint, sem emissão, pode ser reconstruído. A
+restauração verifica que a âncora persistida domina de forma monotônica todas as
+âncoras de emissão. A integração LMDB agora conecta um bloco de checkpoint,
+reinicia, reconstrói a âncora e reverte o bloco ao estado anterior usando o
+header commitment autenticado.
+
+4. Validação
+
+- 45 testes funcionais do laboratório Ethereum passaram;
+- 5 compile-fail protegem capacidades opacas;
+- 16 testes do estado USDOM e 1 compile-fail passaram;
+- integração LMDB commit/restart/reorg passou;
+- clippy com warnings como erros passou;
+- build release com ethereum-finality e sem oráculo de teste passou;
+- rustfmt e git diff --check passaram.
+
+5. Limites restantes
+
+A transição ainda não é carregada por um envelope do Block v4 e o compromisso do
+lote ainda não é campo do BlockHeader. Falta um caso positivo ponta a ponta com
+um checkpoint registry real e uma transcrição de finalidade correspondente.
+Também faltam o circuito/verificador privado, validação em todos os ingressos de
+consenso, carteira privada, ativação, parâmetros/multisigs, shadow run e auditoria
+independente. mainnet_ready e real_funds_ready permanecem false.

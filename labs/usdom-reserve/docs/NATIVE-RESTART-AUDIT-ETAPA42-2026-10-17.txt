@@ -1,0 +1,61 @@
+USDOM nativa — auditoria autenticada da janela de reorganização
+Etapa 42, 2026-10-17
+
+Estado: API opt-in e exclusiva de Regtest. Sem ativação, deploy, push ou fundos
+reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Falha tratada
+
+A restauração do tip comprovava o estado atual e o pacote final, mas não
+confirmava antecipadamente que todos os pacotes e undos ainda necessários para
+uma reorganização estavam presentes e autenticados. Uma perda histórica poderia
+permanecer oculta até a chegada de um ramo vencedor.
+
+2. Auditoria da janela
+
+audit_persisted_usdom_v4_reorg_window restaura o estado ligado ao tip e caminha
+para trás por toda a profundidade máxima ainda reorganizável. Para cada bloco
+v4 canônico ela exige:
+
+- cabeçalho e ocupante correto no índice de altura;
+- pacote canônico reconstruível por chunks ou sidecar;
+- identificador do pacote igual ao hash canônico;
+- undo canônico decodificável;
+- after_root igual ao estado reconstruído atual;
+- timestamp do undo igual ao timestamp do bloco;
+- compromisso de lote derivado do undo combinado com a raiz PMMR do corpo igual
+  ao rangeproof_root autenticado pelo PoW;
+- reversão exata para o estado anterior.
+
+A caminhada é limitada por MAX_REORG_DEPTH_POLICY. Se alcançar o pai não-v4 da
+ativação antes desse teto, o estado reconstruído deve ser exatamente o estado
+vazio para a BridgeIdentity imutável. O resultado informa quantidade auditada,
+pai mais antigo, raiz de fronteira e se a ativação foi alcançada.
+
+3. Refatoração segura
+
+O rewind usado pela promoção e a auditoria de reinício agora compartilham a
+mesma primitiva privada de reversão autenticada. Isso evita diferenças futuras
+entre a verificação preventiva e a verificação executada durante um reorg.
+
+4. Evidência
+
+Após promover o ramo de três blocos v4, o teste audita os três pacotes até o
+genesis não-v4 e confirma a raiz vazia. Em seguida corrompe o undo do bloco
+promovido intermediário; a auditoria falha. Restaurados os bytes originais, a
+mesma auditoria volta a passar.
+
+Passaram 65 testes dom-chain, a integração completa, 8 testes selecionados
+dom-store, 16 testes do estado USDOM, 1 compile-fail, Clippy, build release,
+rustfmt e diff check.
+
+5. Limites restantes
+
+O runtime do node ainda precisa chamar esta auditoria antes de aceitar tráfego
+v4 e deter com segurança a BridgeIdentity e a política de checkpoint. P2P, IBD,
+mineração, filas de órfãos/futuro e snapshots ainda não carregam o pacote.
+
+Também faltam custo criptográfico, witness real positivo, verificadores privados
+revisados, carteira, ativação/migração, parâmetros, shadow run e auditorias
+independentes. mainnet_ready e real_funds_ready permanecem false.

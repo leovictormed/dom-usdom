@@ -1,0 +1,70 @@
+USDOM ETAPA 133 — ENTRADA PORTÁTIL DA PROVA DE QUEIMA FINALIZADA
+Data: 2026-10-18
+
+ACHADO
+
+O handoff da etapa 131 derivava o statement final a partir de uma capacidade
+VerifiedCheckpoint já criada pelo processo hospedeiro. Isso protegia o código
+nativo contra a construção direta de um checkpoint falso, mas ainda não definia
+uma entrada única que um futuro guest/circuito pudesse reexecutar sem confiar no
+host. Também faltava à reserva uma defesa independente contra um proof statement
+que declarasse um Beacon slot futuro ou excessivamente antigo.
+
+CORREÇÃO
+
+Foi definido o transporte canônico e limitado UDFINL01. Ele inclui:
+
+- o hash público exato do FinalizedBurnStatement;
+- o Beacon slot finalizado usado como teto público da replay Ethereum;
+- todos os 362 bytes da política imutável de checkpoint;
+- a entrada nativa UDBBLK02 completa;
+- a testemunha Ethereum bruta e limitada, incluindo transcript BLS/SSZ e provas
+  de receipt, conta, código e storage.
+
+O decoder rejeita versão, magic, tamanhos, trailing bytes, política ou encoding
+não canônicos. A verificação reexecuta o bloco/estado/queima DOM, reconstrói a
+finalidade Ethereum a partir da testemunha bruta, vincula chain ID, genesis,
+domínio, network magic e policy hash, exige que o slot verificado seja o slot
+público e só então deriva o statement Solidity. O limite total é a soma exata do
+header de 420 bytes, UDBBLK02 e a testemunha de checkpoint de 4 MiB.
+
+A política estática ganhou o encoding UDCPSP01 de tamanho fixo. Nenhum campo de
+confiança fica implícito no host e o teto dinâmico de slot continua fora do hash
+imutável.
+
+DEFESA NA RESERVA
+
+USDOMProofReserve.queueWithdrawal agora rejeita um finalityBeaconSlot:
+
+- zero ou anterior ao genesis da Beacon Chain;
+- maior que o slot derivado de block.timestamp;
+- mais antigo que sete dias (50.400 slots de 12 segundos).
+
+Assim, um programa de prova não pode escolher arbitrariamente um slot futuro
+como teto e uma prova antiga não pode permanecer utilizável indefinidamente. O
+deadline e o atraso de saque continuam sendo verificados separadamente.
+
+VETORES DO ARTEFATO SOLIDITY
+
+- runtime code hash:
+  0x93063d491e8fd6460d57d54cad1ffdb151c2ebdedb3932c803f46353de8bae2f
+- runtime size: 14.688 bytes
+- initcode hash:
+  0x70f73233da552f0155ecc0c90f0252d573aea00df90adfe2c6e2ea0266f36db3
+- initcode size: 18.629 bytes
+
+LIMITE
+
+UDFINL01 é a especificação executável da entrada e a implementação de referência
+host-side. Ele ainda não é uma prova sucinta verificável pela EVM. O teste
+positivo integral da composição exige um checkpoint registry real com evento,
+bytecode e storage incluídos em um bloco Ethereum finalizado; as fixtures atuais
+testam BLS/SSZ mainnet e provas MPT reais separadamente, mas não contêm esse
+evento porque o registry de produção ainda não foi implantado.
+
+Continuam faltando o guest/circuito de produção, a chave de verificação, o
+verificador Solidity imutável, a seleção formal da regra de finalidade, a
+ativação mainnet DOM e auditorias independentes. Mainnet e fundos reais
+permanecem bloqueados.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.

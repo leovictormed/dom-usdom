@@ -1,0 +1,29 @@
+[package]
+name        = "dom-pow"
+description = "DOM protocol — ASERT difficulty adjustment (RFC-0003)"
+version.workspace    = true
+edition.workspace    = true
+rust-version.workspace = true
+authors.workspace    = true
+license.workspace    = true
+
+[features]
+default = ["native-randomx"]
+native-randomx = ["dep:randomx-rs"]
+
+[dependencies]
+dom-core.workspace  = true
+thiserror.workspace = true
+
+primitive-types = { version = "0.12", default-features = false }
+dom-serialization.workspace = true
+randomx-rs = { workspace = true, optional = true }
+blake2.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# F4-equivalent invariant: canonical compact<->target projection idempotence.
+proptest.workspace = true
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(kani)'] }

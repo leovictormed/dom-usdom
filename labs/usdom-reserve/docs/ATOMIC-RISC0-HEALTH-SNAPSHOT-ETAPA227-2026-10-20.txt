@@ -1,0 +1,32 @@
+Stage 227 - Single finalized-block RISC Zero health snapshot
+Date: 2026-10-20
+
+Finding USDOM-227 (Medium)
+
+The standalone recurring RISC Zero health monitor recorded one finalized block
+while concurrently querying code and getters with the moving `finalized` tag.
+If Ethereum finality advanced during collection, the report could combine the
+direct verifier and emergency-stop state from different finalized blocks while
+attributing the result to the initially observed hash. Stage 226 had corrected
+this in mainnet preflight, but the independent operations command still
+retained the weaker observation model.
+
+Correction
+
+The health command now obtains and validates one exact finalized block number,
+pins both code reads and all four contract calls to that number, re-fetches the
+same block after collection and records the ending hash. The pure health
+assessor rejects a missing or changed ending hash with
+`risc0_finalized_snapshot_changed`. Mainnet preflight reuses this assessor, so
+both operational paths enforce the same invariant.
+
+Tests mutate the ending hash and remove it entirely. Both cases fail closed;
+the reviewed identity and clear emergency-stop fixture remains healthy only
+when the complete observation belongs to one stable finalized block.
+
+This is an objective observation-integrity check, not a guarantee of zero risk.
+RPC honesty and unknown implementation defects remain documentable residual
+risks for an exact release. External audit remains optional.
+
+No deployment, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred.

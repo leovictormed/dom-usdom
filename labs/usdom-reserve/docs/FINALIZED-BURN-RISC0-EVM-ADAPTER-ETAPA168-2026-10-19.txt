@@ -1,0 +1,49 @@
+Stage 168 - finalized-burn RISC Zero EVM adapter
+Date: 2026-10-19
+
+Implemented DOMFinalizedBurnRiscZeroVerifier.sol as the narrow immutable bridge
+between USDOMProofReserve and RISC Zero's on-chain Groth16 verifier ABI.
+
+Security bindings
+
+1. The constructor requires deployed verifier code, the RISC Zero Groth16 v3
+   selector 0x73c457ba and the exact finalized-burn guest ImageID
+   7fc186e926dcebb10e123f08bcfcae71c67904a9568b147cbaaabb3258d51b62.
+2. The adapter stores and rechecks the deployment chain ID, verifier runtime
+   code hash and selector before every proof verification.
+3. Selector discovery uses a 50,000-gas staticcall, copies at most 32 bytes and
+   rejects any return length other than one ABI word. A return bomb cannot force
+   unbounded memory allocation.
+4. A seal must be 4..65,536 bytes and begin with the pinned proof-system
+   selector. The underlying verifier receives the exact ImageID and SHA-256 of
+   the guest's unframed 32-byte statement-hash journal.
+5. Success returns only the existing reserve capability
+   keccak256("USDOM_FINALIZED_BURN_PROOF_V1"). Any underlying revert propagates
+   and USDOMProofReserve fails closed.
+6. verifierConfigHash commits the chain, verifier address and runtime code hash,
+   selector, ImageID, journal schema and accepted capability.
+
+Verification
+
+- Eight Foundry tests passed: seven adapter unit/adversarial tests plus a complete
+  reserve queue integration test.
+- Tests cover missing code, zero ImageID, absent/wrong/mutable selector, selector
+  return bomb, changed chain ID, replaced verifier bytecode, short/wrong/oversized
+  seal, wrong underlying proof, exact journal digest and successful reserve queue.
+- Targeted forge fmt and forge lint pass without findings in the new files.
+- Read-only mainnet checks on 2026-10-19 observed the upstream v3 verifier at
+  0x2a098988600d87650Fb061FfAff08B97149Fa84D, selector 0x73c457ba,
+  VERSION "3.0.0" and runtime code hash
+  0xfe03c66078969d097f867351171b4639d726c8376c35022675ed44cbbcbaa720.
+  config/risc0-ethereum-mainnet-v3.json records the exact upstream tag, commit
+  and deployment-manifest hash. These observations are not a deployment pin.
+
+Remaining boundary
+
+This stage implements and tests the adapter but does not produce a real RISC Zero
+Groth16 receipt. The production EVM receipt-verification gate remains false until
+a positive raw finalized Ethereum checkpoint witness executes the guest, produces
+a non-development receipt, and that exact receipt is accepted on a fork or local
+EVM by the release-pinned verifier bytecode. Production reserve constants remain
+zero and Ethereum mainnet construction remains fail closed. No deploy, public
+transaction, funds, commit or push occurred.

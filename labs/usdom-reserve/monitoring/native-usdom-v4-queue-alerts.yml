@@ -1,0 +1,80 @@
+groups:
+  - name: native-usdom-v4-runtime-queues
+    rules:
+      - alert: NativeUsdomV4FutureQueueHigh
+        expr: dom_native_usdom_v4_future_bytes >= 50331648
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Native USDOM future queue is at least 75% full
+          description: Inspect peer timestamps, local clock health and queue admission counters.
+
+      - alert: NativeUsdomV4FutureQueueCritical
+        expr: dom_native_usdom_v4_future_bytes >= 60397978
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Native USDOM future queue is at least 90% full
+          description: Stop the isolated experiment from accepting new work and preserve logs.
+
+      - alert: NativeUsdomV4OrphanPoolHigh
+        expr: dom_native_usdom_v4_orphan_bytes >= 201326592
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Native USDOM orphan pool is at least 75% full
+          description: Inspect missing-parent requests, peer availability and IBD progress.
+
+      - alert: NativeUsdomV4OrphanPoolCritical
+        expr: dom_native_usdom_v4_orphan_bytes >= 241591911
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Native USDOM orphan pool is at least 90% full
+          description: Stop the isolated experiment from accepting new work and preserve logs.
+
+      - alert: NativeUsdomV4QueueAdmissionRejected
+        expr: increase(dom_native_usdom_v4_future_admission_rejected_total[5m]) > 0 or increase(dom_native_usdom_v4_orphan_admission_rejected_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A native USDOM queue rejected retained work
+          description: Determine whether the cause was load, malformed traffic or an accounting invariant.
+
+      - alert: NativeUsdomV4QueueEviction
+        expr: increase(dom_native_usdom_v4_future_evictions_total[5m]) > 0 or increase(dom_native_usdom_v4_orphan_evictions_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A native USDOM queue evicted lower-priority work
+          description: Verify that parent recovery and exact-package IBD converge after pressure subsides.
+
+      - alert: NativeUsdomV4FuturePackageExpired
+        expr: increase(dom_native_usdom_v4_future_expired_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A native USDOM future package expired before replay
+          description: Check local clock discipline and whether the supervised drain task is healthy.
+
+      - alert: NativeUsdomV4FutureQueueStuck
+        expr: dom_native_usdom_v4_future_packages > 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: Native USDOM future packages have remained queued beyond the normal grace window
+          description: Check clock health, task supervision and repeated temporary validation failures.
+
+      - alert: NativeUsdomV4OrphanQueueStuck
+        expr: dom_native_usdom_v4_orphan_packages > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Native USDOM orphan packages are not converging
+          description: Check GetBlockData responses, missing-parent backoff and authenticated peer availability.

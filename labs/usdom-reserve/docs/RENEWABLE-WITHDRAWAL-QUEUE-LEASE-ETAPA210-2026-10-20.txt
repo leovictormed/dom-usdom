@@ -1,0 +1,87 @@
+Stage 210 — renewable withdrawal queue lease after irreversible native burn
+Date: 2026-10-20
+
+Finding USDOM-210
+
+Severity: High liveness / permanent user-value-loss risk.
+
+The production reserve previously used the native burn's validUntil both as an
+authenticated burn-intent field and as the final Ethereum execution deadline.
+Native consensus permanently consumes the private notes and records their
+nullifiers. There is no protocol transition that recreates those notes when an
+Ethereum request expires. A pause, sustained congestion, rate-limit backlog,
+temporary recipient blacklist or relayer outage lasting through validUntil
+could therefore leave the USDT in the reserve after the matching USDOM had been
+irreversibly destroyed.
+
+Remediation
+
+USDOMProofReserve now separates two clocks without weakening proof binding:
+
+1. validUntil remains part of BurnIntent, burnId derivation and the finalized
+   burn statement. The production proof must still show that native consensus
+   admitted it under the authenticated Ethereum-anchor timing policy.
+2. Proof admission rejects validUntil == 0 and any value still more than seven
+   days in Ethereum's future. A historical deadline is accepted because an
+   irreversible debt does not disappear when that historical time passes.
+3. Each successful proof admission creates a fresh seven-day queue lease from
+   the current Ethereum block timestamp. The fixed withdrawal delay, token
+   policy checks, solvency checks and outflow bucket still apply.
+4. Expired leases can be discarded permissionlessly. This releases only the
+   pending collateral reservation and never marks burnId or requestId paid.
+5. A fresh proof under a recent finalized Beacon slot can requeue the exact same
+   unpaid burn and request. Successful payment permanently marks both identifiers,
+   so renewal cannot authorize a duplicate payout.
+6. Emergency queue invalidation has the same renewal behavior after delayed
+   resume. Current-generation linked-list and reservation accounting remain exact.
+
+Security properties retained
+
+- recipient, amount, DOM state, reserve, chain and original intent remain bound
+  by the same statement hash;
+- proof admission still requires a recent finalized Ethereum Beacon slot;
+- no governance, guardian, relayer or recipient can replace a payout field;
+- no expired or invalidated queue entry consumes replay protection;
+- no paid identifier can be cleared or requeued;
+- rate limiting and the minimum execution delay restart on every renewal.
+
+Validation
+
+- focused USDOMProofReserve suite: 36 passed, 0 failed;
+- complete Solidity suite: 138 passed, 0 failed;
+- deep deterministic Solidity suite: 138 passed, 0 failed, including three
+  invariants with 1,024 runs and 131,072 calls each;
+- Node/SDK/EVM suite: 67 passed, 0 failed;
+- production Solidity lint with warnings denied: passed;
+- source provenance: 809 files verified;
+- closed-mainnet gate: expected NOT READY with 121 explicit blockers;
+- real-funds gate: expected NOT READY with 128 explicit blockers;
+- a burn with a historical validUntil receives an independent current queue lease;
+- zero and excessive-future native deadlines fail closed;
+- an expired queue lease is discarded, re-proved with a fresh finality slot,
+  paid once and then rejected on another admission;
+- invalidated old entries can be batch-pruned without touching a valid replacement;
+- exact production build, complete Solidity/Node suites, provenance and release
+  gates passed or rejected release as expected in the stage evidence directory.
+
+Current source-verified fixed-vector artifact after this remediation:
+
+- optimized runtime size: 14,660 bytes;
+- fixed-vector runtime code hash:
+  0xa3c8e3823a57d78a12f265902f5de1b175ddfc8a56e845195b2892eadf300888;
+- initcode size with the fixed Config vector: 18,601 bytes;
+- fixed-vector initcode hash:
+  0x2b73bf1ce995b7b026f609c7abe3e333df30bd0f9e7a32194ee1bf71dcd20c55;
+- canonical Foundry artifact SHA-256:
+  4e3a3c2dae71121de5dfb1a5543b92d8c378b85f7a440eb8268795d7a8042252.
+
+Residual boundary
+
+USDT can still pause, deprecate, charge fees, blacklist accounts or destroy
+blacklisted balances under its issuer-controlled policy. The reserve detects
+those states and fails closed; it cannot guarantee USDT issuer availability.
+That centralized-collateral risk belongs in the explicit residual-risk report.
+It is not a demand for an impossible zero-risk guarantee.
+
+No mining, proof generation, deployment, fund movement, commit or push was
+performed.

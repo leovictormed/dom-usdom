@@ -1,0 +1,69 @@
+USDOM security hardening — etapa 108
+Scheduled public-network block-v4 validation primitives
+Date: 2026-10-18
+
+Finding
+
+The native USDOM activation record already represented any recognized DOM
+network, chain ID, activation height and empty bridge state. Complete header,
+block-body and serialized proof-package validation, however, still entered a
+Regtest-only adapter. Extending that adapter directly during a later production
+activation would risk either duplicating consensus rules or weakening the
+explicit Regtest barrier.
+
+Change
+
+dom-consensus now provides schedule-selected v4 header and block-body
+validators for Mainnet, Testnet and Regtest. They do not select or activate a
+schedule. Unknown networks fail closed, while the existing Regtest-only wrapper
+continues to reject public networks.
+
+dom-chain now provides
+verify_usdom_v4_serialized_candidate_for_schedule. Before a package can produce
+a verified capability it requires:
+
+1. the schedule network to equal the caller-selected network;
+2. the validation chain ID to equal the schedule chain ID;
+3. the block height to be at or after the exact first-v4 height;
+4. the schedule empty-state root to match the selected bridge identity;
+5. the block and validation-context heights to agree;
+6. the block to use v4 and bind the recomputed native batch commitment;
+7. the supplied private-spend verifying key to match the immutable bridge
+   verifier configuration hash.
+
+The production-oriented validator returns the same opaque verified capability
+used by atomic persistence. It grants no activation authority and has no direct
+store mutation method. The existing Regtest serialized path now shares these
+schedule checks rather than maintaining a second body-validation rule set.
+
+Test-fixture correction
+
+An older isolated fixture reused the height-zero Regtest genesis coinbase and
+historical pre-finalization signing context as a v4 candidate. The fixture now
+constructs the first post-activation block at height one, signs its coinbase
+with the finalized schedule chain ID and uses deterministic range-proof
+randomness. Its canonical package commitment is frozen as:
+
+73cd14b430426ab076417c9ab9bff1fc48344d58bc5f32af2ebc2764236d0056
+
+The vector passed twice consecutively. Wrong activation height and wrong chain
+ID are explicitly rejected.
+
+Validation
+
+- complete dom-consensus suite: 120 passed, 0 failed;
+- complete dom-chain library suite with native-usdom-v4-poc: 74 passed,
+  0 failed;
+- native node runtime integration suite: 8 passed, 0 failed;
+- Clippy for dom-consensus, dom-chain and dom-node, all targets, warnings
+  denied: passed;
+- cargo fmt --check, JSON parse and git diff --check: passed;
+- closed-mainnet and real-funds gates remain fail-closed.
+
+Production status
+
+This supplies the public-network-neutral validation boundary needed by a later
+scheduled chain ingress. It does not choose a Mainnet activation height or
+enable public-network node ingress. production_activation_schedule_implemented
+and production_block_header_state_commitment_implemented remain false. No push,
+commit, deployment or funds operation was performed.

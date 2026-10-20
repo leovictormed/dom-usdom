@@ -1,0 +1,81 @@
+USDOM NATIVE V4 — AUDITED SNAPSHOT MANIFEST, STAGE 53
+Date: 2026-10-17
+
+PURPOSE
+
+The native runtime previously verified its own persisted state on startup but
+had no portable, canonical inventory suitable for backup review or transport.
+This stage adds a compact read-only manifest. It does not copy LMDB files, does
+not import consensus state and does not grant activation or mutation authority.
+
+CANONICAL CONTENT
+
+The version-1 UDSNAP01 encoding binds:
+
+- Regtest network magic;
+- canonical DOM tip and height;
+- fully recomputed native USDOM state root;
+- a domain-separated commitment to every ordered usdom/v1 state key/value;
+- the oldest parent and boundary state root reached by the startup-equivalent
+  reorganization audit;
+- whether that audit reached the canonical empty activation state; and
+- a tip-to-parent record for every native-v4 block in the audited reorg window.
+
+Each block record contains the canonical block identifier, height, parent,
+domain-separated exact-package commitment, domain-separated authenticated-undo
+commitment and exact package length. The count is capped by the consensus reorg
+policy. Fixed-width records make allocation derivable from a validated count;
+truncation, trailing bytes, invalid booleans, inconsistent counts, discontinuous
+parents, height underflow, zero identities and oversized packages fail closed.
+
+EXPORT
+
+Export is available only for a nonzero explicit Regtest tip. Before producing
+the manifest it:
+
+1. restores native state from the complete canonical state entries;
+2. checks the persisted native tip against the DOM tip, state root and exact
+   tip package;
+3. performs the complete authenticated rewind audit required by the current
+   reorganization window;
+4. verifies each listed height against the canonical DOM height index;
+5. reconstructs and parses each exact package; and
+6. loads and decodes each required authenticated undo.
+
+VERIFY
+
+Verification first parses and re-encodes the supplied manifest canonically.
+It then exports a fresh manifest from the specified store using the expected
+immutable bridge identity and requires structural equality. A caller may use
+the manifest commitment for transport or an external signature, but this code
+does not define signer policy.
+
+The verifier is intentionally read-only. An import path must first validate a
+complete DOM chain/snapshot and only then install native state, packages,
+sidecars and undos atomically. That design and implementation remain pending.
+
+PRIVACY
+
+The manifest contains commitments, identifiers, heights and package lengths.
+It does not contain private note openings, senders, recipients or transfer
+amounts. Package commitments still identify public package bytes and lengths
+can reveal activity patterns; manifests should not be described as anonymous.
+
+VALIDATION
+
+- dom-chain native library: 66 passed, 0 failed;
+- native node integration: 7 passed, 0 failed;
+- activation-boundary zero-block manifest round-trip: passed;
+- post-mining export, commitment, verification and restart path: passed;
+- substituted state commitment rejected against audited store: passed;
+- directed malformed framing and inventory cases: passed;
+- default dom-node all-target check: passed;
+- native all-target Clippy with -D warnings: passed;
+- native release build, rustfmt and diff check: passed.
+
+MAINNET READY: NO
+REAL FUNDS READY: NO
+IMPORT AUTHORITY: NONE
+DEPLOYED: NO
+PUSHED: NO
+

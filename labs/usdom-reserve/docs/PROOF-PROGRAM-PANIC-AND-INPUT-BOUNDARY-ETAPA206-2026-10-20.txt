@@ -1,0 +1,22 @@
+USD0M — ETAPA 206
+FRONTEIRA DOS PROGRAMAS DE PROVA
+Data: 2026-10-20
+
+Os 11 fontes de produção que formam os programas de queima finalizada,
+checkpoint, statement, execução econômica e prover não contêm `unwrap`,
+`expect`, `panic!`, `unreachable!`, `todo!` ou `unimplemented!` antes dos
+módulos de teste. As contagens dos decoders são limitadas antes de alocações.
+
+Os dois executáveis host que leem stdin já aplicavam `Read::take(limite + 1)`
+antes de `read_to_end`: o programa de queima usa o máximo canônico do prover e
+o statement usa o maior formato fixo. O byte adicional detecta excesso sem
+materializar entrada arbitrária. A revisão inicial por grep foi corrigida após
+inspeção do contexto; não havia leitura ilimitada.
+
+`check-proof-program-panic-boundary.py` fixa os 11 fontes em um manifesto
+SHA-256, verifica os limites de leitura e possui mutation self-test. O controle
+integra proveniência e os dois modos do gate. Auditoria externa e garantia de
+risco zero não são bloqueadores; validação objetiva e aceitação explícita de
+risco residual continuam necessárias.
+
+Não houve push, commit, deploy, mineração, prova RISC Zero, transação ou fundos.

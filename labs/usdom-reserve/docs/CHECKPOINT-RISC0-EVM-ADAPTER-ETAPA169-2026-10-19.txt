@@ -1,0 +1,44 @@
+Stage 169 - DOM checkpoint RISC Zero EVM adapter
+Date: 2026-10-19
+
+Implemented DOMCheckpointRiscZeroVerifier.sol as the immutable ABI boundary
+between DOMCheckpointRegistry and RISC Zero's on-chain Groth16 verifier.
+
+Security bindings
+
+1. Construction binds the Ethereum chain ID, verifier address and runtime code
+   hash, Groth16 v3 selector, checkpoint guest ImageID, journal schema and the
+   exact DOM_CHECKPOINT_PROOF_V2 capability.
+2. The adapter rejects absent code, a zero ImageID, a missing or noncanonical
+   selector response, the wrong proof-system selector and selector return bombs.
+3. Every verification rechecks chain ID, verifier code hash and selector. A
+   verifier replacement or configuration drift fails closed.
+4. Seals are bounded to 64 KiB and must begin with selector 0x73c457ba. The
+   underlying verifier receives the exact ImageID and SHA-256 of the guest's
+   unframed 32-byte checkpoint-statement journal.
+5. Success returns only keccak256("DOM_CHECKPOINT_PROOF_V2"), the capability
+   already required by DOMCheckpointRegistry. An underlying proof rejection
+   propagates and cannot become an accepted checkpoint.
+6. IRiscZeroVerifierV3 now lives in one shared interface used by both the
+   finalized-burn and checkpoint adapters, preventing ABI drift between them.
+
+Verification
+
+- Seven targeted Foundry tests pass: six unit/adversarial tests and one complete
+  DOMCheckpointRegistry candidate-submission integration test.
+- Coverage includes exact configuration binding, exact journal digest, valid
+  seal, zero/short/wrong/oversized inputs, underlying rejection, changed chain,
+  mutable selector, replaced bytecode, absent code, zero ImageID, missing
+  selector, return bomb and wrong selector.
+- Production-contract Forge lint passes with warnings denied.
+
+Remaining boundary
+
+This adapter does not prove DOM consensus by itself. The checkpoint consensus-
+extension guest has not been made portable, compiled to a production RISC Zero
+ImageID, benchmarked with a positive 360-block witness or used to create a real
+Groth16 receipt. Therefore production_checkpoint_registry_verifier_implemented
+and production_checkpoint_registry_verifier_proves_consensus_extension remain
+false. Production constants remain zero and Ethereum mainnet deployment remains
+blocked by construction. No deployment, public transaction, funds, commit or
+push occurred.

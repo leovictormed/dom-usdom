@@ -1,0 +1,56 @@
+Stage 185 - RISC Zero RandomX segment receipt aggregate
+Date: 2026-10-19
+
+Finding
+
+Stage 184 made the exact per-block RandomX receipt requirements portable, but
+there was no compiled guest that verified the ordered receipt set. Treating the
+segment transition itself as proof of those receipts would leave the PoW
+relation unproved. Reusing the aggregate component as the complete checkpoint
+proof would also be unsound because it does not execute ordinary DOM economic
+or native USDOM state transitions.
+
+Implemented component
+
+1. UDCRXAG1 is a fixed 76-byte, domain-separated statement that binds the exact
+   UDCSTN02 transition commitment, block count and ordered inner-journal set.
+2. The only public derivation parses the exact committed UDCSPI01 packages and
+   returns the same state-pinned receipt assumptions derived in Stage 184.
+3. A dedicated RISC Zero 3.0.6 guest verifies every derived assumption inside
+   the zkVM and commits only the distinct UDCRXAG1 commitment. Its source and
+   README explicitly prohibit using its ImageID as the Ethereum checkpoint
+   verifier's outer ImageID.
+4. The guest bounds every input before allocation. Empty input executes in r0vm
+   and fails closed with exit 101 and no journal.
+5. The portable dependency boundary excludes DOM chain/consensus/storage,
+   LMDB, Tokio, native privacy/state and randomx-rs.
+
+Artifact evidence
+
+The final user ELF is 272,784 bytes with SHA-256
+39ed85c9c568d7e303ade75052735a32d8b3f484111044021290cbf6c8167fc7.
+The RISC Zero ProgramBinary is 305,208 bytes with SHA-256
+12766714f3b214b298f42c2ba5ee9f7828e48ce786ded867949323d9cae9b636.
+The independently recomputed candidate ImageID is
+8f66e353e0e7aeaa5f00ae4ec26e14dcc98c75b7ff6f6bcaa41079ea2f30af11.
+A second clean local build reproduced the committed ProgramBinary byte for byte.
+The exact toolchain, hashes and non-production status are pinned in
+PROVENANCE.json and enforced by check-randomx-aggregate-risc0-guest.py.
+
+Validation
+
+The checkpoint program passes 19 default, 21 segment-binding, 20 recursion, 22
+combined and 34 all-feature tests, plus two compile-fail documentation tests in
+each profile. Strict Clippy, rustfmt, guest host check, zkVM target check,
+dependency boundary checks and git diff checks pass. The aggregate fixed vector
+and mutation tests bind framing, count, transition and receipt order.
+
+Security status
+
+This is a compiled aggregation component, not a complete checkpoint proof. No
+positive inner RandomX receipt exists, the individual RandomX proving guest is
+still absent, and ordinary DOM/native state execution is not composed into an
+outer guest. The candidate ImageID is not production-approved or configured in
+the release manifest. These concrete gaps continue to block mainnet and real
+funds. No deploy, public transaction, funds, commit or push occurred. The node
+and miner remained stopped.

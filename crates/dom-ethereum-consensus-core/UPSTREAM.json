@@ -1,0 +1,48 @@
+{
+  "source": "https://github.com/a16z/helios",
+  "commit": "2af9b41887e069144ee56cd710f3ddca195473f8",
+  "source_path": "ethereum/consensus-core/src",
+  "adaptation": "Source files byte-identical; only Cargo packaging uses explicit dependency constraints pinned by Cargo.lock.",
+  "files": [
+    {
+      "path": "src/consensus_core.rs",
+      "sha256": "b9ba3312f01a0caa54206e0f983158fd975beb2f136b0d07c4415049b1fa9685"
+    },
+    {
+      "path": "src/consensus_spec.rs",
+      "sha256": "eba8ee4295cab91428d86deb4046b540b17e35cd74a91e8366159c775ff2d1fb"
+    },
+    {
+      "path": "src/errors.rs",
+      "sha256": "b7eba17aad30fe663eda0228681561ee68a1e504e1587682dc7f03f5a30b7d8a"
+    },
+    {
+      "path": "src/lib.rs",
+      "sha256": "a44c79794b6c43a0406e7964836a6689f0f3c8d132c606825eb44638a78419e8"
+    },
+    {
+      "path": "src/proof.rs",
+      "sha256": "df65279746846033cf6cc52f0c0179d48d825f5ef7efcb8ca1a571fd3f7dc09e"
+    },
+    {
+      "path": "src/types/bls.rs",
+      "sha256": "d44866e8c0cf2fb011cdf7a20194b7be5467452473bc91a3b63f3669ff5e44ed"
+    },
+    {
+      "path": "src/types/bytes.rs",
+      "sha256": "2c07ca044b6459ccbd5b206cd319b26b647763c5c8b17a20eaf1f0a96341c3fb"
+    },
+    {
+      "path": "src/types/mod.rs",
+      "sha256": "fec177a280919f5e1bef7975d494a499fa7c6f2552b10d3ac2d9c54bc48e00b9"
+    },
+    {
+      "path": "src/types/serde_utils.rs",
+      "sha256": "8c53ffc43e4ea03a2f6524d3977b1ac2441b7678695f5fc8aa153adb7627c363"
+    },
+    {
+      "path": "src/utils.rs",
+      "sha256": "5a43ec77858d0796b5dc8b3eeb62ce96913fe710781323030b428fd8a8bef045"
+    }
+  ]
+}

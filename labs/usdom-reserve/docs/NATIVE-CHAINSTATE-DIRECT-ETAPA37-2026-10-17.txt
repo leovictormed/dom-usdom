@@ -1,0 +1,72 @@
+USDOM nativa — conexão direta contextual e atômica na ChainState
+Etapa 37, 2026-10-17
+
+Estado: entrada opt-in somente para Regtest. Sem ativação no ingresso normal,
+mineração, P2P ou IBD e sem suporte a side branches; sem deploy, push ou fundos
+reais. Base: sorenplanck/dom-protocol
+d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Entrada explícita
+
+ChainState::connect_usdom_v4_package_regtest existe apenas com o feature
+native-usdom-v4-poc e rejeita qualquer rede diferente de Regtest. O caminho
+normal connect_block continua seguindo o schedule público e rejeita versão 4.
+Não houve mudança de ativação em Mainnet, Testnet ou Regtest normal.
+
+O POC aceita somente o próximo descendente direto do tip. Side branches não são
+armazenados por essa API, evitando criar uma implementação parcial de reorg que
+pudesse misturar estados de ramos.
+
+2. Ordem de validação contextual
+
+Antes de gravar, a entrada exige:
+
+  - estado USDOM restaurado do banco sob BridgeIdentity exata;
+  - igualdade byte a byte entre o estado do chamador e o estado canônico;
+  - pacote v4 canônico e identificador de cabeçalho derivado localmente;
+  - parent igual ao tip, altura seguinte, progressão de timestamp e MTP;
+  - limite de relógio futuro;
+  - seed RandomX do ramo, PoW, target ASERT e dificuldade acumulada;
+  - melhora da fork choice;
+  - corpo, provas e compromisso USDOM sob o verificador v4;
+  - existência/maturidade de inputs e ausência de replay de outputs/kernels; e
+  - lote de extensão dentro de todos os limites do dom-store.
+
+Somente depois dessas verificações são derivados UTXOs, kernels, estado, undo e
+chunks de prova para commit_block_with_consensus_state. Bloco e estado entram na
+mesma transação LMDB. O estado em memória e o tip só avançam após sucesso.
+
+3. Idempotência e corrupção
+
+Um pacote já conhecido retorna AlreadyHave apenas se os bytes recompostos do
+banco forem exatamente iguais. Cabeçalho conhecido sem sidecar persistido ou com
+outro pacote é corrupção interna, não uma repetição silenciosa.
+
+4. Teste de integração
+
+O teste constrói a gênese Regtest configurada, persiste a ativação vazia, cria
+coinbase válida para altura 1, recalcula PMMR e compromisso USDOM, minera PoW sob
+o seed correto e conecta o pacote pela nova entrada. Ele prova:
+
+  - connect_block normal rejeita o mesmo bloco v4;
+  - estado do chamador divergente falha sem alterar o tip;
+  - PoW inválido falha sem alterar tip ou estado;
+  - o pacote válido avança bloco e estado atomicamente; e
+  - repetição byte-idêntica retorna AlreadyHave.
+
+Validação:
+
+- 65 testes da biblioteca dom-chain passaram;
+- integração ChainState v4 passou;
+- 5 testes atômicos/restart/reorg do dom-store passaram;
+- Clippy de todos os alvos dom-chain passou com warnings como erros;
+- build release da biblioteca sem unsafe-test-oracle passou;
+- rustfmt e diff check passaram.
+
+5. Limites restantes
+
+Side branches v4, promoção/reorg, IBD, P2P, mineração e snapshots ainda não usam
+o pacote. Não há ativação de hard fork nem política de custo criptográfico.
+Também faltam witness positivo de registry real, verificadores revisados de
+emissão/transferência/queima privadas, carteira, parâmetros, shadow run e
+auditorias independentes. mainnet_ready e real_funds_ready permanecem false.

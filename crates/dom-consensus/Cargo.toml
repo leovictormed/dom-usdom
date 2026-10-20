@@ -1,0 +1,33 @@
+[package]
+name        = "dom-consensus"
+description = "DOM protocol — consensus validation pipeline (RFC-0007)"
+version.workspace    = true
+edition.workspace    = true
+rust-version.workspace = true
+authors.workspace    = true
+license.workspace    = true
+
+[features]
+default = ["native-crypto", "native-randomx"]
+native-crypto = ["dom-crypto/native-backend"]
+native-randomx = ["dom-pow/native-randomx"]
+portable-crypto = ["dom-crypto/portable-verifier"]
+
+[dependencies]
+dom-core.workspace          = true
+dom-crypto = { path = "../dom-crypto", default-features = false }
+dom-serialization.workspace = true
+dom-pmmr.workspace          = true
+dom-pow = { workspace = true, default-features = false }
+thiserror.workspace         = true
+primitive-types = { version = "0.12", default-features = false }
+
+[dev-dependencies]
+dom-crypto = { workspace = true, features = ["test-helpers"] }
+secp256k1.workspace = true
+k256.workspace = true
+primitive-types.workspace = true
+proptest.workspace = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

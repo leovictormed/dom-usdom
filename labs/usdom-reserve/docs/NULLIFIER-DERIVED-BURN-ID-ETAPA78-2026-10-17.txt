@@ -1,0 +1,84 @@
+USDOM ETAPA 78 — IDENTIDADE DE QUEIMA DERIVADA DOS NULLIFIERS
+Data: 2026-10-17
+
+ACHADO CORRIGIDO
+
+A especificacao exigia que burnId fosse derivado da queima autenticada, mas o
+builder da carteira ainda escolhia esse identificador aleatoriamente. A prova
+Groth16 vinculava o valor escolhido ao BurnRecord, porem nao demonstrava que o
+identificador vinha dos nullifiers consumidos. Isso criava uma divergencia
+entre o requisito do verificador final de producao e a transicao nativa.
+
+REGRA DE CONSENSO
+
+burnId agora e calculado como:
+
+    keccak256(abi.encode(
+        PRIVATE_BURN_ID_TYPEHASH,
+        domDomain,
+        privacyPolicyHash,
+        verifierConfigHash,
+        ethereumChainId,
+        reserve,
+        recipient,
+        amount,
+        validUntil,
+        nullifier0,
+        nullifier1
+    ))
+
+PRIVATE_BURN_ID_TYPE e:
+
+    PrivateBurnId(bytes32 domDomain,bytes32 privacyPolicyHash,bytes32 verifierConfigHash,uint256 ethereumChainId,address reserve,address recipient,uint64 amount,uint64 validUntil,bytes32 nullifier0,bytes32 nullifier1)
+
+Seu typehash e:
+
+    c42c6cc432814ca0c60ce9458a9059e64f523c15d0b59f78c611d5a36724e5c5
+
+Sao aceitos um ou dois nullifiers BN254 canonicos, nao nulos e estritamente
+ordenados por bytes. Uma queima de uma entrada usa zero apenas no segundo slot.
+A identidade inclui a politica de privacidade, a chave verificadora, a ponte e
+todos os campos publicos de pagamento; portanto nao pode colidir entre redes,
+reservas, versoes do circuito, destinatarios ou prazos por simples reutilizacao
+do mesmo spend.
+
+DEFESA EM PROFUNDIDADE
+
+- a carteira deriva burnId somente depois de obter e ordenar os nullifiers;
+- o verificador da transicao recalcula a identidade antes de verificar a prova;
+- NativeUsdomState recalcula novamente antes de alterar nullifiers, notas ou o
+  conjunto de queimas;
+- requestId continua sendo um nonce aleatorio independente e diferente de
+  burnId;
+- o SDK JavaScript possui implementacao independente e vetor cruzado congelado;
+- trocar recipient e conservar burnId falha como BurnIntentMismatch; recalcular
+  burnId e a obrigacao ainda invalida a prova antiga.
+
+VETOR CRUZADO
+
+Para domDomain 0x11..11, privacyPolicyHash
+d66687e30a3540932de46fc6a6c9d151d1a46d5f2e0e0fcd2bca568b05bad90c,
+verifierConfigHash 0x45..45, chain ID 31337, reserve 0x66..66,
+recipient 0x08..08, amount 250, validUntil 1800600000 e nullifier 0x06..06:
+
+    burnId = d0b8ffc2dc9668fc6d73bee43ebc979ed69e5cd0d2d8d1656d753539816b762b
+    BurnIntent = 4f9a7214fb6b5701fe358a82952462bc172f220721a72b264e4b738558a1d842
+
+PRIVACIDADE E COMPATIBILIDADE
+
+Os nullifiers ja fazem parte da transicao privada publica na DOM; a derivacao
+nao publica remetente, valores de entrada, notas, deposito de origem ou troco.
+Na Ethereum, o verificador final pode provar a relacao em zero knowledge e
+expor somente burnId e o statement de pagamento. A mudanca altera consenso e
+vetores antes de qualquer ativacao: estados e payloads experimentais antigos
+nao sao compativeis e nao devem ser promovidos.
+
+LIMITES RESTANTES
+
+Esta etapa nao fornece o verificador final de producao, headers/fork choice com
+finalidade adicional, parametros de trusted setup, chaves MPC, multisigs,
+limites economicos, monitoramento ou auditoria independente. Os dois pins do
+verificador mainnet continuam zerados e bloqueiam a implantacao acidental.
+
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

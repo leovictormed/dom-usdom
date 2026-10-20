@@ -1,0 +1,103 @@
+NATIVE USDOM ISSUANCE FROM AN ETHEREUM-FINALIZED DEPOSIT — STAGE 61
+Date: 2026-10-17
+Status: isolated Regtest implementation; not approved for production, deployment, or real funds
+
+OBJECTIVE
+
+Remove an independent mint authority from native USDOM issuance. A node may now
+accept an issuance envelope only by replaying a bounded Ethereum light-client
+transcript, authenticating the exact USDT reserve deposit receipt and reserve
+post-state/code, and converting the opaque result under consensus-owned policy.
+Transfer and burn proof kinds remain fail-closed.
+
+IMPLEMENTED PATH
+
+1. UDOMDPW1 is the canonical bounded deposit witness. It contains the exact
+   canonical light-client transcript, the externally committed finalized
+   execution identity, and canonical JSON evidence for execution ancestry,
+   receipt inclusion, reserve account/code and the Deposited event. Framing,
+   component lengths and total size are bounded before cryptographic replay.
+2. DepositTrustPolicy pins Ethereum chain ID 1, Beacon genesis, weak-subjectivity
+   checkpoint, fork schedule, reserve address, runtime code hash, bridge domain,
+   and maximum accepted deposit amount. The DOM block timestamp supplies the
+   only admissible current-slot ceiling. That dynamic ceiling is excluded from
+   the immutable policy hash.
+3. Direct local deposit composition carries a zero trust-policy hash and cannot
+   authorize native issuance. Only full witness replay installs the exact
+   deposit-policy hash in the opaque VerifiedDeposit.
+4. The native BridgeIdentity and StateCommitment include that deposit-policy
+   hash. Startup, snapshots, direct extensions, retained side branches and
+   reorg promotion therefore require the same immutable issuance policy.
+5. The initial note commitment is derived deterministically from version,
+   bridge domain, deposit-policy hash, Beacon genesis, event block and position,
+   deposit ID, funder, exact uint64 amount and receiver commitment. A relayer
+   cannot substitute a value or choose an unrelated note. No issuer signing key
+   or operator quorum appears in this path.
+6. The existing state machine atomically enforces one-time deposit consumption,
+   note uniqueness, supply accounting, Ethereum-anchor consistency, persistence,
+   undo and reorganization behavior.
+
+FINALITY SEMANTICS
+
+The event may occur in an execution block earlier than the retained finality
+head. Receipt/account/code proofs bind to the event block through authenticated
+execution ancestry. The issuance EthereumAnchor records the complete later
+finality head (execution number/hash/timestamp and Beacon slot/root), not a
+synthetic mixture of the event header and finality metadata. Multiple historical
+deposits may therefore share one valid later finality anchor without conflict.
+
+FORMAT MIGRATION
+
+The bridge/state commitment gained a deposit-policy hash, so old experimental
+state must not be interpreted under the new monetary identity. Canonical state
+keys are now usdom/v2, the burn-state witness is USDBRN02, and UDSNAP01 is
+version 3 with manifest tag v3. No automatic migration grants authority to old
+state. A future reviewed activation/migration procedure remains required.
+
+PRIVACY BOUNDARY
+
+The Ethereum deposit, amount, funder and reserve are public. Stage 61 derives a
+one-time initial native note from that public occurrence and a receiver
+commitment. This does not by itself provide private transfer or burn semantics.
+A reviewed proof system must prove ownership, note membership, ranges, exact
+conservation, nullifier correctness and public burn obligations while using the
+same frozen commitment relation. A trusted single-party Groth16 setup from the
+reference laboratory was deliberately not imported.
+
+VALIDATION PERFORMED
+
+- usdom-ethereum-finality-experiment: 55 tests including doc tests passed after
+  adding deposit framing/policy tests (19 unit, 2 ancestry, 14 historical,
+  7 receipts, 8 state, 5 compile-fail docs).
+- dom-usdom-state all features: 18 unit plus 1 compile-fail doc test passed.
+- dom-chain native-usdom-v4-poc final complete suite: 237/237 tests passed
+  across all test binaries and doc tests after the format migration and new
+  deposit-policy test.
+- dom-node native runtime integration: 7/7 passed.
+- dom-store atomicity/persistence selection: 8/8 passed.
+- Clippy for finality/state/chain/node all targets with -D warnings passed.
+- Optimized dom-node build with native-usdom-v4-poc and without unsafe fixture
+  features passed.
+
+REMAINING BLOCKERS
+
+- freeze and independently review the receiver/note commitment relation;
+- implement a production proof system and pinned verification keys for private
+  transfer and burn, with a safe parameter-generation/update model;
+- add a reproducible real Ethereum finalized-reserve deposit vector exercising
+  UDOMDPW1 end to end inside a native v4 block;
+- implement and audit the Ethereum proof of canonical DOM ancestry, accumulated
+  work/fork choice and native burn transition;
+- define production bootstrap freshness, exceptional Ethereum-finality conflict,
+  availability, censorship and recovery rules;
+- complete authenticated snapshot import, long-running partition/recovery tests,
+  wallet integration, parameter selection and independent audits;
+- obtain explicit authorization before any push or deployment.
+
+READINESS
+
+Mainnet ready: NO.
+Real-funds ready: NO.
+Production consensus activated: NO.
+Push performed: NO.
+Deployment performed: NO.

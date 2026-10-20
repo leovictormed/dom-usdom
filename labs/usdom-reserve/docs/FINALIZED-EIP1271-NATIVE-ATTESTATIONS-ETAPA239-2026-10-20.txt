@@ -1,0 +1,42 @@
+Finalized EIP-1271 authorization for native attestations — Stage 239
+Date: 2026-10-20
+Status: fail-closed authorization correction; no ceremony, deployment, funds,
+        mining, expensive proving, commit or push
+
+Finding USDOM-239 (High)
+
+Stage 238 made native privacy, runtime activation, wallet custody and recovery
+records hash-addressed and release-specific. Their `approvedBy` field still
+asserted governance approval without cryptographic proof. A release preparer
+could name the governance address in an otherwise valid record.
+
+Correction
+
+Every native attestation now includes a nonempty, canonical, bounded signature.
+The signed EIP-712 message commits kind, release ID, source commit, reserve and
+checkpoint-registry configuration hashes, completion time, subject commitment
+and governance. Its domain commits Ethereum chain ID, the exact governance
+contract, the fixed protocol name and version 1.
+
+The authoritative readiness CLI reads the signatures from their hash-addressed
+strict JSON records and, when those records are configured, requires an
+Ethereum RPC endpoint. It pins one `finalized` block, reads governance runtime
+code there, calls `isValidSignature(bytes32,bytes)` for every required record at
+the same numeric block tag, accepts only the exact 32-byte ABI encoding of
+`0x1626ba7e`, then re-reads that block and records its ending hash. The snapshot
+also records the canonical finalized block timestamp and rejects any
+attestation that claims completion later than that block.
+
+The pure release gate independently recomputes every EIP-712 digest and checks
+the exact approval set, chain ID, canonical block identity, unchanged ending
+hash, governance address, governance code hash and successful EIP-1271 result.
+Closed-mainnet requires the privacy and activation approvals; real-funds also
+requires custody and recovery approval.
+
+Validation boundary
+
+Tests change every signed field and domain component, exercise malformed and
+oversized signatures, wrong/malformed return values, reverted calls, stale
+digests, wrong approval sets, chain/address/code substitutions and block-hash
+changes. The collector is read-only and no production approval was created.
+External audit and an absolute zero-risk guarantee remain optional.

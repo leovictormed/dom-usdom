@@ -1,0 +1,92 @@
+USDOM native authenticated sets and accumulator frontiers — stage 144
+Date: 2026-10-18
+
+Purpose
+=======
+
+Stage 143 deliberately refused to replace the native USDOM ordered-set roots
+with a sparse tree that was recomputed from all history after every transition.
+Although cryptographically correct, that design would amplify transition cost
+with historical state and create a denial-of-service risk. This stage supplies
+the bounded update and accumulator primitives needed before any versioned
+consensus migration.
+
+Compressed native set cache
+===========================
+
+SparseMerkleTree stores only actual leaves and binary branch points. Empty
+unary paths are reconstructed from domain-separated roots. It provides:
+
+* bounded 256-level insertion and exact-leaf removal;
+* membership and nonmembership UDSMPR01 paths;
+* atomic failure for duplicate insertion, missing removal or wrong leaf;
+* roots identical to the independent full sparse-tree reference; and
+* canonical optional UDSMTR01 cache snapshots in sorted hashed-path order.
+
+The optional snapshot is capped at 256 MiB and is rebuildable from authoritative
+state entries. That cache cap does not limit consensus state size. Invalid tree
+domains are rejected before empty-root cache selection, preventing cross-domain
+cache poisoning.
+
+NativeUsdomState now maintains five parallel sparse caches for note commitments,
+nullifiers, consumed deposits, burn records and withdrawal request identifiers.
+They advance and roll back on the same cloned atomic candidate as the current
+v1 state. Restore rebuilds them from canonical entries. Tests cover issuance,
+transfer, burn, persisted restore, and exact reverse rollback. Their leaf counts
+are checked whenever the current v1 state root is recomputed.
+
+These roots are observable through experimental_authenticated_set_roots but are
+not part of the v1 consensus root. This permits differential validation before
+an explicit incompatible state-root version and activation rule are adopted.
+
+Bounded note accumulators
+=========================
+
+The append-only historical accumulators now have canonical bounded frontiers:
+
+* PMFRNT01 carries a u64 leaf count and at most 64 left-to-right PMMR peaks;
+* UDNTFR01 carries the 33-level Poseidon incremental frontier with canonical
+  bitmap compression; and
+* UDAFRT01 combines both frontiers with the complete retained history of at
+  most 256 accepted note anchors.
+
+PmmrFrontier reproduces every full PMMR append position, merge and root over
+256 sequential leaves. IncrementalNoteTree frontier decoding validates the
+exact occupancy implied by the leaf count, scalar canonicality, bitmap padding,
+length and re-encoding. NativeAccumulatorWitness opens notes_root,
+privacy_notes_root, note_count, anchor_root and anchor_count from a native
+StateCommitment and advances issuance, transfer and burn notes without the
+historical note list.
+
+Frozen vectors
+==============
+
+PMFRNT01 after 256 leaves:
+  504d46524e543031000000000000010001b390385c669d27f087ee96af61bb34ef788fc92cfd47304a2b8f9908e4d72d25
+
+UDNTFR01 after 256 notes:
+  55444e5446523031000000000000010000010000000104a87f725258a83233d7413a80256d336ecdb3ff6b3505fe8bc0d76c010963aa
+
+Keccak-256 of the UDAFRT01 issuance/transfer/burn test witness:
+  1bd96279176d3f18b1c83a4a78c1b92614a7b5dc9265a15789138f429234a290
+
+Security boundary and remaining work
+====================================
+
+This stage does not authorize mainnet or real funds. The sparse caches are a
+shadow implementation and UDAFRT01 opens only accumulator fields already in the
+v1 state root. Production still requires:
+
+1. Freeze a version-2 native state commitment that authenticates all five
+   sparse roots, including the separate request-id root, and define activation
+   from a ratified v1 snapshot.
+2. Define canonical per-transition or batch multiproofs for those v2 roots and
+   compose them with UDAFRT01 in the complete stateless native executor.
+3. Persist/cache the compressed sparse structure atomically with authoritative
+   state or prove deterministic rebuild and recovery within operational bounds.
+4. Port the complete checkpoint relation into a selected proving backend and
+   publish reproducible performance and memory limits.
+5. Produce the full 360+30 positive vector, immutable verifier artifacts,
+   ratified operational identities and independent audits.
+
+No push, deployment, transaction or use of funds was performed.

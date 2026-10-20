@@ -1,0 +1,12 @@
+[package]
+name = "dom-usdom-rpc-protocol"
+description = "Minimal canonical RPC framing and candidate identity for native USDOM"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+dom-crypto.workspace = true
+thiserror.workspace = true

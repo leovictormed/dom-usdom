@@ -1,0 +1,51 @@
+Deterministic reserve deployment address — etapa 91
+Date: 2026-10-18
+Status: release gate implemented; deployment remains unconfigured and unauthorized
+
+Finding USDOM-091
+
+Severity: High for a production deployment.
+Current public exposure: none; no transaction, commit, tag or push was made.
+
+The immutable reserve configuration commits the exact reserve address, but the
+release manifest did not prove how that address would be obtained. An incorrect
+deployer account or consumed nonce would produce a different address and make
+the audited PRODUCTION_RESERVE_CONFIG_HASH undeployable. Accepting an arbitrary
+address in tooling would also weaken independent review of the deployment plan.
+
+Remediation
+
+The proof-reserve release manifest and fail-closed gate now require:
+
+- deploymentMethod exactly CREATE;
+- a nonzero checksummed deployer address;
+- a canonical uint64 deployer nonce;
+- reserve equal to Ethereum's CREATE address derived from that deployer/nonce;
+- the resulting reserve address to reproduce the exact nested deployment hash
+  and compiled PRODUCTION_RESERVE_CONFIG_HASH.
+
+CREATE2 is deliberately rejected. The expected reserve address participates in
+PRODUCTION_RESERVE_CONFIG_HASH, which is itself compiled into the contract
+initcode; using that initcode hash to derive a CREATE2 address would introduce
+a circular fixed-point requirement. CREATE derives the address only from the
+approved sender and nonce and is therefore independently reproducible.
+
+Tests mutate nonce, deployer, deployment method, reserve hash and compiled pins
+independently and require release rejection. The current unconfigured manifest
+adds explicit failures for deployer, nonce and address derivation.
+
+Validation
+
+- Node/SDK/integration suite: 38 passed; 0 failed;
+- focused deployment-plan and release-gate regressions: 3 passed; 0 failed;
+- closed-mainnet gate: rejected with 47 blocker assertions;
+- real-funds gate: rejected with 55 blocker assertions;
+- JSON, JavaScript syntax, formatting and whitespace checks: passed.
+
+Immediately before a future broadcast, operators must additionally compare the
+finalized Ethereum account nonce with the ratified manifest and prevent the
+deployer from sending any competing transaction. The offline derivation does
+not authorize deployment or replace that live check.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

@@ -1,0 +1,45 @@
+Stage 175 - canonical RandomX proof statement
+Date: 2026-10-19
+
+The portable PoW boundary still lacked an exact public value for a future
+RandomX receipt. A receipt that exposes only a hash could be replayed against a
+different chain, seed, header preimage or target unless all relation inputs are
+committed together and rechecked by the segment guest.
+
+Implemented UDCRXST1
+
+1. CheckpointRandomXStatement has an exact 384-byte UDCRXST1 encoding. It binds
+   network magic, chain identity, block height, seed height and seed block,
+   the exact 224-byte BlockHeader::pow_preimage(), claimed RandomX output and
+   expanded 256-bit target.
+2. Validation requires candidate-v2 header version 4 and extracts the block
+   height and compact target at their frozen offsets in the exact preimage.
+3. The seed height must equal the RFC-0011 schedule derived by portable dom-pow.
+   The compact target must canonically expand to the separately stated target,
+   and the claimed output must be nonzero and no greater than that target.
+4. Decoding requires exact length and canonical re-encoding. A domain-separated
+   Keccak-256 commitment binds all relation inputs for a future recursive
+   receipt and segment guest.
+
+Verification
+
+- Three directed tests cover exact round trip and length, every truncated
+  prefix, trailing bytes, framing versions, seed and preimage-height
+  substitution, target substitution, insufficient work, zero identity and
+  commitment changes across chain, seed, nonce and claimed output.
+- The program passes 18 portable tests and 24 host-reference tests with zero
+  failures. Its portable dependency tree still excludes randomx-rs.
+- Clippy passes for all targets and all features with warnings denied; rustfmt
+  check passes. The 390-block release vector remains deliberately ignored in
+  the ordinary suite.
+
+Remaining boundary
+
+UDCRXST1 validates the public statement around RandomX but does not compute the
+algorithm. Accepting it without a receipt from a reviewed RandomX guest would
+allow forged PoW. Production still needs that guest or a sound recursively
+verified equivalent, plus binding each receipt to the matching parsed header
+inside the segment transition guest. Economic worst-case coverage, recursive
+aggregation, measured limits, production ImageIDs, real vectors, bootstrap
+ratification and independent audits remain open. Mainnet and real funds remain
+blocked. No deploy, public transaction, funds, commit or push occurred.

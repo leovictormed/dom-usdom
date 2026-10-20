@@ -1,0 +1,67 @@
+Reproducible compiler policy and artifact evidence — etapa 96
+Date: 2026-10-18
+Status: deterministic policy enforced; independent production rebuilds remain pending
+
+Finding USDOM-096
+
+Severity: High release-integrity risk.
+Current public exposure: none; no transaction, commit, tag, push or deployment was made.
+
+Source hashes and immutable patching alone do not constrain all compiler inputs.
+The same source can produce different runtime under another compiler version,
+optimizer policy, EVM target, via-IR selection, metadata mode, library link or
+import remapping. The release gate also did not require the exact compiler
+artifact itself as distinct hash-addressed evidence.
+
+Remediation
+
+Runtime derivation now rejects every artifact that does not use exactly:
+
+- Solidity 0.8.37+commit.f401782d;
+- optimizer enabled with 200 runs;
+- Cancun EVM semantics;
+- metadata bytecodeHash set to none;
+- the non-via-IR pipeline;
+- no linked libraries;
+- contracts/USDOMProofReserve.sol:USDOMProofReserve as the sole compilation
+  target;
+- @openzeppelin/contracts/ mapped to the vendored OpenZeppelin 5.6.1 tree.
+
+Foundry configuration permanently enables AST output because immutable names
+must be matched to the compiler's own reference identifiers. The mainnet gate
+now requires the exact canonical artifact path
+out/USDOMProofReserve.sol/USDOMProofReserve.json as hash-addressed evidence.
+Using a different evidence path, stale sources, altered compiler settings or an
+artifact whose derived runtime differs from the manifest fails closed.
+
+Determinism evidence
+
+Two forced local rebuilds produced the same candidate artifact SHA-256:
+
+36cb34927ca4c4910bd17d1154cb9488785dcd22b0e4e5b50bbca9c83ffebb0a
+
+The production artifact will differ after the three zero production constants
+are replaced with independently audited pins. Its final hash must be produced
+again by independent builders and entered into release evidence; this candidate
+hash is not a production approval.
+
+Validation
+
+- forced source/artifact rebuild: passed twice with identical artifact SHA-256;
+- Node/SDK/EVM suite: 41 passed; 0 failed;
+- compiler version, optimizer enable/runs, EVM version, metadata mode, via-IR,
+  linked libraries, compilation target and OpenZeppelin remapping mutations:
+  all rejected;
+- wrong artifact evidence path or SHA-256: rejected;
+- closed-mainnet gate: correctly rejected with 68 blocker assertions;
+- real-funds gate: correctly rejected with 77 blocker assertions.
+
+Security boundary
+
+One machine producing the same artifact twice does not prove independent
+reproducibility. The existing release gate still requires a hash-addressed
+reproducible-build report, and production must compare builds made by separate
+reviewers in isolated environments before any deployment authorization.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

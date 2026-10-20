@@ -1,0 +1,76 @@
+Authenticated binary V2 candidate ingress and async verifier isolation — stage 160
+Date: 2026-10-19
+
+Scope
+=====
+
+This stage exposes the candidate-V2 proof-envelope and execution-witness pair
+to an authenticated node operator without granting RPC authentication any
+consensus authority. The exact pair is parsed, bounded and reverified by the
+same native runtime used at mining-template construction and final block
+ingress.
+
+Canonical RPC framing
+=====================
+
+POST /usdom/v2/candidate/submit/v1 now consumes application/octet-stream with
+the canonical UDV2RPC1 representation:
+
+  magic[8] || envelope_len_le_u32 || witnesses_len_le_u32 || envelope || witnesses
+
+Both lengths must be nonzero, arithmetic must not overflow and the declared
+lengths must consume the body exactly. Wrong magic, truncation, trailing bytes,
+wrong media type and an oversized body fail before node admission. Binary
+framing avoids the two-times memory and bandwidth cost of JSON hexadecimal.
+The public encoder emits the identical representation for prover and wallet
+clients.
+
+The ordinary RPC body ceiling remains 1,024,000 bytes. Only this authenticated
+route receives a separate 12 MiB plus framing ceiling, sufficient for the
+consensus maxima of an 8 MiB native proof envelope and a 4 MiB V2 witness
+bundle. A compile-time assertion in dom-node prevents the HTTP ceiling from
+silently falling below those consensus constants.
+
+Denial-of-service controls
+==========================
+
+The route retains bearer authentication and the submit rate limiter. It also
+has a one-request concurrency limit matching the serialized native runtime, so
+a second consensus-sized body cannot enter the handler while cryptographic
+admission is active. The test handle proves that the second request remains
+outside NodeHandle until the first releases the slot.
+
+All live V1 and V2 ingress, V1/V2 candidate admission and mining-template
+verification now acquire the global chain-before-native locks asynchronously,
+then move Ethereum/Groth16 verification onto Tokio's blocking pool. Waiting
+requests therefore do not consume blocking-pool threads, and proof verification
+does not occupy peer/RPC executor workers. Final package ingress still performs
+its independent consensus verification.
+
+Validation
+==========
+
+Four RPC tests pass: authenticated exact submission, rejection of noncanonical
+framing/media type, isolation of the consensus-sized body ceiling (including
+413 above it), and one-at-a-time backpressure before NodeHandle. dom-rpc and
+dom-node compile, and all-target Clippy passes for both with warnings denied.
+The directed V2 miner test passes after the async isolation change and proves
+that the ordinary coinbase remains DOM while an empty USDOM batch leaves
+issued and burned totals at zero.
+
+A repeat of the two-node V2 IBD/live-relay test was stopped after more than
+thirty minutes of uninterrupted user-space CPU in its debug Groth16 fixture,
+before any test result. The same scenario passed at stage 159. This attempt is
+recorded as inconclusive and is not counted as a pass or failure. It must be
+repeated in the controlled release test environment.
+
+Security boundary
+=================
+
+This stage completes the authenticated V2 candidate-submission path and removes
+its obvious executor, framing and queued-body memory hazards. It does not
+supply a real finalized Ethereum deposit, Ethereum payout execution,
+production proving ceremony/artifacts, ratified governance configuration,
+supervised migration, prolonged adversarial operation or independent audits.
+The closed-mainnet and real-funds gates remain closed. No push, commit,
+deployment, transaction or use of funds occurred.

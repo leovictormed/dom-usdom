@@ -1,0 +1,51 @@
+Restart-safe V1/V2 node phase and boundary ingress — stage 157
+Date: 2026-10-18
+
+Change
+======
+
+The hash-pinned schema-2 manifest now drives a fail-closed startup phase
+selection. Before the selected migration parent, the node restores only the
+V1 runtime. Once the atomic UDACTV02 marker exists, it compares the persisted
+V1 schedule and V2 first height with the manifest and restores only the V2
+runtime. A partial marker, a substituted V1 schedule, a different V2 height,
+or a canonical migration parent without the marker rejects startup.
+
+The V1 node ingress now recognizes the exact final V1 height and calls the
+atomic chain operation that commits the final block, V1 recovery state, V2
+activation schedule and initial V2 commitment in one LMDB transaction. A V1
+package at or above the V2 height is rejected. After restart, a dedicated V2
+entry point accepts only the UDOMV2W1 envelope, decodes both its canonical
+package and witness bundle, and passes them together to NativeUsdomV2Runtime.
+Canonical V2 acceptance performs the same mempool, wallet, metrics and state
+notification follow-up as V1.
+
+During the new end-to-end test, a restart defect was found and fixed. The old
+activation guard required the V1 tip marker to equal the current DOM tip even
+after V2 had advanced. The V1 marker must remain pinned to the migration
+parent. The guard now recognizes a well-formed V2 marker, while the V2 runtime
+restore remains responsible for authenticating the current V2 tip, package,
+witness commitment, block record, state and schedule.
+
+Validation
+==========
+
+The complete dom-chain feature suite passed, including 77 library tests and
+all integration, property, deep-reorg and documentation tests. The directed
+node test passed the complete path: V1 startup, atomic final-V1 ingress, V2
+startup, first V2 package/witness ingress, V2-tip restart, wrong-height
+rejection, and rejection of a parent committed without its marker. All-target
+Clippy passed for dom-node and dom-chain with warnings denied. Formatting and
+diff checks passed.
+
+Security boundary
+=================
+
+This stage makes database recovery and the node's local V1/V2 ingress
+deterministic. It does not yet enable the V2 P2P capability. V2 authenticated
+session negotiation, relay, IBD body service, future/orphan replay and mining
+must transport the package and witnesses together and must stop advertising
+V1 immediately after the live boundary. Until those paths, production proving
+artifacts, real Ethereum settlement, operational rehearsals and independent
+audits are complete, neither closed-mainnet nor real-funds operation is ready.
+No push, commit, deployment, transaction or use of funds occurred.

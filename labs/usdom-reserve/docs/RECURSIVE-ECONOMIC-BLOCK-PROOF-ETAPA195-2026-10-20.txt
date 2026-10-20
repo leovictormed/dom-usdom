@@ -1,0 +1,57 @@
+USDOM — PROVA ECONÔMICA RECURSIVA POR BLOCO — ETAPA 195
+Data: 2026-10-20
+
+RESULTADO
+
+A limitação estrutural identificada na Etapa 194 foi fechada. Qualquer bloco DOM
+válido pelo limite de peso pode ter seus efeitos econômicos divididos em até 80
+partes de no máximo 512 chaves, provados separadamente e compostos em uma única
+transição econômica de bloco. O guest de segmento aceita essa transição somente
+quando ela corresponde ao pacote exato já validado pelo consenso portátil.
+
+CADEIA DE PROVA
+
+1. O guest de parte econômica valida `UDECTN01` contra o pacote v4 canônico e a
+   testemunha `UDECCW01`. ImageID:
+   67d286e04444b52305ec409de3c0d22b2131a42f2aa6706f087ace253048e350
+2. O guest de bloco compõe a cadeia `UDECCH01`, exige cursor inicial zero,
+   continuidade das raízes, identidade única do pacote e término nas contagens
+   completas. Ele fixa o ImageID da parte e publica `UDECBT01`. ImageID:
+   03dc111fee3c42a772f142c80d4a921a19bde10f932f86c888606503a28c22a7
+3. O guest de segmento deriva novamente do pacote o hash do bloco e todas as
+   contagens, confere rede, altura e raízes anterior/final, e verifica o recibo
+   sob o ImageID de bloco fixado. ImageID:
+   4e711490f3ab7dde97636687972456da58da4287ce5017e38d4acaa7263a02d6
+4. O guest externo fixa esse novo ImageID de segmento e continua vinculando o
+   checkpoint e seu sufixo de confirmação ao hash consumido pelo Solidity.
+   ImageID:
+   e59d68487386939b2ac379f04528acb6b3138697e17adfda3ad23ebe195af3df
+
+PROPRIEDADES
+
+A ordem das partes não é escolhida pelo provador: todos os efeitos de UTXO vêm
+antes dos kernels e cada fronteira é calculada pelo protocolo. Substituição de
+pacote, bloco, rede, altura, contagens, cursor ou raízes é rejeitada. Um recibo
+de outro programa também é rejeitado porque cada camada fixa o ImageID da camada
+interna. O caminho direto para blocos pequenos continua disponível e produz as
+mesmas raízes.
+
+VALIDAÇÃO
+
+Passaram 37 testes unitários do programa de checkpoint, os testes de transporte
+e integração, o vetor diferencial de 601 efeitos, o teste de composição de três
+partes e os vetores de substituição do recibo econômico no segmento. Clippy
+estrito passou. Os quatro guests foram construídos novamente após `cargo clean`;
+ELF, ProgramBinary e ImageID reproduziram byte a byte.
+
+LIMITES E PRÓXIMOS CRITÉRIOS
+
+A cobertura estrutural de entrada privada para todos os blocos válidos agora é
+verdadeira. Ainda não foi gerado um recibo positivo completo desta cadeia, não
+foi medido seu custo de prova e o adaptador/checkpoint de produção continua sem
+configuração ratificada. Esses são critérios objetivos de liberação. Auditoria
+externa pode reduzir risco, mas não é requisito obrigatório do gate. Garantia
+absoluta de risco zero não é exigida; a decisão de mainnet deve registrar os
+riscos residuais conhecidos e controles operacionais.
+
+Nenhum push, commit, deploy, mineração, prova ou uso de fundos ocorreu.

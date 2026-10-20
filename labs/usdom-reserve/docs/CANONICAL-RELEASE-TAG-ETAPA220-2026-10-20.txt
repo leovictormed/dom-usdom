@@ -1,0 +1,31 @@
+Stage 220 — canonical release tag
+Date: 2026-10-20
+
+Finding USDOM-220 — Medium release-reference ambiguity
+
+sourceTag was only required to be a nonempty string. Although Git was invoked
+without a shell, an option-like value or an ambiguous revision expression could
+still be interpreted by Git rather than identify one release tag. The tag also
+had no enforced project namespace or version grammar.
+
+Remediation
+
+Release tags are restricted to usdom-v<major>.<minor>.<patch>, optionally followed
+by a canonical prerelease suffix. Numeric components cannot have leading zeros.
+Build metadata, revision operators, paths, option-like strings and other tag
+names are rejected by the pure assessor before Git inspection.
+
+The command-line assessor only handles a tag after this validation. It resolves
+exactly refs/tags/<sourceTag>^{commit}, and passes an explicit option terminator
+to verify-tag. The existing requirements for an annotated valid signature, exact
+HEAD target and external signing-key fingerprint remain in force.
+
+Regression validation
+
+Three canonical version forms pass the parser. Ten malformed, ambiguous or
+option-like forms fail. Five adversarial sourceTag mutations independently make
+the readiness report NOT READY with source_tag_invalid. Fully configured
+synthetic releases remain admissible.
+
+No proof generation, mining, deployment, fund movement, commit or push was
+performed.

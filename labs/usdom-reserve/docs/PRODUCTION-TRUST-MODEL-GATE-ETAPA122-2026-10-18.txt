@@ -1,0 +1,51 @@
+USDOM ETAPA 122 — MODELO DE CONFIANÇA CORRETO NO GATE DE PRODUÇÃO
+Data: 2026-10-18
+
+ACHADO
+
+O contrato de produção USDOMProofReserve e os requisitos P4/P8 rejeitam um
+fallback de notários: o resgate deve depender de uma prova verificável de
+consenso/finalidade DOM. Mesmo assim, operator-intent.json ainda listava
+operadores de notário e threshold entre os parâmetros indefinidos de produção.
+Também listava um token de testnet como condição para o release Ethereum
+mainnet. O gate repetia esses itens no bloqueio agregado e podia orientar uma
+cerimônia de produção para o modelo de confiança errado.
+
+CORREÇÃO
+
+- notários e threshold foram removidos somente da lista de parâmetros de
+  produção pendentes;
+- o token de testnet foi removido da lista de release mainnet;
+- os valores 3-de-4 continuam registrados explicitamente como exemplos locais
+  não aprovados do protótipo;
+- a fase registrada agora corresponde ao endurecimento pré-produção fail-closed;
+- o teste de prontidão exige que o modelo de produção restrinja o quórum ao
+  protótipo e impede que notários, threshold ou token de testnet retornem à
+  lista de parâmetros do proof-reserve mainnet.
+
+PARÂMETROS AINDA NECESSÁRIOS
+
+- multisigs distintos de governança e guardião;
+- exposição máxima e capacidade diária de saída;
+- atraso de retirada e atraso administrativo;
+- domínio DOM e política de finalidade.
+
+LIMITES
+
+Esta correção não aprova esses parâmetros, não seleciona o mecanismo final de
+finalidade e não torna o candidato apto a deploy. O contrato de quórum, sua
+configuração e seus testes permanecem no repositório como protótipo local
+explicitamente bloqueado em Ethereum mainnet. USDOMProofReserve continua sendo
+o único candidato de produção.
+
+VERIFICAÇÃO
+
+- JSON de intenção e requisitos: válido;
+- testes unitários do gate: 3 aprovados, 0 falhas;
+- closed-mainnet: rejeitado como esperado, exit 1, 70 condições abertas;
+- real-funds: rejeitado como esperado, exit 1, 78 condições abertas;
+- o bloqueio agregado agora enumera somente governança, guardião, limites,
+  atrasos, domínio DOM e política de finalidade;
+- git diff --check: aprovado.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.

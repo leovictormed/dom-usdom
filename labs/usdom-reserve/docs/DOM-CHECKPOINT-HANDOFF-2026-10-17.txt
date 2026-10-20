@@ -1,0 +1,126 @@
+DOM checkpoint v2 handoff and rollback resistance
+Date: 2026-10-17
+
+Purpose and status
+
+This second isolated checkpoint experiment strengthens the local DOM enforcement
+boundary. It remains disabled by default, restricted to regtest and incapable of
+mainnet activation. It does not authenticate Ethereum. Every Ethereum field is
+still supplied by a TEST ORACLE.
+
+The experiment now answers three implementation questions:
+
+1. Which exact, bounded bytes must cross from a future Ethereum verifier into
+   DOM checkpoint enforcement?
+2. How can a node reject canonical history that crosses an accepted anchor?
+3. How can a restarted node detect restoration or deletion of an anchor when an
+   independently retained minimum checkpoint is supplied?
+
+Canonical handoff
+
+The v2 record is exactly 417 bytes. The decoder rejects any other length or
+version, zero critical identities and a checkpoint event digest that does not
+recompute exactly. Integer encoding is fixed-width big-endian. Hashes and the
+contract address have fixed sizes.
+
+The record contains:
+
+- DOM height, block identifier and asserted native USDOM state root;
+- DOM network magic;
+- Ethereum chain ID, execution block number/hash, receipts root and state root;
+- finalized Beacon slot/root and genesis validators root;
+- transaction index and receipt-relative log index;
+- checkpoint registry address and runtime code hash;
+- checkpoint configuration hash and bridge domain; and
+- the exact checkpoint event digest.
+
+The event digest uses Keccak-256 and the Solidity ABI representation of:
+
+  Checkpoint(bytes32 bridgeDomain,uint32 domNetworkMagic,uint64 domHeight,
+             bytes32 domBlock,bytes32 domStateRoot,
+             bytes32 checkpointConfigHash)
+
+The included command-line decoder accepts exactly one hexadecimal record and
+uses the same Rust decoder as persistent loading. It does not install a record
+or convert decoding success into monetary authority.
+
+Monotonic policy
+
+The first test-oracle record fixes its bridge domain, DOM network, Ethereum
+chain, genesis validators root, registry address, registry code hash and policy
+configuration for that database. A successor must preserve those identities,
+advance the DOM height and advance the ordered Ethereum locator
+(execution block, transaction index, receipt log index). When two events share
+an execution block, block hash, receipts root, state root, Beacon slot and Beacon
+root must be identical. A later execution block must have a later Beacon slot.
+
+These comparisons detect local substitution or regression. They do not prove
+Ethereum ancestry. A production verifier must construct the accepted type only
+after checking finalized Beacon consensus, execution ancestry, receipt inclusion,
+emitter, event topic/data, account/code identity and policy state.
+
+Fork choice and runtime deletion
+
+The persisted anchor is checked before block connection, known-header ingress,
+resumed header validation, known-block validation, next-target calculation and
+fork promotion. Deleting, corrupting or lowering the record while the process is
+running therefore stops those routes. A fork whose common ancestor is earlier
+than the checkpoint is rejected before canonical disconnection or tip mutation.
+
+Rollback-resistant restart
+
+Once a database contains a checkpoint, ordinary ChainState::open refuses to
+open it. The regtest-only open_with_test_checkpoint_floor entry point requires an
+independently retained full record. The database checkpoint must equal that floor
+or be a valid later checkpoint in the same domain. Missing, stale, replaced or
+noncanonical records fail before index rebuild, UTXO repair or branch pruning.
+
+This only demonstrates the comparison. Copying the floor into another unauthenticated
+local file would merely move the rollback problem. Production must obtain the
+minimum from authenticated Ethereum evidence and require it after activation.
+A database restored to a time before activation cannot reveal its own rollback.
+
+Atomicity and consensus limitations
+
+The record remains local metadata written in a separate LMDB transaction. The
+proof of concept assumes checkpoint installation and ChainState operations are
+serialized. Production needs either an atomic transition or synchronization
+whose safety is demonstrated under crash and race conditions.
+
+Different nodes can compile without the feature or receive different oracle
+records. The experiment is therefore a local policy, not a DOM consensus rule.
+A production design needs a versioned activation and deterministic, consensus-
+visible evidence or authenticated checkpoint input. Validation cannot depend on
+an RPC response, local clock or operator label during block processing.
+
+Remaining production work
+
+- Connect a current, persisted Ethereum light client with explicit weak-
+  subjectivity and fork-schedule policy.
+- Verify execution ancestry, receipt inclusion, registry account/code and policy
+  state as one composed proof before constructing a checkpoint.
+- Add native USDOM issuance, note/nullifier state, private transfer and burn
+  transitions to DOM consensus without changing DOM rewards or supply rules.
+- Commit that state and all required availability data to the block format and
+  make connect, disconnect, reorg, IBD and snapshots reproduce it atomically.
+- Produce a sound private proof of a finalized burn for the immutable Ethereum
+  verifier, with replay protection and no operator-signature fallback.
+- Specify outages, censorship, conflicting-finality halt behavior, bootstrap and
+  recovery, then test multiple nodes under adversarial partitions and failures.
+- Complete reproducible releases and independent cryptographic, consensus and
+  smart-contract audits before any real USDT is accepted.
+
+Validation
+
+The focused v2 suite contains 24 tests and passes without failures. It covers
+the real fork-choice insertion point, canonical encoding, an independent
+Solidity ABI digest vector, corruption, domain changes, locator regression,
+same-block conflicts, external floors, deletion, restoration of an older LMDB
+database, failed-startup ordering and regtest/mainnet separation. The example
+builds with the feature. rustfmt passes, and clippy passes for all targets with
+warnings treated as errors.
+
+The preceding default dom-chain run passed 194 tests. All new operational code
+is behind ethereum-checkpoint-poc. A later full feature-enabled attempt completed
+66 tests without failure before receiving SIGTERM during a long property test;
+it is preserved as interrupted evidence and is not counted as a passing run.

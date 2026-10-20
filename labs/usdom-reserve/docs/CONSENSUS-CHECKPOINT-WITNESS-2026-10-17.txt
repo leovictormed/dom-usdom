@@ -1,0 +1,80 @@
+USDOM bounded checkpoint witness — stage 23
+Date: 2026-10-17
+Status: local regtest proof of concept; no push, deploy, activation, or real funds.
+
+Result
+
+The Ethereum checkpoint input now has one deterministic wire envelope that can
+be propagated as bytes and replayed by each verifier. It contains the canonical
+light-client transcript, the exact externally committed finalized execution
+view, and the receipt/account/code/storage/ancestry evidence needed to compose a
+checkpoint. Decoding the envelope grants no authority. Verification reconstructs
+the light client from its trusted bootstrap and rechecks BLS signatures, SSZ
+branches, finalized execution ancestry, receipt inclusion, registry account,
+runtime code hash, configuration storage, and the exact checkpoint event.
+
+The witness is versioned by the eight-byte UDOMCPW1 magic and limited to 4 MiB,
+including a fixed 160-byte header. Canonical checkpoint evidence is limited to
+2 MiB. Length fields are big-endian u32 values and the finalized execution view
+has a fixed layout. Truncation, trailing bytes, zero identities, length mismatch,
+oversize input, and noncanonical JSON are rejected. This aggregate limit is
+stricter than the individual proof-module maxima and stays below DOM's existing
+16 MiB serialized block ceiling.
+
+Trust boundary and deterministic time
+
+The witness cannot choose its Ethereum checkpoint root, genesis validators root,
+fork schedule, registry identity, code/configuration hashes, bridge domain, DOM
+network, or time ceiling. CheckpointTrustPolicy supplies those values from the
+future DOM consensus configuration. The genesis root in the light-client policy
+must equal the root in the checkpoint registry policy.
+
+Every current_slot stored in the transcript must be at or below max_current_slot,
+and the resulting finalized beacon slot must also be at or below that limit. The
+limit must ultimately be derived deterministically from the containing DOM block;
+it must not come from a relayer or local wall clock. The transcript is serialized
+again after full replay and must match the supplied bytes exactly, preventing
+multiple accepted encodings of the same logical update sequence.
+
+DOM integration boundary
+
+ChainState now exposes verify_and_install_checkpoint_witness. It calls the full
+replay/composition path and persists only the opaque 417-byte verified result.
+The function rejects every non-regtest network before expensive verification.
+The existing persistent reorganization barrier then enforces the checkpoint.
+
+This is still an integration seam, not production consensus. A DOM block does
+not yet carry the witness or its commitment, block validation does not invoke the
+verifier, and checkpoint persistence is not atomic with native USDOM state. A
+node restart still needs an independent checkpoint floor. No mainnet authority
+was enabled.
+
+Validation
+
+- Ethereum verifier: 44 functional tests and 5 compile-fail isolation tests,
+  0 failed;
+- dom-chain checkpoint suite: 26 passed, 0 failed;
+- project clippy with warnings denied: passed; the byte-identical upstream Helios
+  source retains one known deprecated generic-array warning;
+- rustfmt: passed;
+- dependency/provenance boundary: passed for both the 103-package local graph and
+  the 181-package verified graph, with no RPC/provider/EVM authority;
+- imported-source verification: 169 files and 15 recorded modifications passed.
+
+Remaining production blockers
+
+1. Define a hard-forked DOM block/body encoding that commits the witness bytes or
+   digest, derives max_current_slot deterministically, and invokes verification
+   during block connection, IBD, replay, reorganization, and snapshot import.
+2. Implement native USDOM issuance, note commitments, nullifiers, private
+   transfers, burns, undo data, snapshots, and a header commitment to its state.
+3. Make checkpoint installation and USDOM state transition atomic, with bounded
+   verification cost and multi-node adversarial tests.
+4. Define governed weak-subjectivity bootstrap rotation, fork updates, data
+   availability, conflict handling, censorship response, and recovery.
+5. Deploy and independently audit the checkpoint registry validity rule and the
+   private finalized-burn proof/verifier path back to Ethereum.
+6. Complete production parameters, multisigs, monitoring, ceremonies, recovery
+   drills, shadow operation, and independent cryptographic/consensus audits.
+
+These blockers keep real_funds_ready and mainnet_activation false.

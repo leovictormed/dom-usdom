@@ -1,0 +1,65 @@
+USDOM ETAPA 77 — ENVIO AUTENTICADO DE QUEIMA PRIVADA
+Data: 2026-10-17
+
+Esta etapa fecha o caminho local entre uma queima privada já provada e a fila
+de mineração nativa Regtest. Ela não executa o pagamento Ethereum e não afirma
+finalidade econômica.
+
+SALVAR ANTES DE ENVIAR
+
+Uma queima pendente recebe DurablePendingBurnPermit somente depois que:
+
+1. o estado marca submission_authorized;
+2. o snapshot cifrado exato é preparado na autoridade monotônica externa;
+3. o arquivo é gravado atomicamente;
+4. a autoridade confirma o novo seal por compare-and-swap.
+
+Falhas ambíguas conservam o estado preparado e exigem reconciliação. Um permit
+não possui construtor público. Após autorização, a queima não pode ser
+cancelada, evitando gastar localmente os mesmos inputs enquanto o payload pode
+estar circulando. O permit pode ser reemitido após restart somente se snapshot
+e autoridade externa coincidirem exatamente.
+
+RPC E NÓ
+
+O cliente da carteira permanece restrito a HTTP em IP loopback literal, token
+owner-only, sem redirects e com respostas limitadas/estritamente decodificadas.
+As novas rotas autenticadas são:
+
+    POST /usdom/v4/burn/submit/v1
+    POST /usdom/v4/burn/scan/v1
+
+O cliente envia exclusivamente os bytes retidos pela pendência autorizada. O
+nó limita tamanho, decodifica outputs e BurnRecord canônicos, deriva o
+private_burn_payload_id exato, cria um envelope Burn de uma entrada e o entrega
+ao verificador de candidatos. O runtime continua verificando a prova Groth16,
+identidade da ponte, obrigação, deadline, nullifiers e estado antes de aceitar.
+
+O scan exige identidade da rede, chain ID, paginação limitada e anchor do
+bloco anterior. A resposta não declara finalidade. A busca decodifica o
+sidecar canônico e compara o identificador com o payload Burn exato; IDs de
+transfer e burn permanecem separados por domínio.
+
+VERIFICAÇÃO
+
+- rotas de burn recusam acesso sem bearer token;
+- acknowledgement precisa devolver transition_id e candidate_id exatos;
+- scan devolve localização canônica exata e finality_claimed=false;
+- lookup de sidecar diferencia payloads Transfer e Burn;
+- teste Groth16 completo comprova persistência, permit, restart, bloqueio de
+  cancelamento e preservação das reservas;
+- clippy -D warnings, formatação e workspace check são executados nesta etapa.
+
+LIMITES RESTANTES
+
+1. o candidate pool desta prova de conceito continua volátil e Regtest-only;
+2. confirmação canônica não equivale a finalidade do checkpoint;
+3. pendências ainda precisam de política de liberação/expiração vinculada à
+   finalidade autenticada e ao resultado do pagamento Ethereum;
+4. falta um rescan autenticado para recuperar depósitos esperados;
+5. falta o vetor real depósito USDT -> emissão -> gasto -> queima -> resgate;
+6. faltam headers/regras de produção, autoridade monotônica concreta, chaves
+   MPC, auditorias independentes e testes multinó prolongados.
+
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

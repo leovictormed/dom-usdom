@@ -1,0 +1,22 @@
+[package]
+name = "dom-usdom-finalized-burn-risc0-guest"
+description = "RISC Zero guest for the deterministic finalized USDOM burn relation"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata.risc0]
+
+[[bin]]
+name = "usdom-finalized-burn"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+dom-usdom-finalized-burn-program = { path = "../dom-usdom-finalized-burn-program" }
+# 3.0.3 is the first 3.x release that fixes CVE-2025-61588. Pin the later
+# stable patch exactly because its kernel and control IDs are verifier policy.
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std"] }

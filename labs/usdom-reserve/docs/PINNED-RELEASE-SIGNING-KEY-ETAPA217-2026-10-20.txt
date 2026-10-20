@@ -1,0 +1,46 @@
+Stage 217 — pinned release-signing key
+Date: 2026-10-20
+
+Finding USDOM-217 — High release supply-chain authentication
+
+The gate required git verify-commit and git verify-tag to succeed and checked the
+textual author/committer identity. Those checks prove that some locally accepted
+key signed the objects; they did not prove that the key was the operator-approved
+release key. A different valid key could sign a commit whose metadata says
+Soren Planck and satisfy the former checks.
+
+Remediation
+
+- operator-intent.json now has release_signing_key_fingerprint, deliberately
+  unset until the operator selects the release key;
+- the command-line gate runs verify-commit --raw and verify-tag --raw;
+- OpenPGP VALIDSIG status is parsed to the primary-key fingerprint, preferring it
+  over a signing subkey fingerprint;
+- SSH verification output is parsed to its SHA256 fingerprint;
+- only canonical uppercase 40/64-hex OpenPGP fingerprints or unpadded 43-character
+  SSH SHA256 fingerprints are accepted;
+- both the commit and annotated tag fingerprints must exactly equal the single
+  operator-pinned fingerprint, in addition to the existing signature, commit,
+  tag and author/committer checks.
+
+The fingerprint remains null because no release key was supplied or authorized.
+This adds an objective production parameter; it does not authorize a push and is
+unrelated to external-audit or zero-risk requirements.
+
+Regression validation
+
+The parser selects an OpenPGP primary fingerprint, accepts canonical SSH output,
+and rejects bad-signature text, decorative claims, lowercase, truncated and
+malformed values. Readiness mutation tests reject an unset or malformed pin and
+independent commit/tag signer substitutions. A fully pinned synthetic release
+passes both modes.
+
+No key was created or accessed. No proof generation, mining, deployment, fund
+movement, commit or push was performed.
+
+Stage 219 correction
+
+The repository field alone is not a trust anchor because the signer could
+replace it in the same commit. Stage 219 additionally requires an independently
+supplied USDOM_RELEASE_SIGNING_KEY_FINGERPRINT and treats the repository value
+only as a declaration that must match that external anchor.

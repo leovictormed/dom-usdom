@@ -1,0 +1,15 @@
+[package]
+name = "dom-risc0-program-packager"
+description = "Minimal deterministic packager for DOM RISC Zero user ELFs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+risc0-binfmt = "=3.0.5"
+risc0-zkos-v1compat = "=2.2.3"
+
+[lints]
+workspace = true

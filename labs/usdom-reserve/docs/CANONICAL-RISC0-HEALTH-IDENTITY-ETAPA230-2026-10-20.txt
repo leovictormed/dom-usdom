@@ -1,0 +1,30 @@
+Stage 230 - Canonical RISC Zero health identity types
+Date: 2026-10-20
+
+Finding USDOM-230 (Medium)
+
+The standalone recurring RISC Zero health assessor still converted the
+finalized block number directly with JavaScript `BigInt` and converted chain ID
+with `String`. Consequently, null was accepted as finalized block zero and the
+JSON number 1 was accepted as Ethereum mainnet, although the collector emits
+both identities as decimal strings. The mainnet preflight also accepted a
+numeric chain ID through the same string coercion.
+
+Correction
+
+Standalone health now requires chain ID to equal the exact string `1` and the
+finalized block number to match the canonical unsigned-decimal grammar. Mainnet
+preflight applies the exact chain-ID type to both the observed chain and release
+configuration. This aligns recurring monitoring, release evidence and the
+collector output without a coercion-dependent representation.
+
+Tests reject numeric chain IDs and null, boolean, empty, whitespace,
+hexadecimal, leading-zero and JSON-number block values. Existing wrong-chain,
+snapshot, verifier identity and emergency-stop mutations remain fail closed.
+
+This check authenticates representation and consistency, not RPC honesty. RPC
+trust and unknown defects remain residual risks that may be accepted for an
+exact release. External audit and a zero-risk guarantee remain optional.
+
+No deployment, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred.

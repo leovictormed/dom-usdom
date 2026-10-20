@@ -1,0 +1,1676 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index e2390e4..3376704 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1465,6 +1465,7 @@ dependencies = [
+  "lmdb-rkv",
+  "primitive-types",
+  "proptest",
++ "sha3",
+  "tempfile",
+  "thiserror 1.0.69",
+  "tokio",
+diff --git a/crates/dom-chain/Cargo.toml b/crates/dom-chain/Cargo.toml
+index 3e5dff8..c5fb95d 100644
+--- a/crates/dom-chain/Cargo.toml
++++ b/crates/dom-chain/Cargo.toml
+@@ -6,6 +6,10 @@ edition.workspace = true
+ authors.workspace = true
+ license.workspace = true
+ 
++[features]
++# Isolated research only. No Ethereum authentication or mainnet activation.
++ethereum-checkpoint-poc = ["dep:sha3"]
++
+ [dependencies]
+ blake2.workspace = true
+ dom-core.workspace          = true
+@@ -20,6 +24,7 @@ tracing.workspace           = true
+ tokio.workspace             = true
+ primitive-types.workspace = true
+ hex.workspace               = true
++sha3 = { version = "0.10", default-features = false, features = ["std"], optional = true }
+ 
+ [dev-dependencies]
+ tempfile = "3.10"
+diff --git a/crates/dom-chain/src/chain_state.rs b/crates/dom-chain/src/chain_state.rs
+index 447ab3d..dd5f2d2 100644
+--- a/crates/dom-chain/src/chain_state.rs
++++ b/crates/dom-chain/src/chain_state.rs
+@@ -59,6 +59,9 @@ pub struct ChainState {
+     /// the network-specific rule without re-deriving on every block —
+     /// and without dragging `dom-config` into the consensus crate.
+     pub coinbase_maturity: u64,
++    /// In-memory high-water mark; an external floor is still needed after restart.
++    #[cfg(feature = "ethereum-checkpoint-poc")]
++    checkpoint_floor: Option<crate::ethereum_checkpoint_poc::TestOracleCheckpoint>,
+ }
+ 
+ /// Deterministic expected-target metadata for the next or validated block.
+@@ -149,7 +152,14 @@ impl ChainState {
+         genesis_hash: Hash256,
+         network_magic: u32,
+     ) -> Result<Self, DomError> {
+-        Self::open_inner(store, genesis_hash, network_magic, false)
++        Self::open_inner(
++            store,
++            genesis_hash,
++            network_magic,
++            false,
++            #[cfg(feature = "ethereum-checkpoint-poc")]
++            None,
++        )
+     }
+ 
+     /// Explicit operator recovery entry point. Identical to [`ChainState::open`]
+@@ -165,7 +175,76 @@ impl ChainState {
+         genesis_hash: Hash256,
+         network_magic: u32,
+     ) -> Result<Self, DomError> {
+-        Self::open_inner(store, genesis_hash, network_magic, true)
++        Self::open_inner(
++            store,
++            genesis_hash,
++            network_magic,
++            true,
++            #[cfg(feature = "ethereum-checkpoint-poc")]
++            None,
++        )
++    }
++
++    /// Regtest-only startup with an independently retained TEST ORACLE floor.
++    /// The caller must supply the required anchor independently of this database.
++    /// This API does not authenticate Ethereum or authorize production operation.
++    #[cfg(feature = "ethereum-checkpoint-poc")]
++    pub fn open_with_test_checkpoint_floor(
++        store: DomStore,
++        genesis_hash: Hash256,
++        network_magic: u32,
++        floor: crate::ethereum_checkpoint_poc::TestOracleCheckpoint,
++    ) -> Result<Self, DomError> {
++        if network_magic != dom_core::NETWORK_MAGIC_REGTEST {
++            return Err(DomError::PolicyRejected(
++                "CHECKPOINT_POC: test floor is regtest-only".into(),
++            ));
++        }
++        if floor.dom_network_magic != network_magic {
++            return Err(DomError::PolicyRejected(
++                "CHECKPOINT_POC: checkpoint DOM network mismatch".into(),
++            ));
++        }
++        Self::open_inner(store, genesis_hash, network_magic, false, Some(floor))
++    }
++
++    /// Install a regtest TEST assertion and remember it across runtime checks.
++    /// Success persists the anchor before advancing the in-memory high-water mark.
++    /// After restart the caller must independently supply an up-to-date floor.
++    #[cfg(feature = "ethereum-checkpoint-poc")]
++    pub fn install_test_checkpoint(
++        &mut self,
++        checkpoint: crate::ethereum_checkpoint_poc::TestOracleCheckpoint,
++    ) -> Result<(), DomError> {
++        self.ensure_checkpoint_floor()?;
++        crate::ethereum_checkpoint_poc::install_from_test_oracle(
++            &self.store,
++            self.network_magic,
++            self.tip_height.0,
++            checkpoint,
++        )?;
++        self.checkpoint_floor = Some(checkpoint);
++        Ok(())
++    }
++
++    #[cfg(feature = "ethereum-checkpoint-poc")]
++    fn ensure_checkpoint_floor(&mut self) -> Result<(), DomError> {
++        self.checkpoint_floor = crate::ethereum_checkpoint_poc::ensure_at_least(
++            &self.store,
++            self.tip_height.0,
++            self.checkpoint_floor,
++        )?;
++        Ok(())
++    }
++
++    #[cfg(feature = "ethereum-checkpoint-poc")]
++    fn ensure_checkpoint_floor_readonly(&self) -> Result<(), DomError> {
++        crate::ethereum_checkpoint_poc::ensure_at_least(
++            &self.store,
++            self.tip_height.0,
++            self.checkpoint_floor,
++        )?;
++        Ok(())
+     }
+ 
+     fn open_inner(
+@@ -173,10 +252,24 @@ impl ChainState {
+         genesis_hash: Hash256,
+         network_magic: u32,
+         allow_utxo_repair: bool,
++        #[cfg(feature = "ethereum-checkpoint-poc")] checkpoint_floor: Option<
++            crate::ethereum_checkpoint_poc::TestOracleCheckpoint,
++        >,
+     ) -> Result<Self, DomError> {
+         let asert_anchor = genesis_anchor(network_magic)
+             .map_err(|e| DomError::Internal(format!("genesis anchor: {e}")))?;
+ 
++        // Once this experimental database contains an anchor, unattended
++        // restart without an independently retained floor is forbidden. This
++        // does not detect restoration of a database from before activation;
++        // the node configuration must still require the floor after activation.
++        #[cfg(feature = "ethereum-checkpoint-poc")]
++        if checkpoint_floor.is_none() && crate::ethereum_checkpoint_poc::load(&store)?.is_some() {
++            return Err(DomError::PolicyRejected(
++                "CHECKPOINT_POC: persisted checkpoint requires external floor".into(),
++            ));
++        }
++
+         let (tip_hash, tip_height, tip_difficulty) = match store.get_chain_tip()? {
+             Some(hash) => {
+                 let header_bytes = store.get_block_header(&hash)?.ok_or_else(|| {
+@@ -220,6 +313,13 @@ impl ChainState {
+                         )));
+                     }
+                 }
++                // Check before index rebuilding, UTXO repair, or branch pruning.
++                #[cfg(feature = "ethereum-checkpoint-poc")]
++                crate::ethereum_checkpoint_poc::ensure_at_least(
++                    &store,
++                    header.height.0,
++                    checkpoint_floor,
++                )?;
+                 rebuild_kernel_index_from_canonical_chain(&store, header.height, network_magic)?;
+                 ensure_canonical_utxo_set(&store, header.height, network_magic, allow_utxo_repair)?;
+                 prune_retained_side_chains(&store, header.height, hash)?;
+@@ -230,6 +330,8 @@ impl ChainState {
+                 )
+             }
+             None => {
++                #[cfg(feature = "ethereum-checkpoint-poc")]
++                crate::ethereum_checkpoint_poc::ensure_at_least(&store, 0, checkpoint_floor)?;
+                 prune_retained_side_chains(&store, BlockHeight::GENESIS, [0u8; 32])?;
+                 (Hash256::ZERO, BlockHeight::GENESIS, U256::zero())
+             }
+@@ -237,6 +339,13 @@ impl ChainState {
+ 
+         validate_persisted_genesis_identity(&store, genesis_hash)?;
+ 
++        #[cfg(feature = "ethereum-checkpoint-poc")]
++        let checkpoint_floor = crate::ethereum_checkpoint_poc::ensure_at_least(
++            &store,
++            tip_height.0,
++            checkpoint_floor,
++        )?;
++
+         Ok(Self {
+             store,
+             tip_hash,
+@@ -246,6 +355,8 @@ impl ChainState {
+             asert_anchor,
+             network_magic,
+             coinbase_maturity: coinbase_maturity_for_magic(network_magic),
++            #[cfg(feature = "ethereum-checkpoint-poc")]
++            checkpoint_floor,
+         })
+     }
+ 
+@@ -254,6 +365,8 @@ impl ChainState {
+         block: &Block,
+         now: Timestamp,
+     ) -> Result<ConnectResult, DomError> {
++        #[cfg(feature = "ethereum-checkpoint-poc")]
++        self.ensure_checkpoint_floor()?;
+         let header = &block.header;
+         let header_bytes = header.to_bytes()?;
+         let block_hash = compute_block_identifier(self.network_magic, &header_bytes)?;
+@@ -482,6 +595,8 @@ impl ChainState {
+         raw_headers: &[Vec<u8>],
+         now: Timestamp,
+     ) -> Result<Vec<[u8; 32]>, DomError> {
++        #[cfg(feature = "ethereum-checkpoint-poc")]
++        self.ensure_checkpoint_floor_readonly()?;
+         let mut decoded = Vec::with_capacity(raw_headers.len());
+         for header_bytes in raw_headers {
+             let header = BlockHeader::from_bytes(header_bytes)?;
+@@ -619,6 +734,8 @@ impl ChainState {
+         prior_missing_hashes: &[[u8; 32]],
+         now: Timestamp,
+     ) -> Result<(u64, Vec<[u8; 32]>), DomError> {
++        #[cfg(feature = "ethereum-checkpoint-poc")]
++        self.ensure_checkpoint_floor_readonly()?;
+         if verified_header_count >= raw_headers.len() {
+             return Err(DomError::PolicyRejected(format!(
+                 "persisted header cursor {} exceeds pending header count {}",
+@@ -801,6 +918,8 @@ impl ChainState {
+         header: &BlockHeader,
+         now: Timestamp,
+     ) -> Result<(), DomError> {
++        #[cfg(feature = "ethereum-checkpoint-poc")]
++        self.ensure_checkpoint_floor_readonly()?;
+         // DOM-IBD-DUP-001 defense: short-circuit if we already have this header.
+         // Avoids re-running RandomX (expensive ~10ms) for known-good headers.
+         // Currently this function has no production callers (verified via grep),
+@@ -926,6 +1045,8 @@ impl ChainState {
+     }
+ 
+     pub fn next_block_target(&self) -> Result<ExpectedTarget, DomError> {
++        #[cfg(feature = "ethereum-checkpoint-poc")]
++        self.ensure_checkpoint_floor_readonly()?;
+         if self.tip_hash == Hash256::ZERO && self.tip_height == BlockHeight::GENESIS {
+             let target = compute_expected_target(
+                 self.network_magic,
+@@ -1314,6 +1435,8 @@ impl ChainState {
+         new_tip_hash: Hash256,
+         now: Timestamp,
+     ) -> Result<ReorgDelta, DomError> {
++        #[cfg(feature = "ethereum-checkpoint-poc")]
++        self.ensure_checkpoint_floor()?;
+         let new_tip_header = self
+             .store
+             .get_block_header(new_tip_hash.as_bytes())?
+@@ -1346,6 +1469,13 @@ impl ChainState {
+ 
+         validate_branch_header_syntax(&self.store, new_tip_hash, ancestor, self.network_magic)?;
+ 
++        #[cfg(feature = "ethereum-checkpoint-poc")]
++        crate::ethereum_checkpoint_poc::check_reorg(
++            &self.store,
++            self.tip_height.0,
++            ancestor_height,
++        )?;
++
+         if !is_better_fork_choice_tip(
+             new_tip_header.total_difficulty,
+             new_tip_hash,
+diff --git a/crates/dom-chain/src/lib.rs b/crates/dom-chain/src/lib.rs
+index e42fa0c..00cc829 100644
+--- a/crates/dom-chain/src/lib.rs
++++ b/crates/dom-chain/src/lib.rs
+@@ -19,6 +19,9 @@ pub mod genesis;
+ pub mod ibd;
+ pub mod reorg;
+ 
++#[cfg(feature = "ethereum-checkpoint-poc")]
++pub mod ethereum_checkpoint_poc;
++
+ #[cfg(kani)]
+ mod kani_invariants;
+ 
+diff --git a/crates/dom-chain/src/ethereum_checkpoint_poc.rs b/crates/dom-chain/src/ethereum_checkpoint_poc.rs
+new file mode 100644
+index 0000000..f3560da
+--- /dev/null
++++ b/crates/dom-chain/src/ethereum_checkpoint_poc.rs
+@@ -0,0 +1,345 @@
++//! Experimental persistent reorg barrier, not an Ethereum light client.
++//!
++//! Input is supplied by a TEST ORACLE, not authenticated consensus evidence.
++//! Installation is restricted to regtest and an already canonical DOM block.
++//! This module demonstrates only the native enforcement side of a checkpoint.
++use dom_core::{DomError, Hash256, NETWORK_MAGIC_REGTEST};
++use dom_store::DomStore;
++use sha3::{Digest, Keccak256};
++
++/// Legacy experimental key. Its underspecified value is rejected, not ignored.
++pub const LEGACY_CHECKPOINT_KEY: &[u8] = b"experimental/usdom/ethereum-checkpoint/v1";
++/// Experimental v2 metadata key, absent from production configuration.
++pub const CHECKPOINT_KEY: &[u8] = b"experimental/usdom/ethereum-checkpoint/v2";
++const CHECKPOINT_V2_LENGTH: usize = 417;
++const CHECKPOINT_EVENT_TYPE: &[u8] = b"Checkpoint(bytes32 bridgeDomain,uint32 domNetworkMagic,uint64 domHeight,bytes32 domBlock,bytes32 domStateRoot,bytes32 checkpointConfigHash)";
++
++/// Checkpoint supplied by a test oracle. Its Ethereum fields are NOT verified.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct TestOracleCheckpoint {
++    /// DOM block height selected by the test oracle.
++    pub height: u64,
++    /// DOM block identifier at that height.
++    pub dom_block: Hash256,
++    /// Commitment to the native USDOM state asserted at this DOM block.
++    pub dom_state_root: Hash256,
++    /// DOM network magic asserted for this bridge instance.
++    pub dom_network_magic: u32,
++    /// Ethereum chain ID asserted by the test oracle (1 for mainnet).
++    pub ethereum_chain_id: u64,
++    /// Finalized Ethereum execution block number asserted by the test oracle.
++    pub ethereum_block_number: u64,
++    /// Finalized Ethereum execution block identifier asserted by the test oracle.
++    pub ethereum_block: Hash256,
++    /// Receipt trie root committed by the asserted execution header.
++    pub ethereum_receipts_root: Hash256,
++    /// State trie root committed by the asserted execution header.
++    pub ethereum_state_root: Hash256,
++    /// Finalized beacon slot asserted for the execution payload.
++    pub ethereum_beacon_slot: u64,
++    /// Beacon root whose finalized execution payload is asserted above.
++    pub ethereum_beacon_root: Hash256,
++    /// Genesis validators root identifying the Ethereum consensus network.
++    pub ethereum_genesis_validators_root: Hash256,
++    /// Receipt index of the checkpoint event in the execution block.
++    pub transaction_index: u32,
++    /// Log index relative to that receipt, never a global RPC log index.
++    pub receipt_log_index: u32,
++    /// Checkpoint registry that emitted the asserted event.
++    pub checkpoint_contract: [u8; 20],
++    /// Reviewed runtime code pin asserted for the registry policy.
++    pub checkpoint_code_hash: Hash256,
++    /// Exact registry/policy generation asserted for this checkpoint.
++    pub checkpoint_config_hash: Hash256,
++    /// Cross-chain domain separating this bridge instance.
++    pub bridge_domain: Hash256,
++    /// Digest of the exact authenticated checkpoint event payload.
++    pub checkpoint_event_digest: Hash256,
++}
++
++fn rejected(message: &str) -> DomError {
++    DomError::PolicyRejected(format!("CHECKPOINT_POC: {message}"))
++}
++
++/// Reconstruct the Solidity-compatible EIP-712-style struct digest carried by
++/// the authenticated checkpoint log. Receipt verification must separately bind
++/// this digest to the expected event signature, emitter and finalized header.
++pub fn expected_checkpoint_event_digest(checkpoint: TestOracleCheckpoint) -> Hash256 {
++    let type_hash = Keccak256::digest(CHECKPOINT_EVENT_TYPE);
++    let mut encoded = [0u8; 224];
++    encoded[0..32].copy_from_slice(&type_hash);
++    encoded[32..64].copy_from_slice(checkpoint.bridge_domain.as_bytes());
++    encoded[92..96].copy_from_slice(&checkpoint.dom_network_magic.to_be_bytes());
++    encoded[120..128].copy_from_slice(&checkpoint.height.to_be_bytes());
++    encoded[128..160].copy_from_slice(checkpoint.dom_block.as_bytes());
++    encoded[160..192].copy_from_slice(checkpoint.dom_state_root.as_bytes());
++    encoded[192..224].copy_from_slice(checkpoint.checkpoint_config_hash.as_bytes());
++    let digest = Keccak256::digest(encoded);
++    let mut bytes = [0u8; 32];
++    bytes.copy_from_slice(&digest);
++    Hash256::from_bytes(bytes)
++}
++
++/// Read bounded, versioned metadata; malformed data fails closed.
++pub fn load(store: &DomStore) -> Result<Option<TestOracleCheckpoint>, DomError> {
++    if store.get_metadata(LEGACY_CHECKPOINT_KEY)?.is_some() {
++        return Err(rejected("legacy v1 checkpoint requires explicit migration"));
++    }
++    let Some(bytes) = store.get_metadata(CHECKPOINT_KEY)? else {
++        return Ok(None);
++    };
++    Ok(Some(decode_test_oracle_v2(&bytes)?))
++}
++
++/// Decode the bounded experimental wire form without granting installation.
++/// Successful decoding proves internal canonicality only; Ethereum finality,
++/// receipt inclusion and registry state must already have been authenticated.
++pub fn decode_test_oracle_v2(bytes: &[u8]) -> Result<TestOracleCheckpoint, DomError> {
++    if bytes.len() != CHECKPOINT_V2_LENGTH || bytes[0] != 2 {
++        return Err(rejected("malformed persisted checkpoint"));
++    }
++    let hash = |start: usize| {
++        let mut value = [0u8; 32];
++        value.copy_from_slice(&bytes[start..start + 32]);
++        Hash256::from_bytes(value)
++    };
++    let mut height = [0u8; 8];
++    height.copy_from_slice(&bytes[1..9]);
++    let mut chain_id = [0u8; 8];
++    chain_id.copy_from_slice(&bytes[77..85]);
++    let mut ethereum_height = [0u8; 8];
++    ethereum_height.copy_from_slice(&bytes[85..93]);
++    let mut dom_network_magic = [0u8; 4];
++    dom_network_magic.copy_from_slice(&bytes[73..77]);
++    let mut transaction_index = [0u8; 4];
++    transaction_index.copy_from_slice(&bytes[261..265]);
++    let mut receipt_log_index = [0u8; 4];
++    receipt_log_index.copy_from_slice(&bytes[265..269]);
++    let mut checkpoint_contract = [0u8; 20];
++    checkpoint_contract.copy_from_slice(&bytes[269..289]);
++    let mut beacon_slot = [0u8; 8];
++    beacon_slot.copy_from_slice(&bytes[189..197]);
++    let checkpoint = TestOracleCheckpoint {
++        height: u64::from_be_bytes(height),
++        dom_block: hash(9),
++        dom_state_root: hash(41),
++        dom_network_magic: u32::from_be_bytes(dom_network_magic),
++        ethereum_chain_id: u64::from_be_bytes(chain_id),
++        ethereum_block_number: u64::from_be_bytes(ethereum_height),
++        ethereum_block: hash(93),
++        ethereum_receipts_root: hash(125),
++        ethereum_state_root: hash(157),
++        ethereum_beacon_slot: u64::from_be_bytes(beacon_slot),
++        ethereum_beacon_root: hash(197),
++        ethereum_genesis_validators_root: hash(229),
++        transaction_index: u32::from_be_bytes(transaction_index),
++        receipt_log_index: u32::from_be_bytes(receipt_log_index),
++        checkpoint_contract,
++        checkpoint_code_hash: hash(289),
++        checkpoint_config_hash: hash(321),
++        bridge_domain: hash(353),
++        checkpoint_event_digest: hash(385),
++    };
++    validate_identity(checkpoint)?;
++    Ok(checkpoint)
++}
++
++fn validate_identity(checkpoint: TestOracleCheckpoint) -> Result<(), DomError> {
++    if checkpoint.height == 0
++        || checkpoint.dom_block == Hash256::ZERO
++        || checkpoint.dom_state_root == Hash256::ZERO
++        || checkpoint.dom_network_magic == 0
++        || checkpoint.ethereum_chain_id == 0
++        || checkpoint.ethereum_block_number == 0
++        || checkpoint.ethereum_block == Hash256::ZERO
++        || checkpoint.ethereum_receipts_root == Hash256::ZERO
++        || checkpoint.ethereum_state_root == Hash256::ZERO
++        || checkpoint.ethereum_beacon_slot == 0
++        || checkpoint.ethereum_beacon_root == Hash256::ZERO
++        || checkpoint.ethereum_genesis_validators_root == Hash256::ZERO
++        || checkpoint.checkpoint_contract == [0u8; 20]
++        || checkpoint.checkpoint_code_hash == Hash256::ZERO
++        || checkpoint.checkpoint_config_hash == Hash256::ZERO
++        || checkpoint.bridge_domain == Hash256::ZERO
++        || checkpoint.checkpoint_event_digest == Hash256::ZERO
++    {
++        return Err(rejected("zero checkpoint identity"));
++    }
++    if checkpoint.checkpoint_event_digest != expected_checkpoint_event_digest(checkpoint) {
++        return Err(rejected("checkpoint event digest mismatch"));
++    }
++    Ok(())
++}
++
++fn same_domain(a: TestOracleCheckpoint, b: TestOracleCheckpoint) -> bool {
++    a.dom_network_magic == b.dom_network_magic
++        && a.ethereum_chain_id == b.ethereum_chain_id
++        && a.ethereum_genesis_validators_root == b.ethereum_genesis_validators_root
++        && a.checkpoint_contract == b.checkpoint_contract
++        && a.checkpoint_code_hash == b.checkpoint_code_hash
++        && a.checkpoint_config_hash == b.checkpoint_config_hash
++        && a.bridge_domain == b.bridge_domain
++}
++
++fn ethereum_locator(checkpoint: TestOracleCheckpoint) -> (u64, u32, u32) {
++    (
++        checkpoint.ethereum_block_number,
++        checkpoint.transaction_index,
++        checkpoint.receipt_log_index,
++    )
++}
++
++fn same_finalized_block_if_same_number(a: TestOracleCheckpoint, b: TestOracleCheckpoint) -> bool {
++    a.ethereum_block_number != b.ethereum_block_number
++        || (a.ethereum_block == b.ethereum_block
++            && a.ethereum_receipts_root == b.ethereum_receipts_root
++            && a.ethereum_state_root == b.ethereum_state_root
++            && a.ethereum_beacon_slot == b.ethereum_beacon_slot
++            && a.ethereum_beacon_root == b.ethereum_beacon_root)
++}
++
++fn beacon_slot_advances_with_execution_block(
++    newer: TestOracleCheckpoint,
++    older: TestOracleCheckpoint,
++) -> bool {
++    newer.ethereum_block_number == older.ethereum_block_number
++        || newer.ethereum_beacon_slot > older.ethereum_beacon_slot
++}
++
++/// Require the persisted anchor to exist in the current canonical history.
++pub fn ensure_current(store: &DomStore, tip_height: u64) -> Result<(), DomError> {
++    ensure_at_least(store, tip_height, None).map(|_| ())
++}
++
++/// Check the database against a separately supplied trusted TEST floor.
++/// This does not authenticate the floor, Ethereum ancestry, or its freshness.
++/// A missing/stale database cannot silently replace an explicit requirement.
++pub fn ensure_at_least(
++    store: &DomStore,
++    tip_height: u64,
++    floor: Option<TestOracleCheckpoint>,
++) -> Result<Option<TestOracleCheckpoint>, DomError> {
++    let current = load(store)?;
++    if let Some(required) = floor {
++        validate_identity(required).map_err(|_| rejected("invalid required checkpoint"))?;
++        let checkpoint = current.ok_or_else(|| rejected("required checkpoint is missing"))?;
++        if checkpoint.height < required.height {
++            return Err(rejected("persisted checkpoint is below required floor"));
++        }
++        if checkpoint.height == required.height && checkpoint != required {
++            return Err(rejected(
++                "persisted checkpoint conflicts with required floor",
++            ));
++        }
++        if checkpoint.height > required.height {
++            if !same_domain(checkpoint, required) {
++                return Err(rejected("persisted checkpoint changed required domain"));
++            }
++            if ethereum_locator(checkpoint) <= ethereum_locator(required) {
++                return Err(rejected(
++                    "persisted Ethereum locator did not reach required floor",
++                ));
++            }
++            if !same_finalized_block_if_same_number(checkpoint, required) {
++                return Err(rejected("conflicting finalized Ethereum block identity"));
++            }
++            if !beacon_slot_advances_with_execution_block(checkpoint, required) {
++                return Err(rejected("finalized beacon slot did not advance"));
++            }
++        }
++        if required.height > tip_height
++            || store.get_hash_at_height(required.height)? != Some(*required.dom_block.as_bytes())
++        {
++            return Err(rejected("canonical history conflicts with required floor"));
++        }
++    }
++    if let Some(checkpoint) = current {
++        if checkpoint.height > tip_height
++            || store.get_hash_at_height(checkpoint.height)?
++                != Some(*checkpoint.dom_block.as_bytes())
++        {
++            return Err(rejected("canonical history conflicts with checkpoint"));
++        }
++    }
++    Ok(current)
++}
++
++/// Install a TEST ORACLE assertion only in regtest after local canonical alignment.
++/// Does not verify any Ethereum signature, finality, receipt or state proof.
++pub fn install_from_test_oracle(
++    store: &DomStore,
++    network_magic: u32,
++    tip_height: u64,
++    checkpoint: TestOracleCheckpoint,
++) -> Result<(), DomError> {
++    if network_magic != NETWORK_MAGIC_REGTEST {
++        return Err(rejected("test oracle is regtest-only"));
++    }
++    if checkpoint.dom_network_magic != network_magic {
++        return Err(rejected("checkpoint DOM network mismatch"));
++    }
++    ensure_current(store, tip_height)?;
++    if checkpoint.height > tip_height
++        || store.get_hash_at_height(checkpoint.height)? != Some(*checkpoint.dom_block.as_bytes())
++    {
++        return Err(rejected("test oracle checkpoint is not canonical"));
++    }
++    validate_identity(checkpoint)?;
++    if let Some(old) = load(store)? {
++        if checkpoint == old {
++            return Ok(());
++        }
++        if checkpoint.height <= old.height {
++            return Err(rejected("checkpoint rollback or replacement"));
++        }
++        if !same_domain(old, checkpoint) {
++            return Err(rejected("checkpoint domain or configuration changed"));
++        }
++        if ethereum_locator(checkpoint) <= ethereum_locator(old) {
++            return Err(rejected("Ethereum checkpoint locator did not advance"));
++        }
++        if !same_finalized_block_if_same_number(checkpoint, old) {
++            return Err(rejected("conflicting finalized Ethereum block identity"));
++        }
++        if !beacon_slot_advances_with_execution_block(checkpoint, old) {
++            return Err(rejected("finalized beacon slot did not advance"));
++        }
++    }
++    let mut bytes = Vec::with_capacity(CHECKPOINT_V2_LENGTH);
++    bytes.push(2);
++    bytes.extend_from_slice(&checkpoint.height.to_be_bytes());
++    bytes.extend_from_slice(checkpoint.dom_block.as_bytes());
++    bytes.extend_from_slice(checkpoint.dom_state_root.as_bytes());
++    bytes.extend_from_slice(&checkpoint.dom_network_magic.to_be_bytes());
++    bytes.extend_from_slice(&checkpoint.ethereum_chain_id.to_be_bytes());
++    bytes.extend_from_slice(&checkpoint.ethereum_block_number.to_be_bytes());
++    bytes.extend_from_slice(checkpoint.ethereum_block.as_bytes());
++    bytes.extend_from_slice(checkpoint.ethereum_receipts_root.as_bytes());
++    bytes.extend_from_slice(checkpoint.ethereum_state_root.as_bytes());
++    bytes.extend_from_slice(&checkpoint.ethereum_beacon_slot.to_be_bytes());
++    bytes.extend_from_slice(checkpoint.ethereum_beacon_root.as_bytes());
++    bytes.extend_from_slice(checkpoint.ethereum_genesis_validators_root.as_bytes());
++    bytes.extend_from_slice(&checkpoint.transaction_index.to_be_bytes());
++    bytes.extend_from_slice(&checkpoint.receipt_log_index.to_be_bytes());
++    bytes.extend_from_slice(&checkpoint.checkpoint_contract);
++    bytes.extend_from_slice(checkpoint.checkpoint_code_hash.as_bytes());
++    bytes.extend_from_slice(checkpoint.checkpoint_config_hash.as_bytes());
++    bytes.extend_from_slice(checkpoint.bridge_domain.as_bytes());
++    bytes.extend_from_slice(checkpoint.checkpoint_event_digest.as_bytes());
++    debug_assert_eq!(bytes.len(), CHECKPOINT_V2_LENGTH);
++    store.put_metadata(CHECKPOINT_KEY, &bytes)
++}
++
++/// Reject a reorg whose shared ancestor precedes the persisted checkpoint.
++/// Called before canonical block disconnection in the actual fork-choice path.
++pub fn check_reorg(
++    store: &DomStore,
++    tip_height: u64,
++    ancestor_height: u64,
++) -> Result<(), DomError> {
++    ensure_current(store, tip_height)?;
++    if load(store)?.is_some_and(|checkpoint| ancestor_height < checkpoint.height) {
++        return Err(rejected("reorg would undo checkpoint"));
++    }
++    Ok(())
++}
+diff --git a/crates/dom-chain/tests/ethereum_checkpoint_poc.rs b/crates/dom-chain/tests/ethereum_checkpoint_poc.rs
+new file mode 100644
+index 0000000..57c97ab
+--- /dev/null
++++ b/crates/dom-chain/tests/ethereum_checkpoint_poc.rs
+@@ -0,0 +1,973 @@
++//! Native fork-choice barrier tests with synthetic headers and a trusted test oracle.
++//! These are not tests of Ethereum authentication, RandomX or native USDOM burns.
++#![cfg(feature = "ethereum-checkpoint-poc")]
++mod common;
++use dom_chain::{
++    ethereum_checkpoint_poc::{self as checkpoint, TestOracleCheckpoint},
++    ChainState,
++};
++use dom_consensus::block::{BlockHeader, ProofOfWork};
++use dom_core::{
++    required_block_version_for_network, BlockHeight, Hash256, Timestamp, NETWORK_MAGIC_REGTEST,
++};
++use dom_pow::CompactTarget;
++use dom_serialization::DomSerialize;
++use primitive_types::U256;
++use tempfile::TempDir;
++
++fn header(parent: Hash256, height: u64, nonce: u64, work: u64) -> BlockHeader {
++    BlockHeader {
++        version: required_block_version_for_network(NETWORK_MAGIC_REGTEST, height),
++        height: BlockHeight(height),
++        prev_hash: parent,
++        timestamp: Timestamp(1_700_000_000 + height),
++        output_root: Hash256::ZERO,
++        kernel_root: Hash256::ZERO,
++        rangeproof_root: Hash256::ZERO,
++        total_kernel_offset: [0; 32],
++        target: CompactTarget(0),
++        total_difficulty: U256::from(work),
++        pow: ProofOfWork {
++            nonce,
++            randomx_hash: Hash256::ZERO,
++        },
++    }
++}
++
++// Coinbase fixture construction follows reorg_equivalence.rs::signed_coinbase.
++// Real serialized bodies/UTXO changes are needed for startup integrity checks.
++fn canonical_blocks() -> &'static Vec<dom_consensus::Block> {
++    static BLOCKS: std::sync::OnceLock<Vec<dom_consensus::Block>> = std::sync::OnceLock::new();
++    BLOCKS.get_or_init(|| {
++        use dom_consensus::{Block, CoinbaseKernel, CoinbaseTransaction, TransactionOutput};
++        use dom_crypto::pedersen::{BlindingFactor, Commitment};
++        let mut parent = Hash256::ZERO;
++        let mut blocks = Vec::new();
++        for height in 0..=5 {
++            let reward = dom_core::block_reward(BlockHeight(height)).noms();
++            let mut secret_bytes = [0u8; 32];
++            secret_bytes[31] = height as u8 + 1;
++            let blinding = BlindingFactor::from_bytes(secret_bytes).unwrap();
++            let commitment = Commitment::commit(reward, &blinding);
++            let (proof, _) = dom_crypto::bp2_prove(reward, &blinding).unwrap();
++            let excess = Commitment::commit(0, &blinding);
++            let secret = dom_crypto::keys::SecretKey::from_bytes(blinding.as_bytes()).unwrap();
++            let chain_id = dom_consensus::derive_chain_id(NETWORK_MAGIC_REGTEST, &Hash256::ZERO);
++            let mut message = vec![dom_core::KERNEL_FEAT_COINBASE];
++            message.extend_from_slice(&reward.to_le_bytes());
++            let digest =
++                dom_crypto::hash::blake2b_256_tagged(dom_core::TAG_KERNEL_MSG_COINBASE, &message);
++            let signature =
++                dom_crypto::schnorr_sign(&secret, digest.as_bytes(), chain_id.as_bytes()).unwrap();
++            let coinbase = CoinbaseTransaction {
++                output: TransactionOutput { commitment, proof },
++                kernel: CoinbaseKernel {
++                    features: dom_core::KERNEL_FEAT_COINBASE,
++                    explicit_value: reward,
++                    excess,
++                    excess_signature: signature.to_bytes(),
++                },
++                offset: [0; 32],
++            };
++            let (output_root, kernel_root, rangeproof_root) =
++                dom_consensus::compute_block_pmmr_roots(BlockHeight(height), &coinbase, &[])
++                    .unwrap();
++            let mut block_header = header(parent, height, height, height);
++            block_header.output_root = output_root;
++            block_header.kernel_root = kernel_root;
++            block_header.rangeproof_root = rangeproof_root;
++            parent = dom_crypto::hash::blake2b_256(&block_header.to_bytes().unwrap());
++            blocks.push(Block {
++                header: block_header,
++                coinbase,
++                transactions: vec![],
++            });
++        }
++        blocks
++    })
++}
++
++fn canonical_chain() -> (TempDir, ChainState, Vec<Hash256>) {
++    let dir = TempDir::new().unwrap();
++    let mut chain = ChainState::open(
++        common::open_test_store(dir.path()),
++        Hash256::ZERO,
++        NETWORK_MAGIC_REGTEST,
++    )
++    .unwrap();
++    let mut hashes = Vec::new();
++    for block in canonical_blocks() {
++        let height = block.header.height.0;
++        let bytes = block.header.to_bytes().unwrap();
++        let hash = dom_crypto::hash::blake2b_256(&bytes);
++        let utxo = dom_store::utxo::UtxoEntry {
++            block_height: height,
++            is_coinbase: true,
++            proof: block.coinbase.output.proof.clone(),
++        };
++        chain
++            .store
++            .commit_block(
++                hash.as_bytes(),
++                height,
++                &bytes,
++                &block.to_bytes().unwrap(),
++                &[(
++                    *block.coinbase.output.commitment.as_bytes(),
++                    utxo.to_bytes(),
++                )],
++                &[],
++                &[(*block.coinbase.kernel.excess.as_bytes(), *hash.as_bytes())],
++            )
++            .unwrap();
++        hashes.push(hash);
++    }
++    chain.tip_hash = *hashes.last().unwrap();
++    chain.tip_height = BlockHeight(5);
++    chain.tip_difficulty = U256::from(5);
++    (dir, chain, hashes)
++}
++
++fn oracle(height: u64, dom_block: Hash256) -> TestOracleCheckpoint {
++    let mut checkpoint = TestOracleCheckpoint {
++        height,
++        dom_block,
++        dom_state_root: Hash256::from_bytes([0x80 + height as u8; 32]),
++        dom_network_magic: NETWORK_MAGIC_REGTEST,
++        ethereum_chain_id: 1,
++        ethereum_block_number: 17_923_026 + height,
++        ethereum_block: Hash256::from_bytes([0x90 + height as u8; 32]),
++        ethereum_receipts_root: Hash256::from_bytes([0x50 + height as u8; 32]),
++        ethereum_state_root: Hash256::from_bytes([0x60 + height as u8; 32]),
++        ethereum_beacon_slot: 7_109_344 + height,
++        ethereum_beacon_root: Hash256::from_bytes([0xa0 + height as u8; 32]),
++        ethereum_genesis_validators_root: Hash256::from_bytes([0xb0; 32]),
++        transaction_index: height as u32,
++        receipt_log_index: 0,
++        checkpoint_contract: [0xc0; 20],
++        checkpoint_code_hash: Hash256::from_bytes([0xd0; 32]),
++        checkpoint_config_hash: Hash256::from_bytes([0xe0; 32]),
++        bridge_domain: Hash256::from_bytes([0xf0; 32]),
++        checkpoint_event_digest: Hash256::ZERO,
++    };
++    checkpoint.checkpoint_event_digest = checkpoint::expected_checkpoint_event_digest(checkpoint);
++    checkpoint
++}
++
++fn rebind_event(mut value: TestOracleCheckpoint) -> TestOracleCheckpoint {
++    value.checkpoint_event_digest = checkpoint::expected_checkpoint_event_digest(value);
++    value
++}
++
++#[test]
++fn checkpoint_event_digest_matches_independent_solidity_abi_vector() {
++    let mut value = oracle(42, Hash256::from_bytes([0x11; 32]));
++    value.dom_network_magic = 0x4450_4f43;
++    value.dom_state_root = Hash256::from_bytes([0x22; 32]);
++    value.checkpoint_config_hash = Hash256::from_bytes([0x33; 32]);
++    value.bridge_domain = Hash256::from_bytes([0x77; 32]);
++    assert_eq!(
++        hex::encode(checkpoint::expected_checkpoint_event_digest(value).as_bytes()),
++        "f9469e1caff7fa3bd4f9192182fffa95b764e829a0d2a4bf4a9a6a1f4a54ddff"
++    );
++}
++
++#[test]
++fn arbitrary_checkpoint_event_digest_is_rejected() {
++    let (_dir, chain, hashes) = canonical_chain();
++    let mut value = oracle(3, hashes[3]);
++    value.checkpoint_event_digest = Hash256::from_bytes([0x44; 32]);
++    assert!(
++        checkpoint::install_from_test_oracle(&chain.store, NETWORK_MAGIC_REGTEST, 5, value,)
++            .unwrap_err()
++            .to_string()
++            .contains("checkpoint event digest mismatch")
++    );
++}
++
++#[test]
++fn nonzero_event_digest_corruption_fails_closed_on_load() {
++    let (_dir, chain, hashes) = canonical_chain();
++    checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        oracle(3, hashes[3]),
++    )
++    .unwrap();
++    let mut raw = chain
++        .store
++        .get_metadata(checkpoint::CHECKPOINT_KEY)
++        .unwrap()
++        .unwrap();
++    raw[416] ^= 1;
++    chain
++        .store
++        .put_metadata(checkpoint::CHECKPOINT_KEY, &raw)
++        .unwrap();
++    assert!(checkpoint::load(&chain.store)
++        .unwrap_err()
++        .to_string()
++        .contains("checkpoint event digest mismatch"));
++}
++
++#[test]
++fn actual_fork_choice_rejects_heavier_branch_crossing_checkpoint_before_mutation() {
++    let (_dir, mut chain, hashes) = canonical_chain();
++    let anchor = oracle(3, hashes[3]);
++    checkpoint::install_from_test_oracle(&chain.store, NETWORK_MAGIC_REGTEST, 5, anchor).unwrap();
++    let mut parent = hashes[2];
++    for height in 3..=6 {
++        let block = header(parent, height, 1000 + height, 100 + height);
++        let bytes = block.to_bytes().unwrap();
++        let hash = dom_crypto::hash::blake2b_256(&bytes);
++        chain
++            .store
++            .store_known_block(hash.as_bytes(), &bytes, &[0; 8])
++            .unwrap();
++        parent = hash;
++    }
++    let error = chain
++        .promote_heavier_known_tip(parent, Timestamp(2_000_000_000))
++        .unwrap_err();
++    assert!(
++        error
++            .to_string()
++            .contains("CHECKPOINT_POC: reorg would undo checkpoint"),
++        "{error}"
++    );
++    assert_eq!(chain.tip_hash, hashes[5]);
++    assert_eq!(
++        chain.store.get_chain_tip().unwrap(),
++        Some(*hashes[5].as_bytes())
++    );
++    assert_eq!(
++        chain.store.get_hash_at_height(3).unwrap(),
++        Some(*hashes[3].as_bytes())
++    );
++    assert_eq!(checkpoint::load(&chain.store).unwrap(), Some(anchor));
++}
++
++#[test]
++fn barrier_allows_shared_ancestor_at_or_after_anchor_but_not_before() {
++    let (_dir, chain, hashes) = canonical_chain();
++    checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        oracle(3, hashes[3]),
++    )
++    .unwrap();
++    checkpoint::check_reorg(&chain.store, 5, 3).unwrap();
++    checkpoint::check_reorg(&chain.store, 5, 4).unwrap();
++    assert!(checkpoint::check_reorg(&chain.store, 5, 2).is_err());
++}
++
++#[test]
++fn oracle_installation_rejects_mainnet_missing_block_and_rollback() {
++    let (_dir, chain, hashes) = canonical_chain();
++    assert!(checkpoint::install_from_test_oracle(
++        &chain.store,
++        dom_core::NETWORK_MAGIC_MAINNET,
++        5,
++        oracle(3, hashes[3])
++    )
++    .is_err());
++    assert!(checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        oracle(3, hashes[2])
++    )
++    .is_err());
++    assert!(checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        oracle(6, hashes[5])
++    )
++    .is_err());
++    checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        oracle(3, hashes[3]),
++    )
++    .unwrap();
++    checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        oracle(3, hashes[3]),
++    )
++    .unwrap();
++    assert!(checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        oracle(2, hashes[2])
++    )
++    .is_err());
++    let mut replacement = oracle(3, hashes[3]);
++    replacement.ethereum_block = Hash256::from_bytes([0xdd; 32]);
++    assert!(checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        replacement
++    )
++    .is_err());
++}
++
++#[test]
++fn v2_encoding_roundtrips_all_domain_and_locator_fields() {
++    let (_dir, chain, hashes) = canonical_chain();
++    let expected = oracle(3, hashes[3]);
++    checkpoint::install_from_test_oracle(&chain.store, NETWORK_MAGIC_REGTEST, 5, expected).unwrap();
++    let raw = chain
++        .store
++        .get_metadata(checkpoint::CHECKPOINT_KEY)
++        .unwrap()
++        .unwrap();
++    assert_eq!(raw.len(), 417);
++    assert_eq!(raw[0], 2);
++    assert_eq!(&raw[1..9], &expected.height.to_be_bytes());
++    assert_eq!(&raw[9..41], expected.dom_block.as_bytes());
++    assert_eq!(&raw[41..73], expected.dom_state_root.as_bytes());
++    assert_eq!(&raw[73..77], &expected.dom_network_magic.to_be_bytes());
++    assert_eq!(&raw[77..85], &expected.ethereum_chain_id.to_be_bytes());
++    assert_eq!(&raw[85..93], &expected.ethereum_block_number.to_be_bytes());
++    assert_eq!(&raw[93..125], expected.ethereum_block.as_bytes());
++    assert_eq!(&raw[125..157], expected.ethereum_receipts_root.as_bytes());
++    assert_eq!(&raw[157..189], expected.ethereum_state_root.as_bytes());
++    assert_eq!(&raw[189..197], &expected.ethereum_beacon_slot.to_be_bytes());
++    assert_eq!(&raw[197..229], expected.ethereum_beacon_root.as_bytes());
++    assert_eq!(
++        &raw[229..261],
++        expected.ethereum_genesis_validators_root.as_bytes()
++    );
++    assert_eq!(&raw[261..265], &expected.transaction_index.to_be_bytes());
++    assert_eq!(&raw[265..269], &expected.receipt_log_index.to_be_bytes());
++    assert_eq!(&raw[269..289], &expected.checkpoint_contract);
++    assert_eq!(&raw[289..321], expected.checkpoint_code_hash.as_bytes());
++    assert_eq!(&raw[321..353], expected.checkpoint_config_hash.as_bytes());
++    assert_eq!(&raw[353..385], expected.bridge_domain.as_bytes());
++    assert_eq!(&raw[385..417], expected.checkpoint_event_digest.as_bytes());
++    assert_eq!(checkpoint::load(&chain.store).unwrap(), Some(expected));
++    assert!(chain
++        .store
++        .get_metadata(checkpoint::LEGACY_CHECKPOINT_KEY)
++        .unwrap()
++        .is_none());
++}
++
++#[test]
++fn domain_configuration_and_ethereum_locator_cannot_silently_change_or_regress() {
++    let (_dir, chain, hashes) = canonical_chain();
++    let old = oracle(3, hashes[3]);
++    checkpoint::install_from_test_oracle(&chain.store, NETWORK_MAGIC_REGTEST, 5, old).unwrap();
++
++    let mut variants = Vec::new();
++    let mut changed_network = oracle(4, hashes[4]);
++    changed_network.dom_network_magic = dom_core::NETWORK_MAGIC_TESTNET;
++    assert!(checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        changed_network,
++    )
++    .unwrap_err()
++    .to_string()
++    .contains("DOM network mismatch"));
++    let mut changed = oracle(4, hashes[4]);
++    changed.ethereum_chain_id = 2;
++    variants.push(changed);
++    let mut changed = oracle(4, hashes[4]);
++    changed.ethereum_genesis_validators_root = Hash256::from_bytes([1; 32]);
++    variants.push(changed);
++    let mut changed = oracle(4, hashes[4]);
++    changed.checkpoint_contract = [1; 20];
++    variants.push(changed);
++    let mut changed = oracle(4, hashes[4]);
++    changed.checkpoint_code_hash = Hash256::from_bytes([1; 32]);
++    variants.push(changed);
++    let mut changed = oracle(4, hashes[4]);
++    changed.checkpoint_config_hash = Hash256::from_bytes([1; 32]);
++    variants.push(rebind_event(changed));
++    let mut changed = oracle(4, hashes[4]);
++    changed.bridge_domain = Hash256::from_bytes([1; 32]);
++    variants.push(rebind_event(changed));
++    for changed in variants {
++        let error =
++            checkpoint::install_from_test_oracle(&chain.store, NETWORK_MAGIC_REGTEST, 5, changed)
++                .unwrap_err();
++        assert!(error
++            .to_string()
++            .contains("domain or configuration changed"));
++    }
++
++    let mut stale = oracle(4, hashes[4]);
++    stale.ethereum_block_number = old.ethereum_block_number;
++    stale.ethereum_block = old.ethereum_block;
++    stale.ethereum_receipts_root = old.ethereum_receipts_root;
++    stale.ethereum_state_root = old.ethereum_state_root;
++    stale.ethereum_beacon_slot = old.ethereum_beacon_slot;
++    stale.ethereum_beacon_root = old.ethereum_beacon_root;
++    stale.transaction_index = old.transaction_index;
++    stale.receipt_log_index = old.receipt_log_index;
++    assert!(
++        checkpoint::install_from_test_oracle(&chain.store, NETWORK_MAGIC_REGTEST, 5, stale,)
++            .unwrap_err()
++            .to_string()
++            .contains("locator did not advance")
++    );
++
++    let mut conflicts = Vec::new();
++    let mut conflicting = stale;
++    conflicting.transaction_index += 1;
++    conflicting.ethereum_block = Hash256::from_bytes([2; 32]);
++    conflicts.push(conflicting);
++    let mut conflicting = stale;
++    conflicting.transaction_index += 1;
++    conflicting.ethereum_receipts_root = Hash256::from_bytes([2; 32]);
++    conflicts.push(conflicting);
++    let mut conflicting = stale;
++    conflicting.transaction_index += 1;
++    conflicting.ethereum_state_root = Hash256::from_bytes([2; 32]);
++    conflicts.push(conflicting);
++    let mut conflicting = stale;
++    conflicting.transaction_index += 1;
++    conflicting.ethereum_beacon_slot += 1;
++    conflicts.push(conflicting);
++    let mut conflicting = stale;
++    conflicting.transaction_index += 1;
++    conflicting.ethereum_beacon_root = Hash256::from_bytes([2; 32]);
++    conflicts.push(conflicting);
++    for conflicting in conflicts {
++        assert!(checkpoint::install_from_test_oracle(
++            &chain.store,
++            NETWORK_MAGIC_REGTEST,
++            5,
++            conflicting,
++        )
++        .unwrap_err()
++        .to_string()
++        .contains("conflicting finalized Ethereum block"));
++    }
++
++    let mut stale_beacon = oracle(4, hashes[4]);
++    stale_beacon.ethereum_beacon_slot = old.ethereum_beacon_slot;
++    assert!(checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        stale_beacon,
++    )
++    .unwrap_err()
++    .to_string()
++    .contains("beacon slot did not advance"));
++
++    let mut same_block_next_event = stale;
++    same_block_next_event.transaction_index += 1;
++    checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        same_block_next_event,
++    )
++    .unwrap();
++    assert_eq!(
++        checkpoint::load(&chain.store).unwrap(),
++        Some(same_block_next_event)
++    );
++}
++
++#[test]
++fn anchor_survives_restart_and_can_only_advance() {
++    let (dir, chain, hashes) = canonical_chain();
++    checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        oracle(3, hashes[3]),
++    )
++    .unwrap();
++    drop(chain);
++    let chain = open_required(dir.path(), oracle(3, hashes[3])).unwrap();
++    assert_eq!(
++        checkpoint::load(&chain.store).unwrap(),
++        Some(oracle(3, hashes[3]))
++    );
++    checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        oracle(4, hashes[4]),
++    )
++    .unwrap();
++    assert!(checkpoint::check_reorg(&chain.store, 5, 3).is_err());
++}
++
++#[test]
++fn malformed_anchor_fails_closed_on_restart() {
++    let (dir, chain, _) = canonical_chain();
++    chain
++        .store
++        .put_metadata(checkpoint::CHECKPOINT_KEY, &[1, 2])
++        .unwrap();
++    drop(chain);
++    let result = ChainState::open(
++        common::open_test_store(dir.path()),
++        Hash256::ZERO,
++        NETWORK_MAGIC_REGTEST,
++    );
++    assert!(
++        matches!(result, Err(error) if error.to_string().contains("malformed persisted checkpoint"))
++    );
++    let store = common::open_test_store(dir.path());
++    store
++        .put_metadata(checkpoint::CHECKPOINT_KEY, &vec![3; 417])
++        .unwrap();
++    drop(store);
++    let result = ChainState::open(
++        common::open_test_store(dir.path()),
++        Hash256::ZERO,
++        NETWORK_MAGIC_REGTEST,
++    );
++    require_error(result, "malformed persisted checkpoint");
++}
++
++#[test]
++fn legacy_v1_anchor_fails_closed_instead_of_becoming_no_checkpoint() {
++    let (dir, chain, _) = canonical_chain();
++    chain
++        .store
++        .put_metadata(checkpoint::LEGACY_CHECKPOINT_KEY, &[1; 73])
++        .unwrap();
++    drop(chain);
++    let result = ChainState::open(
++        common::open_test_store(dir.path()),
++        Hash256::ZERO,
++        NETWORK_MAGIC_REGTEST,
++    );
++    require_error(result, "legacy v1 checkpoint requires explicit migration");
++}
++
++#[test]
++fn persisted_anchor_conflicting_with_canonical_index_fails_closed() {
++    let (_dir, chain, hashes) = canonical_chain();
++    checkpoint::install_from_test_oracle(
++        &chain.store,
++        NETWORK_MAGIC_REGTEST,
++        5,
++        oracle(3, hashes[3]),
++    )
++    .unwrap();
++    let block = header(hashes[2], 3, 999, 999);
++    let bytes = block.to_bytes().unwrap();
++    let hash = dom_crypto::hash::blake2b_256(&bytes);
++    chain
++        .store
++        .commit_block(hash.as_bytes(), 3, &bytes, &[0; 8], &[], &[], &[])
++        .unwrap();
++    assert!(checkpoint::ensure_current(&chain.store, 5).is_err());
++}
++
++#[test]
++fn restart_with_persisted_anchor_requires_external_floor() {
++    let (dir, mut chain, hashes) = canonical_chain();
++    chain.install_test_checkpoint(oracle(3, hashes[3])).unwrap();
++    drop(chain);
++    require_error(
++        ChainState::open(
++            common::open_test_store(dir.path()),
++            Hash256::ZERO,
++            NETWORK_MAGIC_REGTEST,
++        ),
++        "persisted checkpoint requires external floor",
++    );
++    open_required(dir.path(), oracle(3, hashes[3])).unwrap();
++}
++
++fn open_required(
++    dir: &std::path::Path,
++    floor: TestOracleCheckpoint,
++) -> Result<ChainState, dom_core::DomError> {
++    ChainState::open_with_test_checkpoint_floor(
++        common::open_test_store(dir),
++        Hash256::ZERO,
++        NETWORK_MAGIC_REGTEST,
++        floor,
++    )
++}
++
++fn require_error(result: Result<ChainState, dom_core::DomError>, message: &str) {
++    let error = match result {
++        Ok(_) => panic!("unexpected successful startup"),
++        Err(e) => e,
++    };
++    assert!(error.to_string().contains(message), "{error}");
++}
++
++#[test]
++fn explicit_floor_rejects_deleted_anchor_without_recreating_it() {
++    let (dir, mut chain, hashes) = canonical_chain();
++    let floor = oracle(3, hashes[3]);
++    chain.install_test_checkpoint(floor).unwrap();
++    chain
++        .store
++        .delete_metadata(checkpoint::CHECKPOINT_KEY)
++        .unwrap();
++    drop(chain);
++    require_error(
++        open_required(dir.path(), floor),
++        "required checkpoint is missing",
++    );
++    let store = common::open_test_store(dir.path());
++    assert_eq!(checkpoint::load(&store).unwrap(), None);
++    assert_eq!(store.get_chain_tip().unwrap(), Some(*hashes[5].as_bytes()));
++}
++
++#[test]
++fn floor_rejects_stale_same_height_replacement_and_noncanonical_requirement() {
++    let (dir, mut chain, hashes) = canonical_chain();
++    chain.install_test_checkpoint(oracle(3, hashes[3])).unwrap();
++    drop(chain);
++    require_error(
++        open_required(dir.path(), oracle(4, hashes[4])),
++        "below required floor",
++    );
++    let mut replacement = oracle(3, hashes[3]);
++    replacement.ethereum_block = Hash256::from_bytes([0xdd; 32]);
++    require_error(
++        open_required(dir.path(), replacement),
++        "conflicts with required floor",
++    );
++    require_error(
++        open_required(dir.path(), oracle(2, hashes[1])),
++        "canonical history conflicts with required floor",
++    );
++    let mut zero = oracle(3, hashes[3]);
++    zero.ethereum_block = Hash256::ZERO;
++    require_error(
++        open_required(dir.path(), zero),
++        "invalid required checkpoint",
++    );
++}
++
++#[test]
++fn required_floor_checks_full_domain_and_ethereum_order_when_database_is_ahead() {
++    let (dir, mut chain, hashes) = canonical_chain();
++    chain.install_test_checkpoint(oracle(3, hashes[3])).unwrap();
++    chain.install_test_checkpoint(oracle(4, hashes[4])).unwrap();
++    drop(chain);
++
++    let mut changed_domain = oracle(3, hashes[3]);
++    changed_domain.checkpoint_config_hash = Hash256::from_bytes([7; 32]);
++    changed_domain = rebind_event(changed_domain);
++    require_error(
++        open_required(dir.path(), changed_domain),
++        "changed required domain",
++    );
++
++    let current = oracle(4, hashes[4]);
++    let mut future_locator = oracle(3, hashes[3]);
++    future_locator.ethereum_block_number = current.ethereum_block_number;
++    future_locator.ethereum_block = current.ethereum_block;
++    future_locator.ethereum_receipts_root = current.ethereum_receipts_root;
++    future_locator.ethereum_state_root = current.ethereum_state_root;
++    future_locator.ethereum_beacon_slot = current.ethereum_beacon_slot;
++    future_locator.ethereum_beacon_root = current.ethereum_beacon_root;
++    future_locator.transaction_index = current.transaction_index + 1;
++    require_error(
++        open_required(dir.path(), future_locator),
++        "Ethereum locator did not reach required floor",
++    );
++
++    let mut conflicting_block = oracle(3, hashes[3]);
++    conflicting_block.ethereum_block_number = current.ethereum_block_number;
++    conflicting_block.transaction_index = current.transaction_index - 1;
++    require_error(
++        open_required(dir.path(), conflicting_block),
++        "conflicting finalized Ethereum block identity",
++    );
++}
++
++#[test]
++fn every_required_v2_identity_component_is_nonzero() {
++    let (_dir, mut chain, hashes) = canonical_chain();
++    let valid = oracle(3, hashes[3]);
++    chain.install_test_checkpoint(valid).unwrap();
++    let mut variants = Vec::new();
++    let mut value = valid;
++    value.height = 0;
++    variants.push(value);
++    let mut value = valid;
++    value.dom_block = Hash256::ZERO;
++    variants.push(value);
++    let mut value = valid;
++    value.dom_state_root = Hash256::ZERO;
++    variants.push(value);
++    let mut value = valid;
++    value.dom_network_magic = 0;
++    variants.push(value);
++    let mut value = valid;
++    value.ethereum_chain_id = 0;
++    variants.push(value);
++    let mut value = valid;
++    value.ethereum_block_number = 0;
++    variants.push(value);
++    let mut value = valid;
++    value.ethereum_block = Hash256::ZERO;
++    variants.push(value);
++    let mut value = valid;
++    value.ethereum_receipts_root = Hash256::ZERO;
++    variants.push(value);
++    let mut value = valid;
++    value.ethereum_state_root = Hash256::ZERO;
++    variants.push(value);
++    let mut value = valid;
++    value.ethereum_beacon_slot = 0;
++    variants.push(value);
++    let mut value = valid;
++    value.ethereum_beacon_root = Hash256::ZERO;
++    variants.push(value);
++    let mut value = valid;
++    value.ethereum_genesis_validators_root = Hash256::ZERO;
++    variants.push(value);
++    let mut value = valid;
++    value.checkpoint_contract = [0; 20];
++    variants.push(value);
++    let mut value = valid;
++    value.checkpoint_code_hash = Hash256::ZERO;
++    variants.push(value);
++    let mut value = valid;
++    value.checkpoint_config_hash = Hash256::ZERO;
++    variants.push(value);
++    let mut value = valid;
++    value.bridge_domain = Hash256::ZERO;
++    variants.push(value);
++    let mut value = valid;
++    value.checkpoint_event_digest = Hash256::ZERO;
++    variants.push(value);
++    for invalid in variants {
++        assert!(checkpoint::ensure_at_least(&chain.store, 5, Some(invalid))
++            .unwrap_err()
++            .to_string()
++            .contains("invalid required checkpoint"));
++    }
++}
++
++#[test]
++fn deletion_during_runtime_blocks_known_block_ingress_and_reorg_before_mutation() {
++    let (_dir, mut chain, hashes) = canonical_chain();
++    chain.install_test_checkpoint(oracle(3, hashes[3])).unwrap();
++    chain
++        .store
++        .delete_metadata(checkpoint::CHECKPOINT_KEY)
++        .unwrap();
++    let error = chain
++        .connect_block(&canonical_blocks()[5], Timestamp(2_000_000_000))
++        .unwrap_err();
++    assert!(error.to_string().contains("required checkpoint is missing"));
++    let error = chain
++        .promote_heavier_known_tip(Hash256::from_bytes([0xab; 32]), Timestamp(2_000_000_000))
++        .unwrap_err();
++    assert!(error.to_string().contains("required checkpoint is missing"));
++    assert_eq!(chain.tip_hash, hashes[5]);
++    assert_eq!(
++        chain.store.get_chain_tip().unwrap(),
++        Some(*hashes[5].as_bytes())
++    );
++    let raw = canonical_blocks()[5].header.to_bytes().unwrap();
++    assert!(chain
++        .validate_ibd_headers_batch(std::slice::from_ref(&raw), Timestamp(2_000_000_000))
++        .unwrap_err()
++        .to_string()
++        .contains("required checkpoint is missing"));
++    assert!(chain
++        .validate_ibd_header_step(&[raw], 0, &[], Timestamp(2_000_000_000))
++        .unwrap_err()
++        .to_string()
++        .contains("required checkpoint is missing"));
++    assert!(chain
++        .validate_header_only(&canonical_blocks()[5].header, Timestamp(2_000_000_000))
++        .unwrap_err()
++        .to_string()
++        .contains("required checkpoint is missing"));
++    assert!(chain
++        .next_block_target()
++        .unwrap_err()
++        .to_string()
++        .contains("required checkpoint is missing"));
++    assert!(chain.install_test_checkpoint(oracle(4, hashes[4])).is_err());
++}
++
++#[test]
++fn newer_observed_anchor_is_remembered_even_with_an_older_startup_floor() {
++    let (dir, mut chain, hashes) = canonical_chain();
++    chain.install_test_checkpoint(oracle(3, hashes[3])).unwrap();
++    let old = chain
++        .store
++        .get_metadata(checkpoint::CHECKPOINT_KEY)
++        .unwrap()
++        .unwrap();
++    chain.install_test_checkpoint(oracle(4, hashes[4])).unwrap();
++    drop(chain);
++    let mut chain = open_required(dir.path(), oracle(3, hashes[3])).unwrap();
++    chain
++        .store
++        .put_metadata(checkpoint::CHECKPOINT_KEY, &old)
++        .unwrap();
++    let error = chain
++        .connect_block(&canonical_blocks()[5], Timestamp(2_000_000_000))
++        .unwrap_err();
++    assert!(error.to_string().contains("below required floor"));
++    assert_eq!(chain.tip_hash, hashes[5]);
++}
++
++#[test]
++fn runtime_installation_advances_floor_and_failed_install_does_not_lower_it() {
++    let (_dir, mut chain, hashes) = canonical_chain();
++    chain.install_test_checkpoint(oracle(3, hashes[3])).unwrap();
++    let old = chain
++        .store
++        .get_metadata(checkpoint::CHECKPOINT_KEY)
++        .unwrap()
++        .unwrap();
++    chain.install_test_checkpoint(oracle(4, hashes[4])).unwrap();
++    assert!(chain.install_test_checkpoint(oracle(2, hashes[2])).is_err());
++    assert_eq!(
++        checkpoint::load(&chain.store).unwrap(),
++        Some(oracle(4, hashes[4]))
++    );
++    chain
++        .store
++        .put_metadata(checkpoint::CHECKPOINT_KEY, &old)
++        .unwrap();
++    assert!(chain
++        .connect_block(&canonical_blocks()[5], Timestamp(2_000_000_000))
++        .unwrap_err()
++        .to_string()
++        .contains("below required floor"));
++}
++
++#[test]
++fn restoring_an_actual_older_database_requires_an_independent_current_floor() {
++    let (dir, mut chain, hashes) = canonical_chain();
++    chain.install_test_checkpoint(oracle(3, hashes[3])).unwrap();
++    drop(chain);
++    // Copy a closed, consistent LMDB data file, not a live/mid-write snapshot.
++    let snapshot = TempDir::new().unwrap();
++    std::fs::copy(
++        dir.path().join("data.mdb"),
++        snapshot.path().join("data.mdb"),
++    )
++    .unwrap();
++    let mut chain = open_required(dir.path(), oracle(3, hashes[3])).unwrap();
++    chain.install_test_checkpoint(oracle(4, hashes[4])).unwrap();
++    drop(chain);
++    require_error(
++        open_required(snapshot.path(), oracle(4, hashes[4])),
++        "below required floor",
++    );
++    // Demonstrates the residual trust boundary, not a production-safe fallback:
++    // a caller who also supplies the obsolete floor cannot detect full rollback.
++    let old = open_required(snapshot.path(), oracle(3, hashes[3])).unwrap();
++    assert_eq!(
++        checkpoint::load(&old.store).unwrap(),
++        Some(oracle(3, hashes[3]))
++    );
++}
++
++#[test]
++fn exact_oracle_restoration_recovers_without_changing_canonical_state() {
++    let (dir, mut chain, hashes) = canonical_chain();
++    let floor = oracle(3, hashes[3]);
++    chain.install_test_checkpoint(floor).unwrap();
++    chain
++        .store
++        .delete_metadata(checkpoint::CHECKPOINT_KEY)
++        .unwrap();
++    drop(chain);
++    require_error(
++        open_required(dir.path(), floor),
++        "required checkpoint is missing",
++    );
++    let store = common::open_test_store(dir.path());
++    // Explicit test-oracle repair. No automatic downgrade or operational bypass.
++    checkpoint::install_from_test_oracle(&store, NETWORK_MAGIC_REGTEST, 5, floor).unwrap();
++    drop(store);
++    let chain = open_required(dir.path(), floor).unwrap();
++    assert_eq!(chain.tip_hash, hashes[5]);
++    assert_eq!(checkpoint::load(&chain.store).unwrap(), Some(floor));
++    assert!(checkpoint::check_reorg(&chain.store, 5, 2).is_err());
++}
++
++#[test]
++fn fresh_store_and_nonregtest_cannot_satisfy_test_floor() {
++    let empty = TempDir::new().unwrap();
++    let floor = oracle(3, Hash256::from_bytes([0xcc; 32]));
++    require_error(
++        open_required(empty.path(), floor),
++        "required checkpoint is missing",
++    );
++    let store = common::open_test_store(empty.path());
++    assert!(store.get_chain_tip().unwrap().is_none());
++    require_error(
++        ChainState::open_with_test_checkpoint_floor(
++            store,
++            Hash256::ZERO,
++            dom_core::NETWORK_MAGIC_MAINNET,
++            floor,
++        ),
++        "test floor is regtest-only",
++    );
++}
++
++#[test]
++fn failed_checkpoint_startup_does_not_repair_kernel_index_first() {
++    use lmdb::Transaction;
++    for mode in 0..3 {
++        let (dir, mut chain, hashes) = canonical_chain();
++        let floor = oracle(3, hashes[3]);
++        chain.install_test_checkpoint(floor).unwrap();
++        let excess = *canonical_blocks()[3].coinbase.kernel.excess.as_bytes();
++        let mut txn = chain.store.env.begin_rw_txn().unwrap();
++        txn.del(chain.store.db_kernels, &excess, None).unwrap();
++        txn.commit().unwrap();
++        assert!(chain.store.get_kernel_block(&excess).unwrap().is_none());
++        if mode == 0 {
++            chain
++                .store
++                .delete_metadata(checkpoint::CHECKPOINT_KEY)
++                .unwrap();
++        } else {
++            chain
++                .store
++                .put_metadata(checkpoint::CHECKPOINT_KEY, &[1, 2])
++                .unwrap();
++        }
++        drop(chain);
++        if mode == 0 {
++            require_error(
++                open_required(dir.path(), floor),
++                "required checkpoint is missing",
++            );
++        } else {
++            let store = common::open_test_store(dir.path());
++            let result = if mode == 1 {
++                ChainState::open(store, Hash256::ZERO, NETWORK_MAGIC_REGTEST)
++            } else {
++                ChainState::open_with_utxo_repair(store, Hash256::ZERO, NETWORK_MAGIC_REGTEST)
++            };
++            require_error(result, "malformed persisted checkpoint");
++        }
++        let store = common::open_test_store(dir.path());
++        assert!(
++            store.get_kernel_block(&excess).unwrap().is_none(),
++            "rejected startup repaired kernel index in mode {mode}"
++        );
++        assert_eq!(store.get_chain_tip().unwrap(), Some(*hashes[5].as_bytes()));
++    }
++}
+diff --git a/crates/dom-chain/examples/decode_checkpoint_v2.rs b/crates/dom-chain/examples/decode_checkpoint_v2.rs
+new file mode 100644
+index 0000000..7e7511e
+--- /dev/null
++++ b/crates/dom-chain/examples/decode_checkpoint_v2.rs
+@@ -0,0 +1,44 @@
++#[cfg(feature = "ethereum-checkpoint-poc")]
++fn main() {
++    let encoded = std::env::args()
++        .nth(1)
++        .unwrap_or_else(|| fail("expected one hex-encoded checkpoint"));
++    let bytes = hex::decode(encoded).unwrap_or_else(|_| fail("invalid hex"));
++    let checkpoint = dom_chain::ethereum_checkpoint_poc::decode_test_oracle_v2(&bytes)
++        .unwrap_or_else(|error| fail(&error.to_string()));
++    println!("height={}", checkpoint.height);
++    println!("dom_block={}", hex::encode(checkpoint.dom_block.as_bytes()));
++    println!("dom_network_magic={}", checkpoint.dom_network_magic);
++    println!("ethereum_chain_id={}", checkpoint.ethereum_chain_id);
++    println!("ethereum_block_number={}", checkpoint.ethereum_block_number);
++    println!(
++        "ethereum_block={}",
++        hex::encode(checkpoint.ethereum_block.as_bytes())
++    );
++    println!("transaction_index={}", checkpoint.transaction_index);
++    println!("receipt_log_index={}", checkpoint.receipt_log_index);
++    println!(
++        "checkpoint_contract={}",
++        hex::encode(checkpoint.checkpoint_contract)
++    );
++    println!(
++        "checkpoint_config_hash={}",
++        hex::encode(checkpoint.checkpoint_config_hash.as_bytes())
++    );
++    println!(
++        "checkpoint_event_digest={}",
++        hex::encode(checkpoint.checkpoint_event_digest.as_bytes())
++    );
++}
++
++#[cfg(feature = "ethereum-checkpoint-poc")]
++fn fail(message: &str) -> ! {
++    eprintln!("{message}");
++    std::process::exit(2)
++}
++
++#[cfg(not(feature = "ethereum-checkpoint-poc"))]
++fn main() {
++    eprintln!("enable ethereum-checkpoint-poc");
++    std::process::exit(2);
++}

@@ -1,0 +1,61 @@
+USDOM nativa — retenção atômica de sidecars para ramos laterais
+Etapa 38, 2026-10-17
+
+Estado: infraestrutura opt-in; nenhum ramo USDOM v4 é aceito pelo ingresso vivo
+nesta etapa. Sem ativação, deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Falha encontrada
+
+DomStore::store_known_block preservava cabeçalho e corpo econômico de um ramo
+lateral, mas não tinha relação para o envelope USDOM. Mesmo que um bloco v4 fosse
+validado, suas provas desapareceriam antes de uma promoção/reorganização. Tentar
+reconstruir o estado apenas do cabeçalho seria impossível e aceitar o bloco sem
+replay das provas seria inseguro.
+
+2. Relação imutável de sidecar
+
+Foi adicionada a database LMDB block_sidecars, indexada pelo mesmo block hash.
+store_known_block_with_sidecar grava cabeçalho, corpo e sidecar numa única
+transação com NO_OVERWRITE nas três relações. A chamada não altera chain_tip,
+height index, UTXOs, kernels ou consensus_state.
+
+Sidecar vazio ou acima do teto existente de 16 MiB falha antes da transação.
+Colisão em qualquer relação aborta tudo; uma repetição não pode substituir bytes
+de prova já associados ao hash. get_block_sidecar expõe ausência/corrupção ao
+chamador sem fabricar dados.
+
+prune_known_blocks remove cabeçalho, corpo e sidecar na mesma transação. Assim, o
+limite de retenção de branches também limita bytes de provas e não deixa sidecars
+órfãos após poda.
+
+3. Undo autenticável pelo cabeçalho
+
+BatchUndo agora pode recalcular o compromisso de lote para um domínio explícito.
+O valor continua sem autoridade própria: a futura reconstrução de um ancestral
+deve recalcular a raiz PMMR bruta do corpo, combinar esse compromisso e comparar
+o resultado ao rangeproof_root autenticado pelo PoW antes de executar rollback.
+O teste congela a igualdade com o receipt original.
+
+4. Validação
+
+Os testes novos comprovam commit/reopen/prune conjunto, ausência de mutação do
+tip, rejeição de sidecar vazio ou excessivo e rollback total numa colisão. A
+suíte completa comprova:
+
+- 65 testes dom-store passaram, incluindo SIGKILL, corrupção e atomicidade;
+- 16 testes do estado USDOM e 1 compile-fail passaram;
+- a integração ChainState v4 direta continuou passando;
+- Clippy de todos os alvos dom-store passou com warnings como erros;
+- build release dom-store, rustfmt e diff check passaram.
+
+5. Limites restantes
+
+A ChainState ainda precisa validar e armazenar sidecars por sua entrada v4,
+reconstruir o estado no ancestral comum, autenticar cada undo do ramo removido,
+reexecutar cada pacote do ramo promovido e entregar o delta final ao commit de
+reorg. P2P/IBD/mineração também precisam transportar os sidecars.
+
+Continuam faltando witness positivo real, verificadores privados revisados,
+carteira, política de custo, ativação/migração, parâmetros, shadow run e
+auditorias independentes. mainnet_ready e real_funds_ready permanecem false.

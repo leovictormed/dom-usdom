@@ -1,0 +1,70 @@
+Atomic V1-to-V2 activation and runtime — stage 155
+Date: 2026-10-18
+
+Problem
+=======
+
+The candidate-v2 chain path previously assumed that a UDACTV02 record and tip
+marker had already been inserted beside the selected V1 snapshot. Tests could
+seed those bytes in genesis, but a live node had no consensus path that made
+the final V1 block and its migration marker one indivisible transition. A
+post-hoc marker write could leave a canonical block without migration state or
+install migration state for the wrong block.
+
+Correction
+==========
+
+ChainState can now validate the final V1 proof package, derive the resulting
+full V1 state, its candidate-v2 commitment and the actual canonical parent
+hash, then commit all of the following in one LMDB transaction:
+
+- block header, body and canonical height/tip;
+- ordinary UTXO and kernel changes;
+- exact V1 package, state, undo and runtime tip;
+- checkpoint-floor update, when present; and
+- the UDACTV02 schedule record and initial V2 tip marker.
+
+The requested first V2 height must immediately follow the verified V1 parent.
+An invalid height aborts before mutation. A persisted partial or malformed
+activation pair is corruption, never an inactive fallback. Once activation
+exists, both direct and branch V1 ingress are disabled so a V1 reorganization
+cannot detach the migration parent while leaving V2 metadata behind.
+
+Runtime
+=======
+
+NativeUsdomV2Runtime now owns the canonical StateCommitmentV2, exact schedule,
+bridge, Ethereum checkpoint/deposit policies and mandatory spend verifier. Its
+constructor rejects a wrong network, chain, bridge policy, verifier key or
+persisted migration/tip and replays the exact tip before enabling ingress. Its
+single ingress delegates to the automatic candidate-v2 fork-choice path with
+the package and witness bundle together.
+
+Validation
+==========
+
+The directed integration test proves:
+
+- a wrong activation height changes neither chain tip nor either V2 marker;
+- the valid final V1 block and migration appear atomically;
+- duplicate activation is idempotent only for the exact canonical parent;
+- both V1 direct and branch ingress fail after activation;
+- the V2 runtime restores from the marker and mandatory verifier;
+- the first V2 child validates and commits through that runtime; and
+- the activation identity remains readable after the V2 runtime tip replaces
+  the initial marker.
+
+The complete dom-chain feature suite passed 250 tests, including the 360/400
+block deep-reorganization vectors and property tests. All-target Clippy passed
+with warnings denied, formatting passed and the source manifest was refreshed.
+
+Security boundary
+=================
+
+This closes the storage and phase-transition gap inside ChainState. Node
+startup configuration still must ratify the migration height, switch runtime
+ownership, advertise V2 only after a successful restore, and connect the V2
+wire command to IBD, orphan replay, relay and mining. Real Ethereum settlement,
+production proving artifacts, operational rehearsal and independent audits
+also remain blockers. No push, commit, deployment, transaction or use of funds
+occurred.

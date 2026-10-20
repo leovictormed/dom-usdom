@@ -1,0 +1,13 @@
+{
+  "chainId": "1",
+  "token": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+  "domDomain": null,
+  "governance": null,
+  "guardian": null,
+  "notaries": null,
+  "threshold": null,
+  "withdrawalDelay": null,
+  "governanceDelay": null,
+  "maxOutstanding": null,
+  "outflowCapacity": null
+}

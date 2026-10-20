@@ -1,0 +1,49 @@
+Stage 171 - canonical recursive checkpoint segment state
+Date: 2026-10-19
+
+The production checkpoint relation cannot safely accept the complete 390-block
+extension as one unbounded private input. A single DOM block may approach the
+protocol's 16 MiB serialization ceiling, so a monolithic witness has a
+multi-gigabyte theoretical upper bound before economic state witnesses. The
+proof design needs a small, exact public frontier that can bind independently
+proved blocks or chunks into one checkpoint result.
+
+Implemented UDCSEG01
+
+1. CheckpointSegmentState has an exact 1,073-byte UDCSEG01 encoding with an
+   eight-byte magic, version 1 and explicit native-state and transition-batch
+   schema versions.
+2. The state binds network magic, chain identity, activation schedule,
+   checkpoint configuration and policy, deposit policy, privacy verifier
+   configuration, height, block hash, native state root, economic UTXO and
+   kernel roots, accumulated work and the complete checkpoint context.
+3. Validation rejects zero identities, zero height, an invalid checkpoint
+   context, any mismatch between the frontier and context height or block hash,
+   and any economic root that does not equal the canonical composition of its
+   two authenticated subroots.
+4. Decoding requires exact length and exact canonical re-encoding. A
+   domain-separated Keccak-256 commitment binds the complete wire value for use
+   by a future segment transition relation and recursive receipt aggregator.
+
+Verification
+
+- Three directed tests cover exact round trip and size, every truncated prefix,
+  trailing bytes, framing mutations, context substitution, zero identity and
+  commitment changes across policy, state, work and context fields.
+- The package passed 9 default tests and 14 host-reference tests with zero
+  failures. The release-only 390-block vector remains deliberately ignored in
+  the ordinary suite.
+- Clippy passed for all targets and all features with warnings denied; rustfmt
+  check passed.
+
+Remaining boundary
+
+UDCSEG01 is only the canonical chained state. No segment transition guest,
+recursive receipt composition or RandomX proof has been implemented by this
+stage. A production relation must still prove each block's header, timestamp,
+difficulty, RandomX work, native USDOM state transition and economic witnesses,
+then aggregate those receipts into the exact checkpoint statement accepted on
+Ethereum. Production ImageIDs, measured prover limits, positive real vectors,
+bootstrap ratification and independent audits remain open. Mainnet and real
+funds remain blocked. No deploy, public transaction, funds, commit or push
+occurred.

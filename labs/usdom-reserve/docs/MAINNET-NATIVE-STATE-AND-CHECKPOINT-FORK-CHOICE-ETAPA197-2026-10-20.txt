@@ -1,0 +1,98 @@
+USD0M — ETAPA 197
+COMPROMISSO DE ESTADO NATIVO E FORK CHOICE COM CHECKPOINT EM MAINNET
+Data: 2026-10-20
+
+ESCOPO
+
+Esta etapa resolve duas divergências entre o código já implementado e o ledger
+de prontidão: o compromisso do estado USDOM no cabeçalho v4 para redes públicas
+e a aplicação, pelo fork choice DOM, do piso derivado de um checkpoint Ethereum
+verificado. Ela não seleciona uma altura de ativação, não configura contratos de
+produção e não cria uma prova Ethereum positiva a partir de dados brutos reais.
+
+RESULTADO
+
+Os seguintes requisitos passam a representar implementação existente e testada:
+
+- block_header_state_commitment_implemented = true;
+- production_block_header_state_commitment_implemented = true;
+- verified_ethereum_checkpoint_native_burn_binding_enforces_dom_fork_choice = true.
+
+O requisito production_activation_schedule_implemented permanece false. A
+implementação pode validar uma configuração mainnet exata, mas ainda não existe
+uma configuração de produção ratificada com altura, identidades e artefatos
+finais.
+
+EVIDÊNCIA DE CABEÇALHO
+
+crates/dom-consensus/src/block_full.rs contém o teste
+public_network_v4_header_binds_exact_usdom_batch_and_cannot_enter_legacy_validation.
+Ele demonstra que:
+
+1. o compromisso de lote USDOM é ligado ao rangeproof_root pelo domínio v4;
+2. trocar somente esse compromisso altera o preimage PoW;
+3. trocar somente esse compromisso altera o identificador canônico do cabeçalho;
+4. validate_block_v4_scheduled aceita o compromisso exato sob
+   NETWORK_MAGIC_MAINNET;
+5. o mesmo validador rejeita o lote substituído;
+6. o bloco v4 não pode entrar pelo validador legado.
+
+O formato fixo do cabeçalho não foi ampliado. O compromisso composto ocupa o
+campo já autenticado pelo PoW e pelo identificador do bloco, evitando uma
+segunda fonte de verdade fora do cabeçalho.
+
+EVIDÊNCIA DE CHECKPOINT E FORK CHOICE
+
+crates/dom-chain/src/native_usdom_v4.rs contém o teste
+mainnet_verified_native_burn_checkpoint_becomes_consensus_reorg_floor. O vetor:
+
+1. constrói estado nativo com emissão e queima de 250.000 unidades-base;
+2. usa a raiz resultante como raiz DOM declarada pelo checkpoint;
+3. liga uma capacidade opaca VerifiedCheckpoint à política de confiança
+   comprometida em BridgeIdentity e a NETWORK_MAGIC_MAINNET;
+4. rejeita a mesma capacidade sob regtest e rejeita uma política substituída;
+5. deriva ConsensusStateUpdate para CONSENSUS_CHECKPOINT_KEY;
+6. persiste o alvo canônico e o carrier seguinte com a atualização na mesma
+   fronteira atômica do bloco;
+7. recupera o piso exclusivamente do estado de consenso;
+8. aceita ancestral compartilhado na altura do checkpoint e rejeita ancestral
+   abaixo dela com "reorg would undo checkpoint".
+
+O caminho de produção não usa install_from_test_oracle. Esse instalador direto
+continua restrito a regtest. Redes públicas recebem o registro pelo carrier
+nativo após o verificador Ethereum produzir a capacidade opaca e o consenso DOM
+reconstruir de forma independente bloco, altura e raiz de estado referenciados.
+Os comentários do módulo foram corrigidos para deixar essa separação explícita.
+
+LIMITES E RISCO RESIDUAL
+
+O teste usa unsafe_test_only_verified_checkpoint para isolar e testar o handoff
+tipado e o fork choice; ele não finge ser uma prova BLS/SSZ/receipt gerada de um
+checkpoint Ethereum real. O vetor bruto positivo de checkpoint, as provas
+recursivas positivas, a medição de custo, a configuração final e o exercício
+operacional continuam critérios técnicos separados no ledger.
+
+Ausência de risco zero e ausência de auditoria externa não são gates de release.
+Risco residual deve ser documentado e aceito pelos responsáveis antes de fundos
+reais. Esta política não transforma requisito técnico ausente em aceitável.
+
+VALIDAÇÃO
+
+- cargo fmt --all -- --check: passou;
+- cargo test -p dom-consensus: 120 testes passaram, 1 ignorado por desenho;
+- cargo test -p dom-chain --features native-usdom-v4-poc: 251 testes passaram;
+- cargo clippy -p dom-consensus -p dom-chain --features native-usdom-v4-poc
+  --all-targets -- -D warnings: passou;
+- testes direcionados dos dois novos vetores: passaram;
+- testes de readiness, gates e manifesto: registrados em
+  results-stage197-2026-10-20.
+
+Após a atualização, o gate fechado de mainnet permanece corretamente fechado
+com 122 bloqueios objetivos e o gate de fundos reais com 130. Cada modo perdeu
+exatamente os dois bloqueios implementados nesta etapa. Auditoria externa e
+garantia de risco zero não aparecem nas listas de bloqueios.
+
+CONTROLE OPERACIONAL
+
+Nenhum processo de mineração foi iniciado. Não houve conexão à mainnet, deploy,
+uso de carteira, chave privada ou fundos. Nenhum commit ou push foi realizado.

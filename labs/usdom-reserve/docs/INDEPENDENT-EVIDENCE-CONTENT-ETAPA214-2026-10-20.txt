@@ -1,0 +1,39 @@
+Stage 214 — independent release evidence by path and content
+Date: 2026-10-20
+
+Finding USDOM-214 — Medium evidence-integrity bypass
+
+The release gate rejected reuse of one file path across evidence slots, but two
+byte-identical copies with different names had different paths and could still
+satisfy slots intended to represent independent build, validation, operations,
+rehearsal, control-plane or artifact evidence. A renamed copy is not independent
+evidence.
+
+Remediation
+
+After each document has passed its existing path, SHA-256 and presence checks,
+the gate now compares the SHA-256 values of every evidence slot used by the
+selected mode, including:
+
+- all mandatory release reports and artifacts;
+- the real-funds cold-start attestation when applicable;
+- any optional external-review reports that are supplied;
+- trusted-setup decision/transcript evidence;
+- governance, guardian and checkpoint-guardian configuration reports.
+
+Either a repeated path or repeated file content now produces a distinct blocker.
+A single report that intentionally covers multiple subjects must be represented
+as one explicitly designed evidence role rather than copied into independent
+slots.
+
+Regression validation
+
+The readiness fixture now assigns deterministic distinct SHA-256 values to every
+synthetic document and binds verifier manifests to their exact artifact hashes.
+Both a repeated path and two different paths with the same valid SHA-256 fail
+closed. The fully configured synthetic release continues to pass in
+closed-mainnet and real-funds modes. External audits remain optional; if supplied,
+their files must be valid and nonduplicated like all other evidence.
+
+No proof generation, mining, deployment, fund movement, commit or push was
+performed.

@@ -1,0 +1,46 @@
+USDOM RISC Zero adapter deployment receipt binding — stage 247
+Date: 2026-10-20
+
+Finding
+
+The release already pinned the source-derived runtime of both immutable RISC
+Zero adapters, but postdeployment preflight authenticated deployment receipts
+only for the checkpoint registry and reserve. Correct code at an expected
+address did not by itself prove that each adapter came from the reviewed CREATE
+transaction and initcode.
+
+Resolution
+
+1. The exact production release schema now has 59 fields. It adds the deployer,
+   deployer nonce and source-derived initcode hash for the finalized-burn
+   adapter and checkpoint adapter.
+2. Readiness derives both adapter initcodes from compiler-recorded sources,
+   rejects mismatches and proves each configured address from its CREATE
+   deployer and nonce.
+3. Postdeployment preflight requires an exact deployment record for all four
+   contracts. For each adapter it verifies successful status, release sender,
+   canonical nonce, created address, null destination, zero value, approved
+   initcode hash, nonzero transaction hash, canonical receipt block and
+   inclusion at or below the single rechecked finalized snapshot.
+4. The live RPC collector accepts the two additional adapter transaction hashes
+   and constructs those records from Ethereum transaction and receipt data.
+5. The operator sequence is explicitly two-phase: deploy and finalize both
+   immutable adapters; run predeployment while the registry and reserve remain
+   empty; then deploy the registry and paused reserve; finally authenticate all
+   four receipts in cold-start preflight.
+
+Security effect
+
+An alternate adapter deployment transaction, deployer, nonce, initcode, value,
+created address, receipt block or transaction identifier now fails closed even
+if some live runtime/configuration observation happens to match. This closes
+the source-to-transaction provenance gap without adding signing or broadcast
+capability to the tooling.
+
+Operational boundary
+
+No private key, signature, transaction, deployment or funds are used by these
+checks. Adapter deployment, like every Ethereum broadcast, still requires
+explicit operator authorization. A single human may control the three distinct
+1-of-1 Safe role accounts for the first closed test; that custody concentration
+must remain an explicitly accepted release risk.

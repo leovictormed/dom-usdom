@@ -1,0 +1,79 @@
+USDOM nativa — rewind autenticado e replay limitado de ramos laterais
+Etapa 39, 2026-10-17
+
+Estado: prova de conceito opt-in e exclusiva de Regtest. Sem ativação de
+consenso público, deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Falha tratada
+
+A etapa anterior podia reter o bloco e seu sidecar de provas, mas ainda não
+conseguia validar uma sequência lateral contra o estado USDOM existente no
+ancestral comum. Também não havia uma operação de rewind que provasse que cada
+undo persistido pertencia ao bloco canônico autenticado por PoW. Confiar apenas
+nos bytes de undo permitiria reverter o estado com dados corrompidos ou trocados.
+
+2. Rewind autenticado
+
+rewind_persisted_usdom_v4_state_to_ancestor restaura o estado nativo associado
+ao tip canônico e caminha para trás, limitado por MAX_REORG_DEPTH_POLICY. Em
+cada bloco, a função reconstrói o pacote canônico persistido, confirma seu
+identificador, decodifica o BatchUndo e exige que after_root e timestamp
+correspondam exatamente ao estado e bloco atuais.
+
+Antes de reverter o lote, ela recalcula a raiz PMMR bruta do corpo, deriva do
+undo o compromisso de lote com o domínio imutável da ponte e combina ambos pelo
+mesmo vínculo usado na criação do bloco. O resultado precisa ser igual ao
+rangeproof_root do cabeçalho autenticado pelo PoW. Só então revert_batch pode
+alterar a cópia de estado. Ausência, corrupção, substituição ou profundidade
+excessiva falham fechadas.
+
+3. Validação e retenção de ramo lateral
+
+ChainState::store_usdom_v4_side_package_regtest recebe o pacote canônico único,
+restaura e compara o estado canônico informado, valida pai, altura, tempo, MTP,
+limite futuro, RandomX dependente do ramo, alvo ASERT e dificuldade acumulada.
+A entrada não aceita genesis, extensão direta do tip ou rede diferente de
+Regtest.
+
+A função encontra o ancestral comum, usa o rewind autenticado e então carrega,
+em ordem, todos os blocos anteriores do ramo com seus sidecars imutáveis. Cada
+pacote é reconstruído canonicamente e submetido ao verificador público v4 contra
+o estado produzido pelo pacote anterior. O novo pacote só é armazenado depois
+que toda a sequência valida.
+
+Cabeçalho, corpo e envelope de prova são gravados atomicamente na relação de
+ramos laterais. Repetição exata é idempotente somente quando os bytes do sidecar
+também coincidem. O tip canônico, o índice de alturas, UTXOs, kernels e estado
+USDOM persistido permanecem inalterados. A poda conjunta continua limitando a
+retenção.
+
+4. Evidência
+
+O teste de integração minera uma cadeia v4 real em Regtest, faz rewind do segundo
+bloco para o primeiro e para o genesis, retém um irmão lateral e depois um filho
+desse irmão. O segundo pacote lateral só valida após o replay do primeiro. Em
+todos os casos, o tip canônico permanece o mesmo. Uma mutação no undo persistido
+faz o rewind falhar.
+
+Passaram:
+
+- 65 testes unitários dom-chain com native-usdom-v4-poc;
+- 1 teste de integração ChainState com conexão, rewind, corrupção e replay;
+- 7 testes selecionados de atomicidade e persistência dom-store;
+- 16 testes do estado USDOM e 1 compile-fail de capacidade opaca;
+- Clippy de todos os alvos dom-chain com warnings como erros;
+- build release dom-chain, rustfmt e diff check.
+
+5. Limites restantes
+
+Esta etapa retém e valida ramos, mas não os promove. A reorganização ainda deve
+calcular o delta UTXO/kernel e o delta USDOM finais, autenticar o ramo removido e
+aplicar ponteiros, UTXOs, kernels, estado, undos e pacotes numa única transação
+LMDB. Uma falha em qualquer ponto deve preservar integralmente o tip anterior.
+
+P2P, IBD, mineração e snapshots ainda não transportam o pacote v4. Também faltam
+contabilidade de custo de prova, witness positivo do registry Ethereum real,
+verificadores privados de emissão/transferência/queima revisados, carteira,
+ativação/migração, parâmetros de produção, shadow run e auditorias independentes.
+mainnet_ready e real_funds_ready permanecem false.

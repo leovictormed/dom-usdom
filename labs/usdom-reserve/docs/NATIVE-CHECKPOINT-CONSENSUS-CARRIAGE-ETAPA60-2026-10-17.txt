@@ -1,0 +1,64 @@
+Consensus-carried native checkpoint floor (stage 60, 2026-10-17)
+
+Status: local Regtest proof of concept. No commit, push, deployment, public
+activation or real-funds operation occurred.
+
+The native-v4 verifier no longer discards the opaque VerifiedCheckpoint after
+converting it into a USDOM state transition. The capability remains attached to
+the exact block-package candidate whose proof envelope produced it. Persistence
+methods that could previously expose a verified candidate's raw state batch are
+crate-private, so external callers cannot use the public capability to store a
+carrier while silently omitting its checkpoint floor.
+
+For a direct canonical extension, ChainState decodes the authenticated record,
+requires its target block and height to be in the carrier's existing ancestry,
+and reconstructs the exact native USDOM state at that target. The asserted root,
+DOM network, bridge domain, Ethereum chain/genesis and immutable policy hash
+must all match. A target at or after the carrier is rejected, avoiding a circular
+claim about state that the carrier itself creates.
+
+The resulting bounded v2 checkpoint record is written under a dedicated
+consensus-state key in the same LMDB transaction as the carrier header, body,
+canonical height/tip pointers, UTXOs, kernels, native state, undo and package
+bytes. A crash therefore cannot persist the carrier without the barrier or the
+barrier without the carrier. The in-memory floor advances only after commit.
+
+Side packages remain untrusted stored candidates. During a heavier-branch
+promotion, every checkpoint target must resolve either to the shared canonical
+ancestor history or to an earlier fully replayed block on that branch. Multiple
+carriers are checked monotonically in branch order. Only the final atomic reorg
+transaction installs the highest floor. The floor is deliberately not rolled
+back with a later permitted carrier reorganization: fork choice already rejects
+any common ancestor below its target.
+
+Startup distinguishes the old local metadata experiment from consensus state.
+Legacy metadata still requires an independently retained external floor. A
+consensus-carried floor restores deterministically from the canonical database,
+and its target must still match the canonical height index. UDSNAP01 version 2
+adds a domain-separated commitment to the exact consensus floor, so snapshot
+verification detects its deletion or substitution alongside package, undo and
+native-state commitments.
+
+Validation
+----------
+
+- dom-chain combined native/checkpoint all-target suite: 235/235 tests;
+- checkpoint integration: 27/27 tests;
+- native ChainState integration: 2/2 tests;
+- new ancestry binding and consensus restart tests: 2/2 tests;
+- all-target Clippy with -D warnings: passed;
+- optimized dom-chain release build: passed;
+- rustfmt and diff checks: passed.
+
+Security boundary
+-----------------
+
+This completes deterministic checkpoint carriage and atomic fork-barrier
+installation for the isolated Regtest v4 path. It does not activate block v4 on
+public DOM networks. Issuance, private transfer and burn proof kinds still fail
+closed because their production verifiers are unavailable. The Ethereum
+checkpoint registry and the proof that it selected valid DOM ancestry/work and
+native transitions are not deployed or independently audited. Snapshot import,
+long-running multinode fault tests, production parameter selection, wallet and
+operator procedures, and independent consensus/cryptography/privacy/contract
+audits remain required. No operator-quorum fallback is accepted for production.

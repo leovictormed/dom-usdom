@@ -1,0 +1,232 @@
+USDOM — comparação de finalidade para decisão de arquitetura
+Data: 2026-10-15. Estado: avaliação, nenhuma alternativa selecionada ou ativada.
+Escopo autorizado: projeto local; sem push, deploy ou fundos reais.
+Base: DOM d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+Complementa NATIVE-USDOM-DESIGN.txt; não substitui suas exigências de privacidade.
+
+1. Conclusão para a decisão
+
+Emitir USDOM separadamente não resolve a finalidade de suas queimas. PoW permite
+uma política de aceitação com risco residual; finalidade adicional pode impedir
+forks conflitantes sob outras premissas, mas exige mudanças no protocolo.
+Nenhuma opção fornece uma garantia incondicional contra toda falha de consenso.
+
+O PoW atual não satisfaz, por si só, a interpretação de que uma queima paga nunca
+volta ao saldo em uma história concorrente aceita. Adotá-lo como segurança de
+produção exigiria aceitar explicitamente uma definição probabilística, quantificar
+o risco e resolver a divergência da política local. Essa aceitação não foi dada.
+
+Finalidade BFT nativa e ancoragem em Ethereum são candidatos de pesquisa. Não há
+implementação ou benchmark que justifique escolher um deles agora. A recomendação
+é comparar seus modelos e provas de conceito contra os critérios abaixo antes de
+congelar o protocolo. O quórum independente do v3 continua somente no protótipo.
+
+2. Emissão e confirmação são regras diferentes
+
+Emissão: somente depósitos elegíveis de USDT podem gerar USDOM, uma vez cada.
+Elegibilidade precisa incluir reserva/token/rede corretos, recebimento exato,
+evento autenticado em execução Ethereum finalizada, compromisso de destinatário
+correto e identificador ainda não consumido. Doações não autorizam emissão.
+Todos os nós DOM devem verificar essas condições, não somente o emissor/relayer.
+Não existe recompensa de mineração USDOM. Nem mineradores, validadores de finalidade
+ou governança recebem uma exceção para criar USDOM sem depósito elegível.
+Recompensa, emissão e política monetária DOM devem permanecer inalteradas.
+
+Confirmação/finalidade: decide qual história válida contém a emissão, gasto ou
+queima e quando outra história conflitante deixa de ser admissível. Pode mudar
+o consenso e a escolha de forks sem modificar a fórmula de emissão de DOM.
+Isso continua sendo uma alteração importante do protocolo, sujeita a ativação
+e revisão próprias; preservar a política monetária não significa preservar
+todas as regras atuais de consenso.
+
+Exemplo de risco, condicional à adoção de um fork sem a queima:
+100 USDT creditados -> 100 USDOM emitidos -> queima de 40 -> pagamento de 40 USDT.
+Restam 60 USDT. Se outra história aceita restaurar os 40 USDOM queimados, nela
+existirão 100 USDOM contra 60 USDT. O pagamento Ethereum não é desfeito pela
+reorganização DOM. Um ID de resgate já pago impede repetir aquele pagamento,
+mas não impede gastar novamente as notas restauradas e criar outra queima.
+Delay, pausa e limite de saída reduzem exposição; não resolvem essa discrepância.
+
+3. Evidência do código e limite da regra de 360 blocos
+
+crates/dom-chain/src/reorg.rs:18,114-124 define MAX_REORG_DEPTH = 360 e rejeita
+disconnect_count >= 360 quando local_tip_height >= 360. Cadeias locais curtas
+têm tratamento diferente no bootstrap. Existe ainda um limite de política de
+profundidade separado, que não deve ser confundido com certificado de consenso.
+crates/dom-chain/src/chain_state.rs:1349-1378 verifica preferência por trabalho
+acumulado/desempate e depois aplica a restrição local antes de desconectar blocos.
+crates/dom-consensus/src/block.rs:104-125 não contém uma raiz USDOM específica;
+validate_pow, a partir de :404, recalcula RandomX e verifica o alvo.
+
+Contraexemplo de convergência, inferido dessas regras, não teste de rede executado:
+duas partições estendem histórias válidas divergentes por pelo menos 360 blocos.
+Ao reconectar, o nó no ramo mais leve pode rejeitar a troca para o mais pesado
+porque precisaria desconectar 360 blocos. Um nó novo pode escolher a história
+mais pesada sem ter o mesmo bloqueio local. Assumem-se blocos válidos e trabalho
+suficiente em cada ramo; não se afirma que um atacante produz isso sem custo.
+Logo, a profundidade local não demonstra acordo global. Uma prova ZK dessa
+execução local apenas provaria a decisão daquele histórico de entrada.
+
+4. Alternativa A — manter segurança probabilística do PoW
+
+Mudanças necessárias: integrar o ativo nativo, provar transições e queimas,
+implementar um verificador/cliente de consenso DOM na Ethereum e definir seu
+bootstrap, atualização de trabalho, forks concorrentes, desempate, atrasos e
+política de pagamento. É preciso especificar como ele corresponde à regra local
+de 360 blocos. Não tratar o nó atual como PoW puro que sempre converge pelo
+maior trabalho; há uma restrição adicional dependente do histórico local.
+
+A prova deve verificar serialização, seed RandomX do ramo correto, hash exato,
+alvo/dificuldade, trabalho acumulado e regras de estado. Uma cadeia válida e
+pesada apresentada não prova que uma cadeia ainda oculta não existe. Receber
+somente um RPC ou um provador acrescenta riscos de eclipse, retenção e censura.
+
+Premissas: participação honesta suficiente no hashpower, conectividade, entrega
+de cadeias concorrentes em tempo hábil, bootstrap e criptografia corretos.
+Confirmações reduzem certos riscos no modelo PoW; não há um número finito que
+garanta risco zero. Não foi medido o hashpower adversário DOM nem calculada uma
+probabilidade de perda para 360 blocos. Modelos de Bitcoin não podem ser usados
+como garantia numérica DOM sem validar suas hipóteses e esta política local.
+Referência do modelo probabilístico: https://bitcoin.org/bitcoin.pdf, seção 11.
+
+Benefício: evita criar um novo conjunto de votantes de finalidade. Custo: mantém
+o risco de reversão/divergência após pagamento e exige provar RandomX e estado.
+Uma reserva que fixa o primeiro ramo pago sem fazer DOM reconhecer essa escolha
+apenas protege seu registro local: não torna o saldo USDOM do outro ramo válido
+contra o mesmo colateral. É necessário tratar suspensão, reconciliação e perdas.
+Seguro/limites não convertem esse modelo em finalidade determinística.
+
+5. Alternativa B1 — finalidade adicional no consenso DOM
+
+Um mecanismo BFT pode votar checkpoints de blocos válidos, vinculando hash do
+bloco, raiz USDOM, época e conjunto de validadores. Os próprios nós DOM devem
+aplicar os certificados à escolha de forks, IBD, reinício e recuperação. Ethereum
+verifica certificado, composição/peso do conjunto e transições autenticadas.
+Um contrato que só recebe assinaturas de operadores da ponte não realiza isso.
+
+Referência conceitual de finalidade sobre PoW, não código pronto para DOM:
+https://arxiv.org/abs/1710.09437 (Casper FFG).
+Em um desenho com quórum superior a 2/3 do peso, regras corretas de voto/trava e
+menos de 1/3 de peso bizantino, a interseção dos quóruns sustenta a segurança.
+Disponibilidade depende de participação suficiente e hipóteses de rede; peso
+suficiente indisponível pode impedir novos checkpoints. Os limiares exatos,
+arredondamento e comportamento entre épocas precisam fazer parte da especificação.
+Fonte de comparação: https://ethereum.org/developers/docs/consensus-mechanisms/pos/.
+
+Decisões ainda ausentes: quem participa, resistência a identidades falsas, pesos,
+entrada/saída, rotação, assinaturas, proteção contra votos conflitantes, penalidades,
+financiamento, recuperação e prevenção de ataques com antigas chaves. O bootstrap
+de conjuntos dinâmicos pode exigir checkpoints recentes autenticados; produzir
+uma assinatura antiga válida não basta para provar a história atual.
+Referência de bootstrap: https://ethereum.org/developers/docs/consensus-mechanisms/pos/weak-subjectivity/.
+
+Um conjunto fixo nomeado pela governança introduziria confiança em seus operadores.
+Renomeá-lo como consenso não remove essa confiança nem satisfaz automaticamente
+o objetivo de reduzir dependência de operadores. Usar stake também não elimina
+confiança: muda as hipóteses para distribuição, incentivos, penalidades e chaves.
+Não presumir autorização para novo token, emissão de recompensa ou queima de DOM.
+Qualquer incentivo/penalidade deve demonstrar compatibilidade com a política DOM
+inalterada; essa solução econômica ainda não existe. USDOM não terá recompensa
+de mineração nem emissão extra para financiar a finalidade.
+
+Certificado pode reduzir a necessidade de provar PoW para autenticar a escolha
+de história, se validadores assumirem essa validação. Isso transfere uma premissa
+para eles. Para preservar verificação independente de validade, pode-se combinar
+certificado de finalidade com prova de transição; o escopo exato não foi escolhido.
+Rotação de validadores não pode resetar IDs pagos nem autorizar checkpoints antigos.
+
+Benefício: finalidade exportável sob hipóteses explícitas, sem esperar apenas
+profundidade PoW. Custo: novo protocolo, participantes/incentivos, risco de parada,
+equivocação e bootstrap. Penalização posterior não recupera automaticamente USDT
+já pago após uma falha de segurança. A disponibilidade dos dados precisa ser
+tratada separadamente; assinatura de raiz não garante recuperação de notas.
+
+6. Alternativa B2 — checkpoints Ethereum reconhecidos pelo protocolo DOM
+
+Hipótese de projeto, não protocolo existente ou validado: um contrato verifica
+provas de transições DOM e aceita checkpoints segundo regras explícitas. Após
+finalidade Ethereum, os nós DOM reconhecem a âncora como restrição comum de forks.
+Apenas publicar um hash na Ethereum não demonstra validade ou canonicidade DOM.
+
+É necessário definir quais candidatos podem ser aceitos, trabalho concorrente,
+prazos de apresentação, dados disponíveis, desempate e transição do checkpoint
+anterior. Aceitar o primeiro candidato válido pode dar poder de seleção/censura
+ao provador mais rápido. Esperar uma janela e comparar trabalho apresentado não
+prova ausência de trabalho oculto; torna a janela parte de uma nova regra nativa.
+Uma prova de validade evita estado inválido, mas não escolhe automaticamente
+a política justa ou segura de ordenação. Nenhuma dessas políticas foi escolhida.
+
+Os nós precisam de autenticação do consenso/estado Ethereum, não de uma lista
+de hashes vinda de RPC. Para evitar dependência circular, um possível encadeamento
+usa somente âncoras Ethereum anteriores e finalizadas na validação do prefixo DOM;
+uma âncora posterior confirma esse prefixo. É uma obrigação de projeto provar
+que emissão, queima e checkpoints não dependem mutuamente do próprio resultado.
+
+É preciso decidir o alcance: ancorar forks da cadeia DOM inteira altera sua
+autonomia; ancorar somente estado USDOM requer regras que preservem sua validade
+e dependências quando blocos DOM reorganizam. Não basta congelar uma raiz USDOM
+e permitir que suas notas/depósitos/taxas existam em uma história incompatível.
+Não foi selecionada nenhuma dessas variantes.
+
+Premissas: finalidade e bootstrap Ethereum, correção do verificador DOM, dados
+disponíveis, provadores e publicação permissionless. Censura, custo de gas e
+indisponibilidade podem paralisar checkpoints/resgates; não pode haver fallback
+automático para quórum. DOM passa a depender de Ethereum para esse progresso.
+Risco de atualização do verificador e falha da Ethereum continua explícito.
+Benefício potencial: evitar um novo comitê DOM dedicado à finalidade. Custo:
+maior acoplamento entre redes e trabalho de protocolo/provas ainda não medido.
+
+7. Privacidade e viabilidade de provas: obrigações comuns
+
+Nenhuma alternativa exige publicar o caminho privado entre depósito e queima.
+Certificar raiz de estado não deve exigir notas abertas. A prova de resgate
+expõe domínio, ID único, destinatário e valor necessários ao pagamento; prova
+de pertinência/queima oculta o histórico e a associação ao depósito original.
+Depósitos e pagamentos Ethereum continuam públicos, com correlação residual.
+
+Separar a prova de consenso público da prova com testemunhas privadas de notas.
+As provas STARK individuais SP1 não são, segundo sua documentação, zero knowledge;
+os formatos finais Groth16/PLONK fornecem essa propriedade sob suas hipóteses.
+Não divulgar provas intermediárias/testemunhas nem usar provador remoto com
+segredos presumindo que o nome zkVM garante confidencialidade de todo o fluxo.
+Fonte: https://docs.succinct.xyz/docs/sp1/security/security-model.
+
+RandomX utiliza código aleatório e ponto flutuante; modos light/fast têm perfis
+de memória diferentes. DOM chama a biblioteca nativa de validação em modo light.
+Uma migração para guest exige semântica exata, inclusive arredondamento, seed,
+memória e rotinas auxiliares. JIT/FFI executado no host não provado não pode ser
+tratado como computação autenticada. Fonte: https://github.com/tevador/RandomX.
+RISC Zero documenta RV32IM; isso não autoriza presumir instruções nativas de ponto
+flutuante. Emulação deve ser verificada e medida, não declarada impossível.
+Fonte: https://dev.risczero.com/api/zkvm/zkvm-specification.
+
+Não foi executado benchmark de prova de consenso RandomX. Testes anteriores de
+notas Rust e da reserva Solidity não são essa medição. Antes de comparar custo,
+medir memória máxima, tempo de prova/verificação, gas, atraso acumulado, troca
+de seed, falha/retomada e capacidade sustentada em hardware identificado.
+
+8. Critérios que devem decidir a escolha, antes de produção
+
+A. Segurança: definir formalmente quando um resgate se torna pagável e demonstrar
+que nenhuma história admitida restaura notas já resgatadas, sob hipóteses explícitas.
+Se a garantia for probabilística, documentar parâmetros, risco residual e aceitação
+do operador. A aprovação desta comparação não é essa aceitação.
+B. Conservação: testar emissão exclusiva por depósito elegível e consumo único;
+nenhuma coinbase/recompensa USDOM; política DOM inalterada em todas as alternativas.
+C. Convergência: partições longas, histórico mais pesado retido, IBD de nó novo,
+reabertura, checkpoint conflitante, rotação e replay de provas entre versões.
+D. Segurança intercadeias: depósito ainda não finalizado, queima em fork descartado,
+pagamento concorrente/repetido e tentativa de restaurar saldo após pagamento.
+E. Disponibilidade: limite de parada tolerável, custo de censura, recuperação sem
+assinatura administrativa que ignore as provas e dados para restaurar carteiras.
+F. Privacidade: nenhuma raiz/certificado pode revelar entradas privadas; avaliar
+metadados, patrocínio de taxas, publicação de provas, rede e conjunto de anonimato.
+G. Viabilidade: vetores reais mainnet, equivalência bit a bit com validação nativa,
+prova/verificador EVM reproduzíveis e orçamento de hardware/gas definido.
+H. Revisão: especificação e implementação independentes, modelo econômico quando
+aplicável, testes adversariais e avaliação externa antes de qualquer ativação.
+
+Decisão registrada: comparar A com finalidade adicional B1/B2; escolha em aberto.
+Não houve alteração de consenso, política monetária ou código executável nesta
+etapa. O protótipo permanece bloqueado para chain ID 1. Não está pronto para
+fundos reais; este relatório não é certificação de segurança ou autorização.

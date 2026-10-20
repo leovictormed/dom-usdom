@@ -1,0 +1,43 @@
+USD0M — ETAPA 202
+LIMITE DE ENTRADA DOS GUESTS RISC ZERO ANTES DA ALOCAÇÃO
+Data: 2026-10-20
+
+OBJETIVO
+
+Impedir que um comprimento controlado pelo host provoque alocação de memória
+antes de ser comparado com o limite do protocolo. Essa propriedade reduz risco
+de exaustão de memória no executor e no prover e deve continuar verdadeira
+quando os guests forem alterados ou novos guests forem adicionados.
+
+RESULTADO
+
+Foram inventariados os sete guests RISC Zero do projeto. Seis recebem campos
+dinâmicos; em todos eles o comprimento u32 é convertido, exige valor não zero,
+é comparado com uma constante máxima e somente então é usado para criar o Vec e
+ler os bytes. O guest RandomX completo recebe somente a estrutura UDCRXST1 de
+tamanho fixo e não faz alocação dinâmica a partir da entrada do host.
+
+CONTROLE AUTOMÁTICO
+
+`scripts/check-risc0-guest-input-bounds.py` falha se:
+
+- o inventário de guests mudar sem revisão explícita;
+- um leitor dinâmico deixar de usar seu limite máximo;
+- uma alocação ou leitura for movida para antes da validação do comprimento; ou
+- o guest RandomX completo passar a aceitar tamanho dinâmico.
+
+O autoteste muta deliberadamente a ordem segura, colocando a alocação antes do
+limite, e exige que o controle rejeite a mutação. O controle passou a fazer
+parte de `npm run check:provenance` e da prontidão de closed-mainnet/real-funds.
+
+POLÍTICA DE RISCO
+
+Este é um requisito técnico objetivo. Auditoria externa e garantia absoluta de
+risco zero não são requisitos de lançamento. Risco residual documentado pode
+ser aceito pelo operador; defeitos concretos e evidência técnica faltante
+continuam fechando o gate.
+
+ESCOPO
+
+Não houve push, commit, deploy, conexão mainnet, mineração, prova criptográfica,
+carteira, transação ou uso de fundos.

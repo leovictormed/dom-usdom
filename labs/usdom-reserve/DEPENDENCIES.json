@@ -1,0 +1,11 @@
+{
+  "openzeppelin-contracts": {
+    "version": "5.6.1",
+    "tag": "v5.6.1",
+    "tag_commit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+    "source": "https://github.com/OpenZeppelin/openzeppelin-contracts/archive/refs/tags/v5.6.1.tar.gz",
+    "archive_sha256": "42a8c8e95a6726045ba1b22b260f6645bbba47d25840bfaa4d15854e535341c1",
+    "vendored_subtree": "contracts",
+    "retrieved": "2026-10-16"
+  }
+}

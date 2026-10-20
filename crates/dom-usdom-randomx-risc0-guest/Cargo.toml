@@ -1,0 +1,28 @@
+[package]
+name = "dom-usdom-randomx-risc0-guest"
+description = "RISC Zero guest for the complete portable DOM RandomX v1 relation"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata.risc0]
+
+[[bin]]
+name = "usdom-randomx"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+dom-usdom-checkpoint-statement = { path = "../dom-usdom-checkpoint-statement" }
+dom-usdom-randomx-portable = { path = "../dom-usdom-randomx-portable" }
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+risc0-binfmt = "=3.0.5"
+risc0-zkos-v1compat = "=2.2.3"
+
+[lints]
+workspace = true

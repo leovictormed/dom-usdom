@@ -1,0 +1,42 @@
+Stage 225 - RISC Zero adapter runtime EVM differential
+Date: 2026-10-20
+
+Assurance gap USDOM-225 (Medium)
+
+Stage 224 reconstructed each adapter runtime by patching compiler immutable
+references. Unit tests proved that every input changed the result, but did not
+compare the reconstruction with bytecode produced by actual constructor
+execution. An incorrect bytes4 alignment or compiler-reference interpretation
+could make the release gate reject every valid deployment or, in a worse
+implementation error, compare the wrong bytes.
+
+Correction and validation
+
+The local EVM integration vector now:
+
+1. starts an isolated Anvil chain with chain ID 31337;
+2. deploys a selector-compatible RISC Zero verifier test double;
+3. deploys both production adapter contracts through their real constructors;
+4. builds complete canonical finalized-burn and checkpoint manifests from the
+   exact live verifier address, code hash, chain ID and distinct image IDs;
+5. derives each runtime using the release-gate implementation;
+6. reads both deployed runtimes through eth_getCode and compares their Keccak-
+   256 hashes with the derived hashes; and
+7. compares both manifest-derived verifierConfigHash values with the live
+   Solidity getters.
+
+Both adapters matched exactly. The vector also confirms the expected runtime
+sizes of 1,921 bytes for finalized burn and 1,922 bytes for checkpoints. This
+test runs in the ordinary Node suite after a forced Foundry build and is now an
+explicit release requirement.
+
+Risk policy
+
+This validates the release tooling against EVM constructor behavior. It does
+not claim that the compiler, proof system or reviewed contract has no unknown
+defect. Such unknowns remain explicitly acceptable residual risk for an exact
+release; external audit and an absolute zero-risk guarantee remain optional.
+
+No public transaction, fund movement, mining, RISC Zero proof generation,
+commit or push occurred. The deployment was confined to a disposable local
+Anvil process, which terminated after the test.

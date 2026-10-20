@@ -1,0 +1,34 @@
+Stage 229 - Canonical preflight uint observations
+Date: 2026-10-20
+
+Finding USDOM-229 (Medium)
+
+The semantic preflight compared observed integer fields by applying JavaScript
+`BigInt` directly to both operands. That conversion accepts representations the
+machine collector never emits: null, false and empty strings become zero; true
+becomes one; and hexadecimal, whitespace, leading-zero and JSON-number forms
+are also accepted. An altered attestation could therefore replace zero/one or
+other integer observations with malformed types or encodings and still pass
+the stage 228 recomputation.
+
+Correction
+
+Every observed uint must now be a canonical unsigned decimal string: exactly
+`0`, or a nonzero decimal digit followed by decimal digits. Expected internal
+constants may remain safe nonnegative integers or bigint values; configured
+release values retain their canonical string representation. The collector now
+serializes checkpoint bootstrap event count as a string like every other
+observed integer.
+
+Tests substitute null, booleans, empty and whitespace strings, hexadecimal and
+leading-zero strings, JSON numbers and bigint values into zero/one fields. All
+forms fail closed. Mainnet readiness also exercises malformed values inside
+both parsed predeployment and cold-start attestations.
+
+This validation removes type-coercion ambiguity at the evidence boundary. It
+does not claim that the selected RPC is honest; RPC trust and unknown defects
+remain residual risks that may be explicitly accepted for an exact release.
+External audit and a zero-risk guarantee remain optional.
+
+No deployment, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred.

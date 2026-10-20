@@ -1,0 +1,18 @@
+[package]
+name = "dom-bulletproof-portable"
+description = "Portable verifier primitives for DOM's frozen classic Bulletproof format"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+k256 = { version = "0.13", default-features = false, features = ["arithmetic", "expose-field"] }
+sha2 = { version = "0.10", default-features = false }
+
+[dev-dependencies]
+hmac.workspace = true
+secp256k1-zkp.workspace = true
+

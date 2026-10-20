@@ -1,0 +1,62 @@
+USDOM native Ethereum consensus configuration binding — stage 245
+Date: 2026-10-20
+Severity closed: High (USDOM-245)
+
+Problem
+
+The native runtime manifest was hash-pinned and its checkpoint/deposit policies
+were reconciled with the Ethereum release, but its eight Ethereum fork entries
+could contain any canonical-looking epochs and versions. The trusted
+weak-subjectivity checkpoint was required to be nonzero by the static policies,
+yet no release field identified the checkpoint approved for this release. A
+signed manifest could consequently select a stale or substituted Ethereum
+consensus view without the release gate detecting the semantic change.
+
+Correction
+
+1. The DOM mainnet loader now accepts only Ethereum mainnet's canonical genesis
+   validators root and the supported fork schedule:
+   Genesis 0/00000000; Altair 74240/01000000; Bellatrix 144896/02000000;
+   Capella 194048/03000000; Deneb 269568/04000000; Electra 364032/05000000;
+   Fulu 411392/06000000; Gloas uint64-max/07000000.
+2. Non-mainnet networks retain explicit schedules for deterministic testing.
+3. The runtime bundle and offline checker export the trusted checkpoint and all
+   eight epoch/version pairs.
+4. The exact 53-field production release schema adds
+   nativeEthereumTrustedCheckpoint as a mandatory nonzero bytes32 value.
+5. Readiness compares that release value with checker output and independently
+   checks every exported fork value against the supported mainnet schedule.
+6. The closed-mainnet requirement
+   production_native_ethereum_consensus_config_release_bound records this
+   invariant.
+
+Adversarial coverage
+
+- stale Fulu epoch;
+- substituted Electra version;
+- wrong Ethereum mainnet genesis root;
+- checker/release trusted-checkpoint mismatch;
+- zero release checkpoint;
+- missing or additional checker fields through the exact output schema.
+
+Authoritative schedule source
+
+https://github.com/ethereum/consensus-specs/blob/master/configs/mainnet.yaml
+
+Validation
+
+- dom-node native configuration tests: 5 passed, 0 failed;
+- manifest-checker CLI tests: 3 passed, 0 failed;
+- focused mainnet-readiness tests: 37 passed, 0 failed;
+- complete Node tests: 108 passed, 0 failed;
+- complete Solidity tests: 138 passed, 0 failed;
+- production lint and forced Solidity compilation: passed;
+- imported-source and all boundary/manifests provenance: passed;
+- root source manifest: 855 files, complete and ordered;
+- closed-mainnet gate: expected NOT READY, 152 unique objective blockers;
+- real-funds gate: expected NOT READY, 163 unique objective blockers;
+- the new absent trusted-checkpoint fact appears exactly once in each gate;
+- neither gate contains an external-audit or absolute-zero-risk condition.
+
+No node, miner, wallet, listener or prover was started. No commit, push, deploy,
+public transaction, real-fund movement or expensive proof generation occurred.

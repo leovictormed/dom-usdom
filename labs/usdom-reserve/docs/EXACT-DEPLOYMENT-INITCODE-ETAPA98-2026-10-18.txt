@@ -1,0 +1,74 @@
+Exact deployment initcode and transaction binding — etapa 98
+Date: 2026-10-18
+Status: source-to-transaction binding implemented; no deployment authorized
+
+Finding USDOM-098
+
+Severity: Critical release-integrity risk.
+Current public exposure: none; no transaction, commit, tag, push or deployment was made.
+
+The release process derived the expected deployed runtime but did not commit the
+complete creation bytecode and constructor arguments. Postdeployment checks
+could therefore accept a transaction that happened to return the expected
+runtime while using an unreviewed constructor execution path or transaction
+input.
+
+Remediation
+
+The release manifest now requires reserveInitcodeHash. The derivation tool:
+
+1. verifies the same exact compiler policy and every source hash used for the
+   runtime derivation;
+2. rejects malformed creation bytecode or any linked creation library;
+3. validates and ABI encodes the exact constructor Config tuple: token,
+   verifier, DOM domain, governance, guardian, both delays, maximum exposure and
+   daily outflow capacity;
+4. appends the encoding to creation bytecode and computes Keccak-256 of the
+   complete deployment input.
+
+The mainnet release gate requires the manifest hash to equal this independently
+derived value. The finalized postdeployment preflight now also requires:
+
+- a contract-creation transaction with no destination;
+- zero ETH value;
+- complete transaction data matching reserveInitcodeHash;
+- the approved deployer and nonce producing the exact reserve address;
+- successful canonical inclusion at or below the finalized head;
+- the expected source-derived runtime and exact reserve getters.
+
+Independent execution check
+
+The Anvil integration test derives initcode from the artifact and the getters of
+the deployed reserve, then requires its hash to equal the actual deployment
+transaction data hash. It also checks that the transaction destination is null
+and value is zero.
+
+Fixed constructor fixture vector
+
+initcodeHash 0x7f7bb9e3fefdc739d8d3c1e6b49de66a7fca53c8508ab1002bddb765404ef0ca
+initcodeSize 17619 bytes
+
+The size is 31,533 bytes below the EIP-3860 mainnet initcode limit of 49,152
+bytes. Every constructor field is mutated independently and must change the
+hash.
+
+Validation
+
+- Node focused derivation/EVM/preflight/release tests: 7 passed; 0 failed;
+- exact initcode versus actual Anvil deployment transaction: passed;
+- wrong destination, value, input hash, sender, nonce, address, block or runtime:
+  rejected;
+- malformed constructor values and linked creation bytecode: fail closed;
+- closed-mainnet gate: correctly rejected with 70 blocker assertions;
+- real-funds gate: correctly rejected with 79 blocker assertions.
+
+Security boundary
+
+This binds the planned transaction input but does not broadcast it, guarantee a
+nonce will remain unused or authorize a deployment. Operators must run the
+finalized predeployment check immediately before broadcast and prevent any
+competing deployer transaction. The postdeployment check remains mandatory
+before scheduling the delayed mainnet resume.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

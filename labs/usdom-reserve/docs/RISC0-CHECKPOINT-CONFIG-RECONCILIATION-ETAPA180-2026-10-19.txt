@@ -1,0 +1,50 @@
+Stage 180 - RISC Zero checkpoint configuration reconciliation
+Date: 2026-10-19
+
+Finding
+
+The v5 checkpoint proving-program manifest computed a configuration hash from
+consensus rules and generic proof artifacts. DOMCheckpointRiscZeroVerifier
+exposes a different on-chain verifierConfigHash: it commits Ethereum chain ID,
+the deployed RISC Zero verifier address and code hash, selector, guest ImageID,
+journal schema and accepted capability. The release gate compared the v5 hash
+to the on-chain field, so a correctly deployed RISC Zero adapter could never
+satisfy the manifest check. This was fail closed, but the release model was
+internally inconsistent.
+
+Implemented v6 model
+
+1. verifierConfigHash now reproduces the exact
+   DOMCheckpointRiscZeroVerifier Solidity typehash and ABI encoding. It binds
+   Ethereum chain ID, verifier address and code hash, selector 0x73c457ba,
+   checkpoint guest ImageID, raw 32-byte journal schema and PROOF_ACCEPTED.
+2. The former rules-and-artifacts hash remains separately exposed as
+   provingProgramConfigHash. The canonical manifest and its SHA-256 commit this
+   value's complete inputs, while the on-chain ImageID cryptographically fixes
+   the actual guest binary.
+3. The protocol manifest now fixes UDCSEG02, UDCSTN02 and UDCRXST1 versions,
+   exact lengths and domain hashes, plus the inner RandomX receipt ImageID.
+4. The release gate cross-checks manifest ethereumChainId against the release
+   chain and still requires the canonical manifest hash, proving artifacts and
+   deployed adapter config hash to agree.
+5. The unconfigured template carries explicit null outer and inner ImageIDs and
+   RISC Zero verifier identity. It cannot be mistaken for a usable release.
+
+Cross-language evidence
+
+A fixed JavaScript vector produces adapter config hash:
+
+0x85b1f2ba490ad5c9643c819c984cfba3e5338bbb02a5a6b2345e1745a6096bf6
+
+The Solidity test independently ABI-encodes the same chain, verifier, code hash,
+selector, ImageID, journal and capability using the contract's own typehash and
+matches that value. Mutation tests cover every rules/artifact commitment,
+adapter identity, both ImageIDs, all recursive formats and strict exact fields.
+
+Security status
+
+The release hash model is now coherent with the deployed adapter ABI. No real
+checkpoint guest or RandomX receipt ImageID has been selected; both remain null
+in the release template and their production requirements remain false. This
+stage does not authorize deployment or funds. No deploy, public transaction,
+funds, commit or push occurred. The node and miner remained stopped.

@@ -1,0 +1,63 @@
+USDOM RESERVE SECURITY HARDENING — 2026-10-16
+
+Scope
+This review covers the isolated quorum prototype in contracts/USDOMReserve.sol
+and its interaction with the intended Ethereum USDT implementation. It does not
+certify the unfinished native USDOM consensus, private transfer, issuance or
+Ethereum-verifiable DOM burn-proof systems.
+
+Changes in this revision
+- Upgraded the vendored OpenZeppelin Contracts dependency from 5.0.2 to the
+  authenticated v5.6.1 tag. DEPENDENCIES.json pins the tag commit and archive
+  digest. The old subtree remains only to preserve the initial-import record.
+- Selected the Cancun EVM target required by OpenZeppelin v5.6.1 MCOPY use.
+- Required both immutable administrative roles to be distinct deployed
+  contracts. This encodes the planned multisig/timelock shape and rejects an
+  EOA guardian at construction.
+- Checked every timestamp and token-bucket narrowing conversion before storing
+  it in uint64. Values outside the representable range now fail closed.
+- Added regression tests for EOA guardian rejection and timestamp overflow.
+- Made the Node test entry point force normal artifact generation, so a prior
+  coverage run cannot leave ABI-only artifacts and silently break EVM tests.
+- Exercised the monitor through a contract-guardian transaction adapter instead
+  of pretending an EOA signer has the multisig's on-chain address.
+
+Evidence
+- Default Solidity suite: 69 passed, 0 failed.
+- Deep fuzzing: 16,384 cases per fuzz property.
+- Stateful invariants: 1,024 runs x depth 128 = 131,072 calls for each of the
+  independent accounting and recovery invariants, with zero unexpected reverts.
+- Contract coverage: 257/257 lines, 411/415 statements, 64/68 branches and
+  32/32 functions.
+- Optimized runtime size: 17,162 bytes, 7,414 bytes below the EIP-170 limit.
+- Ethereum fork: 6 passed, 0 failed against pinned block 26201446 and the pinned
+  USDT runtime. The suite modifies only local fork state.
+- SDK and monitor: 27 passed, 0 failed, including emergency transactions through
+  the contract-guardian adapter and durable incident recovery.
+- Import provenance: 169 imported files verified, including 10 explicitly
+  recorded local modifications.
+- Static lint: only intentional block.timestamp comparisons remain in the
+  contract. They implement delay, expiry and cleanup boundaries. The configured
+  minimum delays are hours/days, so ordinary proposer timestamp discretion does
+  not bypass a security transition.
+
+Security conclusion
+No unresolved correctness defect was found in the reviewed quorum prototype
+after these changes. This statement is limited to the implemented local model
+and test assumptions. It is not authorization for real funds.
+
+The prototype cannot be deployed on Ethereum mainnet: its constructor rejects
+chain ID 1. That guard must remain while withdrawal authorization depends on a
+notary quorum. Production still requires a real Ethereum verifier for finalized
+DOM burn proofs, native USDOM consensus integration, production multisigs and
+parameters, operational rehearsal, and independent external audit. Tether can
+also freeze or confiscate USDT; the contract can fail closed but cannot remove
+that issuer risk.
+
+Readiness interpretation
+- A closed local test using pinned Ethereum mainnet state is ready and passed.
+- A public-testnet rehearsal can begin after choosing a test token, deployment
+  roles and laboratory parameters; it must retain zero real value.
+- A closed test on Ethereum mainnet with real funds is deliberately blocked and
+  remains unsafe until the proof-based production architecture is implemented
+  and reviewed.

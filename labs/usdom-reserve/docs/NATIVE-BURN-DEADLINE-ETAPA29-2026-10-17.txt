@@ -1,0 +1,89 @@
+USDOM nativa — prazo de queima ancorado em tempo Ethereum finalizado
+Etapa 29, 2026-10-17
+
+Estado: núcleo isolado, sem ativação no consenso DOM. Sem deploy, push ou fundos
+reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Problema corrigido
+
+A primeira versão da política de prazo usava somente o timestamp do bloco DOM.
+Isso não era suficiente para assegurar que validUntil ainda seria aceito pela
+reserva Ethereum: o protocolo DOM limita quanto um bloco pode avançar no futuro,
+mas não fornece sozinho uma referência autenticada e atual do tempo Ethereum.
+Uma queima poderia ser válida no relógio DOM e chegar tarde demais à reserva,
+criando uma obrigação sem caminho normal de pagamento.
+
+EthereumAnchor agora inclui execution_block_timestamp, extraído do cabeçalho de
+execução que a prova de finalidade autentica. O timestamp entra em todos os
+compromissos, registros de emissão, raiz de estado, persistência canônica e undo.
+Dois registros para o mesmo número de bloco Ethereum entram em conflito se o hash
+ou o timestamp divergirem.
+
+BridgeIdentity também fixa a política BurnTimingPolicy:
+
+- withdrawal_delay_secs;
+- min_execution_window_secs, igual à constante imutável da reserva (1 hora);
+- max_certificate_lifetime_secs, igual à constante imutável da reserva (7 dias);
+- relay_safety_margin_secs;
+- max_ethereum_anchor_age_secs;
+- max_dom_clock_lead_secs, nunca menor que o limite de consenso DOM.
+
+A margem de relay deve ser pelo menos igual à idade máxima da âncora e a
+combinação delay + janela + margem deve caber na vida máxima do certificado.
+Configurações nulas, incompatíveis ou com overflow são recusadas antes da criação
+do estado.
+
+2. Regra de admissão
+
+Uma queima exige uma EthereumAnchor previamente autenticada. A referência mínima
+é o maior entre o timestamp do bloco DOM e o timestamp de execução Ethereum. O
+prazo mínimo adiciona o atraso da reserva, a janela de execução e a margem de
+relay. O prazo máximo é o timestamp Ethereum finalizado mais a vida máxima aceita
+pela reserva. O relógio DOM nunca pode estender esse máximo.
+
+A âncora Ethereum deve permanecer atual em relação ao bloco DOM, descontada a
+antecipação máxima permitida pelo consenso DOM. Os limites são inclusivos e todos
+os cálculos usam aritmética verificada. A reserva continua revalidando a janela no
+momento da admissão; se o relay exceder a margem, ela falha fechada sem reservar ou
+pagar fundos.
+
+A regra melhora segurança e previsibilidade, mas a atualização independente da
+âncora Ethereum ainda precisa ser uma transição de checkpoint do consenso. Nesta
+etapa a âncora avança apenas pelas capacidades de emissão do núcleo isolado. Isso
+não autoriza produção.
+
+3. Validação
+
+- 14 testes unitários do estado e 1 compile-fail de isolamento de capacidade;
+- limites exatos mínimo, máximo e de atualidade da âncora;
+- rejeição de âncora antiga, timestamp conflitante, overflow e política impossível;
+- raiz de estado, persistência, compromisso de transição e undo sensíveis ao
+  timestamp e a todos os parâmetros;
+- integração LMDB de commit, reinício e reorg passou;
+- clippy com warnings como erros passou;
+- build de release sem o oráculo de teste passou;
+- cargo check --workspace --all-targets passou;
+- rustfmt e git diff --check passaram.
+
+O vetor atualizado do compromisso de cabeçalho da fixture é:
+d57e502be6d591123fb92328f4561ebba1e3f337a89a78df3406e56c60b13132
+
+A suíte Node alterada em etapas anteriores não possui mudanças nesta etapa. Uma
+nova execução confirmou 13 testes independentes; 20 testes que iniciam Anvil não
+rodaram porque o binário Anvil não existe no ambiente atual. A evidência completa
+33/33 da etapa 28 permanece aplicável ao conteúdo JavaScript inalterado.
+
+Uma tentativa adicional de cargo test --workspace --all-targets compilou o
+workspace até o link de dom-test-runner, quando o volume ficou sem espaço. O log é
+preservado. Isso é uma limitação do ambiente; o check integral de todos os targets
+e as suítes diretamente afetadas passaram. Artefatos regeneráveis foram limpos
+com cargo clean.
+
+4. Limites restantes
+
+Ainda faltam: transição autônoma de checkpoint Ethereum; BlockHeader v4 e ativação
+por hard fork; envelope de prova limitado; circuito/verificador privado; validação
+idêntica em mempool, mineração, blocos de pares, IBD, snapshots e reorgs; carteira
+privada e recuperação; parâmetros e multisigs de produção; shadow run e auditorias
+independentes. mainnet_ready e real_funds_ready continuam false.

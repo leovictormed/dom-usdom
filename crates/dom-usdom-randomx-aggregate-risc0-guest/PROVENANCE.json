@@ -1,0 +1,16 @@
+{
+  "schema": "dom-usdom-randomx-aggregate-risc0-guest-provenance-v1",
+  "risc0ZkvmVersion": "3.0.6",
+  "risc0BinfmtVersion": "3.0.5",
+  "risc0PlatformVersion": "2.2.3",
+  "risc0V1CompatVersion": "2.2.3",
+  "guestRustVersion": "1.97.0-dev-e638c6cfe-2026-07-15",
+  "guestLlvmVersion": "22.1.6",
+  "cargoLockSha256": "745b3c37903c47e71d55b640909e745922e97f5c05afab6970cb8f0aec7edf84",
+  "userElfSha256": "192c97830e7e1c390c025c137480268e0f75dfc96184738fb6a14c8e13e81c6b",
+  "programBinarySha256": "3dad95bf467a807c7ef033f88595ea44f14578dca4c7558ad95b7ad76c0d198f",
+  "imageId": "08abf768e699ecb9d5cd2abc7603368103bcd3ee61afe9066d8a77272ac02ebf",
+  "cleanLocalRebuildsByteIdentical": true,
+  "productionApproved": false,
+  "outerCheckpointVerifierImage": false
+}

@@ -1,0 +1,66 @@
+USDOM / DOM — ETAPA 208
+FINALIDADE DO HISTÓRICO DA CARTEIRA POR CHECKPOINT ETHEREUM RECONHECIDO PELA DOM
+Data: 2026-10-20
+
+Achado
+
+O RPC de histórico autenticava cabeçalhos DOM, continuidade de bloco e estado,
+raízes das projeções e payloads privados até um tip escolhido pelo operador.
+Ele declarava corretamente `finality_claimed: false`: canonicidade local não
+provava que uma reorganização futura seria impedida. Por isso o gate de fundos
+reais mantinha `native_private_wallet_history_finality_claimed=false`.
+
+Correção
+
+A fronteira de carteira agora combina duas autoridades independentes antes de
+produzir `VerifiedCheckpointHistoryScan`:
+
+1. `VerifiedCheckpointHistoryAnchor::from_verified_checkpoint` só aceita a
+   capacidade opaca `VerifiedCheckpoint`, criada pelo verificador de finalidade
+   Ethereum. Ela confere versão, Ethereum mainnet, rede DOM, domínio da ponte,
+   hash imutável da política, altura, bloco, raiz de estado e digest do evento.
+   Bytes decodificados ou campos RPC não conseguem construir essa capacidade.
+2. A consulta envia `require_checkpoint_finality=true`. O nó DOM lê somente o
+   checkpoint instalado na chave de estado de consenso, exige que o piso cubra
+   o tip solicitado, não esteja acima do tip corrente, pertença à mesma rede e
+   domínio e ainda esteja no caminho canônico. Sem esse piso a consulta falha.
+3. A carteira revalida a sequência completa de cabeçalhos e transições e exige
+   que o bloco e a raiz de estado terminais coincidam com o checkpoint Ethereum.
+   Só essa combinação retorna o tipo finalizado. O método RPC comum continua
+   exigindo `finality_claimed=false` e não pode ser promovido ao tipo finalizado.
+
+O servidor passou a aceitar um tip histórico canônico abaixo do tip corrente.
+Isso é necessário porque o evento Ethereum e o bloco DOM que carrega o piso de
+checkpoint aparecem depois do bloco referenciado pelo checkpoint. A identidade
+do tip corrente continua sendo retornada; o hash solicitado é conferido no
+índice canônico sob o mesmo lock da cadeia.
+
+Validação
+
+- dom-usdom-wallet, todos os recursos: 29 testes de biblioteca e 5 do utilitário
+  aprovados, 0 falhas;
+- teste dirigido da capacidade de checkpoint: rede, domínio e política errados
+  rejeitados; tip, raiz e digest corretos aceitos;
+- o teste inspeciona o corpo HTTP e exige
+  `require_checkpoint_finality=true` no caminho finalizado;
+- dom-rpc: 88 testes aprovados, 0 falhas, 1 teste estático ignorado por desenho;
+- teste integrado dom-node: tip histórico abaixo do tip atual aceito, e a mesma
+  consulta com finalidade exigida é rejeitada quando o piso não está instalado;
+- teste unitário dom-node: piso só cobre altura ancestral com rede e domínio
+  idênticos;
+- Clippy com avisos negados passou para carteira, RPC e dom-node; rustfmt e
+  `git diff --check` passaram.
+
+Fronteira de confiança e risco residual
+
+Esta mudança não promete risco zero. Ela depende da correção do verificador de
+finalidade Ethereum, da política imutável selecionada, do contrato de registro,
+da regra de instalação do checkpoint no consenso DOM, da resistência a colisão
+dos hashes e da integridade do nó completo local autenticado. Falhas nesses
+componentes permanecem riscos documentáveis e devem constar da aceitação de
+risco residual da liberação.
+
+O caminho não aceita somente a palavra do servidor nem transforma profundidade
+PoW em finalidade Ethereum. Também não autoriza deploy, fundos reais ou push.
+Parâmetros de produção, artefatos fixados, evidências operacionais e autorização
+do operador continuam exigidos separadamente pelo gate.

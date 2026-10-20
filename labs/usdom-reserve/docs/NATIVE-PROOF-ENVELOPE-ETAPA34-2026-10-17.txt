@@ -1,0 +1,85 @@
+USDOM nativa — envelope canônico de provas e política Ethereum comprometida
+Etapa 34, 2026-10-17
+
+Estado: caminho isolado somente para Regtest. Sem ativação em ChainState,
+mineração, P2P ou IBD; sem deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Envelope v1 limitado
+
+UsdomV4ProofEnvelope é o primeiro formato público destinado ao futuro corpo v4.
+Seu wire format é único e big-endian:
+
+  magic[8] || version:u16 || count:u32 ||
+  repetição(count) { kind:u8 || payload_len:u32 || payload[payload_len] }
+
+O decoder limita o envelope à metade do MAX_BLOCK_SERIALIZED_SIZE real (8 MiB),
+cada prova a 4 MiB e a contagem a MAX_TRANSITIONS_PER_BATCH. Comprimentos zero,
+overflow, truncamento, bytes extras, versão/tipo desconhecidos e mais de um
+checkpoint Ethereum são rejeitados. A reserialização precisa reproduzir os bytes
+exatos. Um proptest confirma que bytes arbitrários nunca ganham uma representação
+canônica diferente.
+
+Os discriminadores 1/2/3 reservam emissão, transferência e queima, mas falham com
+PolicyRejected: nenhum placeholder ou mock pode criar VerifiedTransition. Apenas
+o tipo 4 chama o verificador real de witness Ethereum. Envelope vazio é canônico
+e compromete continuidade da raiz de estado.
+
+2. Tempo e identidade de confiança
+
+max_current_slot deixou de ser um valor livre do relayer. O adaptador exige:
+
+  floor((dom_block_timestamp - 1606824023) / 12)
+
+exatamente como teto de slot Ethereum. O timestamp vem do cabeçalho DOM; um bloco
+anterior à gênese Ethereum falha. O hash imutável da política cobre versão,
+bootstrap confiável, genesis validators root, chain ID, registry, runtime code
+hash, storage slot, config hash, domínio DOM, network magic e os oito forks até
+Gloas. O teto dinâmico de slot é deliberadamente excluído e derivado por bloco.
+
+Vetor congelado da política de teste:
+
+a47d06beea427ce0a1a85edf2e5c62dbd89e28e1d5c9e7ad13617151e7c25b57
+
+3. Fechamento da capacidade
+
+A revisão encontrou que conferir a política somente no adaptador ainda permitiria
+um chamador usar diretamente ethereum_checkpoint_transition com uma capacidade
+verificada sob outra política. VerifiedCheckpoint agora carrega privadamente o
+hash da política efetivamente usada no replay. Composição local sem replay
+completo recebe hash zero. A conversão nativa compara esse valor com o
+ethereum_checkpoint_policy_hash do BridgeIdentity e rejeita divergência.
+
+O mesmo hash integra a raiz de estado USDOM e meta/bridge persistido. Registry,
+bootstrap, forks ou configuração diferentes agora produzem estados distintos e
+não podem ser restaurados sob a identidade esperada. O novo vetor de compromisso
+do lote de teste, após ampliar a identidade imutável, é:
+
+362d41f5a3705af4597d52bb6448f14f59dd8f0eb01ac12a6f0602b2f259f561
+
+Ele substitui apenas os vetores históricos das etapas 27/29 para o estado atual;
+os relatórios antigos permanecem como registro das respectivas etapas.
+
+4. Validação
+
+- 46 testes funcionais e 5 compile-fail do laboratório Ethereum passaram;
+- 16 testes do estado USDOM e 1 compile-fail passaram;
+- 62 testes da biblioteca dom-chain com o envelope v1 passaram;
+- integração LMDB de commit/restart/reorg passou;
+- Clippy do verificador e de todos os alvos dom-chain passou com warnings como
+  erros;
+- build release do caminho dom-chain/native-usdom-v4-poc passou sem
+  unsafe-test-oracle;
+- rustfmt, diff check e manifests passaram.
+
+5. Limites restantes
+
+Não há witness positivo de um registry de checkpoint real: testemunhas inválidas
+falham, mas essa ausência impede declarar o caminho operacional. Emissão e provas
+privadas continuam sem verificador. O envelope ainda não faz parte da serialização
+de Block nem da contabilidade combinada de bytes/peso, e ChainState não persiste
+o candidato v4 nem cobre branches/reorg/IBD/mineração.
+
+Ainda faltam circuito/verificador privado, carteira, witness real, ativação e
+migração revisadas, parâmetros/multisigs, shadow run e auditorias independentes.
+mainnet_ready e real_funds_ready permanecem false.

@@ -1,0 +1,63 @@
+Verificador Rust e adaptador Node — evidência limitada ao laboratório
+
+Fontes: sorenplanck/atualia, 7925ea2a701f93e795591db7d0bd0635c14d886f,
+labs/dom-private-notes. Copiados para integration-check/labs/dom-private-notes
+no ambiente isolado de auditoria. Os crates opcionais DOM apontam somente para
+o checkout correto sorenplanck/dom-protocol em d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+Nenhum crate nativo foi alterado ou ativado.
+
+Adaptações locais identificadas em integration-check/source-provenance.json:
+- Cargo.toml: caminhos dos crates opcionais para resolver o workspace correto.
+- tests/snapshot_monitor.rs: exportação opcional somente de material público
+  para testar o adaptador Node com um processo verificador real.
+Os fontes da biblioteca, binário verificador e circuitos permanecem idênticos
+à referência. O teste exporta configuração pública, VK, histórico criptografado,
+resultado normalizado e snapshot com prova corrompida. Não exporta chaves do
+issuer/sequenciador, proving key, seeds ou aberturas de notas.
+
+Compilação e testes
+Rust/cargo 1.98.0; dependências fixadas no Cargo.lock. Downloads ocorreram em
+cache próprio. Compilação e testes foram executados sem rede externa em bwrap;
+os checkouts de referência e implementação ficaram montados somente para leitura.
+Foram executados 11 testes em privacy.rs e um em snapshot_monitor.rs.
+A geração de fixtures reexecutou o mesmo teste de snapshot, não um 13º teste distinto.
+Os três testes Node opcionais chamam o binário compilado por snapshotReader,
+recebendo dados de servidores HTTP loopback, sem substituir sua saída por mocks.
+
+Comandos no ambiente de auditoria
+ bash integration-check/run-rust.sh --fetch cargo fetch --locked
+ bash integration-check/run-rust.sh cargo test --offline --locked --release \
+   --test snapshot_monitor --test privacy
+ bash integration-check/run-rust.sh env \
+   USDOM_PUBLIC_FIXTURE=/audit/integration-check/public-fixture \
+   cargo test --offline --locked --release --test snapshot_monitor
+ No diretório labs/usdom-reserve, com caminhos absolutos para os artefatos:
+ USDOM_RUST_VERIFIER=/.../integration-check/target/release/verify_snapshot \
+ USDOM_PUBLIC_FIXTURE=/.../integration-check/public-fixture \
+ node --test test/integration/rust-snapshot.test.mjs
+A suíte opcional falha se as variáveis/artefatos não estiverem presentes; não
+fica silenciosamente ignorada. Ela é separada dos 27 testes Node normais.
+run-rust.sh contém o caminho local do toolchain e precisa ser ajustado em outra
+máquina. O checkout DOM completo é necessário para resolver manifests opcionais,
+mesmo que a feature dom-regtest não seja compilada. Não habilitamos essa feature.
+
+O que os resultados demonstram
+Provas de notas reais são aceitas e violações testadas são rejeitadas; replay,
+limites, isolamento entre ativos, recebimento criptografado e restauração possuem
+casos de teste. O adaptador conserva quantidades inteiras como strings, rejeita
+proof inválida mesmo com envelope assinado e respeita o fingerprint configurado.
+São evidências de comportamento desses componentes nos casos executados.
+
+O que não demonstram
+Não comprovam solidez criptográfica por auditoria independente, anonimato de
+tráfego, indistinguibilidade geral, setup seguro de produção, escala ou integração
+com validação/estado persistido dos nós DOM. A emissão ainda confia em uma chave;
+o snapshot ainda confia no sequenciador; o circuito não prova consenso RandomX.
+O teste normal de recebimento não prova criptografia correta de todo ciphertext
+malicioso, nem garante que todo usuário consiga recuperar sua nota.
+
+O replay de histórico inteiro possui limites de laboratório: árvore de 256
+notas, até 1024 blocos e snapshot de até 16 MiB. Não é um cliente de produção
+de crescimento ilimitado. O tempo observado incluiu compilação e I/O local;
+não constitui benchmark do provador de consenso ou estimativa de latência mainnet.
+Ver NATIVE-USDOM-DESIGN.txt para o projeto e os requisitos ainda não atendidos.

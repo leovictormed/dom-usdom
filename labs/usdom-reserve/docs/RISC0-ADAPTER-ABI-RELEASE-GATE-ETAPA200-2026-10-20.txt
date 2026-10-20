@@ -1,0 +1,37 @@
+USD0M — ETAPA 200
+GATE DE RELEASE PARA A ABI DOS ADAPTADORES RISC ZERO
+Data: 2026-10-20
+
+PROBLEMA
+
+A Etapa 199 corrigiu cinco propriedades de segurança nos adaptadores RISC Zero,
+mas o avaliador de prontidão ainda não as exigia. Uma revisão futura poderia
+remover uma dessas proteções, alterar os indicadores para false e ainda alcançar
+um gate verde caso os demais requisitos fossem satisfeitos.
+
+CORREÇÃO
+
+Os modos closed-mainnet e real-funds agora exigem explicitamente:
+
+- seletor bytes4 canônico no adaptador de queima finalizada;
+- retorno exatamente vazio de verify no adaptador de queima finalizada;
+- seletor bytes4 canônico no adaptador de checkpoint;
+- retorno exatamente vazio de verify no adaptador de checkpoint; e
+- resistência a return bomb sem cópia do conteúdo hostil.
+
+Cada propriedade possui um vetor independente no avaliador de prontidão. Mudar
+qualquer indicador para false produz um bloqueio requirement_<nome> e mantém
+ready=false. A fixture positiva continua demonstrando que um release completo
+e consistente pode passar quando todas as propriedades estão presentes.
+
+ESCOPO
+
+Esta etapa reforça o gate e não afirma que receipts, ImageIDs, parâmetros ou
+artefatos de produção estejam ratificados. O vetor Ethereum bruto continua
+dependendo de um evento Checkpoint real e finalizado; nenhuma fixture sintética
+foi promovida a evidência de produção.
+
+Auditoria externa e garantia absoluta de risco zero não são gates. Validação
+objetiva, evidência reproduzível e aceitação documentada do risco residual
+continuam obrigatórias. Não houve push, commit, deploy, mineração, carteira,
+transação ou uso de fundos.

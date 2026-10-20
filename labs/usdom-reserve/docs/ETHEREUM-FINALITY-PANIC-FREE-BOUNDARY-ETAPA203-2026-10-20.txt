@@ -1,0 +1,49 @@
+USD0M — ETAPA 203
+FRONTEIRA ETHEREUM FINALITY SEM PRIMITIVAS DE PANIC
+Data: 2026-10-20
+
+ACHADOS
+
+O cliente de finalidade extraía o execution view com `unreachable!` para as
+variantes de header que não carregam as raízes de execução suportadas. A
+validação atual rejeitava essas variantes antes da extração, mas a suposição
+dependia da ordem interna da biblioteca Helios.
+
+Os decoders de testemunhas de depósito e checkpoint também usavam
+`expect("fixed word")` para converter campos depois de validar o tamanho total.
+As conversões eram seguras na implementação atual, mas uma regressão na ordem
+das verificações poderia transformar bytes hostis em aborto do nó ou prover.
+
+CORREÇÕES
+
+- a extração do execution view agora retorna erro tipado para variantes sem
+  raízes de execução;
+- o cliente armazena explicitamente o último view validado, preservando o
+  accessor público infalível sem repetir uma conversão falível;
+- leituras u32/u64 usam offsets checados, fatias opcionais e erro tipado;
+- os policies estáticos deixaram de usar `expect` para materializar o limite de
+  slot interno não zero; e
+- o teste de witness de depósito rejeita todos os prefixes do header e campos
+  de comprimento máximos sem panic.
+
+CONTROLE DE REGRESSÃO
+
+`scripts/check-ethereum-finality-panic-boundary.py` cobre os seis fontes de
+produção do crate e rejeita `unwrap`, `expect`, `panic!`, `unreachable!`,
+`todo!` e `unimplemented!` antes dos módulos de teste. O inventário falha se um
+novo fonte surgir sem revisão. O autoteste injeta cada primitiva e exige sua
+rejeição. O mesmo controle valida os 409 caminhos e hashes do manifesto completo
+do laboratório Ethereum. O comando de prontidão executa o controle diretamente;
+uma simples flag JSON não consegue substituí-lo. O controle integra a
+proveniência e os gates de closed-mainnet e fundos reais.
+
+POLÍTICA
+
+O controle elimina uma classe concreta de falha de disponibilidade. Auditoria
+externa e garantia absoluta de risco zero não são gates. A aceitação explícita
+dos riscos residuais documentados continua obrigatória.
+
+ESCOPO
+
+Não houve push, commit, deploy, conexão mainnet, mineração, prova criptográfica,
+carteira, transação ou uso de fundos.

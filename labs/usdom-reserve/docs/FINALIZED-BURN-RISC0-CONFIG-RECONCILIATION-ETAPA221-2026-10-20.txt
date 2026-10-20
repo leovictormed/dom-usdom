@@ -1,0 +1,68 @@
+Stage 221 - finalized-burn RISC Zero configuration reconciliation
+Date: 2026-10-20
+
+Finding USDOM-221 (Medium)
+
+The v4 finalized-burn manifest computed verifierConfigHash from the native DOM
+rules and generic proof artifacts. DOMFinalizedBurnRiscZeroVerifier exposes a
+different on-chain verifierConfigHash: it commits the Ethereum chain, direct
+RISC Zero verifier address and runtime code hash, Groth16 selector, guest
+ImageID, journal schema and accepted capability. The release gate compared the
+v4 hash with the on-chain adapter hash, so a correctly deployed adapter could
+never satisfy the release manifest. This was fail closed, but it made the
+production release model internally inconsistent.
+
+Correction
+
+1. The finalized-burn manifest is now strict schema v5.
+2. verifierConfigHash now reproduces the exact Solidity adapter typehash and
+   ABI encoding used by DOMFinalizedBurnRiscZeroVerifier.
+3. The former rules-and-artifacts hash remains separately exposed as
+   provingProgramConfigHash. The canonical manifest SHA-256 still commits all
+   fields that produce it.
+4. The manifest now binds Ethereum chain ID, RISC Zero verifier address and
+   code hash, selector 0x73c457ba, finalized-burn guest ImageID and the raw
+   32-byte journal schema.
+5. The readiness gate cross-checks the manifest chain against the release and
+   requires the finalized-burn and checkpoint adapters to use the same RISC
+   Zero verifier address, code hash and selector.
+6. The unconfigured template contains explicit null deployment identities and
+   remains unusable until a release is assembled and objectively validated.
+
+The selected mainnet reference is the direct RiscZeroGroth16Verifier rather
+than the router or emergency-stop wrapper. RISC Zero v3.0.1's official
+deployment manifest lists these as distinct contracts. The direct verifier
+stores only immutable control parameters and selector; operational response to
+an upstream vulnerability therefore remains the responsibility of USDOM's own
+guardian and release process.
+
+Risk policy
+
+This finding is an objective release-consistency defect. It is unrelated to an
+impossible guarantee of zero risk or to the presence of an external audit.
+Residual technical risk may be accepted for an exact release after required
+tests, artifacts, configuration checks and operational exercises pass. A
+hash-model mismatch or invalid proof identity cannot be waived as residual
+risk because the deployed system would not match the reviewed release.
+
+Verification
+
+- focused Node tests: 24 passed, 0 failed;
+- complete Node suite after production lint/build: 81 passed, 0 failed;
+- focused Solidity adapter and reserve integration: 9 passed, 0 failed;
+- fixed JavaScript adapter vector:
+  verifierConfigHash
+  0x12dbf462d1be525a9d9e830e8b0a012e7778f8c7785aaf5cb51289b10fddcb72
+  provingProgramConfigHash
+  0x6527b69ed7b4d47dcd985a41e6d1d2bd76201a82561e061fd55ba2fbd1279aaa
+  canonical manifest SHA-256
+  0x547a66bfe1cb19ef907f7afc158844640fc149523bdc59a291d3abd91abf2924
+
+No deploy, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred.
+
+Primary upstream references reviewed
+
+- https://github.com/risc0/risc0-ethereum/blob/v3.0.1/contracts/deployment.toml
+- https://github.com/risc0/risc0-ethereum/blob/v3.0.1/contracts/src/groth16/RiscZeroGroth16Verifier.sol
+- https://github.com/risc0/risc0-ethereum/blob/v3.0.1/contracts/src/RiscZeroVerifierEmergencyStop.sol

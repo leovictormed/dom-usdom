@@ -1,0 +1,79 @@
+[package]
+name = "dom-usdom-checkpoint-program"
+description = "Deterministic DOM checkpoint consensus-extension reference program"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = []
+risc0-recursion = ["dep:risc0-zkvm"]
+segment-bindings = []
+segment-state-opening = ["dep:dom-usdom-state"]
+segment-portable-policy = [
+    "segment-bindings",
+    "segment-state-opening",
+    "dep:dom-usdom-privacy",
+    "dep:usdom-ethereum-finality-experiment",
+]
+portable-execution = [
+    "segment-portable-policy",
+    "dep:dom-consensus",
+    "dom-consensus/portable-crypto",
+    "dep:dom-pow",
+    "dep:dom-serialization",
+    "dep:primitive-types",
+    "dom-usdom-state/ethereum-finality",
+]
+outer-execution = [
+    "segment-portable-policy",
+]
+economic-chunks = ["portable-execution"]
+host-reference = [
+    "economic-chunks",
+    "portable-execution",
+    "segment-bindings",
+    "segment-state-opening",
+    "segment-portable-policy",
+    "outer-execution",
+    "dep:dom-chain",
+    "dep:dom-consensus",
+    "dom-consensus/native-crypto",
+    "dom-consensus/native-randomx",
+    "dep:dom-pow",
+    "dom-pow/native-randomx",
+    "dep:primitive-types",
+    "dep:dom-serialization",
+    "dep:dom-usdom-privacy",
+    "dep:dom-usdom-state",
+    "dep:usdom-ethereum-finality-experiment",
+]
+
+[dependencies]
+dom-chain = { workspace = true, features = ["native-usdom-v4-poc"], optional = true }
+dom-consensus = { path = "../dom-consensus", default-features = false, optional = true }
+dom-core.workspace = true
+dom-pow = { path = "../dom-pow", default-features = false, optional = true }
+dom-serialization = { workspace = true, optional = true }
+dom-usdom-privacy = { path = "../dom-usdom-privacy", optional = true }
+dom-usdom-state = { path = "../dom-usdom-state", optional = true }
+dom-usdom-checkpoint-statement = { path = "../dom-usdom-checkpoint-statement" }
+primitive-types = { workspace = true, optional = true }
+risc0-zkvm = { version = "=3.0.6", default-features = false, optional = true }
+sha3 = { version = "0.10", default-features = false, features = ["std"] }
+thiserror.workspace = true
+usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", optional = true }
+
+[dev-dependencies]
+ark-bn254 = "=0.5.0"
+ark-groth16 = "=0.5.0"
+ark-serialize = "=0.5.0"
+dom-consensus.workspace = true
+dom-core.workspace = true
+dom-crypto.workspace = true
+dom-pow = { path = "../dom-pow", default-features = false }
+hex.workspace = true
+primitive-types.workspace = true
+rand = "0.8.6"

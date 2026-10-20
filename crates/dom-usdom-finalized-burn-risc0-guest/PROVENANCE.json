@@ -1,0 +1,13 @@
+{
+  "schema": "dom-usdom-finalized-burn-risc0-guest-provenance-v1",
+  "risc0ZkvmVersion": "3.0.6",
+  "risc0BinfmtVersion": "3.0.5",
+  "risc0PlatformVersion": "2.2.3",
+  "guestRustVersion": "1.97.0",
+  "builderImage": "docker.io/risczero/risc0-guest-builder:r0.1.97.0",
+  "builderImageDigest": "sha256:7ae0a27fa72b10fb5c1066005bd949ae43dc4ead8a284f2d6572b99c82ab4468",
+  "cargoLockSha256": "3e9768113e223032ee85e0bce6128a59bc44be55b301b63a5d11400ad272e08d",
+  "programBinarySha256": "438adf4a9a50832da0dfbb77c0b8588d9ba1fbb41d216875e874dfa1db5dfcb0",
+  "imageId": "3975a5f01dc85b6e89925913c5555ade4aefb951c65261142384fd829a70f88a",
+  "productionApproved": false
+}

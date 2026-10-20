@@ -1,0 +1,34 @@
+Stage 228 - Content-validated mainnet attestations
+Date: 2026-10-20
+
+Finding USDOM-228 (High)
+
+The release gate required hash-addressed predeployment and cold-start evidence
+files but did not parse their contents or recompute the machine preflight
+result. Once the corresponding requirement flags were changed, arbitrary bytes
+could occupy these critical evidence slots without proving that the planned or
+deployed mainnet identities passed the current checks.
+
+Correction
+
+The readiness command now strictly parses both reports from their exact
+hash-addressed evidence paths. The pure readiness assessor requires the exact
+machine-report envelope, expected phase, `ready: true`, a zero blocker count and
+an empty blocker list. It independently reruns the current mainnet preflight
+over the embedded observation, current release configuration and externally
+pinned RISC Zero reference. The recorded finalized block number, block hash,
+readiness result and blocker count must equal the recomputed result.
+
+Tests cover missing and malformed reports, unexpected fields, wrong phases,
+forged readiness and blocker results, changed finalized-block metadata,
+substituted verifier identity, an invalid cold-start reserve state and a
+missing ending snapshot. The checks apply to predeployment in both release
+modes and to postdeployment before real funds.
+
+The report remains evidence from the selected Ethereum RPC and does not prove
+that an RPC operator is honest. That trust assumption and unknown defects may
+be accepted as residual risks for an exact release. External audit and a
+zero-risk guarantee remain optional rather than release prerequisites.
+
+No deployment, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred.

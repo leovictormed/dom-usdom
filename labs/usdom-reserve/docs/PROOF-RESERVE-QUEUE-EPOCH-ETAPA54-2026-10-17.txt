@@ -1,0 +1,54 @@
+USDOM proof reserve: emergency queue generation (stage 54, 2026-10-17)
+
+Scope
+-----
+This stage hardens USDOMProofReserve against two incident paths. It does not
+enable Ethereum mainnet, fill the zero production verifier pins, deploy a
+contract, or authorize real funds.
+
+Emergency invalidation
+----------------------
+Every accepted withdrawal now records queueEpoch. The first pause transition
+increments that epoch, clears the active linked-list endpoints and resets the
+active pending count and amount in constant time. A withdrawal from an older
+epoch cannot execute even after resume. Calling pause again while already
+paused clears any scheduled resume but does not advance the generation again.
+
+The invalidated entries remain individually readable so an incident responder
+can preserve evidence. Anyone may discard an old-generation entry immediately.
+An old entry cannot erase a newer request reservation: pendingRequests is
+deleted only when it still points to the entry being removed. A proof reviewed
+after the incident may therefore be queued again with the same request ID and a
+new burn ID. Paid burn and request IDs remain permanently consumed.
+
+The WithdrawalQueueInvalidated event records the new generation and the count
+and amount invalidated. These values describe the active queue immediately
+before the pause; they do not claim that the underlying DOM burns were invalid.
+
+Verifier identity at execution
+------------------------------
+Execution now checks the immutable verifier runtime code hash and verifier
+configuration hash again immediately before token policy checks and payout. If
+the verifier identity changes after admission, execution fails without
+consuming the burn, request, reservation or rate-limit capacity. Restoring the
+exact pinned identity allows the unchanged queued proof to execute, unless an
+emergency pause has invalidated its queue generation.
+
+Validation evidence
+-------------------
+The normal and deep Foundry suites each pass 97/97 tests. Deep fuzz cases use
+16,384 runs. Each of the three deep stateful invariants uses 1,024 runs at depth
+128, for 131,072 calls per invariant and no unexpected reverts. The Node/Anvil
+suite passes 33/33 tests. Targeted proof-reserve coverage is 95.31% lines,
+96.33% statements, 96.15% branches and 100% functions. USDOMProofReserve is
+12,832 runtime bytes, leaving 11,744 bytes below the EIP-170 limit. The fork
+profile compiles; the optional RPC-backed mainnet fork was not repeated because
+no archive RPC variable was configured in this environment.
+
+Remaining boundary
+------------------
+The verifier is still a laboratory interface. The chain-ID-1 constructor gate
+remains closed because both production verifier constants are zero. A reviewed,
+immutable Ethereum verifier for finalized DOM burns, production multisigs and
+limits, operational rehearsals, a shadow network and independent audits remain
+required before any mainnet or real-funds test.

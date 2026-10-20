@@ -1,0 +1,39 @@
+USDOM / DOM — ETAPA 115
+ADMISSÃO AGENDADA DE ENVELOPES E TEMPLATES DE MINERAÇÃO
+Data: 2026-10-18
+
+Resultado
+
+A fronteira operacional de mineração deixou de conceder autoridade por ser
+Regtest. O runtime agendado aceita envelopes em rede reconhecida somente quando
+possui o verificador de gastos comprometido pela ponte. O nó expõe uma função
+genérica de submissão, e os RPCs de transferência privada e queima usam essa
+função.
+
+Controles
+
+- O envelope continua canônico, não vazio e limitado em quantidade e bytes.
+- Todas as provas são verificadas na admissão, novamente para o timestamp do
+  template e pela terceira vez no ingresso do pacote final.
+- Em rede pública, ausência do SpendVerifier comprometido falha fechado.
+- O template é criado sob a ordem global de locks chain -> runtime e fica preso
+  ao tip observado.
+- O pacote minerado volta pelo ingresso agendado comum, que repete consenso,
+  programação, políticas Ethereum, estado e verificador.
+- O wrapper Regtest permanece para compatibilidade e rejeita qualquer outra
+  rede; ele não é mais usado pelos RPCs genéricos.
+
+Validação
+
+- dom-chain: 75 testes aprovados, 0 falhas.
+- dom-node native runtime: 8 testes aprovados, 0 falhas.
+- Vetores de mineração, relay e IBD autenticado continuam aprovados.
+- Clippy default e native para dom-chain/dom-node, todos os alvos, warnings
+  negados: aprovado.
+- cargo fmt --all -- --check: aprovado.
+
+Limites
+
+A programação pública ainda não está configurada, e não existe chave
+verificadora de produção instalada. Esta etapa disponibiliza o caminho
+fail-closed; não ativa produção, deploy ou fundos reais.

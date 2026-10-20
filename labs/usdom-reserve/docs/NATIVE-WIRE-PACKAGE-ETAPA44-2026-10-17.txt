@@ -1,0 +1,53 @@
+USDOM nativa — framing P2P separado e limitado para o pacote v4
+Etapa 44, 2026-10-17
+
+Estado: codec opt-in; nenhum handler do DomNode ou negociação pública é ativado.
+Sem deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Falha tratada
+
+O protocolo existente transporta apenas BlockPayload. Colocar o envelope USDOM
+nesse payload permitiria ambiguidade entre Block e pacote, e destacar o sidecar
+em outra mensagem quebraria a verificação canônica que exige ambos juntos.
+
+2. Comando e payload isolados
+
+O feature native-usdom-v4-poc de dom-wire adiciona Command::UsdomV4Package com
+discriminante 0x0d. Sem o feature, esse discriminante continua desconhecido e o
+limite de mensagem permanece byte a byte como antes.
+
+UsdomV4PackagePayload usa a tag UDOMV4W1, comprimento u32 big-endian e os bytes
+exatos do pacote canônico. O conteúdo precisa ser não vazio e não pode exceder
+MAX_BLOCK_SERIALIZED_SIZE; o limite externo da mensagem inclui somente os 12
+bytes adicionais de framing. O parser confere soma com overflow, consumo exato,
+reencodificação canônica, truncamento e bytes finais.
+
+O codec não interpreta nem autentica provas. Autoridade continua surgindo
+somente quando NativeUsdomV4Runtime entrega os bytes integrais ao verificador e
+ao commit atômico.
+
+3. Compatibilidade
+
+O comando é removido em compilação no build padrão. Isso impede que esta etapa
+altere silenciosamente o protocolo público ou aceite pacotes sem runtime. O
+build experimental precisa de negociação e isolamento Regtest antes de ligar o
+handler; essa ligação ainda não faz parte desta etapa.
+
+4. Evidência
+
+O teste cobre roundtrip do payload e WireMessage, separação do comando, vazio,
+tag alterada, comprimento alterado, truncamento e byte extra. Passaram 149 testes
+dom-wire no build padrão e 150 no build opt-in, incluindo limites máximos, Noise,
+eclipse resistance, property tests e timeouts. Clippy dom-wire/dom-chain, build
+release, integração do runtime, rustfmt e diff check passaram.
+
+5. Limites restantes
+
+DomNode ainda não possui runtime configurado, handler, relay, pedido/resposta
+IBD ou fila de órfãos/futuro para este comando. A negociação precisa impedir que
+um peer sem a capacidade receba 0x0d. Mineração ainda não produz o pacote.
+
+Permanecem também os bloqueadores de provas privadas, witness real, custo,
+carteira, ativação e auditorias. mainnet_ready e real_funds_ready continuam
+false.

@@ -1,0 +1,134 @@
+DOM checkpoint reorganization barrier — isolated proof of concept
+Date: 2026-10-17
+
+Status
+
+This experiment demonstrates one narrow property: after a checkpoint for an
+already-canonical DOM block is persisted, the feature-gated DOM fork-choice
+path rejects any heavier known branch whose common ancestor is earlier than
+that checkpoint. It is disabled in normal builds, can be installed only on
+regtest and has no mainnet activation path.
+
+The checkpoint input is a TEST ORACLE assertion. The implementation does not
+authenticate Ethereum consensus, an Ethereum receipt or storage proof, a DOM
+state transition, a USDOM burn, or a zero-knowledge proof. It must not be used
+to authorize deposits, withdrawals, deployment or real funds.
+
+Code insertion points
+
+1. crates/dom-chain/Cargo.toml adds the empty ethereum-checkpoint-poc feature.
+2. crates/dom-chain/src/lib.rs exposes the experiment only with that feature.
+3. ChainState::open calls ensure_current after persisted-genesis validation.
+   A malformed checkpoint or an anchor missing from canonical history stops
+   startup rather than silently discarding the checkpoint.
+4. ChainState::connect_block calls ensure_current before processing a block.
+5. ChainState::promote_heavier_known_tip calls check_reorg after finding the
+   common ancestor and validating branch-header syntax, but before fork-choice
+   promotion, canonical disconnection or other canonical state mutation.
+
+Checkpoint statement
+
+The fixed 285-byte, version-2 record binds all of these fields:
+
+- monotonic sequence and previous checkpoint identifier;
+- DOM height and block identifier;
+- a future DOM state/public-input commitment;
+- Ethereum chain ID;
+- asserted finalized Ethereum execution block number and hash;
+- asserted Ethereum receipts root;
+- asserted checkpoint contract and log index;
+- verifier/protocol configuration hash; and
+- digest of the exact external proof transcript.
+
+The checkpoint identifier is Blake2b-256 over a domain separator and the exact
+encoding. The experiment pins Ethereum chain ID 1, a deliberately non-deployed
+synthetic contract identity, and a synthetic verifier configuration hash. A
+record with substituted policy values is rejected both at installation and
+after restart. The first checkpoint must have sequence one and a zero previous
+identifier. Later records must advance by exactly one, link to the preceding
+identifier, increase the DOM height and increase the Ethereum block number.
+Only an exact duplicate is idempotent.
+
+Fork-choice effect
+
+Before a known heavier branch can replace canonical history, DOM calculates
+its common ancestor with the current tip. If the ancestor height is lower than
+the persisted checkpoint height, promotion fails with PolicyRejected before
+the canonical index or in-memory tip changes. An ancestor at the checkpoint or
+later remains eligible for the existing fork-choice and reorganization rules.
+
+This demonstrates where an authenticated checkpoint rule can constrain the
+current implementation. It does not make the rule a network consensus rule.
+Nodes can compile without the feature, hold different local records or accept
+different oracle input. Such nodes can disagree about the valid chain.
+
+Trust and missing production work
+
+The test oracle is fully trusted for every Ethereum and DOM assertion. A
+production design needs deterministic certificate carriage and validation so
+all upgraded nodes derive the same checkpoint from the same consensus-visible
+data. Local RPC observation or administrator-written metadata is insufficient.
+
+A production checkpoint certificate would need, at minimum:
+
+- authenticated Ethereum finalized-header evidence under a precisely pinned
+  consensus/fork schedule and validator-set transition rule;
+- an authenticated receipt or state proof for a uniquely identified Ethereum
+  checkpoint contract and event/state commitment;
+- replay protection, monotonic sequencing and exact configuration binding;
+- a sound proof that the committed DOM state contains the claimed finalized
+  native USDOM burn and nullifier while revealing no private transfer history;
+- native USDOM issuance, transfer and burn validation in DOM consensus;
+- a network activation rule, versioning, bootstrap/snapshot validation and a
+  deterministic response to malformed, conflicting or unavailable evidence;
+- an Ethereum verifier for the final burn statement, with reproducible proving
+  and verification artifacts and an independent security audit.
+
+Operational and consensus risks
+
+Availability: if Ethereum finality, proof generation or data delivery stops,
+checkpoint progress can stop. The design must specify whether DOM continues
+without new checkpoints and how long withdrawals remain unavailable.
+
+Censorship: checkpoint publishers or Ethereum inclusion can delay a valid DOM
+checkpoint. Multiple permissionless publishers help availability but do not
+replace proof verification.
+
+Ethereum reorganization or finality failure: accepting anything weaker than
+authenticated Ethereum finality can cause DOM nodes to pin conflicting states.
+An exceptional Ethereum finalized conflict needs an explicit, conservative
+recovery policy; silently selecting a replacement can enable double payment.
+
+DOM partition or divergent local observation: locally installed metadata can
+split fork choice. Production evidence and activation must be consensus-visible
+and deterministic, with identical validation on every enforcing node.
+
+Bootstrap and recovery: a new or restored node must authenticate the complete
+checkpoint chain and its corresponding canonical DOM history. Database edits,
+snapshots and configuration substitution must fail closed. Recovery authority
+cannot be allowed to rewrite a burn already used for an Ethereum withdrawal.
+
+Privacy: publishing a DOM block/state commitment and a proof of a nullified burn
+can avoid publishing private transfer history, but Ethereum deposits, payouts,
+amounts and addresses remain public and may still be correlated. Privacy claims
+require a concrete circuit, leakage analysis and cryptographic review.
+
+Concurrency and atomicity: this proof of concept assumes ChainState operations
+and checkpoint installation are serialized by the caller. A production design
+must make checkpoint acceptance and the relevant canonical-state transition
+atomic, or prove that its synchronization prevents races.
+
+Validation evidence
+
+- cargo test --locked -p dom-chain: 194 passed, 0 failed across 26 suites.
+- feature integration suite: 9 passed, 0 failed.
+- cargo fmt --package dom-chain -- --check: passed.
+- cargo clippy --locked -p dom-chain --features ethereum-checkpoint-poc
+  --all-targets -- -D warnings: passed.
+
+The feature suite covers the real fork-choice insertion point, boundary
+behavior, regtest restriction, canonical anchoring, restart persistence,
+monotonic advancement, policy substitution, field binding, malformed storage
+and persisted canonical conflicts. It deliberately does not test Ethereum
+authentication, RandomX, native USDOM state transitions or a burn proof because
+none of those components is implemented by this experiment.

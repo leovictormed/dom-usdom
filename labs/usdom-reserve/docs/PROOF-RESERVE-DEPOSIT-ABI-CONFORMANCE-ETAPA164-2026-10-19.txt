@@ -1,0 +1,56 @@
+Conformidade de depósito e resgate da reserva de provas — etapa 164
+Data: 2026-10-19
+
+Problema
+========
+
+O contrato rejeitava receivingCommitment fora do campo escalar BN254, mas o
+verificador de recibos Rust aceitava qualquer bytes32 não zero como
+VerifiedDeposit. A transição nativa rejeitava o valor mais tarde, criando uma
+capacidade parcialmente válida entre duas fronteiras de consenso. Além disso,
+o vetor MPT local positivo autenticava o protótipo de quórum e continha dois
+compromissos não canônicos; portanto não demonstrava o caminho da reserva de
+provas candidata à produção.
+
+Correção
+========
+
+O compositor Ethereum agora reaplica exatamente o limite estrito do módulo
+BN254 usado por USDOMProofReserve.deposit. Zero, o próprio módulo e valores
+maiores falham antes da criação de VerifiedDeposit; módulo menos um continua
+aceito.
+
+Um gerador reproduzível e restrito a Anvil em loopback/chain ID 31337 implanta
+HostileToken, controles locais, verificador simulado e a USDOMProofReserve
+compilada. Ele minera dois depósitos canônicos no mesmo bloco, serializa os
+recibos Ethereum, constrói suas provas MPT e coleta a prova de conta e o
+bytecode no mesmo state root. O vetor substituto autentica o runtime da reserva
+de provas e compromissos 0x18..18 e 0x29..29.
+
+A fronteira final de pagamento também recebeu um vetor único reproduzido em
+Rust e Solidity. Ambos obtêm
+0xd0fba5e6bd8c34e9f730bd6b198d65f16279d7c85f934eb03b4497631dd88d43
+para os mesmos 13 campos públicos de FinalizedBurn. Isso detecta mudanças de
+ordem, largura ABI, type hash, chain ID, endereço da reserva ou compromisso de
+ativação antes de integrar um verificador EVM.
+
+Validação
+=========
+
+- 8/8 testes de depósito Rust passam, incluindo as duas provas MPT positivas,
+  mutações de recibo/conta/código e limites BN254.
+- 6/6 testes do programa portátil de queima passam.
+- 120/120 testes Solidity passam, incluindo o vetor Rust/Solidity.
+- Clippy com warnings negados passa no laboratório Ethereum, no gerador de
+  provas MPT e no programa de queima.
+- A formatação dos arquivos alterados e a sintaxe do gerador Node passam.
+
+Limite de segurança
+===================
+
+As provas de recibo, conta e código são reais para a EVM local, mas a finalidade
+Beacon do fixture permanece sintética. Ainda não existe depósito da reserva
+implantada na Ethereum mainnet, backend sucinto de produção, verificador EVM
+auditado ou ciclo real de pagamento. Os hashes de produção permanecem zerados e
+os gates closed-mainnet/real-funds continuam fechados. Nenhum push, commit,
+deploy público, transação pública ou uso de fundos ocorreu.

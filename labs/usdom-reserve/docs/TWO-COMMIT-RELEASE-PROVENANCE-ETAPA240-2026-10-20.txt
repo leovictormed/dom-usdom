@@ -1,0 +1,73 @@
+USDOM ETAPA 240 — PROVENIÊNCIA CONSTRUÍVEL EM DOIS COMMITS
+Data: 2026-10-20
+Status: implementado e validado localmente
+
+Achado USDOM-240
+
+Severidade: Alta para disponibilidade e integridade da cerimônia de release.
+Exposição pública atual: nenhuma; nenhum commit, push, deploy ou fundo real.
+
+O gate da etapa 239 exigia `sourceCommit` igual a HEAD. Porém, o próprio arquivo
+de evidência que contém `sourceCommit`, o aceite do operador e seus hashes eram
+parte da árvore desse mesmo commit e do manifesto de fontes. Produzir o release
+exigiria encontrar um ponto fixo criptográfico do hash de commit do Git. Um
+release normal, limpo e assinado não conseguia satisfazer o gate.
+
+Correção
+
+A procedência agora separa duas responsabilidades:
+
+1. Um commit-fonte imutável e assinado fixa código, testes, contratos,
+   requisitos técnicos, especificações e `MANIFEST.sha256`.
+2. Um commit de evidências assinado, distinto e com exatamente um pai, deve ter
+   o `sourceCommit` como esse pai único.
+3. A tag anotada e assinada do release resolve para o commit de evidências.
+4. Os dois commits e a tag devem ser autenticados pela chave fixada fora do
+   repositório e ambos os commits usam somente
+   `Soren Planck <sorenplanck@tutamail.com>` como autor e committer.
+5. O diff entre os commits deve modificar os dois metadados de release e pode
+   apenas adicionar ou modificar arquivos sob `labs/usdom-reserve/evidence/`.
+   Exclusões, duplicatas, merges, caminhos malformados e qualquer alteração de
+   código ou configuração técnica são rejeitados.
+
+O manifesto de fontes exclui somente:
+
+- `config/mainnet-release-evidence.unconfigured.json`;
+- `config/operator-intent.json`;
+- o diretório `evidence/`;
+- o checkpoint operacional `docs/CONTINUATION-STATE.md`.
+
+`config/production-requirements.json`, contratos, SDK, scripts, testes e demais
+documentos continuam cobertos. A árvore precisa permanecer limpa; portanto
+nenhuma mutação posterior dos caminhos excluídos pode escapar do Git. A árvore
+final também é fixada pelo commit de evidências e pela tag assinada.
+
+Validação focal inicial
+
+- autoteste do manifesto: passou;
+- teste do parser de diff NUL do Git: passou;
+- sintaxe dos dois módulos Node alterados: passou;
+- suíte focal de prontidão: 34/34 passou, incluindo mutações de pai ausente ou
+  múltiplo, assinatura e identidade de cada commit, tag no commit errado,
+  metadado ausente, código alterado, exclusão, duplicata e caminho malformado.
+
+Endurecimento final
+
+Os dois metadados separados do manifesto e todos os arquivos de evidência são
+lidos somente por um limite comum que exige arquivo regular direto no caminho
+exato abaixo da raiz. Escape, diretório e link simbólico são rejeitados antes
+do parse. O teste isolado cobre cada caso.
+
+Validação final
+
+- suíte Node completa: 105/105;
+- suíte Solidity completa: 138/138;
+- lint de produção e compilação forçada: passaram;
+- teste focal final: 35/35;
+- manifesto final: 850 arquivos; seu digest é registrado no resumo de
+  verificação externo ao próprio manifesto para evitar autorreferência;
+- procedência completa: passou para 169 fontes importadas, 16 modificações
+  registradas, todos os guests/limites/manifests subordinados e o manifesto
+  raiz;
+- gates esperadamente não prontos: 148 bloqueios únicos em closed-mainnet e
+  159 em real-funds, sem condição de auditoria externa ou risco zero.

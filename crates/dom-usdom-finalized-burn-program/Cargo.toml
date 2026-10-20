@@ -1,0 +1,29 @@
+[package]
+name = "dom-usdom-finalized-burn-program"
+description = "Deterministic finalized USDOM burn proof-program boundary"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+dom-core.workspace = true
+dom-usdom-privacy = { path = "../dom-usdom-privacy" }
+dom-usdom-state = { path = "../dom-usdom-state" }
+sha3 = { version = "0.10", default-features = false, features = ["std"] }
+usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality" }
+
+[dev-dependencies]
+alloy = { version = "=2.1.0", default-features = false, features = ["consensus", "eips", "rlp"] }
+alloy-rlp = "=0.3.16"
+alloy-trie = { version = "=0.9.8", features = ["ethereum"] }
+bls12_381 = { version = "=0.8.0", features = ["experimental"] }
+dom-usdom-state = { path = "../dom-usdom-state", features = ["unsafe-test-oracle"] }
+helios-consensus-core = { package = "dom-ethereum-consensus-core", path = "../dom-ethereum-consensus-core" }
+hex.workspace = true
+serde_json = "=1.0.151"
+sha2 = "=0.9.9"
+tree_hash = { path = "../dom-ethereum-tree-hash" }
+usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", features = ["unsafe-test-oracle"] }
+

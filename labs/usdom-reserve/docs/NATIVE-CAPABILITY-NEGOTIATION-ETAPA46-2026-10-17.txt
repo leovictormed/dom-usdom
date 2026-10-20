@@ -1,0 +1,68 @@
+USDOM nativa — prologue v4 e capacidade bilateral autenticada
+Etapa 46, 2026-10-17
+
+Estado: negociação implementada; handler P2P native-v4 ainda fechado.
+Sem commit, push, deploy ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Problema tratado
+
+Command 0x0d não pode ser interpretado com segurança por uma conexão que só
+provou compatibilidade com o protocolo público v3/v2. Acrescentar bytes ao
+Hello v3 também quebraria decodificadores implantados, que exigem comprimento
+exato.
+
+2. Sessão experimental separada
+
+O build native-usdom-v4-poc de dom-wire oferece prologues Noise na ordem
+4 -> 3 -> 2. O build padrão permanece exatamente 3 -> 2. A versão escolhida é
+criptograficamente incorporada ao transcript Noise; após o handshake, o Hello
+precisa declarar exatamente essa mesma versão.
+
+Somente um DomNode que realmente restaurou NativeUsdomV4Runtime lidera com v4.
+Compilar o feature sem configurar o runtime mantém o nó em v3, inclusive em
+Mainnet/Testnet, evitando sondagens experimentais por acidente.
+
+3. Hello v4 e bit de capacidade
+
+Hello v4 acrescenta um bitmap u64 após advertised_port. O bit
+CAPABILITY_NATIVE_USDOM_V4 declara suporte ao pacote exato da etapa 44. Formas
+v1, v2, v3 e v4 agora são ligadas à versão declarada: misturar a versão de uma
+forma com o comprimento de outra falha, fechando uma ambiguidade anterior.
+
+A capacidade native-v4 só é negociada quando:
+- o prologue autenticado da sessão é exatamente v4;
+- o nó local possui runtime restaurado e anuncia o bit; e
+- o Hello autenticado do peer também anuncia o bit.
+
+Fallback para v3/v2 remove a capacidade em vez de conservá-la. Um atacante que
+force indisponibilidade pode causar perda de funcionalidade native-v4, mas não
+consegue transformar uma sessão antiga em autoridade para pacotes USDOM. Esta
+etapa oferece segurança contra downgrade de autorização, não disponibilidade
+contra censura ativa.
+
+4. Compatibilidade
+
+Hello v1 omite timestamp, v2 inclui timestamp, v3 inclui advertised_port e v4
+inclui também capabilities. A serialização espelha o prologue da sessão. Os
+testes de fallback percorrem dinamicamente todas as versões suportadas, portanto
+o build experimental alcança peers v2 após tentativas novas em v4 e v3.
+
+5. Evidência
+
+Passaram 151 testes dom-wire no build padrão e 152 no build opt-in, incluindo
+Noise, limites, eclipse resistance, property tests e timeouts. Passaram 317
+testes unitários dom-node no build opt-in (um teste manual ignorado), dois testes
+do runtime e o teste dirigido de capacidade/prologue. Clippy dom-wire/dom-node,
+release check, rustfmt e diff check passaram.
+
+6. Limites restantes
+
+O message_loop ainda rejeita 0x0d mesmo após negociação; a próxima ligação deve
+carregar o booleano autenticado até o handler, usar o runtime restaurado e enviar
+relay somente a peers mutuamente capazes. IBD/GetBlockData, órfãos, fila futura,
+mineração, snapshots e custo de prova continuam pendentes.
+
+Permanecem também witness Ethereum real, provas privadas revisadas, carteira,
+ativação/migração, parâmetros de produção, shadow run e auditorias independentes.
+mainnet_ready e real_funds_ready continuam false.

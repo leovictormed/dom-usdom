@@ -1,0 +1,62 @@
+USDOM / DOM — ETAPA 120
+VINCULAÇÃO DA CERIMÔNIA DE RECUPERAÇÃO À POLÍTICA E AO ENDEREÇO
+Data: 2026-10-18
+
+Achado
+
+O primeiro utilitário da etapa 119 exigia o domínio DOM e imprimia o hash da
+política compilada. Um operador ainda poderia usar um binário de carteira com
+política diferente daquela ratificada no manifesto e perceber a divergência
+somente por comparação manual. A verificação também reproduzia o endereço, mas
+não exigia o endereço público registrado pela cerimônia de criação.
+
+Correção
+
+- `create` e `verify` agora exigem `--privacy-policy-hash` com 32 bytes
+  canônicos. Divergência com a política compilada falha antes de ler a senha.
+- `verify` exige `--expected-address` com a codificação canônica USDADR01.
+- O endereço esperado deve pertencer ao chain scalar derivado do domínio e da
+  política informados.
+- A restauração só retorna sucesso quando o endereço derivado do backup é
+  exatamente igual ao endereço esperado.
+- `create` rejeita `--expected-address`, evitando que uma entrada externa seja
+  confundida com o endereço recém-gerado.
+- Entradas parciais, duplicadas, maiúsculas ou de tamanho incorreto continuam
+  rejeitadas.
+
+Validação
+
+- 5 testes dirigidos aprovados, 0 falhas.
+- Criação e verificação contra o endereço correto: aprovadas.
+- Endereço substituído: rejeitado.
+- `verify` sem endereço esperado: rejeitado.
+- `create` com endereço pré-imposto: rejeitado.
+- Política esperada divergente é recusada antes da fronteira de senha.
+- Clippy, todos os alvos, warnings negados: aprovado.
+- cargo fmt --all -- --check e git diff --check: aprovados.
+
+Uso atualizado
+
+create:
+
+dom-usdom-wallet-recovery create \
+  --backup-file CAMINHO_NOVO \
+  --password-file ARQUIVO_0600 \
+  --dom-domain DOM_DOMAIN_DO_MANIFESTO \
+  --privacy-policy-hash PRIVACY_POLICY_HASH_DO_MANIFESTO
+
+verify, em processo ou máquina independente:
+
+dom-usdom-wallet-recovery verify \
+  --backup-file CAMINHO \
+  --password-file ARQUIVO_0600 \
+  --dom-domain O_MESMO_DOMÍNIO \
+  --privacy-policy-hash O_MESMO_HASH \
+  --expected-address ENDEREÇO_REGISTRADO_NA_CRIAÇÃO
+
+Limites
+
+Os valores ainda devem ser retirados do manifesto aprovado e comparados com a
+saída do pré-validador offline. Custódia, redundância, HSM/keystore, memória
+bloqueada, autoridade monotônica e ensaio formal de desastre continuam sendo
+requisitos externos. Nenhum push, deploy ou uso de fundos foi realizado.

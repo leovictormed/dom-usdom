@@ -1,0 +1,68 @@
+USDOM / DOM — ETAPA 119
+UTILITÁRIO DE CRIAÇÃO E VERIFICAÇÃO DO BACKUP DE RECUPERAÇÃO
+Data: 2026-10-18
+
+Achado
+
+As etapas 99 e 100 implementaram a seed determinística opaca e o backup
+criptografado sem sobrescrita, mas não havia uma fronteira operacional para o
+usuário criar e testar esse backup. Um integrador teria de escrever código
+próprio ao redor das primitivas, aumentando o risco de colocar senha ou seed em
+argv, ambiente, log ou arquivo em claro.
+
+Correção
+
+O crate dom-usdom-wallet agora oferece o binário opcional
+dom-usdom-wallet-recovery, compilado apenas com a feature recovery-cli.
+
+- `create` gera a seed com OsRng, deriva as chaves separadas por cadeia, grava o
+  backup Argon2id + XChaCha20-Poly1305 com publicação atômica create-only,
+  recarrega o arquivo e exige que o endereço público restaurado seja idêntico.
+- `verify` autentica e restaura um backup existente e reproduz o mesmo endereço
+  público, sem expor a seed.
+- A senha só é aceita por caminho de arquivo. O arquivo deve ser regular, não
+  symlink, do usuário efetivo, modo 0600, link count 1 e estar em diretório 0700.
+- A leitura é limitada a 1024 bytes mais uma quebra final e o buffer recebe
+  Zeroizing antes do primeiro read; inclusive caminhos de erro apagam o conteúdo.
+- O domínio DOM exige 32 bytes em hexadecimal minúsculo. O chain scalar inclui
+  esse domínio e o hash da política de privacidade compilada.
+- A saída contém somente domínio, hash público da política, chain scalar e
+  endereço público. Seed e senha não possuem saída.
+- Nova execução `create` no mesmo destino é rejeitada e não substitui o backup.
+
+Validação
+
+- Testes dirigidos do utilitário: 4 aprovados, 0 falhas.
+- Criação, restauração, endereço idêntico e tentativa de sobrescrita: aprovados.
+- Permissões inseguras de arquivo/diretório e symlink: rejeitados.
+- Parser parcial, duplicado, ambíguo e domínio não canônico: rejeitados.
+- dom-usdom-wallet com todas as features: 26 testes da biblioteca e 4 do
+  binário aprovados, 0 falhas.
+- Clippy, todos os alvos e features, warnings negados: aprovado.
+- cargo fmt --all -- --check e git diff --check: aprovados.
+
+Uso
+
+cargo run -p dom-usdom-wallet --features recovery-cli \
+  --bin dom-usdom-wallet-recovery -- create \
+  --backup-file CAMINHO_NOVO \
+  --password-file ARQUIVO_0600 \
+  --dom-domain 64_HEX_MINÚSCULO
+
+Depois, em uma máquina/processo independente:
+
+cargo run -p dom-usdom-wallet --features recovery-cli \
+  --bin dom-usdom-wallet-recovery -- verify \
+  --backup-file CAMINHO \
+  --password-file ARQUIVO_0600 \
+  --dom-domain O_MESMO_DOMÍNIO
+
+Limites
+
+O utilitário reduz erros de integração, mas não constitui sozinho uma cerimônia
+de produção. Ainda faltam distribuição redundante do backup, custódia de senha,
+integração com HSM/keystore, memória bloqueada, autoridade monotônica de
+snapshots e exercício independente de desastre. Por isso
+native_private_wallet_key_management_implemented,
+native_private_wallet_recovery_ceremony_implemented e mainnet_ready permanecem
+false. Nenhum push, deploy ou uso de fundos foi realizado.

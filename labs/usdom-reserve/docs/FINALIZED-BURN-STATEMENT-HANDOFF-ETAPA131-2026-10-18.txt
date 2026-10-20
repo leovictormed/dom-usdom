@@ -1,0 +1,62 @@
+USDOM ETAPA 131 — HANDOFF CANÔNICO DA QUEIMA FINALIZADA
+Data: 2026-10-18
+
+ACHADO
+
+A composição nativa já exportava a queima, o bloco, a raiz de estado, a agenda
+de ativação e o checkpoint Ethereum verificado, mas ainda não derivava em Rust
+o hash público exato consumido por USDOMProofReserve. Cada implementação futura
+do provador teria de reconstruir a ABI separadamente. Além disso, o campo
+Solidity se chamava finalityEpoch embora a evidência produzida pelo verificador
+seja o último Beacon slot autenticado como finalizado. Uma época Ethereum, um
+slot, uma geração do verificador e um contador DOM não são intercambiáveis.
+
+CORREÇÃO
+
+- FinalizedBurn usa o nome e a semântica finalityBeaconSlot em Solidity, SDK e
+  documentação;
+- NativeBurnBlockBinding exporta também o endereço da reserva comprometido pela
+  raiz nativa;
+- FinalizedBurnStatement::from_checkpoint_binding deriva todos os campos apenas
+  da composição autenticada de queima nativa e checkpoint Ethereum;
+- a derivação rejeita domínio, bloco, raiz, agenda, slot, identificadores,
+  destinatário, valor ou prazo zero, divergência de chain ID/reserva e compromisso
+  BurnIntent inconsistente;
+- statement_hash reproduz exatamente keccak256(abi.encode(...)) da reserva;
+- Rust, JavaScript e Solidity congelam o mesmo typehash, e Rust/JavaScript
+  congelam o mesmo vetor completo de statementHash.
+
+SEMÂNTICA CONGELADA
+
+BURN_STATEMENT_TYPEHASH:
+0xb4a224b119278936bec16ab7cf63f13d2cc130395834d17a30335b9158062ced
+
+Vetor cruzado de statementHash:
+0x1016275e2148a768d3ff2afca10d14e8b74d7c0d8ac0a3b2d2c3758f81510318
+
+O slot publicado é ethereum_finality_beacon_slot da capacidade opaca produzida
+pelo verificador BLS/SSZ/ancestralidade/recibo. O provador de produção deverá
+demonstrar que o checkpoint do bloco DOM está incluído antes ou nesse estado
+Ethereum finalizado. O nome não concede essa prova por si só.
+
+VERIFICAÇÃO
+
+- dom-chain com native-usdom-v4-poc: 76 testes, 0 falhas;
+- clippy de todos os alvos dom-chain com warnings negados: aprovado;
+- cargo fmt e forge fmt: aprovados;
+- Solidity: 104 testes, 0 falhas, incluindo invariantes;
+- Node/SDK/EVM: 45 testes, 0 falhas;
+- runtime compilado do vetor: 14.432 bytes,
+  0x45ac86ecca6b9e7744a3cb0f959abbf56eed293ebcd15a9275d818b4910b8dd3;
+- initcode compilado do vetor: 18.373 bytes,
+  0x259c6fe66bb8713fd1845003fe06a8ba5d788a43427c723e5410b24a85307f6f.
+
+LIMITE
+
+Esta etapa elimina divergência de ABI e ambiguidade slot/época na fronteira do
+provador. Ela não implementa o circuito/guest, o verificador Solidity final, a
+regra de fork choice DOM reconhecendo o checkpoint, nem ratifica uma agenda de
+produção. Os hashes de produção permanecem zero; mainnet e fundos reais seguem
+bloqueados.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.

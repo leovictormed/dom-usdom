@@ -1,0 +1,99 @@
+USDOM ETAPA 64 — FILA LIMITADA DE PROVAS PRIVADAS PARA MINERAÇÃO REGTEST
+Data: 2026-10-17
+Escopo: implementação isolada no branch local codex/usdom-reserve-v3
+
+DECISÃO
+
+Esta etapa não libera mainnet, deploy, depósitos ou fundos reais. Ela elimina o
+bloqueio interno em que o minerador v4 só conseguia construir envelopes vazios.
+O runtime experimental agora aceita candidatos locais não vazios e entrega ao
+minerador um envelope e um compromisso de batch derivados da mesma verificação
+usada no consenso.
+
+MODELO DE AUTORIDADE
+
+A fila nunca transforma parsing ou admissão local em autoridade de consenso.
+Um envelope passa por três limites separados:
+
+1. admissão: framing canônico, políticas, provas Ethereum/Groth16 e transição
+   sobre o estado atual são verificados;
+2. template: todas as provas e a transição são reexecutadas no estado e no
+   timestamp exatos escolhidos para o bloco;
+3. ingresso final: após encontrar o PoW, o pacote completo bloco+envelope passa
+   novamente pelo ingresso serializado normal antes de qualquer commit.
+
+O header usa o batch_header_commitment produzido no passo 2. O passo 3 o
+recalcula a partir dos bytes transportados; substituir o envelope após a
+mineração invalida o rangeproof_root ligado ao header.
+
+LIMITES E CICLO DE VIDA
+
+- máximo de 16 envelopes locais;
+- máximo agregado de 16 MiB de bytes canônicos;
+- envelopes vazios externos são recusados; o runtime cria o vazio de fallback;
+- deduplicação ocorre antes de repetir criptografia cara;
+- não existe eviction por nova entrada: quando cheio, o pool recusa o candidato;
+- candidatos retryable giram para o fim da fila;
+- candidatos gastos, expirados ou incompatíveis com o novo estado são removidos;
+- se nenhum candidato é válido, a cadeia continua com envelope vazio;
+- somente um bloco que se torna canônico remove definitivamente seu candidato;
+- uma corrida que produz side chain mantém o candidato para outro template;
+- o pool é volátil: após restart, carteira/relayer precisa reenviar o envelope.
+
+A fila não possui endpoint público de rede ou RPC nesta etapa. A API é um
+método explícito no DomNode Regtest, evitando transformar o protótipo em uma
+superfície remota sem autenticação, quota e política operacional.
+
+OBSERVABILIDADE
+
+Foram adicionadas métricas Prometheus para:
+
+- quantidade atual de candidatos;
+- bytes canônicos retidos;
+- admissões rejeitadas;
+- candidatos admitidos depois removidos por ficarem obsoletos.
+
+TESTES
+
+O teste criptográfico existente foi ampliado para provar que uma transferência
+Groth16 real:
+
+- entra na fila somente sob a chave exata comprometida pela ponte;
+- é deduplicada sem aumentar contagem ou bytes;
+- gera o mesmo batch_header_commitment do candidato serializado verificado;
+- preserva os bytes exatos do envelope;
+- é removida após conclusão canônica simulada;
+- é descartada e substituída por envelope vazio depois que seu nullifier já
+  aparece no estado.
+
+O teste do nó confirma que vazio externo e payload privado sem verificador são
+rejeitados e contabilizados. O minerador real continua passando pelo pacote v4,
+persistência e relay exatos no caso vazio. A suíte completa do dom-chain passou
+239 testes, o runtime nativo passou 7, a métrica dirigida passou e clippy dos
+dois crates passou com warnings como erros.
+
+Ainda não existe um vetor de nó com emissão Ethereum real seguida de gasto
+privado minerado. Criar um por atalho test-only enfraqueceria a evidência; esse
+teste deve usar o futuro vetor de depósito USDT finalizado e a chave da
+cerimônia de teste.
+
+BLOQUEIOS PARA FUNDOS REAIS
+
+1. cerimônia Groth16 multiparte, transcript reproduzível e chave de produção;
+2. auditorias externas do circuito, implementação Rust e contratos Solidity;
+3. wallet/prover, armazenamento seguro de segredos, scanning, witness e memo;
+4. endpoint autenticado e rate-limited para submissão de candidatos, ou
+   integração direta com a carteira local;
+5. verificador Ethereum de queima finalizada e hashes auditados na reserva;
+6. vetor real de depósito USDT finalizado seguido de transferência/queima e
+   mineração não vazia ponta a ponta;
+7. ensaios prolongados multinó com reorganização, atraso, censura e restart;
+8. ativação fora de Regtest, migração, snapshot, governança e resposta a
+   incidentes revisados independentemente.
+
+STATUS
+
+O minerador experimental deixou de ser limitado a batches vazios, mas a função
+continua Regtest-only e sem endpoint público. mainnet_ready, deploy_authorized e
+real_funds_authorized permanecem false. Nenhum commit, push, deploy ou fundo
+real foi usado.

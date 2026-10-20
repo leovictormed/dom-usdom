@@ -1,0 +1,89 @@
+USDOM candidate-v2 side branches and atomic reorganization — stage 152
+Date: 2026-10-18
+
+Purpose
+=======
+
+Stage 151 accepted only a canonical candidate-v2 direct extension. This stage
+adds the complete retained-branch and fork-choice path without activating any
+public network.
+
+Immutable V2 sidecar
+====================
+
+UDV2SC01 canonically stores the exact proof envelope and bounded UDV2W001
+execution-witness bundle for a non-canonical block. Decoding rejects unknown
+versions, invalid lengths, truncation and trailing bytes. Package and witness
+loaders reconstruct the same recovery inputs from either canonical consensus
+metadata or this immutable sidecar.
+
+Side-branch validation
+======================
+
+store_usdom_v2_side_package_for_schedule requires the exact ratified network,
+chain and V1-to-V2 schedule. It verifies header linkage, height, timestamps,
+PoW, target and accumulated work, finds the canonical common ancestor without
+crossing the activation boundary, rewinds the authenticated V2 state to that
+ancestor, and replays every retained parent package and witness before
+executing the new candidate. Only then are the block and sidecar retained.
+Canonical pointers, UTXOs, kernels and V2 state are unchanged.
+
+Atomic fork-choice promotion
+============================
+
+promote_usdom_v2_known_tip_for_schedule accepts only a deterministic
+higher-ranked tip inside the reorganization and rolling-finality limits. It
+revalidates every promoted header and accumulated-work transition, replays all
+proof envelopes and stateless V2 executions from the common ancestor, verifies
+checkpoint targets against the promoted ancestry, and rebuilds ordinary DOM
+UTXO and kernel changes. Canonical height pointers, ordinary state, every V2
+block record, the final V2 runtime tip and checkpoint floor commit in one LMDB
+transaction. Caller memory changes only after that commit succeeds.
+
+ingest_usdom_v2_package_for_schedule is the single scheduled entry point. It
+performs exact package-and-witness duplicate detection, connects a new direct
+extension, retains a weaker side branch, or replays and promotes a better known
+tip. A known block with substituted recovery bytes fails closed.
+
+Directed recovery vector
+========================
+
+The integration vector now builds canonical A1/A2 and competing B2/B3. B2
+loses the equal-work hash tie-break and is retained. B3 makes the branch
+strictly heavier. Before promotion, its UDV2SC01 bytes are corrupted directly
+in LMDB; ingress rejects the candidate while the canonical tip, height index
+and caller state remain unchanged. Restoring the exact sidecar allows one
+atomic A2 -> B2/B3 reorganization. The vector verifies its delta, canonical
+height map, removed and added coinbase UTXOs, package recovery, exact duplicate
+handling, LMDB close/reopen and complete proof-and-state replay after restart.
+
+Validation
+==========
+
+- All 77 dom-chain library tests passed.
+- All six native-USDOM ChainState integration tests passed, including the
+  expanded V2 branch/corruption/reorg/restart vector.
+- The complete dom-chain command passed every library, integration,
+  adversarial, property, maximum-depth reorg and doctest target.
+- dom-chain Clippy passed for all targets with warnings denied. Cargo
+  formatting and Git whitespace validation passed.
+- Readiness gates continue to reject the unconfigured release with 130
+  closed-mainnet and 138 real-funds blockers, as intended.
+
+Security boundary and remaining work
+====================================
+
+Candidate-v2 direct extensions, retained branches, deterministic fork choice,
+atomic reorganization and restart recovery now exist at ChainState level. The
+live node still selects the V1 full-state runtime and does not yet transport V2
+packages and witnesses through peer relay, orphan handling, IBD or mining.
+
+Production also still requires a real finalized Ethereum deposit through
+issuance, transfer, burn proof and payout; a selected production finality and
+proving backend; reproducible proving/verifying artifacts and ceremonies;
+ratified multisigs, limits, delays and recovery procedures; prolonged multi-
+node/fork/failure rehearsals; and independent consensus, privacy-circuit and
+Solidity audits.
+
+Public-network pins remain unset and readiness gates remain fail closed. No
+push, commit, deployment, transaction or use of funds was performed.

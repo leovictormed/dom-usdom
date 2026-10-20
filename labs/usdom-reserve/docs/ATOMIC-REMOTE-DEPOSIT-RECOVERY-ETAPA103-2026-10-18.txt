@@ -1,0 +1,64 @@
+Atomic remote historical deposit recovery — etapa 103
+Date: 2026-10-18
+Status: isolated wallet/library implementation; no push, deployment, mainnet activation, or real funds
+
+Finding USDOM-103
+
+Severity: Medium wallet recovery consistency and availability risk.
+Current public exposure: none; no commit, push, deployment or transaction was performed.
+
+The wallet already authenticated complete remote history through an exact
+operator-pinned DOM tip and could recover an Ethereum deposit from canonical
+history. Those operations were separate public calls. A caller could therefore
+apply a valid remote history segment and then fail to recover the requested
+deposit, leaving the wallet advanced despite the failed recovery operation.
+The production requirement for an end-to-end remote historical deposit rescan
+also remained false.
+
+Remediation
+
+- UsdomRpcClient::recover_historical_deposit now composes the strict loopback
+  authenticated-history fetch with exact local deposit recovery.
+- The RPC response must reach the exact trusted tip before any returned block
+  becomes available to the wallet.
+- Ownership and the note commitment are derived locally from the wallet secret,
+  immutable bridge identity and independently authenticated Ethereum deposit
+  occurrence. No RPC balance, ownership claim or leaf index is accepted.
+- WalletState::apply_authenticated_history_and_recover_deposit treats applying
+  the complete segment and recovering the note as one atomic operation.
+- If the occurrence is absent, malformed, duplicated or otherwise invalid, all
+  blocks applied by the call are rolled back to the exact original height and
+  identifier.
+- Late-deposit recovery now establishes both reorg-undo insertion positions
+  before its first mutation, preventing a fallible post-mutation update.
+- The existing 65,536-block rescan bound, response-size cap, loopback-only URL,
+  disabled redirects, bearer authentication and complete history validation
+  remain enforced.
+
+Validation
+
+- positive atomic history/recovery test derives and credits the exact issuance
+  note, advances to the authenticated tip and preserves its spend witness;
+- negative atomic test applies a valid segment whose requested occurrence is
+  absent, then proves exact tip restoration and zero residual wallet records;
+- loopback HTTP integration test exercises the public client method and proves
+  the same rollback behavior after strict RPC response authentication;
+- complete wallet suite with rpc-client: 25 passed, 0 failed;
+- affected-package Clippy with all targets, rpc-client and -D warnings: passed;
+- Rustdoc, cargo fmt, JSON syntax and git diff checks: passed;
+- closed-mainnet gate: correctly rejected with 70 blockers;
+- real-funds gate: correctly rejected with 78 blockers, one fewer than etapa
+  102 because the remote historical deposit rescan requirement is now met.
+
+Security boundary
+
+This closes the protocol/library rescan path. It does not make an operator-
+pinned tip final, does not provide a production monotonic snapshot authority,
+does not install production proving keys, and does not authenticate the
+Ethereum occurrence by itself. The caller must obtain that occurrence from the
+separately verified Ethereum deposit path and persist successful state using
+the existing sealed snapshot protocol.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false. No production status, push, deployment or
+real-funds authorization changed.

@@ -1,0 +1,78 @@
+USDOM nativa — handoff de persistência atômica e restauração autenticada
+Etapa 36, 2026-10-17
+
+Estado: adaptador opt-in somente para Regtest. Sem ativação no ChainState vivo,
+mineração, P2P ou IBD; sem deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Capacidade verificada para lote LMDB
+
+VerifiedUsdomV4Candidate agora deriva o lote determinístico completo que deve ser
+entregue a DomStore::commit_block_with_consensus_state. Antes de produzir o lote,
+ela exige novamente:
+
+  - o estado anterior cuja raiz consta no receipt;
+  - o pacote canônico exato cujo hash está na capacidade;
+  - o mesmo identificador de cabeçalho sob o network magic verificado; e
+  - a raiz final recalculada pelo estado opaco.
+
+O lote contém o delta canônico do estado, undo, metadados mínimos do pacote,
+envelope de provas e marcador do tip USDOM. A validação pública e não mutante de
+limites do dom-store é executada antes de abrir uma transação. Chaves duplicadas,
+valor acima de 4 MiB, lote acima de 16 MiB ou contagem excessiva falham cedo.
+
+2. Provas preservadas para replay
+
+O corpo legado armazenado continua sendo o Block canônico, preservando leitores
+existentes. O envelope v4 é dividido deterministicamente em valores de no máximo
+MAX_CONSENSUS_STATE_VALUE_BYTES (4 MiB). Metadados versionados comprometem o hash
+do pacote, comprimento total e número exato de chunks.
+
+load_persisted_usdom_v4_package recompõe Block + envelope e revalida comprimentos,
+framing canônico, identificador do cabeçalho e hash de todos os bytes. Chunk
+ausente, alterado, vazio, excessivo ou com soma divergente é corrupção fatal; os
+bytes não recebem autoridade parcial.
+
+3. Ativação vazia e restauração
+
+native_usdom_v4_activation_updates produz somente a imagem integral do estado
+vazio canônico, vinculada a um bloco de ativação não zero. Estado com emissão,
+queima, nota ou âncora não pode ser introduzido como gênese USDOM.
+
+restore_persisted_usdom_v4_state exige simultaneamente:
+
+  - todas as entradas canônicas usdom/v1 e sua raiz comprometida;
+  - BridgeIdentity exata;
+  - tip USDOM igual ao tip canônico fornecido;
+  - raiz do marcador igual à raiz restaurada; e
+  - pacote do tip presente e com hash exato após o primeiro bloco v4.
+
+Hash de pacote zero é reservado ao estado vazio no bloco de ativação. Um estado
+não vazio nunca pode reabrir sob esse marcador.
+
+4. Testes
+
+O teste de integração da capacidade grava ativação, corpo de bloco, delta USDOM,
+undo, marcador e envelope numa transação; restaura o estado e recompõe bytes
+idênticos. Substituição do pacote, tip incorreto e corrupção de chunk falham. A
+ativação rejeita bloco zero e estado previamente emitido.
+
+- 65 testes da biblioteca dom-chain passaram;
+- 63 testes do pacote dom-store, inclusive SIGKILL e atomicidade, passaram;
+- 16 testes do estado USDOM e 1 compile-fail passaram;
+- Clippy de todos os alvos dom-chain passou com warnings como erros;
+- build release sem unsafe-test-oracle passou;
+- rustfmt e diff check passaram.
+
+5. Limites restantes
+
+ChainState ainda precisa chamar este handoff somente depois de validar parent,
+MTP, future time, PoW, target, dificuldade acumulada, fork choice e inputs. Side
+branches precisam preservar seus envelopes sem alterar estado canônico e o reorg
+deve reverter/aplicar receipts em uma única transação. Mineração, P2P, IBD e
+snapshots ainda não carregam o pacote.
+
+Também faltam witness positivo de registry real, verificadores revisados de
+emissão/transferência/queima privadas, política de custo, carteira, parâmetros,
+ativação/migração, shadow run e auditorias independentes. mainnet_ready e
+real_funds_ready permanecem false.

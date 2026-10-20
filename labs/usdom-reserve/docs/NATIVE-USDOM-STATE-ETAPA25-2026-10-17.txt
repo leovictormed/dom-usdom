@@ -1,0 +1,50 @@
+USDOM nativa — unicidade de resgate e ensaio fechado atualizado
+Etapa 25, 2026-10-17
+
+Estado: prova de conceito isolada. Sem ativação, deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Falha corrigida
+
+O estado nativo já impedia burnId repetido, mas não impedia duas queimas com
+burnIds diferentes de reutilizarem o mesmo requestId. A reserva Ethereum reserva
+e consome tanto burnId quanto requestId. Assim, depois do primeiro pagamento, uma
+segunda queima com o mesmo requestId seria irrecuperável mesmo sendo aceita pela
+DOM.
+
+BurnRecord agora contém requestId explícito. NativeUsdomState mantém seu índice
+de unicidade, rejeita zero ou repetição antes de alterar nullifiers/notas, inclui
+o campo no compromisso das queimas e na raiz composta, e o persiste no formato
+canônico. A reconstrução do banco rejeita requestIds repetidos. Um rollback só
+libera o requestId junto da remoção exata da queima correspondente e depois de
+validar a raiz posterior; uma queima canônica permanece consumida para sempre.
+
+2. Validação
+
+- dom-usdom-state: 9 testes unitários e 1 compile-fail passaram;
+- integração LMDB de connect/restart/reorg: passou;
+- clippy do estado com warnings como erros: passou;
+- checkpoint autenticado/regtest: 26 testes passaram;
+- Solidity padrão: 94 testes passaram;
+- Solidity profundo: 94 testes passaram, com 16.384 casos por propriedade e
+  três invariantes de 1.024 execuções x profundidade 128 (131.072 chamadas cada);
+- fork local no bloco Ethereum finalizado 26.210.509: 7 testes passaram.
+
+No bloco 26.210.509, consultado por RPC somente leitura, o USDT canônico manteve
+o runtime keccak256
+0xb44fb4e949d0f78f87f79ee46428f23a2a5713ce6fc6e0beb3dda78c2ac1ea55,
+6 casas, paused=false, deprecated=false, basisPointsRate=0 e maximumFee=0. O
+fork executou localmente; nenhuma transação pública foi enviada.
+
+3. Distância para mainnet fechada
+
+O ensaio fechado com estado Ethereum real em fork local está pronto e repetido.
+Uma implantação privada com USDT real continua bloqueada pelo próprio construtor:
+os hashes do verificador de produção são zero. A trava não será removida até
+existirem e serem revisados o circuito privado de emissão/transferência/queima,
+o compromisso da raiz USDOM no consenso DOM, o caminho de validação completo e
+o verificador Ethereum imutável da queima finalizada.
+
+Também faltam parâmetros aprovados, multisigs independentes, execução shadow
+multinó, cerimônias/reprodução de artefatos e auditorias externas. Portanto
+real_funds_ready e mainnet_ready permanecem false.

@@ -1,0 +1,77 @@
+USDOM nativa — filas exatas de órfãos e timestamps futuros
+Etapa 50, 2026-10-17
+
+Estado: tolerância a reordenação implementada somente no POC Regtest.
+Sem commit, push, deploy ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Problema tratado
+
+O ingresso e o IBD das etapas anteriores preservavam o pacote nativo completo,
+mas o caminho de erro ainda herdava filas de blocos DOM comuns. Um filho v4
+recebido antes do pai ou um pacote dentro da tolerância de timestamp poderia
+perder o envelope de provas, a origem de relay ou ambos. Um órfão também
+encerrava a sessão que poderia fornecer seu pai.
+
+2. Órfãos nativos
+
+RuntimeNativeUsdomV4OrphanPool retém os bytes UDOMV4W1 exatos, hash, pai,
+altura e conexão de origem. A fila é separada da fila de blocos comuns, limitada
+por quantidade total, quantidade por pai e 256 MiB agregados. Duplicatas não
+criam trabalho adicional, a remoção sob pressão é determinística e filhos
+liberados são ordenados por altura e hash.
+
+Ao receber um filho sem pai, a sessão autenticada continua aberta, o nó registra
+a lacuna no MissingBlockTracker e solicita o pai por GetBlockData. Quando o pai
+é aceito, os descendentes são reprocessados pelo mesmo ingresso atômico. Pacotes
+malformados, índices divergentes e rejeições definitivas são descartados; um
+descendente ainda órfão volta à fila limitada. O fan-out conserva os bytes e
+suprime a conexão que originalmente forneceu cada pacote.
+
+3. Pacotes futuros
+
+NativeUsdomV4FutureQueue conserva o pacote e sua origem dentro dos mesmos
+limites de 256 entradas e 64 MiB da política de blocos futuros. Admissão,
+substituição, remoção, expiração e eviction usam aritmética verificada e
+contabilidade exata. O dreno é canônico por altura e hash.
+
+Uma tarefa supervisionada independente reavalia pacotes quando passam a caber
+na janela de aceitação. A tarefa existe somente quando o runtime nativo Regtest
+foi explicitamente instalado, participa da primeira fase do encerramento e
+move um pacote para a fila de órfãos caso o timestamp amadureça antes de seu pai.
+As filas são deliberadamente voláteis: após reinício, a recuperação autorizada
+é o IBD por pacote persistido.
+
+4. Janela temporal correta
+
+O dreno comum usava a tolerância adicional como corte de prontidão. Isso
+atrasava Mainnet/Regtest e provocava tentativas prematuras em Testnet; a
+revalidação de ChainState preservava o consenso, mas criava churn e atraso. O
+corte agora corresponde ao limite de aceitação de cada rede: 120 segundos para
+Mainnet/Regtest e 30 segundos para Testnet. O caminho nativo Regtest usa 120
+segundos e sempre revalida o pacote completo antes de persistir.
+
+5. Pilha assíncrona
+
+O primeiro ensaio da tarefa de dreno expôs stack overflow com a pilha padrão do
+worker Tokio. O teste só passava com RUST_MIN_STACK ampliado, resultado que foi
+rejeitado. Os futuros do listener, conector e drenos foram isolados em limites
+Box::pin; o teste e a suíte completa agora passam com a configuração padrão.
+
+6. Evidência
+
+results-stage50-2026-10-17 contém os logs finais. A biblioteca dom-node passou
+324 testes automáticos no modo native-usdom-v4-poc e 318 no modo padrão; em
+cada modo há um único teste manual de cadência ignorado. Os seis ensaios nativos
+passam, incluindo órfão antes do pai, maturação temporal, dreno supervisionado,
+reinício e IBD real entre dois nós. Clippy com -D warnings, builds release,
+rustfmt e diff check passaram nos dois modos relevantes.
+
+7. Limites restantes
+
+Ainda faltam mineração que construa e publique o pacote, snapshots vinculando
+estado/cobertura/sidecars, métricas e alertas específicos para as filas nativas,
+contabilidade de custo criptográfico, witness Ethereum positivo de produção,
+provas privadas revisadas, produto de carteira, ativação e migração, parâmetros,
+shadow run e auditorias independentes. mainnet_ready e real_funds_ready seguem
+false.

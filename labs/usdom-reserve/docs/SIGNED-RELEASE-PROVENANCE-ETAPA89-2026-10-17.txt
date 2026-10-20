@@ -1,0 +1,47 @@
+Signed release provenance gate — etapa 89
+Date: 2026-10-17
+Status: implemented and intentionally rejecting the current working tree
+
+Finding USDOM-089
+
+Severity: High supply-chain risk for a production release.
+Current public exposure: none; no commit, tag, push, deployment or funds action.
+
+The stage 88 gate compared hash-addressed evidence and compiled release pins,
+but its sourceCommit was only a manifest string. Without checking live Git
+state, a release directory could claim a reviewed revision while containing
+uncommitted changes, a different HEAD, an unsigned tag or unauthorized commit
+metadata.
+
+Remediation
+
+The release CLI now obtains provenance directly from Git without a shell:
+
+- exact HEAD and porcelain status;
+- author and committer identity of HEAD;
+- declared tag target;
+- git verify-commit result for HEAD;
+- git verify-tag result for the declared annotated release tag.
+
+The gate requires a clean tree, sourceCommit equal to HEAD, the declared tag to
+resolve to HEAD, valid commit and tag signatures, and author/committer exactly
+Soren Planck <sorenplanck@tutamail.com>. Manifest values cannot override these
+observations. Unit tests independently reject dirty state, a substituted HEAD
+and an unverifiable tag.
+
+Current authoritative result
+
+- closed-mainnet mode: rejected, exit 1, 44 blocker assertions;
+- real-funds mode: rejected, exit 1, 52 blocker assertions;
+- provenance-specific failures include dirty tree, absent declared commit/tag,
+  unverifiable signatures and non-release HEAD identity;
+- Node/SDK/integration suite: 38 passed; 0 failed;
+- Solidity stage 87 evidence remains 100 default and 100 deep tests passed.
+
+No signing key is requested or stored by the project. Producing an authenticated
+release commit and tag is an operator-controlled ceremony after all code,
+audits and manifests are final. A local commit alone would not satisfy the gate
+without the signatures and clean, hash-matched evidence set.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

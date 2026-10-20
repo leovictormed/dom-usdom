@@ -1,0 +1,61 @@
+USDOM ETAPA 79 — RECUPERACAO CANONICA TARDIA DE DEPOSITO
+Data: 2026-10-17
+
+PROBLEMA CORRIGIDO
+
+A carteira reconhecia uma emissao de USDOM somente quando o deposito Ethereum
+era registrado antes de seu compromisso aparecer na cadeia DOM. Se a carteira
+estivesse desligada, atrasada ou restaurada sem esse registro, o compromisso
+continuava no acumulador global, mas a nota legitima nao era adicionada ao
+inventario privado. register_expected_deposit recusava corretamente o registro
+tardio para impedir que uma inclusao arbitraria recebesse autoridade, mas nao
+existia um caminho de recuperacao autenticado.
+
+RECUPERACAO
+
+recover_canonical_deposit aceita a ocorrencia Ethereum completa e a identidade
+imutavel da ponte, deriva novamente a abertura de origem Issuance e exige que o
+compromisso exato ja exista no historico canonico local produzido somente por
+transicoes verificadas. O metodo nao aceita leaf index, caminho Merkle, saldo,
+nullifier ou compromisso informados por RPC.
+
+Antes de alterar o estado, a carteira:
+
+1. valida chain, politica de privacidade, genesis Ethereum, destinatario e
+   campos obrigatorios da ocorrencia;
+2. rejeita depositId, compromisso ou nota ja registrados;
+3. localiza uma unica posicao do compromisso no commitment_log canonico;
+4. localiza o unico bloco de insercao correspondente no historico de undo;
+5. deriva o nullifier com a chave privada da carteira e detecta se ele ja foi
+   observado;
+6. quando gasto, localiza o unico bloco que incluiu o nullifier e rejeita gasto
+   anterior a emissao;
+7. reconstrui o acumulador global e todos os caminhos das notas controladas e
+   exige a mesma raiz e o mesmo numero de folhas atuais.
+
+Somente depois dessas verificacoes a nota e adicionada. O undo do bloco de
+emissao passa a remove-la em uma reorganizacao. Se ela foi gasta em bloco
+posterior, o undo desse bloco passa a restaurar exatamente seu estado nao gasto.
+Uma nota emitida e gasta no mesmo bloco e removida pelo undo da propria emissao.
+
+SNAPSHOT
+
+A validacao do snapshot agora exige que cada spent_existing_note seja ligado ao
+nullifier derivado da propria abertura no mesmo bloco de undo. Para notas
+emitidas e gastas no mesmo bloco, exige-se a insercao no mesmo undo e proibe-se
+classifica-las falsamente como existentes antes do bloco. As listas de notas de
+undo precisam estar em ordem canonica estrita. Isso impede que um snapshot
+autenticado, mas semanticamente inconsistente, altere o comportamento de reorg.
+
+GARANTIAS E LIMITES
+
+Esta recuperacao funciona quando a carteira conservou ou reaplicou o historico
+canonico completo de compromissos desde sua ancora vazia. Ela nao confia numa
+declaracao isolada do no e nao transforma uma resposta RPC em prova de saldo.
+Ainda falta um bootstrap/rescan remoto capaz de fornecer toda a projecao USDOM
+necessaria e permitir que a carteira a revalide desde uma ancora autenticada.
+
+A etapa nao fornece finalidade de producao, verificador Ethereum final, chaves,
+multisigs, parametros economicos ou auditoria independente. mainnet_ready,
+deploy_authorized e real_funds_authorized permanecem false. Nenhum commit, push,
+deploy ou fundo real foi usado.

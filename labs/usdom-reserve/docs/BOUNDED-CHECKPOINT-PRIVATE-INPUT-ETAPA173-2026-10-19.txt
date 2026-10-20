@@ -1,0 +1,47 @@
+Stage 173 - bounded checkpoint segment private input
+Date: 2026-10-19
+
+UDCSTN01 commits a private input, but the bytes behind that commitment still
+needed one canonical, allocation-safe transport. An unframed list of packages
+and witnesses could permit count, boundary or trailing-data ambiguity and could
+allocate attacker-selected lengths before enforcing a segment resource policy.
+
+Implemented UDCSPI01
+
+1. CheckpointSegmentPrivateInput carries 1 through 32 ordered block inputs.
+   Each contains one canonical DOM block package, one candidate-v2 native state
+   witness bundle and one ordinary-DOM economic witness.
+2. Decoding rejects the whole input above 64 MiB before allocating component
+   buffers. Per-component ceilings are 16 MiB for the block package, 4 MiB for
+   the native witness bundle and 16 MiB for the economic witness.
+3. All lengths use fixed big-endian fields with checked arithmetic, exact
+   consumption and canonical re-encoding. A domain-separated Keccak-256
+   commitment is inserted directly into the matching UDCSTN01 statement.
+4. In host-reference mode, every component passes through its consensus-owned
+   canonical decoder: UsdomV4BlockPackage, UsdomV2ExecutionWitnesses and
+   EconomicBlockWitness.
+
+Verification
+
+- Four directed tests cover exact round trip, every truncated prefix, trailing
+  data, wrong magic, forged oversized lengths, zero and excessive block count,
+  empty components, exact UDCSTN01 binding, positive typed components and
+  malformed typed components.
+- The package passed 15 default tests and 21 host-reference tests with zero
+  failures. The release-only 390-block vector remains deliberately ignored in
+  the ordinary suite.
+- Clippy passed for all targets and all features with warnings denied; rustfmt
+  check passed.
+
+Remaining boundary
+
+The 64 MiB ceiling is a defensive candidate resource policy, not yet a proven
+production completeness bound. The current economic sparse multiproof has a
+much larger protocol-level theoretical maximum, so a valid maximum-weight DOM
+block may not fit. Production must measure realistic worst cases and either
+prove a sufficient cap or recursively divide one block's economic transition
+without weakening DOM consensus. No guest executes UDCSPI01 yet, RandomX proof
+and recursive aggregation remain absent, and production ImageIDs, real vectors,
+bootstrap ratification and independent audits remain open. Mainnet and real
+funds remain blocked. No deploy, public transaction, funds, commit or push
+occurred.

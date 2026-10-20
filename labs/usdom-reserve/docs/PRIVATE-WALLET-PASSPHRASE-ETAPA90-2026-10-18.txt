@@ -1,0 +1,48 @@
+Private wallet passphrase boundary — etapa 90
+Date: 2026-10-18
+Status: isolated wallet hardening; no commit, push, deployment or real funds
+
+Finding USDOM-090
+
+Severity: Medium locally; High when a wallet controls redeemable production notes.
+Current public exposure: none; production wallet key management remains incomplete.
+
+The native USDOM wallet already stored its long-lived owner and scan secrets in
+an authenticated encrypted snapshot using the shared Argon2id/HKDF and AEAD
+envelope. Its public persistence methods nevertheless accepted arbitrary &str
+values. That allowed empty or trivially short passphrases and gave the API no
+ownership boundary through which secret input could be erased after use.
+
+Remediation
+
+All USDOM snapshot save, load, two-phase authorization and crash-reconciliation
+entry points now require WalletPassphrase. This type:
+
+- owns the moved String and exposes no public plaintext accessor;
+- implements neither Clone nor Debug and cannot be serialized;
+- zeroizes valid contents on drop;
+- explicitly zeroizes rejected input before returning an error;
+- rejects blank input and encoded lengths outside 16 through 1,024 bytes;
+- publishes the exact minimum and maximum constants for wallet front ends;
+- retains the existing Argon2id 64 MiB / t=3 / p=1, HKDF-SHA256 and authenticated
+  encryption envelope beneath the narrowed API.
+
+Every in-tree caller was migrated. There is no alternate &str persistence path
+inside dom-usdom-wallet.
+
+Validation
+
+- dom-usdom-wallet all-features suite: 22 passed; 0 failed;
+- dedicated passphrase boundary regression: passed;
+- all-target/all-feature Clippy with -D warnings: passed;
+- cargo fmt and git diff whitespace validation: passed;
+- workspace search found no external caller bypassing the new type.
+
+Production boundary
+
+This is a memory and misuse hardening boundary, not complete production key
+management. Funds still require a reviewed user-input path, platform secret or
+hardware integration, secure backups and recovery, session locking, memory
+exposure evaluation, and integration with a production monotonic seal
+authority. Accordingly native_private_wallet_key_management_implemented and
+real_funds_authorized remain false.

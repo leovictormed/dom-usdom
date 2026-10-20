@@ -1,0 +1,46 @@
+USDOM ETAPA 123 — PROCEDÊNCIA E MANIFESTO COMPLETO DOS FONTES
+Data: 2026-10-18
+
+ACHADO
+
+A reconciliação do modelo de confiança alterou operator-intent.json, mas o hash
+current_sha256 em LOCAL-CHANGES.json ainda descrevia uma revisão anterior. A
+verificação de importação já falhava também em outros dez arquivos importados
+que evoluíram durante o endurecimento. MANIFEST.sha256 tinha dezenove hashes
+antigos e não cobria os fontes e documentos adicionados nas etapas recentes.
+Assim, o pacote podia passar testes funcionais e ainda falhar em sua própria
+cadeia de procedência.
+
+CORREÇÃO
+
+1. Todos os 15 arquivos importados deliberadamente modificados agora possuem o
+   hash atual exato em LOCAL-CHANGES.json, preservando o hash original em
+   PROVENANCE.json e a justificativa humana da modificação.
+2. scripts/source-manifest.py define de forma determinística o conjunto completo
+   de fontes: arquivos regulares ordenados por bytes de caminho, excluindo
+   somente caches, node_modules, artefatos de compilação, resultados históricos
+   e o próprio manifesto.
+3. A verificação exige formato SHA-256 canônico, ordem, unicidade implícita,
+   conjunto de caminhos exato e digest de cada arquivo. Um arquivo ausente,
+   extra ou alterado falha fechado.
+4. MANIFEST.sha256 foi regenerado com 670 arquivos atuais, incluindo contratos,
+   configurações, SDK, scripts, testes, documentação e dependências vendorizadas.
+5. npm run check:provenance executa tanto a procedência do import quanto o
+   manifesto completo dos fontes.
+
+LIMITES E SEPARAÇÃO
+
+Resultados históricos e artefatos gerados não entram no manifesto dos fontes.
+Evidências de release e o artefato Solidity de produção continuam exigindo seus
+próprios caminhos e SHA-256 no gate mainnet. O comando --write é uma operação
+explícita de manutenção; o comando padrão é somente leitura e nunca corrige uma
+divergência automaticamente.
+
+VERIFICAÇÃO
+
+- verify-import.py: 169 importados verificados, 15 modificações registradas;
+- source-manifest.py: 670 fontes completos, ordenados e verificados;
+- git diff --check: aprovado;
+- production readiness permanece false.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.

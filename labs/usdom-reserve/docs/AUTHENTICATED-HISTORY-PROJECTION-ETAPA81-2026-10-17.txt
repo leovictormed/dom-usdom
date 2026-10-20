@@ -1,0 +1,67 @@
+USDOM ETAPA 81 — PROJECAO HISTORICA AUTENTICADA PELO CABECALHO
+Data: 2026-10-17
+
+OBJETIVO
+
+Preparar o nucleo verificavel do rescan remoto sem transformar uma resposta RPC
+em autoridade sobre saldo. O no precisa fornecer os efeitos publicos de cada
+transicao e os memos cifrados, mas a carteira deve conseguir recalcular os
+compromissos e liga-los ao transitions_root e ao cabecalho DOM.
+
+PROJECAO PUBLICA
+
+TransitionCommitmentProjection representa a preimage publica exata de uma
+transicao v2. Ela cobre os quatro tipos nativos:
+
+- emissao: dominio, deposito, compromisso de nota, valor e ancora Ethereum;
+- transferencia: ancora de notas, nullifiers, saidas e compromisso do memo;
+- queima: os mesmos campos privados mais a obrigacao Ethereum completa;
+- checkpoint: dominio e ancora Ethereum autenticada.
+
+A projecao nao contem aberturas de notas, chaves nem bytes de prova e nao pode
+ser aplicada ao estado. consensus_commitment valida forma, escalares BN254,
+ordem canonica, obrigacao de queima e regra do memo antes de reproduzir o hash
+v2. O codec UDPRJ001 e limitado a 512 bytes, rejeita todos os prefixos,
+trailing bytes, discriminadores desconhecidos e codificacoes nao canonicas.
+
+PERSISTENCIA
+
+BatchUndo passou de USDBAT02 para USDBAT03 e persiste uma projecao para cada
+undo na mesma ordem do lote. Decodificacao exige contagens iguais, dominio
+unico, compromissos validos e transitions_root recomputado. Qualquer alteracao
+de memo, nota, nullifier, deposito, ancora ou obrigacao invalida o undo antes de
+rollback ou exportacao. Lotes vazios continuam sendo autenticados com o dominio
+fornecido pelo estado/cabecalho.
+
+EXPORTACAO LOCAL AUTENTICADA
+
+load_authenticated_usdom_v4_history_block carrega somente o pacote e undo
+persistidos atomicamente para um bloco atualmente canonico. A funcao:
+
+1. recalcula o identificador do cabecalho e confere o indice canonico;
+2. decodifica USDBAT03 e confere timestamp e numero de transicoes;
+3. recalcula todas as projecoes, transitions_root e batch header commitment;
+4. recalcula o PMMR ordinario e exige que o rangeproof_root do cabecalho vincule
+   exatamente o compromisso USDOM;
+5. exige correspondencia de tipo entre sidecar e projecao;
+6. para transferencias e queimas, decodifica o payload, compara nullifiers e
+   saidas e recalcula memo_scalar sobre os bytes cifrados exatos.
+
+O resultado contem bloco, pai, altura, timestamp, roots anterior/posterior,
+transitions_root, compromisso de lote e transicoes ordenadas. Isso permite que
+uma pagina futura de RPC transporte dados revalidaveis em vez de afirmacoes
+isoladas do servidor.
+
+LIMITES
+
+Esta etapa implementa o nucleo de armazenamento e exportacao local. Ainda nao
+existe endpoint RPC paginado, cliente de carteira que percorra as paginas,
+ancora final confiavel fornecida pelo operador nem aplicacao atomica das paginas
+ao snapshot cifrado. A funcao confirma canonicidade no armazenamento local no
+instante da chamada, mas isso nao substitui uma prova portatil de PoW, fork
+choice ou finalidade adicional. O chamador precisa manter um snapshot estavel
+e ligar a ancestralidade completa a um bloco DOM final confiavel.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized e
+real_funds_authorized permanecem false. Nenhum commit, push, deploy ou fundo
+real foi usado.

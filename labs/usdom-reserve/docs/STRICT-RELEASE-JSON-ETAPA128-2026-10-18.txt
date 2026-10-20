@@ -1,0 +1,38 @@
+USDOM ETAPA 128 — JSON ESTRITO NOS LIMITES DE RELEASE
+Data: 2026-10-18
+
+ACHADO
+
+Os comandos de configuração, gate de mainnet e preflight carregavam manifestos
+com JSON.parse. Esse parser aceita chaves duplicadas usando silenciosamente a
+última ocorrência. Um manifesto poderia, portanto, mostrar um valor a um revisor
+e fornecer outro valor ao processo, inclusive usando uma chave equivalente com
+escape Unicode. O parser também não impunha limites próprios de tamanho ou
+profundidade antes de construir o objeto.
+
+CORREÇÃO FAIL-CLOSED
+
+- foi criado parseStrictJson para os JSONs sensíveis à liberação;
+- chaves duplicadas são rejeitadas em qualquer profundidade;
+- a comparação ocorre depois de decodificar escapes, portanto "ready" e
+  "\u0072eady" são a mesma chave e não podem coexistir;
+- os objetos resultantes não possuem prototype, evitando propriedades mágicas;
+- entradas maiores que 64 MiB, profundidade acima de 128 e números não finitos
+  são rejeitados;
+- check-mainnet-readiness aplica o parser aos requisitos, intenção do operador,
+  configuração, evidências e artefato compilado;
+- check-mainnet-preflight e check-configuration usam o mesmo limite.
+
+VERIFICAÇÃO
+
+- JSON canônico aninhado aceito;
+- duplicata direta, duplicata por escape e duplicata aninhada rejeitadas;
+- vírgula final, número ambíguo, conteúdo extra, string truncada, excesso de
+  profundidade, excesso de bytes e número não finito rejeitados;
+- testes do parser e limite CLI: 4 aprovados, 0 falhas;
+- testes do gate: 3 aprovados, 0 falhas;
+- os gates atuais continuam fechados com bloqueios únicos.
+
+Essa correção protege a interpretação da configuração; ela não implementa o
+verificador de finalidade nem altera qualquer indicador de prontidão. Nenhum
+commit, push, deploy, transação ou fundo real foi usado.

@@ -1,0 +1,543 @@
+USDOM PROOF RESERVE — PUBLIC STATEMENT AND PRODUCTION GATES
+Draft 1, 2026-10-16
+
+Purpose
+USDOMProofReserve is the non-quorum withdrawal path. It accepts a withdrawal
+only after one immutable verifier authenticates a finalized native USDOM burn.
+There is deliberately no notary fallback. The current source cannot deploy on
+Ethereum chain ID 1 because both approved production verifier hashes are zero.
+
+Public statement
+The verifier receives this Solidity hash:
+
+  keccak256(abi.encode(
+    BURN_STATEMENT_TYPEHASH,
+    burnId,
+    requestId,
+    recipient,
+    amount,
+    domDomain,
+    height,
+    blockHash,
+    stateRoot,
+    finalityBeaconSlot,
+    validUntil,
+    ethereumChainId,
+    reserve,
+    activationScheduleCommitment
+  ))
+
+The exact type string is defined by BURN_STATEMENT_TYPEHASH in the contract.
+finalityBeaconSlot is the latest Beacon slot authenticated as finalized by the
+Ethereum consensus proof; it is not an unspecified epoch or a DOM-local
+counter. activationScheduleCommitment is the exact UDACTV01 commitment binding
+the DOM network magic, chain ID, first v4 height and empty bridge-state root.
+Amount is an integer count of six-decimal USDT/USDOM base units. Recipient,
+amount, deadline, Ethereum chain and reserve are public by necessity at payout.
+The public statement contains no sender, input note, deposit identifier, change
+note, transfer path or note-tree witness.
+
+Before its containing DOM block and finality identity exist, native consensus
+commits the payout intent with the same ABI rules:
+
+  keccak256(abi.encode(
+    BURN_INTENT_TYPEHASH,
+    burnId,
+    requestId,
+    recipient,
+    amount,
+    domDomain,
+    validUntil,
+    ethereumChainId,
+    reserve
+  ))
+
+The exact BurnIntent type string and helper are defined in the contract, SDK and
+native state crate. requestId is a nonzero wallet nonce. burnId is instead
+derived by native consensus from the authenticated private-spend nullifiers and
+the immutable bridge/payout fields:
+
+  keccak256(abi.encode(
+    PRIVATE_BURN_ID_TYPEHASH,
+    domDomain,
+    privacyPolicyHash,
+    verifierConfigHash,
+    ethereumChainId,
+    reserve,
+    recipient,
+    amount,
+    validUntil,
+    nullifier0,
+    nullifier1
+  ))
+
+PRIVATE_BURN_ID_TYPE is:
+
+  PrivateBurnId(bytes32 domDomain,bytes32 privacyPolicyHash,bytes32 verifierConfigHash,uint256 ethereumChainId,address reserve,address recipient,uint64 amount,uint64 validUntil,bytes32 nullifier0,bytes32 nullifier1)
+
+Its type hash is
+0xc42c6cc432814ca0c60ce9458a9059e64f523c15d0b59f78c611d5a36724e5c5.
+The one or two canonical nonzero BN254 nullifiers are strictly bytewise sorted;
+a one-input burn uses bytes32(0) only for nullifier1. Both identifiers are
+nonzero and globally unique in native state. The finalized proof must show that
+this exact intent remains included under the checkpoint stateRoot. height and
+blockHash identify the finalized checkpoint whose state contains the burn; they
+need not identify the earlier block that first admitted it. Native consensus
+retains burn IDs and request IDs permanently, so proving inclusion in a later
+valid state cannot recreate or replace a payout. The checkpoint/finality fields
+extend the intent and cannot replace any payout field.
+
+Native state also fixes one BridgeIdentity containing domDomain, the Ethereum
+Beacon genesis validators root, uint256 chain ID and immutable reserve address.
+The state root commits all four fields. Issuance anchors must match the configured
+Beacon genesis, and burns must match the configured chain and reserve even when
+their BurnIntent commitment is otherwise internally valid. Chain ID alone is not
+an authenticated Ethereum consensus identity. EthereumAnchor also commits the
+finalized execution payload timestamp. Native burn admission requires a recent
+authenticated anchor and an immutable BurnTimingPolicy matching the reserve's
+one-hour minimum execution window and seven-day maximum certificate lifetime.
+The DOM clock may make the minimum more conservative but can never extend the
+Ethereum-derived maximum. On Ethereum, validUntil remains authenticated as the
+original native admission deadline, but it cannot extinguish the collateral
+claim after the private notes have been irreversibly burned. The reserve rejects
+a nonzero deadline that still lies more than seven days in Ethereum's future,
+then creates an independent seven-day queue lease from the admission time. An
+expired queue lease releases only its collateral reservation; the same unpaid
+burn and request identifiers can be proved again under a fresh finalized Beacon
+slot. An opaque, proof-verified
+EthereumCheckpoint transition may advance this anchor without issuing USDOM. It
+must bind the exact BridgeIdentity and progress Beacon slot, finalized execution
+height and timestamp monotonically. Historical deposit event blocks are not the
+finality high-water mark.
+
+Required proof semantics
+The immutable checkpoint-registry verifier and the immutable finalized-burn
+verifier must compose to prove all of the following as one sound release. The
+registry verifier proves the DOM consensus extension and publishes its resulting
+state root. UDFINL02 then authenticates that registry event under Ethereum
+finality and proves burn-set inclusion in the published state root. Neither
+verifier may accept a caller-supplied root without its corresponding proof.
+
+1. The DOM network/domain, genesis, consensus parameters, fork schedule and
+   native USDOM asset identifier equal the immutable verifier configuration.
+2. The checkpoint block header and state root are valid outputs of the DOM
+   consensus transition and canonical fork-choice rules. This is the checkpoint
+   registry verifier's responsibility.
+3. The burn is included in the authenticated checkpoint state. The consensus
+   extension proven by the registry must have admitted it only after its
+   consumed private-note nullifiers were unspent in the authenticated pre-state
+   and marked spent in the post-state.
+4. The USDOM balance equation conserves the asset exactly: authenticated inputs
+   equal private outputs plus the public burn amount and any separately specified
+   USDOM fee. USDOM cannot be created through DOM mining rewards or DOM coinbase.
+5. The native burn intent commits to burnId, requestId, recipient, amount,
+   domDomain, ethereumChainId, reserve and validUntil exactly. Both identifiers
+   are unique in native consensus. Native admission recomputes burnId with the
+   exact PRIVATE_BURN_ID_TYPE encoding above from the nullifiers authenticated
+   by the same private-spend proof. A wallet or relayer-supplied mismatch fails
+   before state mutation.
+6. The block is final under the selected additional-finality rule. For the
+   Ethereum-checkpoint design, the proof must bind the Ethereum-finalized
+   checkpoint commitment and demonstrate that DOM fork choice cannot accept a
+   conflicting history below it. Merely showing an operator-signed root fails
+   this requirement.
+7. The Ethereum-finalized registry event, the registry consensus-extension
+   proof and the burn inclusion witness share the exact height, blockHash and
+   stateRoot exposed in the public statement.
+
+The DOM transition commitment and transition-batch/header envelope use
+canonical encoding version 2. For every private transfer and burn the
+transition includes the exact field element produced by the spend circuit from
+the encrypted memo bytes. The ordered transition-batch root and DOM header
+therefore authenticate both the public note/nullifier effects and the encrypted
+wallet-recovery payload. A sidecar whose memo does not recompute to that field
+element is invalid even if its output commitments and nullifiers match. An
+exact-value burn with no private outputs has an empty memo and commits the
+canonical zero field element.
+
+The checkpoint proof may be recursive or aggregate several DOM transitions.
+The UDFINL02 burn program consumes only a canonical USDBRN03 state decomposition
+and inclusion path plus the bounded Ethereum finality/receipt/state witness. It
+does not re-run LMDB, RandomX or the DOM block body because those belong to the
+separately pinned checkpoint consensus-extension verifier. Both programs must
+enforce bounded resource use and canonical encodings. A proof about an
+unauthenticated state root, a receipt without consensus finality, or a quorum
+assertion is invalid even when its cryptography verifies correctly.
+
+The checkpoint registry bootstrap is a ratified predecessor anchor rather than
+a proved checkpoint. Its height must be exactly firstV4Height minus one and its
+state root must equal the canonical activation empty-state root. The registry
+commits the DOM chain ID, first v4 height and empty root as independent
+immutables and also binds their recomputed UDACTV01 commitment. Construction
+emits CheckpointBootstrap; only a successful consensus-extension proof emits
+Checkpoint. The finalized-burn Ethereum witness accepts only Checkpoint, so the
+constructor event cannot authorize a payout.
+
+Verifier configuration
+verifierConfigHash must commit to at least:
+
+- statement/circuit version, native transition-commitment encoding version,
+  PRIVATE_BURN_ID_TYPEHASH, BURN_INTENT_TYPEHASH and BURN_STATEMENT_TYPEHASH;
+- DOM genesis, network/domain and consensus/fork-choice parameters;
+- RandomX/PoW rule or the exact validity proof replacing its direct execution;
+- native USDOM asset ID, note tree, nullifier set and balance rules;
+- additional-finality/checkpoint rule;
+- proof system, verification key and trusted-setup transcript when applicable;
+- guest/circuit source and reproducible build artifact hashes;
+- maximum proof size and supported finalized Beacon-slot/version range.
+
+The release must encode these values with the exact
+usdom-finalized-burn-verifier-config-v5 schema. Version 5 retains a separate
+provingProgramConfigHash for all native rules and build artifacts, while its
+on-chain verifierConfigHash exactly reproduces the immutable RISC Zero adapter
+identity: Ethereum chain, direct verifier address and code hash, selector,
+finalized-burn guest ImageID, journal schema and accepted capability. Release tooling rejects extra
+fields, unsafe JSON numbers, duplicate keys, unsupported statement/transport
+versions, a noncanonical JSON serialization, or any mismatch between the
+recomputed config hash and the verifier/release. Separate hash-addressed files
+for the verifying key, proving program, source manifest and Solidity verifier
+must match the SHA-256 values committed by this manifest. See
+docs/CANONICAL-VERIFIER-CONFIG-MANIFEST-ETAPA132-2026-10-18.txt.
+
+The checkpoint verifier uses the separate
+usdom-checkpoint-verifier-config-v6 schema. Its immutable adapter hash and
+separate proving-program hash commit the exact
+DOMCheckpoint statement and acceptance type hashes, UDCPST01 input/public-output
+versions and length, UDACTV01 schedule, DOM genesis/network/chain/activation
+identity, maximum checkpoint span, consensus, fork-choice, RandomX/PoW, native
+state and consensus-extension witness rules. It separately commits the proof
+system, verification key, proving program, source manifest, Solidity verifier,
+proof-size limit and trusted-setup decision/transcript. Checkpoint proof
+artifacts and setup evidence cannot reuse the finalized-burn verifier's evidence
+slots. A valid UDCPST01 hash alone grants no authority: the production guest
+must first prove the private consensus extension from the exact predecessor.
+
+The Ethereum verifier must be immutable and must not use delegatecall, a proxy,
+beacon, mutable verification key or administratively replaceable implementation.
+Both RISC Zero adapters must use the exact reviewed direct mainnet verifier in
+config/risc0-ethereum-mainnet-v3.json. The release gate validates this file
+against the source-pinned identity in sdk/risc0-verifier-reference.mjs and
+rejects the upstream router, emergency-stop wrapper or any same-selector
+substitute. The finalized-state preflight independently checks the direct
+verifier's live runtime code hash, SELECTOR and VERSION.
+The recurring health observation pins all of these reads to one exact finalized
+block number and rechecks that block's hash after collection. A moving or
+unavailable snapshot is a health failure and triggers the same pause response.
+Because the direct verifier is not itself stopped by the upstream wrapper, the
+operator must run scripts/check-risc0-health.mjs against finalized Ethereum
+state. The check also pins the wrapper bytecode, requires it to reference the
+approved direct verifier and treats paused=true or any unavailable/mismatched
+field as a reserve-pause incident. Mainnet activation requires a rehearsed
+guardian response for this exact signal; no claim of zero residual risk is
+implied.
+USDOMProofReserve pins the verifier extcodehash and verifierConfigHash and checks
+them before every deposit and proof admission. It also pins tokenCodeHash on all
+networks; chain ID 1 requires the reviewed runtime hash of the canonical USDT
+address. A production release must compile the
+objectively validated release values into PRODUCTION_VERIFIER_CODE_HASH and
+PRODUCTION_VERIFIER_CONFIG_HASH; constructor-supplied hashes are insufficient.
+
+The contract also computes reserveConfigHash as a nested canonical ABI
+commitment. ReserveIdentity binds Ethereum chain ID, the exact precomputed
+reserve address, token address/code hash, verifier address/code/config hashes
+and DOM domain. ReservePolicy binds governance and guardian addresses and their
+deployment-time extcodehashes, both delays, maximum exposure and daily outflow
+capacity. Value paths and resume authorization fail closed if either role's
+runtime code later changes or disappears. This check does not authenticate
+mutable proxy storage, Safe owners, thresholds, guards or modules; production
+must use reviewed role deployments and bind their exact configuration in the
+release evidence and operational review. Chain ID 1 additionally requires the
+reserve hash to equal the nonzero PRODUCTION_RESERVE_CONFIG_HASH compiled into
+the release. Release tooling must reproduce the same hash independently before
+deployment.
+Any successful chain ID 1 release starts paused. Governance must schedule the
+ordinary delayed resume after independently checking the deployed bytecode,
+immutable configuration, verifier, role custody and monitoring. No deposit,
+proof admission or payout can execute during this cold-start interval.
+
+The release evidence must contain separate governance and guardian snapshots.
+Each snapshot repeats the exact release address and runtime code hash, commits a
+nonzero configuration hash and points to a hash-addressed configuration report.
+The reports must identify implementation/proxy state, owners, threshold,
+modules, guards, fallback handlers, upgrade authority and custody controls as
+applicable. Governance and guardian configuration hashes must differ. Separate
+hash-addressed reports must demonstrate signer/custody independence and a
+completed pause/recovery drill. Their existence does not prove the statements
+inside them; independent reviewers must authenticate authors and reproduce the
+snapshot from finalized Ethereum state before the cold-start resume.
+
+For the closed-test bootstrap, governance, reserve guardian and checkpoint
+guardian are three distinct Safe 1.4.1 smart accounts even when the operator is
+temporarily their sole common owner. Their unsigned deployment package fixes
+threshold one and distinct salt nonces, decodes the complete initializer to
+exclude delegatecall and payment configuration, authenticates the canonical
+factory/singleton/fallback-handler addresses and exact runtime hashes at
+finalized Ethereum state, pins the exact factory proxy-creation-code hash and
+independently recomputes every CREATE2 address from the factory proxy creation
+code. Two independent mainnet RPCs must reproduce byte-identical JSON. Hardware
+signing and broadcast remain a separate explicitly authorized phase; the
+package is rederived and byte-compared before each signature. Sharing one owner
+does not satisfy production signer/custody independence and must remain an
+explicit closed-test residual risk.
+
+The release also commits the expected deployed reserve and RISC Zero adapter
+runtime code hashes, both adapter initcode hashes and each adapter's exact
+CREATE deployer and nonce. A
+read-only predeployment preflight must query Ethereum's finalized block tag and
+then pin every code, state and call query to that exact block number. It must
+re-read the pinned block at the end and require the same block hash, preventing
+a report from combining multiple moving `finalized` snapshots. It must confirm
+chain ID, the exact deployer nonce, an empty deterministic reserve
+address, zero USDT at that address, live token/verifier/role code hashes,
+verifier configuration and safe USDT policy. The two immutable adapters are
+deployed first so this preflight can authenticate both canonical finalized
+deployment receipts and their live configuration before the registry and
+reserve exist. After all four deployments, a second
+finalized-state attestation must bind every successful canonical transaction,
+sender, nonce, created address, zero value and approved initcode, bind every
+runtime code hash, reproduce every reserve getter and prove the cold-start
+state is paused, empty and has no scheduled resume.
+For every creation, the observation must keep the receipt's `contractAddress`
+separate from the address independently derived from transaction sender and
+nonce. Both must equal the approved release address; a derived value cannot be
+reported as though it came from the receipt.
+Real-funds release evidence must include the hash-addressed postdeployment
+attestation. RPC credentials are accepted only through an environment variable
+and are not included in the report.
+
+The release gate must parse each attestation from its exact hash-addressed
+evidence path; possession of arbitrary bytes at that path is insufficient. The
+report must have the canonical machine-generated envelope, the expected
+predeployment or postdeployment phase, `ready: true` and zero blockers. The gate
+must independently rerun the current preflight assessment over the embedded
+observation, current release configuration and externally pinned RISC Zero
+identity, then require the recorded finalized block and result to equal that
+recomputed assessment. Malformed reports, added fields, substituted
+observations and stale or forged readiness results fail closed.
+Every uint observed from Ethereum is serialized and validated as a canonical
+unsigned decimal string (`0` or a nonzero digit followed by decimal digits).
+Nulls, booleans, JSON numbers, empty or whitespace strings, hexadecimal
+encodings, signs and leading zeroes are invalid even when JavaScript `BigInt`
+would coerce them to the expected mathematical value.
+The standalone recurring RISC Zero health observation follows the same rule
+for its finalized block number and requires chain ID to be the exact string
+`1`. Preflight likewise requires exact string chain IDs in the release and
+observation; generic JavaScript string/number coercion is forbidden.
+Standalone health must match the exact collector key set at the top level and
+inside the direct-verifier and emergency-stop observations. When the health
+assessment is embedded in preflight, the caller explicitly selects that scope;
+preflight then supplies its own exact phase envelope while retaining the exact
+two RISC Zero nested schemas. The verifier selector is an exact string rather
+than a value converted through generic string coercion.
+Preflight observations must also match the collector's exact phase-specific
+object schema at every nested level. Missing and unexpected keys fail closed.
+Postdeployment reports must retain canonical nonzero transaction hashes for
+both the reserve and checkpoint-registry creations, in addition to the already
+bound sender, nonce, address, input hash, receipt and finalized inclusion.
+
+The native privacy setup and scheduled-runtime activation facts must each have
+a distinct hash-addressed JSON attestation. Real-funds mode additionally
+requires distinct wallet-custody and wallet-recovery attestations. Each uses an
+exact schema that binds its kind, release ID, source commit, reserve and
+checkpoint-registry configuration hashes, governance approver, canonical
+completion timestamp and a nonzero subject commitment. The runtime activation
+subject must equal the SHA-256 of the exact native runtime manifest accepted by
+the node's Rust startup checker. The privacy-setup subject must equal that
+manifest's checker-derived privacy-verifier configuration hash.
+Wallet custody and recovery must bind the same wallet-identity commitment.
+Missing, malformed, duplicated, stale or cross-release records fail closed;
+setting a requirements-ledger boolean alone cannot satisfy these evidence
+boundaries.
+Each attestation also carries a bounded canonical signature over the exact
+EIP-712 `NativeReleaseAttestation` message. The domain binds Ethereum chain ID,
+the release governance contract, `USDOM Native Release Attestation` and version
+1. The release gate calls that exact governance contract's
+`isValidSignature(bytes32,bytes)` at one pinned `finalized` block and accepts
+only the exact ABI-encoded EIP-1271 magic value. It independently binds the
+live governance code hash, records every recomputed digest and re-reads the
+same finalized block hash after all calls. An unsigned `approvedBy` string, an
+EOA recovery, a call on another chain or block, changed governance code, a
+stale digest, noncanonical return data and a reorganized snapshot all fail
+closed.
+
+When the required evidence records exist, `ETHEREUM_RPC_URL` is needed
+for this read-only authorization check.
+The finalized snapshot also records the block timestamp as a canonical decimal
+string. No attestation may claim completion after that timestamp.
+
+Release provenance uses two signed commits so the evidence can bind a source
+commit without asking a Git commit to contain its own hash. The immutable
+source commit contains all code, tests, production requirements,
+specifications and the source manifest. A second signed commit has that source
+commit as its sole parent and may modify only
+`config/mainnet-release-evidence.unconfigured.json`,
+`config/operator-intent.json`, or add/modify files below `evidence/`. Both
+metadata files must be modified. Deletions, merge parents, duplicate paths,
+code/config changes and any other path fail closed. Both commits and the
+annotated release tag must use the externally pinned signing key and required
+author/committer identity; the tag resolves to the evidence commit. The source
+manifest deliberately excludes only those evidence-layer paths and the mutable
+continuation log, while retaining the technical release configuration.
+Both release-metadata JSON records use exact versioned top-level schemas.
+Hash-addressed document references, trusted-setup decisions, the control-plane
+role envelope and each role snapshot, and residual-risk acceptance also reject
+missing or unknown properties. `operatorIntent.undefined` is a unique array of
+nonempty strings; another type cannot suppress pending production parameters.
+The production release configuration has exactly 59 fields. Ethereum chain ID
+is the exact string `1`, the genesis validators root is the canonical mainnet
+root, and authorization fields are booleans. Native burn timing values are
+canonical uint64 decimal strings and reproduce the consensus invariants: the
+DOM clock-lead allowance is at least 120 seconds, relay margin covers maximum
+Ethereum-anchor age, and withdrawal delay plus the one-hour execution window
+plus relay margin fits within seven days after subtracting clock lead.
+The same release must include unique hash-addressed documents for the native
+runtime manifest and its Groth16 spend-verifying key. The readiness CLI runs the
+source-built `dom-usdom-manifest-check` in mainnet mode. Its exact public output
+must bind the evidence SHA-256, DOM network/chain/activation identity, Ethereum
+genesis and chain identity, reserve/domain, all six burn-timing values, nonzero
+checkpoint/deposit/privacy policy hashes and the spend-key artifact. A schedule
+attestation cannot therefore authorize a different startup manifest.
+The checker also exports the validated fields beneath both Ethereum policy
+hashes. The checkpoint registry address, runtime code hash, slot-zero
+checkpoint configuration hash and bridge domain must equal the checkpoint
+release. The deposit reserve, runtime code hash, bridge domain and maximum
+amount must equal the reserve release and its exposure limit. Nonzero policy
+hashes alone do not satisfy this reconciliation.
+The mainnet node loader also enforces the exact supported Ethereum mainnet
+genesis and fork schedule from the consensus specifications. The checker exports
+the trusted weak-subjectivity checkpoint and each Genesis-through-Gloas epoch
+and version. Readiness requires the checkpoint to equal the nonzero value in the
+signed release configuration and independently compares every fork field with
+the supported schedule. A hash-pinned manifest therefore cannot silently select
+a stale or substituted Ethereum consensus configuration.
+Production deployment preparation is an offline, unsigned operation. The
+source-built package generator derives initcode for both RISC Zero adapters,
+the checkpoint registry and the reserve from compiler-authenticated artifacts
+and the exact release. For every one of the four plans it requires the computed
+`keccak256(initcode)` to equal that contract's approved release initcode hash;
+it also verifies release runtime hashes and CREATE addresses, rejects
+deployer/nonce reuse and dependency inversion, and outputs
+an exact four-transaction JSON package. The generator has no RPC or signing
+interface; broadcasting remains a separate operator action after the gates and
+finalized predeployment check pass. Immediately before every hardware-wallet
+broadcast, the operator must regenerate the package from the current exact
+release and authenticated artifacts, require byte-for-byte equality with the
+reviewed package and recheck its previously recorded SHA-256.
+
+reserveRuntimeCodeHash is not accepted as an unsupported manifest assertion.
+The offline gate loads the Foundry artifact, verifies the Keccak-256 of every
+compiler metadata source against the current tree, maps every immutable through
+the compiler AST and immutable-reference table, patches the exact release
+values into the runtime and derives its code hash. Missing AST, stale source,
+linked library, unexpected immutable, malformed location or manifest/hash
+mismatch fails closed. A local EVM deployment test independently compares the
+derived hash with extcodehash-equivalent runtime bytes returned by eth_getCode.
+The artifact compiler policy is exact: Solidity 0.8.37+commit.f401782d,
+optimizer enabled with 200 runs, Cancun EVM, no source-content metadata hash,
+no via-IR mode, no linked libraries, the pinned OpenZeppelin 5.6.1 remapping and
+only USDOMProofReserve as compilation target. The canonical artifact JSON must
+also appear as distinct hash-addressed release evidence.
+The two immutable proof adapters follow the same source-verification process
+with their exact compilation targets. Tooling patches the direct RISC Zero
+verifier address and code hash, selector, guest image ID, Ethereum chain ID and
+the independently derived verifier configuration hash into each runtime. The
+result must equal verifierCodeHash or checkpointVerifierCodeHash in the release
+manifest. Both adapter artifacts must use their canonical Foundry paths. A
+manifest-selected adapter that merely reports the expected configuration hash
+cannot satisfy this check.
+An independent Anvil deployment vector instantiates both adapters with a live
+selector-compatible verifier, reads their actual runtime bytecode and proves
+that its EVM code hash equals the source-derived result. The same vector checks
+that the manifest-derived configuration hashes equal both Solidity getters.
+The authoritative readiness command always forces this production-only build
+before reading the artifact and denies all compiler/linter warnings except the
+documented OpenZeppelin 6335 identifier warning. A pre-existing file under out/
+is therefore never accepted without regeneration from the current tree.
+
+The release manifest also commits reserveInitcodeHash. Tooling appends the exact
+ABI-encoded Config tuple to the source-verified creation bytecode and derives
+this hash. The finalized cold-start attestation requires a successful
+destination-less, zero-value deployment transaction whose complete input hash
+equals reserveInitcodeHash, whose sender/nonce produce the planned CREATE
+address and whose receipt remains in the canonical chain below the finalized
+head. This binds constructor execution and arguments as well as final runtime.
+
+Reserve behavior
+- Successful proof admission reserves credited collateral and starts the fixed
+  withdrawal delay and a seven-day renewable queue lease. Proof verification
+  cannot transfer value.
+- Execution must reproduce the exact stored statement and pass delay, queue-lease expiry,
+  token-policy, solvency and rate-limit checks.
+- paid burn and request identifiers can never be cleared.
+- Expired unpaid reservations can be removed without consuming their identifiers.
+  Because the native burn is irreversible, expiry never destroys the underlying
+  payout right: a fresh finality proof for the exact same burn and request can
+  create a new queue lease. validUntil authenticates the original native timing
+  policy and is not a cancellation or forfeiture deadline.
+- Governance and guardian are distinct contracts. They can pause, while only
+  governance can schedule a delayed permissionless resume. Neither can transfer
+  collateral, replace the verifier or change limits.
+
+Privacy boundary
+The proof must be zero knowledge with respect to private note ownership, input
+values, change and transfer history. Ethereum deposits, payout amounts, payout
+addresses and timing remain public and may be correlated externally. The system
+must not claim absolute anonymity or equivalence to Monero.
+
+Canonical finalized-burn replay
+- UDFINL02 carries a raw checkpoint witness containing a prior trusted
+  Ethereum bootstrap, authenticated light-client updates and receipt, account,
+  code and storage proofs for the exact Checkpoint event.
+- Every update in this proof transcript records `current_slot` equal to its
+  authenticated `signature_slot`. A relayer-selected later wall-clock value is
+  noncanonical and rejected.
+- The private replay ceiling is derived from that canonical transcript. It is
+  distinct from the finalized beacon slot because Ethereum signs an update
+  after the header it finalizes. Encoding the finalized slot as the replay
+  ceiling makes every post-bootstrap witness impossible.
+- The finalized beacon slot remains in the public statement. The reserve
+  independently derives Ethereum's current slot from `block.timestamp` and
+  rejects future or stale finalized slots before queueing a withdrawal.
+- The frozen positive vector exercises a 512-member BLS supermajority update,
+  SSZ branches, receipt/account/storage Merkle-Patricia proofs, the exact event,
+  native burn inclusion and canonical UDFINL02 re-decoding. Its input SHA-256
+  is `975383b1ad8dbf8e7ec471673314e6b26250ca6e325456f8380cbaef3529ff4e`
+  and its raw journal is
+  `881ebff15b6a4ee9939138160651119b4107713397d362b550355aae22fafaf8`.
+- The pinned RISC Zero 3.0.6 guest executes that vector in 562,418,750 user
+  cycles and 570 `2^20` segments. This measurement does not claim proving time,
+  proof cost or production capacity.
+
+Mainnet gates
+The three production hash constants remain zero until every item below is complete:
+
+- the native USDOM consensus and private burn transition are implemented;
+- the exact public activation schedule is installed in the node runtime, and
+  the native privacy Groth16 production key comes from the completed recorded
+  setup ceremony rather than a development key;
+- the finality/checkpoint rule is enforced by independent DOM nodes;
+- the proving program and immutable Ethereum verifier pass the required
+  adversarial tests and reproducible-build checks, with documented residual
+  risks explicitly accepted for the exact release; independent external review
+  may strengthen that evidence but is not a release prerequisite;
+- a non-development receipt for the complete raw finalized-burn witness is
+  generated and accepted by the release-pinned EVM verifier; successful guest
+  execution alone does not satisfy this receipt-verification boundary;
+- finalized-burn proving throughput and exact EVM receipt-verification gas are
+  measured against the release workload and Ethereum gas envelope;
+- the authoritative checkpoint chain has positive cryptographic receipts and
+  measured proving capacity at every mandatory recursive boundary: complete
+  per-block RandomX, economic chunk and block, checkpoint segment and outer
+  checkpoint; the outer guest is configured in the immutable EVM adapter;
+- the exact outer-checkpoint receipt verification gas is measured against the
+  release-pinned adapter and upstream verifier;
+- a multi-node shadow run survives outages, censorship and reorganizations;
+- production multisigs, limits, delays, monitoring and incident runbooks are
+  selected and rehearsed;
+- before real funds, wallet secrets use the selected hardware or operating-
+  system keystore and an independently executed recovery ceremony proves the
+  retained backups can restore the expected wallet identity;
+- a final fork test uses the exact release bytecode and pinned USDT state.
+
+Until then, USDOMProofReserve is an executable boundary specification and test
+candidate. It is not authorization for deployment or real funds.

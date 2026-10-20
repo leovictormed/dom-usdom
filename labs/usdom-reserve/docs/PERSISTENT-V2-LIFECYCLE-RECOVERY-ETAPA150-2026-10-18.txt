@@ -1,0 +1,79 @@
+USDOM persistent V2 activation and private lifecycle recovery — stage 150
+Date: 2026-10-18
+
+Purpose
+=======
+
+Stage 149 proved private transfer and burn inside the full 360+30 checkpoint
+relation, but did not exercise restart or rollback on those nonempty batches.
+It also encoded UDACTV02 without a durable activation record. This stage closes
+those two local recovery gaps without activating V2 on a public network.
+
+Nonempty lifecycle recovery
+===========================
+
+After both the private transfer and private burn, the 390-block release vector
+exports the complete canonical NativeUsdomState, restores it as a restarted
+node would, and checks the V1 and V2 roots. It serializes and independently
+decodes the authenticated BatchUndo, rolls the exact block back using the
+header commitment, and compares every persisted entry with the pre-block
+snapshot. Reapplying the proof-verified transition must reproduce the exact
+receipt, undo bytes and post-block entries.
+
+At the burn height the vector also applies a competing empty native batch after
+rollback. That branch retains the pre-burn root and has a different header
+commitment. The original burn is then replayed exactly. This is a deterministic
+state-level branch exercise; it is not yet a complete ChainState V2 fork-choice
+promotion test.
+
+Persistent V1-to-V2 activation
+==============================
+
+Two new consensus-state keys form an atomic pair:
+
+- usdom-v2/activation stores the exact 154-byte UDACTV02 schedule;
+- usdom-v2/tip redundantly binds the activation parent, active V1 root,
+  derived V2 root and schedule commitment.
+
+native_usdom_v2_activation_updates accepts only the immediate parent height and
+the exact full-state-derived roots. restore_persisted_usdom_v2_activation reads
+the canonical snapshot at that parent, requires both V2 records, checks the
+active V1 schedule and tip, reconstructs every usdom/v3 state entry, and derives
+the V2 root again. Network, chain, parent, V1 root, V2 root and schedule must all
+agree. Partial or substituted markers fail closed.
+
+Validation
+==========
+
+- The complete release-profile 360+30 private lifecycle passed in 74.23
+  seconds with restart, rollback, alternative empty branch and exact replay.
+- The persistent activation test passed after closing and reopening LMDB and
+  rejected a substituted V2 root and a missing activation record.
+- All 77 dom-chain native-V4/V2 library tests passed.
+- All 11 checkpoint-program unit tests passed; the expensive vector is ignored
+  by default and was executed explicitly in release mode.
+- dom-chain and checkpoint-program clippy passed with warnings denied.
+- Cargo formatting and Git whitespace validation passed.
+- The automated closed-mainnet and real-funds gates rejected the unconfigured
+  release with 130 and 138 blockers, respectively, as intended.
+
+Security boundary and remaining work
+====================================
+
+The persisted UDACTV02 record authenticates a migration snapshot, but the live
+node still executes canonical native packages through the active V1 full-state
+path. Production still requires:
+
+1. V2 stateless block ingress, per-block V2 witness/undo persistence, IBD and
+   complete ChainState fork-choice promotion wired to the persisted schedule.
+2. A positive finalized Ethereum reserve-deposit witness and issuance inside
+   the checkpoint lifecycle, followed by finalized-burn proof, queue and payout
+   execution on the reviewed Ethereum contracts.
+3. A selected production proving backend, reproducible guest/circuit build,
+   ceremony-generated keys, immutable verifier artifacts and gas benchmarks.
+4. Ratified multisigs, limits, delays, monitoring and recovery exercises.
+5. Independent audits of DOM consensus integration, privacy circuits and the
+   complete Solidity deployment before any real funds.
+
+Production pins and public-network activation remain unset and fail closed. No
+push, commit, deployment, transaction or use of funds was performed.

@@ -1,0 +1,78 @@
+USDOM ETAPA 135 — REGISTRO IMUTÁVEL DE CHECKPOINTS AUTORIZADOS POR PROVA
+Data: 2026-10-18
+
+ACHADO
+
+O verificador Rust já autenticava um evento Ethereum com ABI, bytecode, conta
+e slot de configuração específicos, mas nenhum contrato do repositório emitia
+esse evento. Isso deixava a testemunha combinada sem uma origem implementada e
+permitia confundir a autenticação Ethereum do log com a validade de consenso do
+checkpoint DOM.
+
+CORREÇÃO
+
+Foi criado DOMCheckpointRegistry.sol. O contrato:
+
+1. recebe relays permissionless, sem função administrativa de aprovação;
+2. exige uma prova aceita por um verificador imutável;
+3. fixa codehash e verifierConfigHash e os confere antes e depois da prova;
+4. liga a prova ao checkpoint anterior, ao novo bloco/estado, chain ID,
+   endereço do registry, domínio, rede, ativação e configuração completa;
+5. exige altura estritamente crescente e predecessor exatamente igual ao head;
+6. grava checkpointConfigHash no slot zero, autenticado pela prova de storage;
+7. emite exatamente
+   Checkpoint(bytes32,uint32,uint64,bytes32,bytes32,bytes32), com domínio e
+   network magic indexados, formato já aceito pelo verificador Rust;
+8. não possui upgrade, troca de verificador, remoção de checkpoint, chamada
+   arbitrária ou autoridade para fabricar checkpoints;
+9. permite ao guardian somente halt permanente. Comprometimento dessa chave
+   pode causar censura/indisponibilidade, mas não criar um checkpoint válido;
+10. mantém os três pins de produção zerados, tornando deploy no chain ID 1
+    impossível até uma release auditada fixar bytecode, configuração e anchor.
+
+O SDK checkpoint-registry.mjs reproduz os hashes Solidity de configuração e
+statement, rejeita objetos ambíguos, zeros e não extensões. O teste EVM implanta
+o registry, compara os hashes JavaScript/Solidity e observa o topic0 exato que
+o verificador Rust autentica.
+
+VETORES CONGELADOS DO SDK
+
+- identityHash:
+  0xa8889acba635315ab9268c073525242dc02ccfbec149ee2d016a7e466cc7a26e
+- bootstrapHash:
+  0xa41f7c8d0fc08d1eaa0dc12a779140fca542abdb1002708b1a45eafdacb17f2c
+- checkpointConfigHash:
+  0x437fd76d83f0529d6c7cdfeee90ee0a99011635f2326deb1962999e0a730ced2
+- checkpoint statement:
+  0x520378b616d6709c110fcd733e65c82811866e1a7855f741911b5e9e6a941f31
+- Checkpoint event topic0:
+  0x620d9063aa9b939d1e51ea40c2e557313fcaacfde713bec8ad6844480561c30b
+
+DEPENDÊNCIAS DO PROGRAMA
+
+A dependência Tokio não era usada por dom-chain e foi removida. O programa de
+queima finalizada não a carrega mais. LMDB/dom-store ainda entra pela crate de
+nó e RandomX entra pela validação real de consenso. Retirar RandomX sem uma
+relação substituta auditada enfraqueceria a prova e não foi feito.
+
+LIMITE VERIFICADO
+
+O registry não decide sozinho se uma cadeia DOM é válida. A segurança depende
+de o futuro IDOMCheckpointVerifier provar que o novo checkpoint é uma extensão
+válida do predecessor segundo consenso, PoW, estado USDOM e regras de fork
+choice. O anchor inicial também precisa ser ratificado e reproduzivelmente
+fixado na release. Permanecem false:
+
+- production_checkpoint_registry_verifier_implemented;
+- production_checkpoint_registry_verifier_proves_consensus_extension;
+- production_checkpoint_registry_artifacts_pinned;
+- production_checkpoint_registry_bootstrap_ratified;
+- production_checkpoint_registry_independently_audited;
+- production_checkpoint_registry_positive_finalized_event_vector.
+
+O contrato candidato passou 11 testes direcionados, incluindo 1.024 casos de
+fuzz. A suíte total passou 115 testes Solidity e 50 testes Node/EVM. Os gates
+continuam fail-closed com 87 bloqueios únicos em closed-mainnet e 95 em
+real-funds; mainnet, deploy e fundos reais não estão autorizados.
+
+Nenhum commit, push, deploy, transação pública ou fundo real foi usado.

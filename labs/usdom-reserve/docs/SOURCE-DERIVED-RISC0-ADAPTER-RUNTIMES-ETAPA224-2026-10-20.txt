@@ -1,0 +1,52 @@
+Stage 224 - Source-derived RISC Zero adapter runtimes
+Date: 2026-10-20
+
+Finding USDOM-224 (High)
+
+The release gate checked that each adapter manifest, release configuration and
+live deployment agreed on verifierConfigHash and runtime code hash. It did not
+independently derive the adapter runtime from the reviewed Solidity sources.
+The evidence schema also accepted a noncanonical adapter artifact path. A
+substituted adapter could therefore expose the expected configuration hash yet
+accept invalid proofs, while its self-consistent artifact and code hash passed
+the previous checks.
+
+Correction
+
+1. sdk/compiled-runtime.mjs now derives both adapter runtimes from the forced
+   Foundry build. It verifies the exact compiler policy, current source hashes,
+   AST immutable declarations, immutable reference locations and absence of
+   linked libraries.
+2. The finalized-burn adapter derivation patches the reviewed direct RISC Zero
+   verifier address and runtime hash, canonical selector, finalized-burn guest
+   image ID, Ethereum chain ID and independently calculated configuration hash.
+3. The checkpoint adapter derivation applies the equivalent checkpoint values.
+   The expected runtime sizes are 1,921 and 1,922 bytes respectively.
+4. scripts/check-mainnet-readiness.mjs forces all four production Solidity
+   targets to rebuild, loads the canonical artifacts and hashes every compiler-
+   recorded source before deriving the two adapter runtime hashes.
+5. The release assessment compares those derived hashes to verifierCodeHash and
+   checkpointVerifierCodeHash. Missing build output or any mismatch fails
+   closed. Both evidence paths must be the exact canonical Foundry paths:
+
+   out/DOMFinalizedBurnRiscZeroVerifier.sol/DOMFinalizedBurnRiscZeroVerifier.json
+   out/DOMCheckpointRiscZeroVerifier.sol/DOMCheckpointRiscZeroVerifier.json
+
+Validation
+
+The focused tests exercise both source-derived runtimes, every immutable input,
+wrong compiled hashes and substituted artifact paths. A fully configured test
+release still satisfies both gate modes. The checked-in unconfigured candidate
+continues to fail closed because its production identities and evidence have
+not been selected.
+
+Risk policy
+
+This closes an objective code-provenance failure. It does not assert that the
+reviewed Solidity, compiler or proof system is free of unknown defects. Those
+unknowns are residual risk and may be explicitly accepted for the exact
+release. Neither an external audit nor an impossible guarantee of zero risk is
+a release prerequisite.
+
+No deploy, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred.

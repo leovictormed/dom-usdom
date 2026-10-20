@@ -1,0 +1,54 @@
+USD0M — ETAPA 204
+FRONTEIRA DE ESTADO NATIVO SEM PRIMITIVAS DE PANIC
+Data: 2026-10-20
+
+ACHADOS
+
+Os decoders de estado, witnesses, projeções e undo já limitavam contagens e
+tamanhos antes das alocações. Ainda existiam abortos internos baseados em
+invariantes: compromisso de uma transição verificada, conversões de contagem e
+encoding fixo, profundidade Merkle, seleção de domínio da árvore esparsa e a
+hipótese de que um caminho duplicado nunca alcançaria a inserção recursiva.
+
+Essas hipóteses eram satisfeitas pelos construtores atuais, mas um aborto no
+processo é uma resposta inadequada para corrupção de estado, regressão de
+validação ou evolução futura de uma entrada não confiável.
+
+CORREÇÕES
+
+- `VerifiedTransition::consensus_commitment` agora propaga erro tipado;
+- o encoding de listas propaga falha de conversão em vez de usar `expect`;
+- o encoding fixo do policy de queima escreve diretamente em `[u8; 48]`;
+- a raiz do batch propaga contagem não representável e elimina incrementos que
+  poderiam abortar;
+- a raiz Merkle comum usa incremento saturado sob seus limites de memória;
+- seleção inválida de domínio esparso permanece total, sem `unreachable!`; e
+- a inserção esparsa recursiva devolve `PathCollision` quando sua invariante é
+  violada, preservando a falha tipada até o chamador.
+
+TESTES HOSTIS E CONTROLE DE REGRESSÃO
+
+Testes determinísticos exercitam todos os oito decoders públicos do estado
+nativo e os dois decoders esparsos com comprimentos de zero a 4096 bytes, três
+padrões hostis e os magics corretos para alcançar validações internas. O teste
+falha se qualquer entrada causar panic.
+
+`scripts/check-native-state-panic-boundary.py` inventaria os dois fontes de
+produção e rejeita `unwrap`, `expect`, `panic!`, `unreachable!`, `todo!` e
+`unimplemented!` antes dos módulos de teste. Seu autoteste injeta cada
+primitiva. O checker também valida o manifesto completo e exato de três
+arquivos do crate. O gate de prontidão executa o checker diretamente, sem
+confiar apenas em uma flag JSON.
+
+POLÍTICA DE LANÇAMENTO
+
+O objetivo deste controle é remover uma classe concreta de falha de
+disponibilidade. Todo protocolo conserva risco residual. A impossibilidade de
+garantir risco zero e a ausência de auditoria externa não bloqueiam mainnet por
+si mesmas. Validação técnica objetiva e aceitação explícita dos riscos
+residuais documentados continuam necessárias.
+
+ESCOPO
+
+Não houve push, commit, deploy, conexão mainnet, mineração, prova RISC Zero,
+carteira, transação ou uso de fundos.

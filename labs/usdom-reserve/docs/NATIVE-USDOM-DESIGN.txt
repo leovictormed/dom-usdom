@@ -1,0 +1,310 @@
+USDOM nativa privada — avaliação de viabilidade e projeto preliminar
+Estado: proposta técnica; não implementada, não aprovada para fundos reais.
+Escopo desta etapa: avaliar e projetar. Sem ativação, deploy ou push.
+
+1. Requisitos confirmados pelo operador
+
+USDOM será um ativo nativo distinto da DOM. Emissão, transferência e queima
+devem ser validadas por todos os nós de consenso DOM. A política monetária da
+DOM permanece inalterada. A emissão USDOM ocorrerá exclusivamente contra depósitos
+elegíveis de USDT, consumidos uma única vez, sem recompensa de mineração USDOM.
+Isso não define nem resolve a finalidade das operações. O quórum da reserva v3
+fica somente no protótipo.
+Produção exige provas verificáveis na Ethereum e não aceita depósitos reais
+antes de implementar e validar a integração.
+O construtor e SDK do protótipo agora recusam chain ID 1; essa barreira local
+não implementa o contrato de produção nem substitui as validações futuras.
+
+Na DOM, proteger valores, remetente, destinatário e vínculos entre gastos.
+O resgate deve provar uma queima definitiva e impedir pagamento duplicado,
+sem revelar o histórico privado nem identificar o depósito que originou o saldo.
+Depósitos/resgates, seus valores e endereços Ethereum continuam públicos.
+Correlação por montante, horário, conjunto pequeno de usuários e metadados
+continua possível. Não há promessa de anonimato absoluto ou equivalência à Monero.
+
+2. Conclusão de viabilidade
+
+Não existe hoje um caminho implementado e validado que satisfaça esses requisitos.
+O laboratório oferece relações de notas privadas e verificação Groth16 reais,
+mas usa emissão autorizada por chave, sequenciador próprio e setup experimental.
+Isso permite testar componentes, não substituir consenso nem provar finalidade DOM.
+
+A arquitetura por provas é uma direção de pesquisa plausível. Sua viabilidade
+operacional ainda depende de provas de conceito e medições: validar o consenso
+DOM exato, incluindo RandomX, produzir provas a uma taxa sustentável, verificar
+essas provas na Ethereum e preservar a privacidade/recuperação das carteiras.
+Não foi implementado nem medido um provador de consenso RandomX nesta avaliação.
+Não há estimativa comprovada de custo, prazo, gas, latência ou capacidade mainnet.
+
+Há uma questão de segurança anterior ao desempenho: uma prova de execução ou
+de trabalho pode provar validade de uma cadeia apresentada, mas não demonstra
+sozinha que nenhuma cadeia concorrente existe. A finalidade aceita pelo bridge
+precisa ser definida sob hipóteses explícitas e verificáveis. Não reduzir o
+requisito de queima definitiva a uma contagem de confirmações sem essa definição.
+
+3. Evidência nos fontes corretos
+
+Base DOM: sorenplanck/dom-protocol,
+d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c, branch mainnetswap.
+Referência privada: sorenplanck/atualia,
+7925ea2a701f93e795591db7d0bd0635c14d886f, labs/dom-private-notes.
+Nenhum diretório de protocolo externo indicado incorretamente é evidência.
+
+DOM/crates/dom-consensus/src/block.rs: BlockHeader compromete saídas, kernels e
+range proofs; validate_pow calcula/verifica RandomX e alvo. Não há raiz USDOM
+nesse cabeçalho. O hash declarado de PoW não pode ser aceito sem recalculá-lo
+ou verificar uma prova da computação exata.
+DOM/crates/dom-consensus/src/transaction.rs: TransactionKernel tem features,
+fee, lock_height, excess e assinatura; features desconhecidas são rejeitadas.
+Esses formatos não constituem uma transação nativa de emissão/queima USDOM.
+DOM/crates/dom-chain/src/reorg.rs e chain_state.rs: rolling finality rejeita
+desconectar 360 blocos ou mais em uma cadeia local já estabelecida. O mecanismo
+depende do histórico local; não é um certificado global exportável para Ethereum.
+Inferência: dois históricos locais estabelecidos em partições distintas podem
+rejeitar a reorganização para o outro. Essa regra, isoladamente, não seleciona
+um histórico único para uma reserva externa ou para um nó novo.
+
+LAB/src/lib.rs: Statement expõe âncora, nullifiers, compromissos de saída e
+campos públicos de operação. Valores de transferências estão nas testemunhas.
+LAB/src/circuit.rs: valida propriedade, pertinência, ativo, nullifiers, limites
+e conservação de até dois inputs/outputs. A árvore tem somente 256 posições.
+LAB/src/pool.rs: emissão verifica assinatura da autoridade do ativo, sem prova
+de recibo/finalidade Ethereum. Repetição de um identificador é rejeitada, mas
+uma chave emissora comprometida pode autorizar emissão sem depósito real.
+LAB/src/network.rs e src/bin/verify_snapshot.rs: autenticação Ed25519 do
+sequenciador e replay das provas; a saída declara single-sequencer-experimental.
+LAB/SECURITY.md: setup local de uma parte, sem cerimônia de produção; a posse
+dos segredos de setup pode permitir falsificar provas. Não reutilizar chaves,
+parâmetros de teste nem fingerprints desse laboratório em produção.
+
+4. Separação de responsabilidades proposta
+
+Reserva Ethereum de produção: aceita somente o colateral configurado, registra
+depósitos e paga queimas aprovadas por um verificador de consenso/estado DOM.
+Reutilizar os limites, espera, proteção de IDs e verificações USDT como ideias
+revisadas; não chamar o contrato v3 por quórum de contrato final de produção.
+Não incluir uma rota administrativa alternativa que dispense a prova de queima.
+
+Consenso DOM: verifica a origem de cada depósito Ethereum, mantém estado USDOM,
+valida provas de emissão/gasto/queima e compromete esse estado em blocos válidos.
+Não confiar em um indexador, carteira, RPC ou monitor para conservação monetária.
+
+Provador/relayer: produz e transporta provas e dados públicos. Pode estar errado,
+malicioso ou indisponível; não pode criar saldo, trocar destinatário ou aprovar
+um checkpoint. Qualquer participante deve conseguir reproduzir a prova com os
+dados disponíveis. Indisponibilidade pode interromper a ponte, sem abrir bypass.
+
+Carteira: deriva separadamente chaves de gasto e leitura, cria provas localmente,
+recebe notas criptografadas, acompanha testemunhas e restaura após reorganizações.
+O provador remoto não deve receber histórico, aberturas ou chaves privadas sem
+um modelo explícito que preserve os requisitos de privacidade.
+
+Monitor: observa disponibilidade, mudanças de colateral, divergências e falhas.
+Pode alertar e acionar a pausa prevista. Monitoramento não transforma uma prova
+inválida em válida, não decide finalidade nem autoriza emissão/resgate.
+
+Modelo de adversário a usar na revisão: observador que combina ledgers Ethereum
+e DOM, participante que conhece suas próprias notas, spender malicioso, relayer/
+provador/RPC desonesto, minerador censor e comprometimento administrativo.
+Separar segurança de fundos, disponibilidade e privacidade em cada cenário.
+Dados públicos e notas conhecidas pelo adversário reduzem o conjunto de anonimato.
+Comprometimento da chave de gasto, vigilância do dispositivo e revelação voluntária
+de dados não são problemas resolvidos por esconder entradas na prova.
+A resistência a observação de rede precisa de avaliação própria; não inferi-la
+de testes de circuitos. Hipóteses de hashpower, criptografia e bootstrap devem
+ser declaradas; nenhum provador elimina essas hipóteses automaticamente.
+
+5. Estado USDOM e conservação sem modificar a moeda DOM
+
+Introduzir um namespace/protocolo de ativo que vincule cadeia DOM, rede Ethereum,
+token, reserva e versão. Domínios de notas, nullifiers, emissão, queima e provas
+devem ser separados. Conversão entre diferentes reservas/versões exige regras
+próprias; não tratar um novo deployment automaticamente como o mesmo colateral.
+
+Estado mínimo a comprometer: árvore de notas e tamanho, conjunto de nullifiers,
+depósitos consumidos, acumulador de queimas, histórico limitado de âncoras e
+checkpoint Ethereum autenticado. O nó deve persistir estado e undo atomicamente.
+Todo caminho de validação deve executar as mesmas regras: mempool, blocos locais,
+blocos de peers, reorganizações, IBD, snapshot e recuperação de banco.
+
+Em uma visão consistente dos dois históricos finalizados, em unidades inteiras:
+ D = depósitos creditados; M = emissão nativa; Q = queimas nativas;
+ R = pagamentos Ethereum; S = M - Q; U = D - M; B = Q - R.
+ Exigir U >= 0, S >= 0, B >= 0 e D - R = U + S + B.
+U representa depósitos ainda não emitidos; B, queimas ainda não pagas.
+Essa identidade é um requisito de auditoria, não uma alegação de estado atual.
+Doações à reserva não entram em D. Taxas de USDOM não devem ser introduzidas
+implicitamente. Estados observados com atrasos diferentes precisam ser alinhados
+antes da reconciliação; um snapshot parcial não pode autorizar emissão adicional.
+
+Não modificar recompensa, limite de emissão, maturidade de coinbase ou equação
+monetária da DOM. A transação USDOM não pode cunhar DOM nem aceitar um autorizador
+USDOM como autoridade de DOM. A nova camada deve conservar seu ativo separadamente.
+Manter taxas denominadas em DOM exige projetar pagamento/patrocínio e peso dos
+novos payloads sem expor a identidade do dono da nota através de um pagador fixo.
+Esse problema de privacidade das taxas permanece aberto; a opção não foi escolhida.
+
+6. Depósito Ethereum -> emissão nativa
+
+ETHEREUM-DEPOSIT-DESIGN.txt detalha a autenticação necessária, os índices de
+recibo/log e os resultados do experimento local de inclusão. Não há cliente
+de consenso Ethereum implementado nesta etapa.
+
+Identificar um depósito por domínio completo e evento canônico: rede, reserva,
+token, bloco, recibo/transação e índice do log. Conferir emitter, tópicos, ABI,
+quantidade e compromisso de recebimento; rejeitar codificações alternativas.
+Uma mesma ocorrência pode ser consumida somente uma vez no consenso DOM.
+O compromisso deve vincular a nota autorizada, impedindo que um relayer substitua
+o dono. A prova de emissão conserva exatamente o montante recebido, sem overflow.
+
+A fonte de verdade proposta é execução Ethereum em bloco cuja finalidade foi
+autenticada a partir do consenso Ethereum. Uma prova de inclusão de recibo não
+prova finalidade do cabeçalho por si só. Projetar bootstrap confiável, atualizações
+do cliente leve, forks/versões, dados indisponíveis e expiração do checkpoint.
+Um hash de bloco fornecido por RPC ou assinatura do antigo issuer não basta.
+Não habilitar refund Ethereum enquanto a autorização de emissão puder continuar
+válida na DOM; tal rota exigiria cancelamento intercadeias provado separadamente.
+
+7. Transferência privada nativa
+
+Uma relação de gasto deve provar conhecimento da chave, pertinência a uma raiz
+aceita, ativo/domínio corretos, nullifiers derivados unicamente, valores no
+intervalo e soma conservada, sem revelar nota de entrada, posição, dono ou valor.
+Nullifiers são públicos para impedir gasto duplo, mas não podem identificar o
+compromisso gasto. Raízes órfãs devem ser rejeitadas; histórico de raízes válido
+e atualização de testemunhas precisam de limites de armazenamento e custo.
+
+Publicar somente os compromissos de saída e envelopes criptografados necessários
+à recuperação, com formatos/tamanhos padronizados e preenchimento revisado.
+Vincular o ciphertext à prova e ao domínio. A carteira confirma recebimento
+somente após decriptar, recomputar o compromisso e verificar sua capacidade de gasto.
+O laboratório vincula bytes do ciphertext, mas não prova que o remetente o
+criptografou corretamente para o destinatário. Essa distinção deve permanecer
+explícita na especificação e nos testes de entrega/recuperação.
+
+Não expor índices possuídos via RPC seletivo, reutilizar identificadores públicos
+de remetente/destinatário ou registrar testemunhas em logs. Avaliar scanning local,
+distribuição de witnesses, transporte, retransmissão e análise de primeiro emissor.
+Proteção criptográfica no ledger não prova proteção contra observador de rede.
+Depositar e resgatar imediatamente um montante singular reduz o conjunto de
+anonimato mesmo quando nenhuma prova contém uma ligação ao depósito.
+
+8. Queima e resgate sem revelar o caminho das notas
+
+A queima consome notas e publica um compromisso de obrigação de saída, separado
+do compromisso de depósito. A obrigação vincula ativo/domínio, montante, destino
+Ethereum, identificador único e aleatoriedade apropriada. A relação prova que o
+montante sai de circulação; troco continua em novas notas privadas.
+O identificador de resgate não deve ser derivado publicamente do depósito ou
+reutilizar seu salt/commitment. Um campo de depósito original não entra no resgate.
+
+Proposta de entrada pública para verificação Ethereum: versão/protocolo, domínios
+de ambas as redes, reserva, checkpoint DOM aceito/raiz, ID único da obrigação,
+destinatário e quantidade. O caminho de notas, posições de entradas, chaves,
+aberturas e depósito original permanecem privados. Expor altura/hash somente
+quando necessário ao esquema de checkpoint; avaliar agregação para reduzir metadados.
+O circuito final deve demonstrar que essa obrigação pertence ao estado queimado
+do checkpoint e que o checkpoint satisfaz a regra de finalidade adotada.
+
+A reserva marca o ID pago atomicamente com a transferência exata. Uma nova prova
+do mesmo ID não cria um novo direito. O registro de pagamentos não pode ser
+zerado ao trocar verificador ou checkpoint. Um relayer não pode trocar o destino.
+Governança capaz de substituir livremente a chave de verificação/programa também
+seria capaz de aprovar queimas falsas. Um timelock não remove essa autoridade.
+Projetar identidade imutável do verificador por versão e regras explícitas de
+transição/migração; não introduzir troca arbitrária de verificador como recuperação.
+Se qualquer exceção exigir confiança administrativa, ela precisará ser exposta
+e compatibilizada com o requisito de produção, não escondida atrás da palavra prova.
+Falha/congelamento do USDT preserva o direito não pago; não deve restaurar saldo
+USDOM automaticamente, pois uma execução tardia poderia criar pagamento duplo.
+Congelamento permanente pode tornar esse direito inexequível. Reatribuição de
+destino, cancelamento ou reemissão exigiriam um protocolo próprio com exclusão
+mútua entre pagamento e restauração, provada nas duas cadeias. Não estão
+implementados nem autorizados implicitamente por esta proposta; definir essa
+política e suas limitações antes de aceitar colateral real.
+
+Queima definitiva é requisito ainda sem mecanismo satisfatório no código atual.
+Uma prova ZK de validade não resolve sozinha escolha de fork nem torna um pagamento
+Ethereum reversível. Qualquer regra de reorganização profunda, checkpoint inicial
+e recuperação deve ser definida antes do contrato de produção. Uma seleção manual
+de histórico ou assinatura de comitê de ponte não pode aparecer como fallback oculto.
+
+9. Alternativas de prova e critérios de escolha
+
+A decisão posterior do operador é comparar finalidade adicional verificável na
+Ethereum com segurança probabilística PoW antes de escolher. A comparação em
+FINALITY-COMPARISON.txt detalha mudanças, confiança, riscos e critérios; nenhuma
+alternativa foi selecionada nem houve aceitação do risco probabilístico.
+
+Verificação direta de cabeçalhos/estado em Solidity:
+exige RandomX exato, dificuldade, seed, serialização e demais regras, além da
+inclusão/validade USDOM. O RandomX de referência usa 256 MiB no modo light e
+2080 MiB no modo fast. Isso torna uma tradução direta do avaliador nativo uma
+opção problemática; não é uma prova de impossibilidade de toda construção alternativa.
+Fonte: https://github.com/tevador/RandomX (Overview).
+
+Provas sucintas/recursivas de execução e transição de estado:
+podem mover trabalho pesado para um provador e deixar verificação curta na EVM.
+Ethereum dispõe de operações de pairing para certos verificadores, mas isso não
+fornece um circuito DOM nem valida automaticamente Groth16 do laboratório.
+Fonte: https://eips.ethereum.org/EIPS/eip-197.
+Exigir programa/circuito determinístico revisado, identidade de verificador fixada,
+entradas públicas canônicas e provas recursivas que preservem todas as regras.
+Medir geração, memória, latência, taxa, verificação e atualizações. Não aceitar
+JIT/FFI nativo não provado, hash RandomX declarado ou modo regtest como atalho.
+Groth16 com setup apropriado, sistemas universais e sistemas transparentes devem
+ser comparados; não há vencedor comprovado nesta avaliação. Setup, segurança da
+curva, atualizações e disponibilidade do provador fazem parte da decisão.
+
+Modelo otimista:
+exige dados disponíveis, contestação permissionless e mecanismo executável que
+decida a fraude. Um período de espera sem esse mecanismo não é uma prova.
+Acrescenta hipótese de contestador honesto/online e não elimina a questão de fork.
+Não foi selecionado como solução para os requisitos do operador.
+
+Quórum de atestadores:
+permanece excluído da produção por decisão do operador. O v3 é somente protótipo.
+
+Finalidade nativa:
+PoW com uma política local de profundidade não fornece irrevogabilidade global
+incondicional. Se o requisito demandar finalidade determinística exportável,
+será necessário especificar um mecanismo nativo adicional, suas hipóteses de
+segurança, bootstrap e ativação. Não foi projetado ou autorizado um novo comitê.
+Se uma interpretação probabilística for considerada, o risco residual precisa
+de decisão explícita; esta proposta não redefine 'definitiva' silenciosamente.
+
+10. Plano de validação antes de implementar/ativar produção
+
+A. Congelar formatos e modelo de segurança: origem do colateral, finalidade nas
+duas direções, domínio de ativo, estado, privacidade, taxas, recuperação e versões.
+Resultado exigido: especificação revisada, com decisões abertas resolvidas.
+B. Provar viabilidade do consenso: vetores reais mainnet de RandomX, seed/alvo,
+dificuldade, fork choice, serialização e estado USDOM em um provador candidato;
+comparação bit a bit contra o validador nativo, incluindo casos inválidos.
+Resultado exigido: medição reproduzível de prova e verificação EVM dentro dos
+limites escolhidos. Testes de PoW simplificado não contam como essa evidência.
+C. Implementar nova versão em rede isolada: raízes/tamanhos autenticados, regras
+de emissão/gasto/queima, undo e armazenamento atômico, sem ativar mainnet.
+Resultado exigido: nós independentes concordam após forks, reinícios e IBD.
+D. Testar fronteira intercadeias: inclusão sem finalidade, replay, depositante
+substituído, ativo errado, depósito reorgado, prova de fork, queima órfã, resgate
+repetido/concorrente, mudanças de verificador, pausa e congelamento do USDT.
+Resultado exigido: identidade monetária preservada em checkpoints consistentes.
+E. Avaliar privacidade: witnesses ausentes do ledger/logs, resistência a ligação
+criptográfica, criptografia/entrega, recuperação, análise de montantes/tempos,
+patrocínio de taxas, mempool/rede, tamanho do conjunto de anonimato e provedores RPC.
+Resultado exigido: relatório com modelo do adversário, medições e limites, sem
+inferir anonimato só porque uma chave não aparece em JSON.
+F. Revisão independente de criptografia, consenso, carteira e contratos; setup
+de produção se necessário; parâmetros/custódia definidos; ensaios de incidentes,
+backup e recuperação. Resultado exigido: bloqueios materiais resolvidos e
+autorização separada para qualquer implantação/ativação/fundos reais.
+
+Não transformar esses requisitos em um simples arquivo 'ready=true'. Testes da
+reserva, manifests e assinaturas administrativas não provam os requisitos acima.
+O próximo experimento depende da definição de finalidade e seleção de candidatos
+de prova para benchmark; não depende de aumentar o número de atestadores do v3.
+
+Atualização de direção: o operador escolheu aprofundar checkpoints Ethereum
+reconhecidos pela DOM em uma prova de conceito isolada. Essa autorização de
+pesquisa não seleciona um mecanismo de produção nem autoriza ativação/fundos.

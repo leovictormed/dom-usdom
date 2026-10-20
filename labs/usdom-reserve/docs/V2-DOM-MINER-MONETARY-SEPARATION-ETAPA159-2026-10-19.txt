@@ -1,0 +1,76 @@
+Candidate-V2 DOM miner integration and monetary separation — stage 159
+Date: 2026-10-19
+
+Answer to the mining question
+=============================
+
+The proof-of-work miner mines DOM blocks and receives the ordinary DOM
+coinbase. "V2" names the second version of the native USDOM state transition
+relation committed inside those blocks. It is not a second mined currency and
+it creates no USDOM reward. USDOM issuance remains a distinct verified
+transition authorized only by an eligible finalized USDT reserve deposit on
+Ethereum. An empty USDOM V2 batch leaves total_issued and total_burned
+unchanged.
+
+Change
+======
+
+After candidate-V2 activation, the node miner now obtains a V2 template from
+the restored V2 runtime instead of falling back to an ordinary block whose
+header would not carry the required native-state commitment. The template
+recomputes the versioned transition receipt from the current authenticated V2
+state, the exact DOM block timestamp, a canonical proof envelope and the
+ordered state witnesses. The miner binds that receipt to the ordinary DOM
+rangeproof PMMR root, searches the normal DOM PoW nonce, then submits the
+completed block as one UDOMV2W1 package through the same V2 ingress used by
+authenticated peers.
+
+The volatile V2 candidate pool retains at most 16 entries and 16 MiB of
+canonical envelope+witness bytes. Admission parses and verifies both parts,
+requires equal proof/witness counts, and verifies the complete proof and
+stateless state transition. Template creation repeats those checks against the
+exact current state and timestamp. Permanently stale candidates are removed,
+retryable candidates rotate within the bounded pool, and no candidate grants
+consensus authority before final package ingress verifies it again. A
+canonical block removes its exact candidate; a side-chain race keeps it for a
+later template. When no operation is usable, the runtime constructs the unique
+empty proof/witness pair so DOM chain progress does not depend on USDOM flow.
+
+Validation
+==========
+
+The directed miner test starts from the persisted V1/V2 migration parent,
+mines block 2 through the actual node miner, and verifies that its coinbase is
+the ordinary DOM block reward. The node emits only a V2 relay, persists the
+exact package and witness bytes, and reconstructs an unchanged V2 state with
+zero issued and zero burned USDOM.
+
+A proof-bearing test admits a real Groth16 private-transfer envelope and its
+authenticated V2 state witness, checks duplicate idempotence and byte
+accounting, reproduces the expected header commitment, rejects a missing
+witness, removes the exact confirmed candidate and discards the same candidate
+after its nullifier has become stale. The empty fallback is recomputed against
+the new state.
+
+The two-node test now covers both paths: the client first synchronizes the
+server's V2 block through authenticated headers-first IBD; the running server
+then mines the next DOM block through the V2 template, relays UDOMV2W1 live,
+and the client persists byte-identical package and witnesses. All 77 dom-chain
+library tests and all-target Clippy for dom-node and dom-chain pass with
+warnings denied. A repeat of the wider integration suite passed its first
+groups but was interrupted after the host blocked for more than fifteen minutes
+on filesystem page I/O inside the unchanged `is_synced_matches_threshold`
+property test. The same complete integration suite passed at stage 158 before
+the isolated miner changes; this interruption is recorded as an infrastructure
+limitation, not counted as a pass or a test failure.
+
+Security boundary
+=================
+
+This stage restores DOM block production after V2 activation without adding a
+USDOM mining reward. A production-facing authenticated V2 candidate-submission
+API, real finalized Ethereum deposit and payout lifecycle, production proving
+artifacts, ratified control-plane configuration, supervised migration drills,
+prolonged adversarial operation and independent audits remain open. The
+closed-mainnet and real-funds gates remain closed. No push, commit, deployment,
+transaction or use of funds occurred.

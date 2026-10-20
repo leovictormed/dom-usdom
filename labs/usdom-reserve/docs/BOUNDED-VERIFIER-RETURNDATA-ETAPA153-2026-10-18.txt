@@ -1,0 +1,75 @@
+USDOM verifier return-data hardening — stage 153
+Date: 2026-10-18
+
+Finding
+=======
+
+Foundry 1.8.5 identified two return-bomb paths in DOMCheckpointRegistry. Both
+used Solidity `bytes memory` to receive data from an immutable external
+verifier. Although the call gas was bounded, an adversarial or corrupted
+verifier could return far more than one word and force the caller to allocate
+and copy attacker-selected return data before rejecting it. This was a denial-
+of-service risk in candidate submission and verifier-configuration reads.
+
+Correction
+==========
+
+DOMCheckpointRegistry now uses the same fixed-word STATICCALL boundary as the
+proof reserve. `_staticcallWord` supplies a 32-byte output area, reads
+RETURNDATASIZE without copying the remainder, and grants authority only when:
+
+- STATICCALL succeeds;
+- the exact return size is 32 bytes; and
+- the returned word equals the frozen acceptance magic or the expected
+  nonzero configuration identity.
+
+Short, empty, reverting, 64-byte and one-megabyte returns therefore fail
+closed. The verifier cannot make Solidity allocate its return payload.
+
+The production contracts were also checked with the current Foundry linter.
+Intentional timestamp, exact-USDT-balance and post-STATICCALL event patterns
+now carry narrow inline explanations. The linter reports unused suppressions,
+so a stale justification fails the production lint instead of silently hiding
+future diagnostics. The npm pretest now runs that strict production lint first,
+then builds the complete local test target so every prototype and hostile-token
+artifact required by the Node integration suite is present.
+
+Artifact impact
+===============
+
+The source-verified checkpoint-registry artifact changed intentionally:
+
+- runtime code hash:
+  0x61cd4c489d20d8059ecfcba643f39974ca05463ac54fa8d91a755e95f0f871d6
+- runtime size: 6,059 bytes (previously 6,256)
+- initcode hash:
+  0x3b730a4a66ce70ed5ff53dfeff3d2bdb63790179f7ca4c5e8f794cc8ad965e3b
+- initcode size: 9,435 bytes (previously 9,718)
+
+These are local deterministic test vectors for immutable patching. Production
+release hashes remain deliberately unset and Ethereum mainnet deployment
+continues to fail closed.
+
+Validation
+==========
+
+- Production Foundry lint passed with warnings denied and unused suppression
+  reporting enabled.
+- Production contract build passed with warnings denied.
+- 119 Solidity tests passed, including 1,024-run fuzz cases and three
+  invariants with 16,384 calls each.
+- Proof-reserve and checkpoint-registry tests reject one-megabyte return bombs;
+  registry construction also rejects a configuration getter return bomb.
+- 58 Node 24 tests passed, including source-verified runtime/initcode derivation
+  against the new frozen vectors.
+- Source manifest, readiness gates and package checks were repeated after the
+  final source changes.
+
+Security boundary
+=================
+
+This removes an external-verifier return-data DoS from the Ethereum contracts.
+It does not provide the still-missing production verifier, finalized Ethereum
+deposit/payout lifecycle, live V2 node transport, ratified control-plane
+configuration, operational rehearsal or independent audits. Readiness remains
+fail closed. No push, commit, deployment, transaction or use of funds occurred.

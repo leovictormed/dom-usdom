@@ -1,0 +1,65 @@
+USDOM ETAPA 73 — CLIENTE RPC ESTRITO DA CARTEIRA
+Data: 2026-10-17
+
+Esta etapa implementa o cliente opcional `rpc-client` de dom-usdom-wallet para
+submeter uma transferência privada pendente e procurar sua inclusão canônica.
+O escopo permanece local/Regtest. Ela não ativa mainnet, deploy ou fundos reais.
+
+FRONTEIRA DE TRANSPORTE
+
+UsdomRpcClient aceita somente HTTP em endereço IP literal de loopback, com path
+raiz, sem credenciais, query, fragmento ou redirecionamento. `localhost`, IPs
+externos e HTTPS são rejeitados para impedir resolução ambígua e uso acidental
+do token fora da máquina. O RPC do nó continua responsável por escutar somente
+em loopback.
+
+O Bearer possui 32..=256 bytes sem whitespace e fica em Zeroizing<String>. A
+leitura opcional de arquivo exige arquivo regular 0600, um único hard link,
+diretório pai privado, ausência de symlink e correspondência de device/inode
+entre o descritor aberto e o nome. Arquivo e respostas possuem limites fixos.
+
+SUBMISSÃO EXATA
+
+submit_pending_private_transfer aceita somente um transition_id que já exista
+na fila persistente da WalletState. O cliente envia os bytes exatos retidos por
+essa entrada e exige schema_version 1, accepted=true, state="queued", o mesmo
+transition_id e candidate_id canônico não nulo. Campos desconhecidos, hashes
+em formato alternativo e respostas grandes falham fechado.
+
+Esta API não substitui a durabilidade: o chamador ainda deve salvar o snapshot
+com a reserva dos inputs e confirmar o selo monotônico externo antes de chamar
+a rede. Essa ordem está documentada, mas ainda não é imposta por um tipo/permit
+emitido pela autoridade de persistência. Por isso
+native_private_wallet_authenticated_submission_implemented permanece false.
+
+SCAN CANÔNICO
+
+scan_private_transfer vincula a consulta a network magic, chain_id,
+transition_id, intervalo máximo de 256 blocos e anchor predecessor. A resposta
+deve usar o nome correspondente ao magic, repetir o anchor exato, permanecer
+dentro do intervalo e tip, usar hashes hex minúsculos canônicos e apresentar
+continuação coerente com o tip da página. Uma página incompleta sem continuação
+é rejeitada. finality_claimed=true também é rejeitado: inclusão canônica não é
+prova de finalidade.
+
+VERIFICAÇÃO
+
+- suíte completa dom-usdom-wallet com `rpc-client`: 15 aprovados, 0 falhas;
+- casos do cliente RPC: 5 aprovados, incluindo rede/anchor/finalidade/paginação
+  adulteradas e política do arquivo secreto;
+- cargo check e clippy com `-D warnings`: aprovados;
+- cargo fmt --check: aprovado após correção do vetor de teste.
+
+BLOQUEIOS RESTANTES PARA FUNDOS REAIS
+
+1. autoridade monotônica de snapshot e permit durável save-before-submit;
+2. limpeza/finalização de pendências vinculada a checkpoint autenticado;
+3. builder de burn privado e registro de notas emitidas por depósitos reais;
+4. vetor ponta a ponta de depósito USDT Ethereum finalizado até emissão/mineração;
+5. compromisso de estado no header de produção e regra de finalidade escolhida;
+6. parâmetros imutáveis, cerimônia MPC e auditoria independente do circuito ZK;
+7. testes prolongados multinó, reorg, indisponibilidade, censura e recuperação;
+8. auditorias externas independentes do protocolo, cliente, contrato e operação.
+
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

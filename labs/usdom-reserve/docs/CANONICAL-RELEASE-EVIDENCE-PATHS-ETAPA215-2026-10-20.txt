@@ -1,0 +1,35 @@
+Stage 215 — canonical release-evidence paths
+Date: 2026-10-20
+
+Finding USDOM-215 — Medium provenance ambiguity
+
+Evidence descriptors accepted any nonempty path string. The command-line gate
+prevented direct escape from the project after path resolution, but aliases such
+as absolute paths, dot segments, parent segments, repeated separators or
+backslashes could name the same file with a different manifest string. A symlink
+inside an excluded/generated evidence location could also redirect the reader to
+bytes that were not the direct regular file named by the release.
+
+Remediation
+
+The pure readiness assessment now accepts only canonical relative POSIX paths:
+
+- no absolute path;
+- no backslash or NUL;
+- no empty, dot or parent component;
+- no repeated or trailing separator.
+
+The command-line assessor additionally resolves and lstats every evidence file.
+It reads the file only when the resolved path equals the lexical project path and
+the final object is a regular file. This rejects final-component and intermediate
+symlinks, directories and other special files. The same reader is used for both
+verifier configuration manifests.
+
+Regression validation
+
+Seven path mutations covering absolute, parent, normalized-parent, dot, repeated
+separator, backslash and empty paths each fail the required-document check. The
+fully configured synthetic release continues to pass in both release modes.
+
+No proof generation, mining, deployment, fund movement, commit or push was
+performed.

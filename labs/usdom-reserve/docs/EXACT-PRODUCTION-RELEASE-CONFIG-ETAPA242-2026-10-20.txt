@@ -1,0 +1,45 @@
+USDOM ETAPA 242 — CONFIGURAÇÃO DE PRODUÇÃO EXATA E CANÔNICA
+Data: 2026-10-20
+Status: implementado e validado localmente
+
+Achado USDOM-242
+
+Severidade: Alta para correção e disponibilidade do resgate nativo.
+Exposição pública atual: nenhuma.
+
+O gate consumia subconjuntos da configuração de produção sem exigir o envelope
+completo de 52 campos. `ethereumGenesisValidatorsRoot` existia no arquivo, mas
+não era verificado. Os limites `nativeRelaySafetyMarginSeconds`,
+`nativeMaxEthereumAnchorAgeSeconds` e `nativeMaxDomClockLeadSeconds` precisavam
+apenas ser não nulos. Assim, a fixture considerada pronta usava margem de relay
+de 3600 segundos e idade máxima de âncora de 7200, configuração que o consenso
+nativo rejeita.
+
+Correção
+
+- o envelope exige exatamente os 52 campos suportados;
+- chain ID é a string exata `1` e a genesis validators root é a raiz canônica
+  da Ethereum mainnet;
+- `realFundsAuthorized` deve ser booleano;
+- os três limites nativos e o atraso de saque são inteiros uint64 decimais
+  canônicos;
+- `maxDomClockLead >= 120`, o limite de consenso DOM;
+- `relaySafetyMargin >= maxEthereumAnchorAge`;
+- `withdrawalDelay + 3600 + relaySafetyMargin <= 604800 - maxDomClockLead`;
+- zeros, overflow, números JavaScript, zeros à esquerda, propriedades extras ou
+  ausentes e políticas impossíveis falham fechados.
+
+A fixture pronta foi corrigida para margem 3600, idade da âncora 1800 e avanço
+do relógio 120. A validação focal passou 36/36. A etapa não configura valores de
+produção nem declara fatos operacionais ainda ausentes.
+
+Validação final
+
+- lint de produção e compilação forçada: passaram;
+- suíte Node completa: 107/107;
+- suíte Solidity vigente: 138/138, sem alteração de contrato nesta etapa;
+- proveniência completa: 169 fontes importadas, 16 modificações registradas,
+  todos os limites/manifests subordinados e 852 arquivos no manifesto raiz;
+- gates esperadamente não prontos: 149/160 bloqueios objetivos únicos, incluindo
+  a política temporal ainda não configurada e nenhum requisito de auditoria
+  externa ou risco zero.

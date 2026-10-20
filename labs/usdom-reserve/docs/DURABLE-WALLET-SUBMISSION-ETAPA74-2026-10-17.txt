@@ -1,0 +1,79 @@
+USDOM ETAPA 74 — PERSISTÊNCIA DURÁVEL ANTES DA SUBMISSÃO
+Data: 2026-10-17
+
+Esta etapa substitui a obrigação documental de “salvar antes de transmitir”
+por uma fronteira de tipos e um protocolo de persistência em duas fases. O
+escopo permanece biblioteca/Regtest; a autoridade monotônica concreta de
+produção ainda precisa ser integrada.
+
+CAPACIDADE DE SUBMISSÃO
+
+UsdomRpcClient não aceita mais apenas um transition_id. Ele exige um
+DurablePendingTransferPermit sem construtor público. O permit identifica o
+payload exato e o selo do snapshot que o autorizou. Ele só é emitido depois que
+o snapshot cifrado e a autoridade externa confirmam o mesmo selo.
+
+A entrada pendente ganhou submission_authorized. Essa marca faz parte do
+snapshot autenticado USWSTA04 e é definida antes de calcular seu digest. Depois
+de autorizada, a intenção não pode ser cancelada mesmo que ainda não seja
+canônica. Isso impede que a carteira libere os inputs e crie um gasto local
+conflitante após uma submissão cuja resposta foi perdida.
+
+PROTOCOLO EM DUAS FASES
+
+WalletSnapshotSealAuthority expõe estado committed/prepared e operações CAS de
+prepare, commit e abort. persist_pending_transfer_for_submission executa:
+
+1. bloqueio exclusivo do snapshot e comparação do predecessor arquivo/autoridade;
+2. marcação da intenção e validação completa do estado;
+3. cálculo do snapshot e de seu selo de geração seguinte;
+4. prepare durável na autoridade;
+5. gravação cifrada atômica e fsync do arquivo e diretório;
+6. commit durável do mesmo selo;
+7. emissão do permit somente após reler o estado final da autoridade.
+
+Erros depois de prepare nunca liberam a intenção e nunca abortam às cegas. Um
+erro de armazenamento pode ocorrer após rename e antes da confirmação de
+fsync. Nesse caso, reconcile_encrypted_snapshot_authority decripta o arquivo:
+se ele contém o selo prepared, faz commit; se ainda contém committed, faz
+abort. Qualquer terceiro estado falha fechado.
+
+Após reinicialização, LoadedWalletSnapshot só reemite o permit se seu selo for
+exatamente o committed atual, não houver prepared e a intenção autenticada
+estiver marcada. Um snapshot antigo válido não recupera capacidade de rede.
+
+FORMATO
+
+O envelope passou a USD-WALLET-S4, versão 4, e o estado canônico a USWSTA04.
+Snapshots experimentais S3 não são reinterpretados como S4. Como nenhuma
+carteira de produção foi ativada, a mudança é deliberadamente fail-closed.
+
+LIMITES DE CONFIANÇA
+
+O protocolo e a interface da autoridade estão implementados e testados. Ainda
+falta escolher e integrar a autoridade concreta de produção, por exemplo TPM,
+HSM ou serviço remoto append-only com CAS e política operacional auditada. Uma
+implementação que minta ou possa sofrer rollback quebra a propriedade; ela faz
+parte da base de confiança explícita.
+
+VERIFICAÇÃO
+
+- suíte completa dom-usdom-wallet com rpc-client: 16 aprovados, 0 falhas;
+- prova Groth16 real, reserva, falha simulada de commit, recuperação, reemissão
+  do permit e proibição de cancelamento: aprovadas;
+- recuperação com arquivo antigo e novo e rejeição de geração impossível:
+  aprovadas;
+- cargo fmt, cargo check, clippy -D warnings e diff check: aprovados.
+
+BLOQUEIOS RESTANTES PARA FUNDOS REAIS
+
+1. autoridade monotônica concreta e auditada no aplicativo de produção;
+2. limpeza de pendências vinculada à finalidade autenticada;
+3. builder de burn privado e registro de notas de depósitos reais;
+4. vetor completo de depósito USDT finalizado até resgate;
+5. compromisso de estado/header e finalidade Ethereum de produção;
+6. cerimônia MPC, chaves imutáveis e auditoria independente dos circuitos;
+7. testes multinó prolongados e auditorias externas do sistema completo.
+
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

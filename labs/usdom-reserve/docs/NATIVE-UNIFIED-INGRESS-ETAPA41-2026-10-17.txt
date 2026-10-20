@@ -1,0 +1,55 @@
+USDOM nativa — ingresso único e seleção automática de ramo
+Etapa 41, 2026-10-17
+
+Estado: API opt-in e exclusiva de Regtest. Sem ligação ao P2P público, ativação,
+deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Falha tratada
+
+As etapas anteriores expunham três operações corretas, porém separadas: conexão
+direta, retenção lateral e promoção. Um chamador de rede poderia escolher a
+operação errada, esquecer a promoção de um ramo vencedor ou tratar uma cópia já
+conhecida de forma diferente conforme sua origem.
+
+2. Ingresso canônico
+
+ChainState::ingest_usdom_v4_package_regtest é agora o roteador recomendado para
+um pacote recebido. Antes de classificar o bloco, ele restaura o estado nativo
+associado ao tip e exige igualdade de raiz e de todas as entradas com o estado
+do chamador. Essa verificação também ocorre em duplicatas, evitando que um
+AlreadyHave esconda divergência em memória.
+
+O pacote passa pela decodificação canônica única e seu identificador deriva do
+cabeçalho. Se o hash já existe, o pacote inteiro é reconstruído da persistência
+ou do sidecar e precisa coincidir byte a byte. Um bloco já canônico retorna
+AlreadyHave. Substituição de envelope, corpo ou framing falha.
+
+Uma extensão do tip segue o commit direto atômico. Outro pai conhecido segue a
+validação/replay e retenção lateral. Depois disso, a mesma regra de fork choice
+usada pela cadeia DOM decide: ramo vencedor chama a promoção atômica e retorna
+Reorg; ramo não vencedor retorna SideChain. Uma cópia lateral já conhecida pode
+ser promovida mais tarde quando seu tip se torna vencedor.
+
+3. Evidência
+
+O teste de integração usa o ingresso único para duas extensões diretas, para
+detecção exata de duplicata e para a promoção de um ramo lateral de dois blocos.
+O cenário preserva os testes de corrupção de undo e sidecar, rewind autenticado,
+replay completo, troca atômica e restauração pelo novo tip.
+
+Passaram 65 testes dom-chain, a integração completa, 8 testes selecionados de
+atomicidade dom-store, 16 testes do estado USDOM, 1 compile-fail, Clippy com
+warnings como erros, build release, rustfmt e diff check.
+
+4. Limites restantes
+
+O node/P2P ainda não possui um comando negociado para transportar o pacote nem
+um runtime que detenha BridgeIdentity, política de checkpoint e estado nativo.
+IBD, mineração, fila futura, órfãos e snapshots ainda usam apenas Block. Ligar
+esses caminhos sem negociação de versão ou configuração imutável seria inseguro.
+
+Também faltam custo criptográfico de consenso, witness positivo do registry
+Ethereum real, verificadores privados revisados, carteira, ativação/migração,
+parâmetros, shadow run e auditorias independentes. mainnet_ready e
+real_funds_ready permanecem false.

@@ -1,0 +1,38 @@
+Hash-pinned candidate-v2 migration configuration — stage 156
+Date: 2026-10-18
+
+Change
+======
+
+The node's immutable native-USDOM manifest now has two unambiguous schemas.
+Schema 1 has no candidate-v2 authority. Schema 2 must contain exactly one
+candidate_v2.first_height greater than the V1 activation height. A V1 manifest
+with the field, a V2 manifest without it, zero/early heights and unknown fields
+all fail. The complete manifest remains externally SHA-256 pinned before JSON
+parsing, so changing the migration height changes the operator-ratified file
+identity.
+
+The offline manifest checker prints the selected first V2 height or explicitly
+prints disabled. The current node startup path refuses a schema-2 manifest
+with a clear error until it owns the complete live runtime switch. It cannot
+validate the new field and then silently start a V1-only node.
+
+Validation
+==========
+
+Four native-configuration tests passed. They cover the exact manifest hash,
+network and V1 schedule, bridge policies, verifying-key file/hash, canonical
+hex, path confinement, schema-1 disabled behavior, schema-2 migration height,
+and invalid early migration. All-target dom-node Clippy passed with warnings
+denied; formatting and diff checks passed.
+
+Security boundary
+=================
+
+This ratifies the migration height and makes unsupported startup fail closed.
+It intentionally does not yet claim a live switch: the node must restore V1 or
+V2 based on the persisted marker, atomically replace runtime ownership at the
+boundary, negotiate the V2 capability only in V2 phase, and route V2 through
+IBD, orphan replay, relay and mining. Real Ethereum settlement, production
+proving artifacts, operations and independent audits remain required. No push,
+commit, deployment, transaction or use of funds occurred.

@@ -1,0 +1,45 @@
+Stage 179 - checkpoint proof completion release gate
+Date: 2026-10-19
+
+Purpose
+
+The release gate required the high-level checkpoint verifier declarations, but
+did not independently require every concrete proof component that is still
+open. An operator could accidentally set the high-level declarations to true
+while leaving RandomX receipts, recursive aggregation or input completeness
+unfinished. Stage 178 exposed the same gap for the newly bound ImageID.
+
+Implemented gate
+
+Both closed-mainnet and real-funds modes now independently require all of:
+
+1. complete consensus-extension private input;
+2. a compiled consensus-extension guest;
+3. a pinned ImageID for the Ethereum-facing RISC Zero adapter;
+4. implemented recursive segment transitions;
+5. implemented recursive receipt aggregation;
+6. proof that the bounded input covers every valid DOM block, or an equivalent
+   implemented recursive split;
+7. a guest-compatible RandomX relation;
+8. an implemented RandomX proof receipt; and
+9. a pinned inner RandomX receipt ImageID.
+
+Each missing value produces its own stable requirement_<key> blocker. These
+checks supplement the existing high-level registry-verifier, artifact, audit,
+bootstrap and positive-vector requirements.
+
+Verification
+
+The ready fixture supplies every new requirement and still reaches zero
+blockers in both modes. A dedicated table test flips each requirement to false
+one at a time and proves that readiness fails with the corresponding unique
+blocker. The complete Node test suite, Solidity checks and the live unconfigured
+gate results are recorded in results-stage179-2026-10-19.
+
+Security status
+
+The checked-in candidate intentionally leaves all nine production completion
+requirements false where the corresponding work is absent. The gates therefore
+remain closed with more explicit evidence. This stage does not implement the
+guest, pin any ImageID or authorize deployment or funds. No deploy, public
+transaction, funds, commit or push occurred. The node and miner remained stopped.

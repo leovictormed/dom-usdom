@@ -1,0 +1,55 @@
+USDOM security hardening — etapa 106
+Activation-bound native snapshot manifest
+Date: 2026-10-18
+
+Finding
+
+The persistent native USDOM database already required an exact canonical
+activation schedule and retained the original activation parent. The portable
+snapshot manifest, however, committed the reconstructed state, canonical tip,
+checkpoint floor and package/undo window without committing either activation
+artifact. A transported inventory therefore could not independently identify
+the ratified network/chain/height schedule or the exact persisted activation
+record whose parent anchors the activation boundary.
+
+Change
+
+The canonical snapshot format is now version 5 (291-byte fixed header plus
+140 bytes per inventoried block). It adds two mandatory, domain-separated
+32-byte fields:
+
+1. activation_schedule_commitment commits the exact UDACTV01 schedule,
+   including network magic, chain ID, first native-v4 height and canonical
+   empty bridge state root;
+2. activation_record_commitment commits the exact persistent activation
+   record, including that schedule and the original canonical activation
+   parent.
+
+Export obtains the record from the same atomic consensus-state snapshot used
+for the native-state inventory, parses and validates it, then derives both
+commitments. Missing, malformed or zero activation commitments are rejected.
+Store verification reconstructs the manifest and therefore rejects any
+substituted schedule or activation-record commitment even when the supplied
+manifest remains canonically encoded.
+
+Validation
+
+- canonical manifest round-trip and framing test: 1 passed, 0 failed;
+- zero schedule and zero activation-record commitments rejected;
+- schedule and activation-record substitutions change the manifest identity;
+- native node runtime integration suite: 8 passed, 0 failed, covering mining,
+  persistence/restart, exact package relay, future queue, orphan replay,
+  authenticated history RPC and two-node native IBD;
+- substituted activation commitments rejected against the audited store;
+- Clippy for dom-chain and dom-node, all targets, native-usdom-v4-poc, with
+  warnings denied: passed;
+- cargo fmt --check, JSON parse and git diff --check: passed;
+- closed-mainnet gate: correctly rejected with 70 blockers;
+- real-funds gate: correctly rejected with 78 blockers.
+
+Production status
+
+This closes a portable-evidence ambiguity. It does not select or ratify the
+public-network activation schedule. production_activation_schedule_implemented,
+mainnet_ready and real-funds authorization remain false. No push, commit,
+deployment or funds operation was performed.

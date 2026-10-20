@@ -1,0 +1,60 @@
+Fail-closed mainnet release gate — etapa 88
+Date: 2026-10-17
+Status: implemented and intentionally rejecting the current candidate
+
+Finding USDOM-088
+
+Severity: High operational risk for any release process.
+Current public exposure: none; no deployment or funds are authorized.
+
+The repository recorded production blockers in JSON and prose, while the
+configuration checker validated only syntax and explicitly could not certify
+readiness. A release operator could therefore run a narrow green check without
+receiving a complete failure for absent consensus, proof, audit, immutable
+configuration and authorization requirements.
+
+Remediation
+
+The new offline release gate has separate closed-mainnet and real-funds modes.
+It refuses release unless all applicable conditions are simultaneously true:
+
+1. the production consensus, finality proof, header commitment, activation,
+   real finalized-deposit vectors and independently reviewed privacy/issuance
+   requirements are recorded complete;
+2. a production finality mechanism and deployment are explicitly approved;
+3. every exact reserve field is present and the independently recomputed
+   reserveConfigHash matches it;
+4. the three compiled Solidity production hashes are nonzero canonical bytes32
+   literals and equal the release manifest;
+5. reproducible-build, consensus-audit, privacy-audit, Solidity-audit,
+   end-to-end, operations and mainnet-fork documents exist in the repository
+   and match their declared SHA-256 hashes;
+6. evidence slots use distinct paths; real-funds mode requires two separately
+   hash-addressed reports for each consensus, privacy and Solidity audit scope;
+7. the trusted-setup decision has a hash-addressed report and, when a setup is
+   required, its transcript is also present and hash matched;
+8. real-funds mode additionally requires production wallet custody/recovery
+   gates and three independent real-funds authorization declarations.
+
+Evidence paths are confined to the reserve project root before hashing. A
+synthetic complete fixture proves the gate can pass; negative tests mutate the
+deployment commitment, compiled pin, evidence hash, technical requirement and
+operator authorization independently and require rejection.
+
+Authoritative current result
+
+- closed-mainnet mode: rejected, exit 1, 37 explicit blocker codes;
+- real-funds mode: rejected, exit 1, 45 explicit blocker codes;
+- Node/SDK/integration suite: 38 passed; 0 failed;
+- Solidity default/deep evidence remains stage 87: 100 passed in each suite;
+- no deployment, transaction, commit or push was performed.
+
+The counts are individual failed assertions, not estimates of engineering
+effort. The largest underlying work remains the production DOM consensus and
+Ethereum-verifiable finalized-burn proof, followed by independent audits,
+production parameters and operational custody. The gate converts those facts
+into a deterministic nonzero exit status and cannot make an unreviewed release
+safe merely by validating JSON.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

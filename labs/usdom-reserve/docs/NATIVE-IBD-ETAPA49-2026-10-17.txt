@@ -1,0 +1,74 @@
+USDOM nativa — sincronização IBD do pacote canônico v4
+Etapa 49, 2026-10-17
+
+Estado: sincronização ao vivo implementada somente no POC Regtest.
+Sem commit, push, deploy ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Problema tratado
+
+O fan-out da etapa 48 propagava pacotes novos, mas um nó desconectado ou iniciado
+depois não conseguia recuperar a sequência perdida. O GetBlockData devolvia
+somente o corpo DOM comum, sem o envelope de provas e sem os bytes exatos que
+governam a transição USDOM. Isso tornava o relay insuficiente para convergência.
+
+2. Resposta exata e autorizada
+
+Quando o hash solicitado pertence a um bloco native-v4 persistido, o servidor
+reconstrói o pacote canônico completo e responde Command::UsdomV4Package com o
+payload UDOMV4W1 exato. Essa resposta só existe numa sessão que negociou
+bilateralmente a capacidade v4 sobre Noise e Hello autenticados.
+
+O servidor nunca rebaixa um bloco native-v4 para Command::Block: um peer legado
+não receberia o envelope necessário para validar a transição. Blocos comuns
+continuam usando a resposta Block existente. A reconstrução e leitura de LMDB
+ocorrem em spawn_blocking, fora do executor assíncrono.
+
+3. Cabeçalhos v4 com autoridade explícita
+
+O validador comum de cabeçalhos continua rejeitando version 4. O caminho nativo
+seleciona um validador separado, exclusivamente Regtest, somente após a sessão
+negociada. Ele verifica versão, continuidade, identidade de genesis, timestamps,
+MTP, target, trabalho acumulado e PoW; a validação integral do estado e das
+provas permanece obrigatória quando o corpo chega.
+
+Páginas novas são validadas em lote com custo linear e uma transição persistida.
+Retomadas após interrupção usam o cursor por cabeçalho já existente, com a mesma
+seleção explícita de versão. Assim o suporte v4 não reintroduz a antiga
+redecodificação quadrática de prefixos nem ativa v4 por conteúdo fornecido pelo
+peer.
+
+4. Importação atômica
+
+O cliente associa cada resposta ao hash solicitado. Pacotes v4 não solicitados
+são ignorados durante aquela espera; o pacote correto conserva o payload de wire
+original e entra pelo NativeUsdomV4Ingress compartilhado. Esse ingresso repete
+framing canônico, validação de bloco e provas, transição USDOM, persistência
+atômica, reconciliação de mempool/carteira, métricas e fan-out com supressão da
+origem. O cursor IBD só avança depois da aceitação.
+
+5. Prova entre dois nós
+
+O teste de integração cria dois bancos Regtest independentes no genesis. O nó
+servidor aceita um filho v4 válido; o cliente parte da altura zero e conecta por
+loopback. O ensaio percorre Noise v4, Hello com capacidade bilateral, Headers,
+GetBlockData, pacote canônico, validação atômica e encerramento limpo. Cliente e
+servidor terminam na altura 1 e com o mesmo tip hash. UPnP, NAT-PMP, DNS seeds,
+RPC e métricas externas ficam desativados no ensaio.
+
+6. Evidência
+
+As suítes completas dom-node padrão e opt-in, testes dirigidos de consenso,
+ChainState, codec e dois nós, Clippy com -D warnings, checks release nos dois
+modos, rustfmt e diff check estão armazenados em results-stage49-2026-10-17.
+Também foram executadas sem falhas as suítes completas dom-consensus e dom-chain
+com native-usdom-v4-poc durante esta etapa.
+
+7. Limites restantes
+
+Ainda faltam filas de órfãos e blocos futuros que preservem o pacote exato,
+mineração que construa o pacote, snapshots vinculando estado/cobertura/sidecars,
+contabilidade de custo criptográfico, witness Ethereum positivo de produção,
+provas privadas revisadas, produto de carteira, ativação e migração, parâmetros,
+shadow run e auditorias independentes. mainnet_ready e real_funds_ready seguem
+false.

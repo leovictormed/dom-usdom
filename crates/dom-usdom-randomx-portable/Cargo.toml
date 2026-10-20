@@ -1,0 +1,17 @@
+[package]
+name = "dom-usdom-randomx-portable"
+description = "Bit-exact portable RandomX v1 arithmetic for proof guests"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+argon2 = { version = "=0.5.3", default-features = false }
+blake2 = { version = "=0.10.6", default-features = false }
+ieee-apsqrt = "=0.1.1"
+rustc_apfloat = "=0.2.3"
+
+[lints]
+workspace = true

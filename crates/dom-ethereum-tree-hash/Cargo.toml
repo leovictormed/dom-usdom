@@ -1,0 +1,28 @@
+[package]
+name = "tree_hash"
+version = "0.10.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Path-pinned Ethereum tree_hash 0.10.0 for DOM proof verification"
+publish = false
+
+[dependencies]
+alloy-primitives = { version = "1.0.0", default-features = false }
+ethereum_hashing = { path = "../dom-ethereum-hashing" }
+ethereum_ssz = "0.9.0"
+smallvec = "1.6.1"
+typenum = "1.12.0"
+
+[dev-dependencies]
+ethereum_ssz_derive = "0.9.0"
+rand = "0.8.5"
+tree_hash_derive = "0.10.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Preserve the audited upstream arithmetic expression verbatim. The newer
+# spelling is semantic sugar and would create an unnecessary source fork.
+manual_is_multiple_of = "allow"
+legacy_numeric_constants = "allow"

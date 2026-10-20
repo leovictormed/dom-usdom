@@ -1,0 +1,23 @@
+[package]
+name = "dom-usdom-economic-chunk-risc0-guest"
+description = "RISC Zero guest for one bounded DOM economic-state chunk"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata.risc0]
+
+[[bin]]
+name = "usdom-economic-chunk"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", features = ["economic-chunks"] }
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

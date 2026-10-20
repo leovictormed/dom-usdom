@@ -1,0 +1,66 @@
+USDOM ETAPA 132 — MANIFESTO CANÔNICO DO VERIFICADOR FINAL
+Data: 2026-10-18
+
+ACHADO
+
+A reserva fixa verifierConfigHash e o gate exigia artefato/build do verificador,
+mas ainda aceitava esse hash como um valor opaco. Não havia uma codificação
+reproduzível provando quais typehashes, agenda DOM, regras de consenso/estado,
+regra de finalidade, sistema de prova, chave de verificação e artefatos estavam
+realmente identificados pelo getter do verificador. Um release internamente
+consistente poderia apontar contrato e relatório para configurações diferentes.
+
+CORREÇÃO
+
+Foi criado o schema exato usdom-finalized-burn-verifier-config-v1. Ele exige e
+compromete, por ABI canônica em hashes de seção:
+
+- versões do statement, compromisso de transição e transporte UDBBLK02;
+- BURN_STATEMENT_TYPEHASH, BURN_INTENT_TYPEHASH e PRIVATE_BURN_ID_TYPEHASH
+  atualmente aceitos;
+- agenda UDACTV01, gênese, network magic, chain ID e primeira altura v4;
+- regras de consenso, fork choice, PoW, ativo, note tree, nullifiers, balanço e
+  finalidade;
+- identificador do sistema de prova, SHA-256 da verifying key, decisão/transcript
+  de setup, programa de prova, manifesto de fontes e artefato Solidity;
+- limite exato de prova de 65.536 bytes e primeiro Beacon slot permitido.
+
+O arquivo JSON possui ordem e representação canônicas, sem chaves extras,
+números inseguros ou campos ambíguos. O gate usa o parser estrito, verifica o
+SHA-256 do arquivo, recalcula verifierConfigHash e exige igualdade com:
+
+- release.verifierConfigHash;
+- PRODUCTION_VERIFIER_CONFIG_HASH compilado;
+- getter imutável verificado no preflight;
+- activationScheduleCommitment do mesmo release.
+
+Também compara os SHA-256 do manifesto com os documentos separados de verifying
+key, programa de prova, fontes e bytecode do verificador. A decisão e o transcript
+de trusted setup devem coincidir com o bloco de evidências.
+
+VETOR CONGELADO
+
+verifierConfigHash:
+0xeeb702841f5d2e8ac59ddca1ff722818aaa7bcda8c9069eeca07ce18a7b6314d
+
+SHA-256 da codificação JSON canônica:
+0x085bed526748dd78010bf5992d9656c6b9eb1f9467d9d3aab84beeec168ad189
+
+VERIFICAÇÃO
+
+- 47 testes Node/SDK/EVM aprovados, 0 falhas;
+- configuração completa sintética aceita nos modos closed-mainnet e real-funds;
+- mutações de agenda, hash do config, verifying key, programa, fontes, artefato,
+  setup, versão, regras, limites e codificação canônica reprovadas;
+- candidato não configurado: 78 bloqueios únicos para closed-mainnet e 86 para
+  fundos reais, incluindo os quatro novos artefatos obrigatórios;
+- proveniência importada, manifesto completo de fontes e diff check aprovados.
+
+LIMITE
+
+O manifesto identifica uma configuração; ele não prova que circuito, chave,
+programa ou regras sejam corretos. A configuração de produção permanece nula,
+o verificador final não existe e auditorias independentes continuam obrigatórias.
+Os gates de mainnet e fundos reais permanecem fechados.
+
+Nenhum commit, push, deploy, transação ou fundo real foi usado.

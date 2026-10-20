@@ -1,0 +1,61 @@
+USDOM nativa — fan-out P2P por capacidade e supressão de eco
+Etapa 48, 2026-10-17
+
+Estado: relay ao vivo implementado somente no POC Regtest.
+Sem commit, push, deploy ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Problema tratado
+
+A etapa 47 validava pacotes recebidos por P2P e publicava mudanças canônicas em
+um canal local, mas nenhuma tarefa de peer consumia esse canal. Encaminhar o
+canal bruto a todas as conexões criaria dois problemas: envio de command 0x0d a
+peers v3/v2 e eco imediato ao peer que originou o pacote.
+
+2. Envelope de relay
+
+Cada mudança BestChain ou Reorg produz NativeUsdomV4Relay com:
+- os bytes tagged UDOMV4W1 exatamente aceitos pelo runtime; e
+- a conexão de origem a excluir, ou None para injeção local.
+
+O sender é privado em DomNode. Código externo pode obter apenas um Receiver para
+observar decisões canônicas; não consegue publicar bytes arbitrários e contornar
+o parser, as provas ou a transação atômica.
+
+3. Filtro por conexão
+
+Cada message_loop mantém um receiver. Um pacote só vira WireMessage quando:
+- a sessão atual negociou bilateralmente native-v4 sobre Noise/Hello v4; e
+- a conexão atual não é a origem indicada no envelope.
+
+O WireMessage conserva network magic, Command::UsdomV4Package e o payload
+exato. Sessões v3/v2 ou v4 sem o bit não recebem nada. A conexão de origem não
+recebe eco. Outros peers autorizados recebem o pacote. Como ingressos
+AlreadyHave não publicam de novo, um pacote que volte por outra topologia não
+forma um loop contínuo.
+
+4. Perda explícita
+
+O canal é limitado. Enquanto não existe IBD de pacotes native-v4, um receiver
+Lagged não pode simplesmente descartar bytes e continuar. O message_loop encerra
+essa conexão com erro local Internal e sem pontuar o peer. Isso expõe a lacuna e
+evita operar sobre uma sequência silenciosamente incompleta. A recuperação
+completa depende do próximo trabalho de sync native-v4.
+
+5. Evidência
+
+O teste dirigido cobre sessão não negociada, supressão do peer de origem,
+entrega a outro peer autorizado, injeção local e preservação exata de magic,
+command e payload. O teste de runtime confirma que somente um pacote canônico
+aceito publica um envelope e que o origin é None na injeção local.
+
+As suítes completas dom-node padrão e opt-in, Clippy com -D warnings, release
+check, rustfmt e diff check são armazenados junto desta etapa.
+
+6. Limites restantes
+
+Ainda faltam IBD/GetBlockData native-v4, retenção de pacote em órfãos e fila
+futura, mineração do pacote, snapshots, custo de prova, witness Ethereum real,
+provas privadas revisadas, produto de carteira, ativação/migração, parâmetros,
+shadow run e auditorias independentes. mainnet_ready e real_funds_ready seguem
+false.

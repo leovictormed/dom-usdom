@@ -1,0 +1,49 @@
+Stage 174 - portable PoW consensus boundary
+Date: 2026-10-19
+
+The checkpoint reference relation imported dom-pow with its native RandomX
+backend. randomx-rs wraps a C implementation, requires explicit unsafe
+Send/Sync boundaries and allocates a roughly 256 MiB validation cache (plus a
+roughly 2 GiB mining dataset). That dependency cannot be treated as a RISC Zero
+guest implementation merely because the host reference calls it.
+
+Implemented feature boundary
+
+1. dom-pow now exposes a default native-randomx feature. Existing node,
+   consensus and miner builds retain that default, so public-network PoW rules
+   and hash behavior do not change.
+2. randomx-rs, randomx_pool, MinerVm, validate_pow_randomx and the combined
+   network validator are compiled only with native-randomx. ASERT, compact
+   target validation, accumulated-work math, target comparison and the exact
+   RandomX seed-height schedule remain available without FFI.
+3. dom-usdom-checkpoint-program disables dom-pow default features in its
+   portable graph and explicitly re-enables native-randomx only for the
+   host-reference feature.
+4. The featureless dom-pow library and portable checkpoint program compile;
+   cargo tree proves that their normal dependency graph excludes randomx-rs.
+   The host-reference graph proves the inverse and still includes randomx-rs.
+5. Both default and native-usdom-v4-poc dom-node binaries compile. An import
+   used only by the USDOM feature was moved behind the same cfg boundary,
+   removing the featureless-node warning.
+
+Verification
+
+- dom-pow --no-default-features passes cargo check and Clippy with warnings
+  denied, and its normal dependency tree contains no randomx-rs.
+- The portable checkpoint program passes 15 tests; host-reference passes 21
+  tests and still contains randomx-rs. The 390-block release vector remains
+  deliberately ignored in the ordinary suite.
+- The checkpoint program passes all-target/all-feature Clippy with warnings
+  denied. dom-node compiles in both feature profiles without warnings.
+
+Remaining boundary
+
+This split makes consensus arithmetic guest-portable; it does not prove a
+RandomX hash. Production still needs a deterministic guest-compatible RandomX
+relation or a separately verified recursive RandomX receipt whose seed,
+preimage, claimed hash and target are bound to every DOM header. Substituting
+the claimed header hash or the development fast hash would destroy PoW
+soundness and is forbidden. The segment guest, receipt aggregation, measured
+limits, production ImageIDs, real vectors, bootstrap ratification and
+independent audits remain open. Mainnet and real funds remain blocked. No
+deploy, public transaction, funds, commit or push occurred.

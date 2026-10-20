@@ -1,0 +1,83 @@
+[package]
+name        = "dom-node"
+description = "DOM full node binary"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+# Isolated native USDOM v4 node runtime. Public-network construction requires
+# an exact persisted activation schedule and bridge-committed verifier; live
+# P2P ingress also requires an authenticated bilateral v4 capability.
+# No production schedule is selected by this feature.
+native-usdom-v4-poc = [
+    "dom-chain/native-usdom-v4-poc",
+    "dom-wire/native-usdom-v4-poc",
+    "dep:dom-usdom-state",
+    "dep:dom-usdom-privacy",
+    "dep:usdom-ethereum-finality-experiment",
+    "dep:alloy",
+    "dep:serde",
+    "dep:sha2",
+]
+
+[[bin]]
+name = "dom-node"
+path = "src/main.rs"
+
+[[bin]]
+name = "dom-wallet-bootstrap"
+path = "src/bin/dom-wallet-bootstrap.rs"
+
+[[bin]]
+name = "dom-usdom-manifest-check"
+path = "src/bin/dom-usdom-manifest-check.rs"
+required-features = ["native-usdom-v4-poc"]
+
+[dependencies]
+socket2.workspace     = true
+igd-next.workspace    = true
+natpmp.workspace      = true
+thiserror.workspace = true
+dom-core.workspace      = true
+dom-consensus.workspace = true
+dom-tx.workspace = true
+dom-crypto.workspace    = true
+dom-store.workspace     = true
+dom-chain.workspace     = true
+dom-mempool.workspace   = true
+dom-wire.workspace      = true
+dom-config.workspace    = true
+dom-wallet.workspace    = true
+dom-wallet-core-api.workspace = true
+dom-pow.workspace       = true
+tokio.workspace         = true
+tracing.workspace       = true
+tracing-subscriber.workspace = true
+serde_json.workspace    = true
+anyhow.workspace        = true
+hex.workspace           = true
+dom-serialization.workspace = true
+primitive-types.workspace = true
+k256.workspace          = true
+randomx-rs.workspace     = true
+rand.workspace          = true
+dom-rpc.workspace       = true
+dom-pmmr.workspace      = true
+futures.workspace       = true
+dom-usdom-state = { path = "../dom-usdom-state", optional = true }
+dom-usdom-privacy = { path = "../dom-usdom-privacy", optional = true }
+usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", optional = true }
+alloy = { version = "=2.1.0", default-features = false, optional = true }
+serde = { version = "=1.0.229", features = ["derive"], optional = true }
+sha2 = { workspace = true, optional = true }
+
+[dev-dependencies]
+ark-bn254 = "=0.5.0"
+ark-groth16 = "=0.5.0"
+ark-serialize = "=0.5.0"
+tempfile = "3"
+proptest.workspace = true
+lmdb.workspace = true
+dom-slate.workspace = true

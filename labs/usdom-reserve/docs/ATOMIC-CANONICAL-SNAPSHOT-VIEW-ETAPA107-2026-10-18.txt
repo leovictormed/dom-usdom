@@ -1,0 +1,53 @@
+USDOM security hardening — etapa 107
+Atomic canonical snapshot view
+Date: 2026-10-18
+
+Finding
+
+Native-state restoration and portable manifest export read the canonical chain
+tip, height indexes and consensus-state database through separate LMDB read
+transactions. The production node currently serializes these calls behind its
+chain lock, but the public storage/export APIs did not enforce that assumption.
+A direct caller concurrent with an atomic extension or reorganization could
+otherwise combine observations from different committed LMDB generations and
+produce an inconsistent inventory before a later check detected it.
+
+Change
+
+dom-store now exposes CanonicalConsensusSnapshot. One LMDB read transaction
+copies the chain tip, one requested canonical height and the complete ordered
+consensus-state map. The owned result stays immutable after the transaction
+closes.
+
+Native USDOM restoration now requires the following values from that single
+view:
+
+1. the exact expected canonical tip;
+2. the original activation parent at the ratified activation-parent height;
+3. the activation record, native tip marker and complete native-state entries.
+
+Snapshot export uses the same atomic view for the state, activation record and
+consensus-carried Ethereum checkpoint floor. It reconstructs the native state,
+checks that the atomic tip marker binds the requested block and reconstructed
+root, audits the reorganization window, and checks the canonical tip again
+before returning. A chain change during export therefore fails closed.
+
+Validation
+
+- dom-store consensus-state atomicity suite: 6 passed, 0 failed;
+- directed snapshot-generation test proves an owned old snapshot cannot change
+  or mix with a later block/state commit;
+- native node runtime integration suite: 8 passed, 0 failed;
+- canonical snapshot manifest codec test: passed;
+- Clippy for dom-store, dom-chain and dom-node, all targets, native feature,
+  warnings denied: passed;
+- cargo fmt --check, JSON parse and git diff --check: passed;
+- closed-mainnet gate remains correctly closed with 70 blockers;
+- real-funds gate remains correctly closed with 78 blockers.
+
+Production status
+
+This removes an API-level torn-read assumption. It does not select the public
+network activation schedule, install production proof parameters, provide
+independent audits or authorize deployment/funds. No push, commit, deployment
+or funds operation was performed.

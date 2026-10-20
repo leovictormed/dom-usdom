@@ -1,0 +1,80 @@
+USDOM versioned V2 checkpoint activation — stage 148
+Date: 2026-10-18
+
+Purpose
+=======
+
+Stage 147 authenticated candidate state version 2 inside one proof-bearing DOM
+block, but the Ethereum checkpoint boundary still named the legacy state and
+batch semantics. A 32-byte root alone cannot say which transition relation
+created it. This stage makes the incompatible V2 interpretation explicit from
+the activation snapshot through the checkpoint statement and registry.
+
+Versioned activation snapshot
+=============================
+
+UDACTV02 commits network and chain identities, native state version 2,
+transition-batch version 3, the first V2 height, the exact activation parent,
+the previous V1 state root and the initial V2 root derived from that same full
+state. Construction rejects a bridge, snapshot or chain mismatch. The active
+V1 schedule remains separately encoded and cannot be decoded as UDACTV02.
+
+Stateless checkpoint relation
+=============================
+
+CheckpointProgramPolicyV2 binds the UDACTV02 schedule and validates both roots
+against the ratified activation snapshot. The V2 checkpoint executor consumes
+one opaque proof-verified block capability, one bounded native transition
+witness sequence and one ordinary-economic witness per block. It advances the
+authenticated V2 root, the DOM UTXO/kernel roots, headers, work, timestamps and
+continuation context through the target and confirmation suffix. The first V2
+block must extend the exact activation parent and initial V2 root.
+
+Ethereum public boundary
+========================
+
+UDCPST04 is an incompatible 518-byte statement. Its Solidity type is
+DOMCheckpointV2 and includes nativeStateVersion=2 and
+transitionBatchVersion=3. Rust rejects legacy framing and all substituted
+versions. The frozen Rust, Solidity and JavaScript statement vector is:
+
+  0xaea1d132059ed25184d27671e5c52061f53f6f767074d6aa10c0ce35fc11249e
+
+DOMCheckpointRegistry now hashes this V2 statement and requires the distinct
+DOM_CHECKPOINT_PROOF_V2 acceptance value. The verifier manifest is V5 and
+selects statement version 4, batch version 3, activation schedule version 2 and
+518 public bytes. The registry retains the legacy type hash only as an explicit
+non-authoritative identifier; submission uses the V2 boundary.
+
+Validation
+==========
+
+- 9 checkpoint-statement unit tests, 1 CLI test and documentation tests pass.
+- 11 checkpoint-program tests pass with the host reference feature.
+- 76 dom-chain native-V4/V2 tests pass, including the real Groth16 handoff.
+- A release-profile vector recomputes the complete 360-block checkpoint plus
+  30-block confirmation suffix, including 390 PoW headers, coinbases, economic
+  witnesses, opaque empty native batches and the final V2 public statement.
+- 117 Solidity tests pass, including fuzz and invariant suites.
+- 58 Node/SDK/EVM tests pass with the pinned Node and Foundry toolchains.
+- Rust clippy, cargo formatting and Git whitespace validation pass.
+
+Security boundary and remaining work
+====================================
+
+This is a candidate versioned relation, not an activated production release.
+Production still requires:
+
+1. Extend the positive 360+30 vector with a real finalized Ethereum deposit,
+   private transfer, burn and payout proof, plus restart and reorg scenarios.
+2. Ratified V1-to-V2 snapshot migration, persistent storage format, atomic
+   activation and rollback behavior in the release node.
+3. A selected and benchmarked production proving backend, reproducible guest
+   build, immutable verifier/key artifacts and measured Ethereum costs.
+4. Ratified multisigs, limits, delays, recovery exercises and a capped mainnet
+   rehearsal without real deposits.
+5. Independent audits of DOM consensus integration, privacy circuits and the
+   Solidity deployment before any real funds.
+
+The production pins remain zero and release gates remain fail closed. No push,
+commit, deployment, transaction or use of funds was performed.

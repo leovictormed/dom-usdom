@@ -1,0 +1,60 @@
+Verified native checkpoint fork barrier (stage 59, 2026-10-17)
+
+The Regtest native-v4 feature now includes the verified Ethereum checkpoint
+barrier instead of leaving both experiments independently selectable. A new
+installation boundary accepts only VerifiedCheckpoint plus UDBBLK01, repeats
+their stage-58 identity match, loads the package under the asserted canonical
+block identifier and requires byte equality with canonical persistence before
+writing the monotonic checkpoint record.
+
+ChainState installation serializes the write and advances its in-memory floor
+only after persistence succeeds. Every later native direct connection first
+revalidates the persisted record against that floor. Native branch promotion
+does the same and rejects a common ancestor below the checkpoint before state
+rewind, canonical-index mutation or tip replacement. Side packages may remain
+quarantined, but cannot be promoted across the barrier.
+
+Restart is fail-closed. A database containing a checkpoint cannot open through
+the ordinary constructor. open_with_verified_checkpoint_floor requires the
+independently retained opaque verifier result and a nonzero expected immutable
+policy hash. A wrong policy, missing record, older floor, conflicting canonical
+history or malformed record is rejected before repair or normal operation.
+
+The combined integration test installs a checkpoint on a native canonical
+branch, constructs a heavier alternative crossing it and confirms rejection
+without tip mutation. Separate tests cover verified restart, wrong-policy
+rejection, monotonic advancement, deletion/corruption, stale floors and the
+ordinary fork-choice barrier.
+
+Security boundary
+-----------------
+Checkpoint evidence is still installed through a local API after external
+delivery. It is not carried deterministically by a DOM block, IBD response or
+snapshot and is not an activated public-network consensus rule. Nodes without
+the independently retained floor cannot safely reopen the checkpointed database;
+nodes that never receive the evidence can still follow another fork. Production
+requires versioned consensus-visible evidence, deterministic activation and a
+bootstrap/snapshot rule shared by every enforcing node.
+
+The registry also still lacks a deployed, independently reviewed proof that it
+selected the valid canonical DOM ancestry and native transition. No automatic
+fallback to an operator quorum is permitted.
+
+Validation
+----------
+
+- dom-chain native/checkpoint combined all-target suite: 233/233 tests across
+  27 binaries/suites;
+- checkpoint integration: 26/26, including verified restart floors;
+- native ChainState integration: 2/2, including crossing-barrier rejection;
+- native DomNode runtime: 7/7;
+- all-target Clippy with -D warnings and optimized release build: passed;
+- rustfmt, diff and provenance checks: passed.
+
+The first all-target compilation exhausted the filesystem while producing
+parallel debug artifacts. cargo clean removed only 11.4 GiB of reproducible
+target output; the complete suite was then rerun successfully with one build
+job, incremental output disabled and test debug symbols removed. Source and
+evidence were retained.
+
+No mainnet activation, push, deployment or real-funds operation occurred.

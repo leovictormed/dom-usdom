@@ -1,0 +1,93 @@
+Checkpoint registry release and finalized-state binding — Stage 136
+Date: 2026-10-18
+Status: implemented and locally verified; production remains fail closed
+
+Purpose
+
+Stage 135 implemented a proof-authorized checkpoint registry, but the release
+boundary still had to derive its exact deployed identity and inspect it at a
+finalized Ethereum block. A production candidate must not be able to declare a
+registry address, bytecode/configuration hash, verifier, bootstrap or deployment
+evidence without recomputation from the reviewed source and live chain state.
+
+Implemented release binding
+
+1. sdk/compiled-runtime.mjs now derives DOMCheckpointRegistry deployed runtime
+   and constructor initcode from the source-verified Foundry artifact. It checks
+   the exact compiler, optimizer, EVM, metadata, remapping, source hashes,
+   immutable references and constructor encoding before returning a hash.
+2. sdk/mainnet-readiness.mjs and scripts/check-mainnet-readiness.mjs recompute:
+   - the CREATE address from the checkpoint deployer and nonce;
+   - the full registry configuration hash from chain/domain/schedule, verifier,
+     guardian and ratified bootstrap fields;
+   - source-pinned production verifier/configuration constants;
+   - source-verified runtime and initcode hashes.
+3. The release evidence schema now requires independent hash-addressed registry
+   and verifier artifacts, reproducible-build reports, bootstrap-ratification
+   report and positive finalized-event report. The checkpoint guardian has its
+   own code/configuration snapshot and must be separated from the reserve
+   governance and guardian configurations.
+4. The checked-in release remains intentionally unconfigured. Every new field is
+   null and the contract production pins remain zero, so chain-ID-1 deployment
+   and both release modes fail closed.
+
+Implemented finalized-state preflight
+
+sdk/mainnet-preflight.mjs and scripts/check-mainnet-preflight.mjs now inspect the
+reserve and checkpoint registry together at Ethereum's finalized tag.
+Predeployment checks bind both deployer nonces and require both planned CREATE
+addresses to contain no code. They independently authenticate the reserve token,
+burn verifier, both reserve control-plane roles, checkpoint verifier and
+checkpoint guardian.
+
+Postdeployment checks bind each creation transaction to its approved sender,
+nonce, created address, zero value, complete initcode hash, canonical receipt
+block and finalized height. The live registry must match the approved runtime,
+configuration, domain, network magic, activation schedule, verifier code/config,
+guardian code/config and ratified initial height/block/state root. Storage slot
+zero must contain the exact checkpoint configuration hash. A cold start accepts
+only checkpointCount == 1 and halted == false; a substituted or already advanced
+bootstrap is rejected. The registry creation receipt must also contain exactly
+one bootstrap Checkpoint event emitted by the approved registry, with every
+indexed and data field equal to the ratified cold-start values.
+
+The postdeployment command therefore requires both public transaction hashes:
+
+  ETHEREUM_RPC_URL=<url> \
+  USDOM_DEPLOYMENT_TX_HASH=<reserve-create-tx> \
+  USDOM_CHECKPOINT_REGISTRY_DEPLOYMENT_TX_HASH=<registry-create-tx> \
+  node scripts/check-mainnet-preflight.mjs postdeployment
+
+Security effect and limits
+
+These checks prevent a manifest-only claim from substituting a registry,
+verifier, guardian, bootstrap, compiler output or deployment transaction. They
+do not prove that the currently missing checkpoint verifier is correct. They
+also do not ratify production parameters, authenticate audit authors, authorize
+a transaction, deploy a contract or authorize funds. An Ethereum RPC endpoint
+is used only to obtain finalized preflight observations; the production DOM
+consensus proof relation must still authenticate Ethereum finality and the DOM
+consensus extension independently.
+
+Validation
+
+- Solidity default/fuzz/invariant suite: 115 passed, 0 failed.
+- Node SDK/EVM/monitor/release suite: 51 passed, 0 failed.
+- Targeted release/preflight mutation tests cover runtime, initcode, CREATE
+  address, both deployment receipts, every registry identity group, slot zero,
+  bootstrap, checkpoint count and permanent-halt state.
+- The production-only dual-contract build succeeds with warnings denied after
+  excluding the documented OpenZeppelin future-keyword warning 6335.
+- The checked-in candidate remains rejected by both mainnet gates.
+
+Remaining production blockers
+
+The consensus-extension checkpoint verifier and finalized-burn proof backend do
+not exist as production artifacts. No production verifying keys or proving
+program are selected, compiled and benchmarked. The registry bootstrap, network
+magic, domain, activation schedule, control-plane contracts, delays and limits
+are not ratified. Required independent audits, reproducible builds, finalized
+positive vectors, operational rehearsals and signed source release evidence are
+absent. Operator authorization for deployment and real funds is explicitly
+absent. Consequently a closed mainnet test with deployed contracts and a real-
+fund deposit is not authorized or technically ready.

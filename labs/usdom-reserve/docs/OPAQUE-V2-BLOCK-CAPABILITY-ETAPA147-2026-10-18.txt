@@ -1,0 +1,65 @@
+USDOM opaque candidate-v2 block capability — stage 147
+Date: 2026-10-18
+
+Purpose
+=======
+
+Stage 146 completed the stateless native transition relation, but a host could
+still have detached VerifiedTransition values from the canonical block package
+that carried their raw proofs. This stage creates an opaque two-phase boundary:
+first verify the exact proof-bearing package, then execute its private verified
+transitions against authenticated candidate-v2 witnesses.
+
+Versioned header commitment
+===========================
+
+Candidate-v2 batches use transition-batch version 3 and the distinct domain
+DOM:usdom-batch-commitment:v3. The preimage explicitly includes state version
+2, bridge domain, transition count, DOM timestamp, ordered transition root,
+previous v2 root and new v2 root. It cannot be confused with the active v1
+batch commitment even when every other field is identical.
+
+Opaque package capability
+=========================
+
+verify_usdom_v4_serialized_transition_batch_for_schedule canonically decodes
+the package, validates the exact activation schedule, bridge and verifier-key
+identities, and authenticates every Ethereum or private-spend proof. It returns
+VerifiedUsdomV4TransitionBatch with private transitions bound to the package
+hash, canonical block identifier and complete Block value. No raw transition
+slice is exposed.
+
+execute_v2 accepts the separately authenticated previous v2 decomposition and
+the bounded per-transition witnesses. It runs the complete stage-146 relation,
+derives the version-3 receipt, then validates the reserved block-v4 body against
+that exact receipt. Only the result is a VerifiedUsdomV4CandidateV2. Package,
+state, witness, transition order, timestamp or header substitution therefore
+fails before the candidate gains authority.
+
+Tests
+=====
+
+The existing real Groth16 transfer test now exercises both paths. It rebuilds
+the canonical block with the candidate-v2 commitment, verifies the raw private
+proof into the opaque package capability, executes the stateless paths, and
+matches the expected full candidate-v2 root and receipt. Missing witnesses are
+rejected. The legacy v1 package commitment differs from the v2 package.
+
+Security boundary and remaining work
+====================================
+
+This stage does not activate v2. The checkpoint public statement and activation
+schedule still name the current v1 state semantics, so reinterpreting their
+32-byte roots as v2 would be unsafe. Production still requires:
+
+1. Version the checkpoint statement, manifest and activation schedule so they
+   explicitly select state version 2 and transition-batch version 3.
+2. Feed one opaque candidate plus native/economic witnesses per block into the
+   checkpoint program and compare it with the existing full-state executor.
+3. Define and test the ratified v1-to-v2 snapshot/persistence migration and
+   reorg behavior.
+4. Select and benchmark the production proving backend, publish the complete
+   360+30 vector and immutable verifier/key artifacts.
+5. Ratify operations and obtain independent audits before any real funds.
+
+No push, deployment, transaction or use of funds was performed.

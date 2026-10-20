@@ -1,0 +1,25 @@
+[package]
+name = "dom-usdom-checkpoint-segment-risc0-guest"
+description = "RISC Zero guest for complete bounded DOM checkpoint-segment execution"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata.risc0]
+
+[[bin]]
+name = "usdom-checkpoint-segment"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", features = ["economic-chunks", "risc0-recursion"] }
+# Verification is deterministic. The platform exports a fail-closed custom
+# getrandom handler, but this guest never enables host-provided randomness.
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

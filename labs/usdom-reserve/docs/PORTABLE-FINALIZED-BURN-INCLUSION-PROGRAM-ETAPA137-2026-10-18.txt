@@ -1,0 +1,82 @@
+Portable finalized-burn inclusion program — Stage 137
+Date: 2026-10-18
+Status: reference relation implemented and locally verified; production remains fail closed
+
+Purpose
+
+The earlier UDFINL01 reference program replayed a complete DOM block and its
+Ethereum finality witness inside one process. Its normal dependency graph
+therefore inherited dom-chain, LMDB, RandomX and node-oriented host code. That
+was useful as an executable specification, but it was not a credible portable
+guest boundary for a production succinct proof system.
+
+Stage 137 separates the two proof responsibilities. The immutable checkpoint
+registry verifier must prove that a checkpoint is a valid extension of DOM
+consensus. The finalized-burn program authenticates the resulting registry
+event under Ethereum finality and proves that the exact burn obligation is
+included in the native state root published by that checkpoint. A checkpoint
+may be later than the block that first admitted the burn because consumed burn
+and request identifiers remain committed in native state permanently.
+
+Implemented UDFINL02 relation
+
+1. dom-usdom-finalized-burn-program now accepts only a canonical, bounded
+   UDFINL02-v2 private input containing:
+   - the exact public Solidity statement hash;
+   - the maximum admissible finalized Beacon slot;
+   - the UDACTV01 activation schedule;
+   - the complete immutable checkpoint trust policy;
+   - one canonical USDBRN03-v3 native burn-state inclusion witness; and
+   - one raw bounded Ethereum checkpoint witness.
+2. The raw Ethereum witness is verified before an opaque VerifiedCheckpoint is
+   available to the burn relation. The relation then binds the event network,
+   chain, domain, genesis root, registry, runtime/configuration identities,
+   checkpoint state root, event/finalized identities, native bridge identity,
+   compiled privacy policy, activation schedule and exact burn intent.
+3. The only successful public output is the unframed, nonzero 32-byte
+   Solidity-compatible finalized-burn statement hash. Malformed, legacy,
+   oversized, noncanonical and substituted inputs fail without partial output.
+4. dom-chain exports the same canonical UDFINL02 object from an audited native
+   state and burn witness. It does not create an unchecked checkpoint
+   capability; the supplied raw Ethereum witness must pass the same verifier.
+5. The verifier manifest is schema v3 and separately commits transition v2,
+   burn-state witness v3, finalized input v2 and public output v1.
+
+Dependency boundary
+
+The production dependency graph of the burn program no longer includes
+dom-chain, dom-store, dom-pow, LMDB, RandomX, Tokio or RPC/network clients. The
+program source also rejects filesystem, network, process, thread, time,
+environment and unsafe-code authority. A dedicated firewall script checks
+these invariants from the locked Cargo graph and source markers.
+
+This boundary does not yet prove that the crate compiles in a selected zkVM.
+Its cryptographic dependencies still include ordinary host-target packages, so
+backend selection and an actual guest build remain mandatory.
+
+Validation
+
+- Finalized-burn program: 6 tests passed, 0 failed (5 relation/unit and 1 CLI).
+- DOM chain library with native USDOM v4: 76 tests passed, 0 failed.
+- Rust clippy for both affected crates: passed with warnings denied.
+- UDFINL02 dependency firewall: passed; 184 normal packages inspected.
+- Solidity default/fuzz/invariant suite: 115 passed, 0 failed.
+- Node SDK/EVM/monitor/release suite: 51 passed, 0 failed.
+- The positive relation test uses an opaque test-only VerifiedCheckpoint and a
+  real canonical burn-state witness, with frozen public output
+  73bf6219d986ec075ed3df9529900f80fb079664d3be86a3acc8bc0a493d9fb5.
+
+Remaining production blockers
+
+There is no positive raw Ethereum checkpoint witness that executes UDFINL02
+end to end. The checkpoint registry's production verifier that proves DOM
+consensus extension is also missing. No succinct proof backend has been
+selected; no guest/circuit, proving key, verification key or Solidity verifier
+has been compiled, reproduced, benchmarked or independently audited.
+
+Production checkpoint parameters, bootstrap, activation schedule, reserve
+parameters and control-plane contracts remain unratified. Required finalized
+deposit/burn vectors, operations rehearsals, independent audits and signed
+release evidence remain absent. Operator authorization for deployment and real
+funds is explicitly absent. The closed-mainnet and real-funds gates therefore
+continue to fail closed.

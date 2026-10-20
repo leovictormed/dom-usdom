@@ -1,0 +1,83 @@
+USD0M — EXECUTOR PORTÁTIL E GUEST DE SEGMENTO — ETAPA 192
+Data: 2026-10-20
+
+RESULTADO
+
+Foi implementado o primeiro guest que executa uma transição completa e limitada
+do checkpoint DOM. O programa recebe uma transição pública `UDCSTN02`, as
+políticas canônicas `UDCSPOL1`, a abertura do estado nativo anterior
+`UDCSNS01` e o input privado `UDCSPI01`. Ele só publica o compromisso de 32
+bytes da transição depois de validar todas as relações e registrar, por
+recursão, o recibo RandomX exato de cada header.
+
+A abertura `UDCSNS01` transporta somente o `StateCommitmentV2` anterior, com
+727 ou 847 bytes de estado e limite total de 859 bytes. A autenticação confere
+o root nativo e os hashes das políticas Ethereum e de privacidade já carregados
+por `UDCSEG02`. Isso fecha a lacuna que impedia a execução stateless do lote
+nativo no guest.
+
+EXECUÇÃO PORTÁTIL
+
+O executor recompõe e autentica a agenda `UDACTV02`, o chain ID derivado do
+genesis DOM, as políticas imutáveis de checkpoint e depósito Ethereum, o
+verificador de gastos privados e a identidade da ponte. Para cada bloco ele:
+
+- decodifica de forma canônica o pacote `USDOMBL4` e o envelope `USDOMV41`;
+- verifica provas de depósito/checkpoint Ethereum ou provas Groth16 de
+  transferência/queima privada;
+- executa o lote nativo candidate-v2 com witnesses `UDV2W001`;
+- valida o bloco DOM v4, inclusive Bulletproof portátil, MTP, target, trabalho
+  acumulado, commitments e sequência de headers;
+- aplica o multiproof do estado econômico comum, inclusive maturidade de
+  coinbase;
+- confere roots nativo, UTXO, kernel, bloco, contexto e trabalho do estado
+  terminal;
+- deriva do pacote executado as únicas suposições RandomX permitidas.
+
+ARTEFATO RISC ZERO
+
+O guest compilou para `riscv32im-risc0-zkvm-elf` com RISC Zero 3.0.6, Rust
+1.97.0-dev e LLVM 22.1.6. O build usa `lower-atomic`, necessário ao alvo RV32,
+e mantém o backend de aleatoriedade customizado sem habilitar aleatoriedade do
+host.
+
+  ELF bytes:          3.013.444
+  ELF SHA-256:        6dc91f8803f4cb438b2ff7379e9b4b830ab9a1d78b0cf63e731f35a37bf8f68b
+  ProgramBinary SHA:  eda0b228c59d88f23604ed4f0349ecb67e3099dbe6126f3b827af8bfc479bf65
+  ImageID candidato:  3a30945b4d5e78a14b774e5bd0a3638b3f3fb42210129356fa798f5d6b28529f
+
+O grafo do alvo não contém RandomX nativo, dom-chain, grin-secp256k1zkp nem
+secp256k1-zkp-sys. Na etapa 193, o arquivo integral desta etapa foi extraído em
+um diretório novo e reconstruído com `target` vazio. ELF, ProgramBinary e
+ImageID coincidiram byte a byte, confirmando a reprodutibilidade local limpa.
+
+VALIDAÇÃO
+
+- 35 testes de biblioteca do programa de checkpoint passaram;
+- o teste canônico da abertura de estado passou, incluindo truncamentos,
+  bytes finais, substituições de política/root e estado corrompido;
+- 2 testes de integração passaram e o vetor de 390 blocos permaneceu ignorado
+  por ser deliberadamente pesado;
+- o vetor positivo executou um bloco v4 real com coinbase, range proof, lote
+  nativo vazio e witness econômico;
+- vetores negativos rejeitaram estado final, pacote, witness nativo, witness
+  econômico e input privado adulterados;
+- Clippy estrito passou no programa e no guest;
+- o nó DOM padrão continua compilando com seus backends nativos;
+- o gate de fronteira confirmou o artefato, ImageID, journal, ausência de
+  dependências nativas proibidas e política de aleatoriedade.
+
+LIMITES CONCRETOS
+
+Este é um provador de segmento, não o verificador externo final. Ainda falta o
+guest externo que encadeia os recibos de todos os segmentos desde o checkpoint
+anterior, força uma fronteira exatamente na altura proposta, confere o sufixo
+de confirmação e vincula o terminal ao `CheckpointStatementV4` público da
+Ethereum. Também faltam execução de recibo positivo, medição de custo e
+ratificação operacional dos ImageIDs/parâmetros finais.
+
+O vetor positivo host usa o hash PoW rápido de regtest para exercitar as demais
+relações; ele não é apresentado como um recibo RandomX positivo. Auditoria
+externa e garantia absoluta de risco zero permanecem fora dos bloqueadores de
+release. Nenhum push, commit, deploy, mineração, geração de prova ou uso de
+fundos ocorreu.

@@ -1,0 +1,46 @@
+USD0M — ETAPA 201
+ENDURECIMENTO SEM PANIC NA DECODIFICAÇÃO ETHEREUM NÃO CONFIÁVEL
+Data: 2026-10-20
+
+ACHADO
+
+Dois limites que recebem testemunhas Ethereum não confiáveis continham `expect`:
+
+- o decoder de receipt assumia que todo envelope cujo TxType fosse conhecido
+  sempre forneceria um corpo de receipt; e
+- a verificação de ancestralidade assumia que o Vec decodificado continuaria
+  não vazio depois da validação inicial.
+
+As invariantes atuais sustentavam essas suposições, mas um panic é uma falha de
+processo, não uma rejeição tipada. Alterações futuras em alloy ou no fluxo de
+decodificação poderiam transformar entrada hostil em aborto do nó ou do prover.
+
+CORREÇÃO
+
+O decoder agora converte ausência do corpo do receipt em erro explícito
+`unsupported Ethereum receipt envelope`. A ancestralidade obtém primeiro e
+último headers com `ok_or_else`, retornando `execution ancestry header count`
+para o caso vazio. Nenhuma dessas condições pode mais abortar por `expect`.
+
+Foi adicionado um vetor explícito de ancestralidade vazia que exige erro e não
+panic. Os vetores existentes continuam cobrindo truncamento de todos os prefixes
+de receipt, tags e status inválidos, bytes extras, logs excessivos, reordenação,
+alteração e exaustão de recursos.
+
+VALIDAÇÃO
+
+- 50 testes Rust de execução passaram;
+- 5 testes compile-fail das capacidades opacas passaram;
+- cargo fmt --all --check passou;
+- cargo clippy --all-targets --all-features -D warnings passou.
+
+ESCOPO
+
+Esta etapa melhora a disponibilidade fail-closed do verificador Ethereum. Ela
+não substitui o vetor de um Checkpoint real finalizado, receipt RISC Zero,
+parâmetros de produção ou ratificação de artefatos. Auditoria externa e garantia
+de risco zero não são gates; evidência objetiva e aceitação documentada do risco
+residual continuam obrigatórias.
+
+Não houve push, commit, deploy, conexão mainnet, mineração, prova criptográfica,
+carteira, transação ou uso de fundos.

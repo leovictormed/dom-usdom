@@ -1,0 +1,32 @@
+{
+  "risc0ZkvmVersion": "3.0.6",
+  "risc0BinfmtVersion": "3.0.5",
+  "risc0PlatformVersion": "2.2.3",
+  "risc0V1CompatVersion": "2.2.3",
+  "guestRustVersion": "1.97.0-dev-e638c6cfe-2026-07-15",
+  "guestLlvmVersion": "22.1.6",
+  "cargoLockSha256": "e9e3696164e4cef4d20194457333c48fea709ab2960ba387e60720831e5ee745",
+  "hostRandomnessEnabled": false,
+  "cleanLocalRebuildsByteIdentical": true,
+  "positiveReceiptExecuted": false,
+  "provingCostMeasured": false,
+  "productionApproved": false,
+  "schema": "dom-usdom-checkpoint-outer-risc0-guest-provenance-v2",
+  "userElfSha256": "37c6c0b315fc301a0587708a1589da0a2cb6d3e1a30b0941431251c1b43224a4",
+  "programBinarySha256": "8f9d0f1753172a9c1d3be22d105d08ea890cd566f18a81fb54c557f620f59b09",
+  "imageId": "e59d68487386939b2ac379f04528acb6b3138697e17adfda3ad23ebe195af3df",
+  "statementSchema": "UDCPST04",
+  "chainSchema": "UDCOUT01",
+  "segmentTransitionSchema": "UDCSTN02",
+  "pinnedSegmentImageId": "4e711490f3ab7dde97636687972456da58da4287ce5017e38d4acaa7263a02d6",
+  "journalSchema": "solidity-checkpoint-statement-v4-hash",
+  "journalBytes": 32,
+  "maximumSegments": 720,
+  "maximumChainBytes": 1622892,
+  "segmentBlockCountRange": [
+    1,
+    32
+  ],
+  "canonicalTargetBoundaryRequired": true,
+  "confirmationSuffixRequired": true
+}

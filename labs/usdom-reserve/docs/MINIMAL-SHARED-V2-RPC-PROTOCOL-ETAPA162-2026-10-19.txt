@@ -1,0 +1,51 @@
+Minimal shared V2 RPC protocol — stage 162
+Date: 2026-10-19
+
+Problem
+=======
+
+The first wallet client reused the server crate's encoder, which prevented
+framing drift but pulled the complete Axum/Tower RPC server dependency graph
+into an offline wallet. Duplicating the codec would be unsafe; retaining the
+server dependency unnecessarily enlarged the wallet's supply-chain and binary
+surface.
+
+Change
+======
+
+A dependency-minimal dom-usdom-rpc-protocol crate now owns UDV2RPC1. It has
+only thiserror as a dependency and exports the canonical encoder, a borrowed
+zero-copy decoder, framing constants and independent 8 MiB envelope and 4 MiB
+witness ceilings. Empty components, either independently oversized component,
+length overflow, wrong magic, truncation and trailing bytes fail closed.
+
+The RPC server delegates decode and encode to this crate and converts the
+borrowed components to owned values only after the canonical checks. The
+wallet client depends directly on the minimal protocol crate, so its rpc-client
+feature no longer imports dom-rpc, Axum, Tower or server middleware. dom-rpc
+reexports its public compatibility names but contains no second codec.
+
+At the node boundary, compile-time assertions require the shared RPC envelope
+and witness ceilings to equal the dom-chain consensus constants exactly, and
+require the body ceiling to equal header plus both maxima. Any future limit
+change that updates only one layer fails compilation.
+
+Validation
+==========
+
+Two protocol tests cover exact roundtrip, framing mutations, empty components
+and independent oversized components. Four server tests cover authentication,
+framing, route-isolated size bounds and one-at-a-time backpressure. Two wallet
+tests cover exact socket bytes and strict acknowledgements. The candidate
+feature node compiles, and strict all-target Clippy passes for the protocol,
+server, wallet rpc-client and node.
+
+Security boundary
+=================
+
+This removes a dependency and framing-consistency risk; it does not establish
+Ethereum settlement or production readiness. A real finalized reserve deposit
+and payout, production proof artifacts, controlled release testing, ratified
+configuration, operations and independent audits remain open. The
+closed-mainnet and real-funds gates remain closed. No push, commit, deployment,
+transaction or use of funds occurred.

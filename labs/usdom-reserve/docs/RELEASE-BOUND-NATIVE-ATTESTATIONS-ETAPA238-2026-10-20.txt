@@ -1,0 +1,46 @@
+Release-bound native attestations — Stage 238
+Date: 2026-10-20
+Status: fail-closed evidence correction; no ceremony, deployment, funds,
+        mining, expensive proving, commit or push
+
+Finding USDOM-238 (High)
+
+Stage 237 exposed four precise production facts, but each was represented only
+as a boolean in the requirements ledger. A prepared release could therefore
+assert that native privacy setup, scheduled runtime activation, wallet custody
+or wallet recovery was complete without presenting an exact record for the
+release being assessed.
+
+Correction
+
+Closed-mainnet mode now requires distinct hash-addressed JSON attestations for
+the native privacy trusted-setup ceremony and scheduled-runtime activation.
+Real-funds mode additionally requires wallet-custody and wallet-recovery
+attestations. The CLI parses the bytes from the same canonical regular file
+whose SHA-256 is declared in release evidence, using the strict duplicate-key
+rejecting JSON parser.
+
+The pure gate requires the exact key set and binds every attestation to:
+
+- the expected kind;
+- releaseId and sourceCommit from release evidence;
+- reserveConfigHash and checkpointRegistryConfigHash;
+- the release governance address as approver;
+- a canonical nonzero uint64 completion timestamp; and
+- a nonzero bytes32 subject commitment.
+
+The scheduled-runtime subject must equal activationScheduleCommitment. Wallet
+custody and recovery must use the same wallet-identity commitment. All four
+documents participate in the existing duplicate-path and duplicate-content
+checks. Mutation coverage rejects missing documents, unreadable or extended
+schemas, wrong kinds, cross-release identifiers, changed configuration hashes,
+noncanonical timestamps, wrong approvers, zero subjects, a substituted
+activation schedule and a mismatched recovered wallet identity.
+
+Boundary
+
+These records make the declaration reviewable and release-specific. They do
+not manufacture a ceremony, prove an unsigned statement true or replace
+operator authentication and independent reproduction. The production fields
+and evidence slots remain false/null until real production work creates the
+records. External audits and an impossible zero-risk guarantee remain optional.

@@ -1,0 +1,65 @@
+USDOM nativa — política imutável e runtime restaurado antes do ingresso
+Etapa 43, 2026-10-17
+
+Estado: runtime opt-in e exclusivo de Regtest. Sem P2P público, ativação,
+deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Falha tratada
+
+CheckpointTrustPolicy misturava identidades imutáveis com max_current_slot, um
+limite que muda em cada bloco. A validação já comparava esse limite ao timestamp
+DOM, mas o runtime ainda precisava receber do chamador um objeto dinâmico. Isso
+criava uma API propensa a configuração incorreta e não havia um proprietário
+único do estado nativo, política e auditoria de reinício.
+
+2. Política estática
+
+StaticCheckpointTrustPolicy mantém privados o bootstrap, genesis validators
+root, forks e política do registry. Sua construção descarta qualquer
+max_current_slot recebido e valida a estrutura imutável. O compromisso de
+política continua excluindo corretamente o limite dinâmico.
+
+Para verificar um checkpoint, o adaptador calcula o slot máximo exclusivamente
+de (DOM timestamp - Ethereum genesis time) / 12 e pede à política estática uma
+cópia efêmera com exatamente esse limite. Zero e timestamps anteriores ao
+genesis Ethereum falham. Relayers e relógio local não fornecem esse valor.
+
+A ligação entre política estática e BridgeIdentity é conferida para todo pacote,
+mesmo vazio: chain ID Ethereum, DOM network magic, policy hash, genesis root e
+bridge domain precisam coincidir. Assim uma configuração errada falha no
+primeiro bloco, não apenas quando aparecer um checkpoint.
+
+3. Runtime proprietário
+
+NativeUsdomV4Runtime::restore aceita ChainState, BridgeIdentity e política
+estática. Ele opera somente em Regtest, valida a ligação, restaura o estado do
+tip e executa a auditoria completa da janela reorganizável antes de liberar
+ingresso. O runtime possui o estado e oferece somente ingest, que chama o
+roteador canônico e atualiza o estado interno após o commit atômico.
+
+O estado vazio de ativação sobre um tip ainda não-v4 também é auditável. Isso
+permite iniciar o runtime antes do primeiro bloco v4 sem criar uma exceção de
+recuperação.
+
+4. Evidência
+
+O teste congela uma política cujo chamador fornece u64::MAX como slot, materializa
+depois somente o limite explícito e rejeita zero e trust anchor inválido. A
+integração restaura o runtime no estado de ativação vazio, executa toda a cadeia,
+restaura novamente após reorg, comprova três blocos auditados e aceita uma
+duplicata apenas pelo ingresso do runtime.
+
+Passaram 47 testes funcionais e 5 compile-fail da finalidade Ethereum, 65 testes
+dom-chain, a integração de runtime/reorg, 8 testes selecionados dom-store, 16
+testes do estado USDOM, 1 compile-fail, Clippy nos dois componentes, build
+release, rustfmt e diff check.
+
+5. Limites restantes
+
+O DomNode ainda precisa carregar a configuração estática por formato canônico,
+criar o runtime antes de abrir P2P e transportar pacotes em comando negociado.
+IBD, mineração e filas ainda trabalham com Block sem sidecar. Produção continua
+bloqueada pelos verificadores privados, witness real, custo de prova, carteira,
+ativação, parâmetros, shadow run e auditorias independentes. mainnet_ready e
+real_funds_ready permanecem false.

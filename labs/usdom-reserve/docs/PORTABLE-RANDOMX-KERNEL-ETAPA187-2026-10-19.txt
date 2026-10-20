@@ -1,0 +1,73 @@
+Stage 187 - portable bit-exact RandomX v1 kernel
+Date: 2026-10-19
+
+Purpose
+
+Replace host-only RandomX behavior with reviewable Rust operations that compile
+for the RISC Zero RV32IM guest. This stage is a component of the inner RandomX
+proof relation. It is not a complete RandomX hash guest or a receipt.
+
+Implemented
+
+1. Exact 64-bit integer high multiplication, signed high multiplication,
+   rotations and fixed-point reciprocal behavior.
+2. IEEE-754 binary64 addition, subtraction, multiplication, division and square
+   root with all four RandomX rounding states represented explicitly. No host
+   floating-point environment or hardware floating-point unit is used.
+3. RandomX FSCAL, FSWAP and FDIV exponent/mantissa transformations.
+4. Portable AESENC and AESDEC rounds, the one-round and four-round four-lane
+   generators, and the one-round four-lane hash.
+5. The exact Blake2b-512 byte generator used for RandomX program and
+   superscalar-program construction, including seed truncation, nonce encoding
+   and buffer-boundary behavior.
+6. Exact 2,176-byte program generation, 256-opcode weighted decoding, program
+   configuration, portable compilation, branches and scratchpad instructions.
+7. The complete 2,048-iteration VM loop behind a dataset-line callback, plus
+   initial scratchpad generation, chained-program seed derivation and final
+   AES/Blake2b-256 hashing.
+8. No unsafe Rust. Dependencies are pinned to blake2 0.10.6,
+   ieee-apsqrt 0.1.1 and rustc_apfloat 0.2.3.
+
+Validation
+
+The 15-test suite reproduces upstream RandomX values for every implemented
+operation. Independent vectors from the official BSD-licensed C++ reference
+cover AES, program bytes/configuration, all compiled instruction classes,
+branches, one full instruction pass, the complete 2,048-iteration VM loop,
+scratchpad state, chaining seed and final hash. The crate passes unit tests,
+documentation tests, strict Clippy and a release build for
+riscv32im-risc0-zkvm-elf.
+
+The aggregate guest was rebuilt with the evolved workspace lock and remained
+byte-identical with its pinned ProgramBinary and ImageID. Each pinned guest now
+keeps and verifies its own exact build-lock snapshot. This preserves historical
+provenance as the workspace evolves, while exact dependency-version, artifact
+hash and ImageID checks continue to fail closed.
+
+Feasibility finding
+
+The upstream C++ library can be adapted to compile its algorithm sources for
+RV32, but it depends on a C++ runtime and host floating-point-environment
+semantics that are unsuitable for the proof guest. RISC Zero exposes enough
+guest address space for the 256 MiB RandomX light cache, but that fact alone
+does not establish acceptable proving cost. The pure-Rust explicit-rounding
+path avoids the correctness problem and provides the basis for measuring the
+complete relation.
+
+Remaining exact work
+
+The Argon2d light-cache construction, superscalar program generator/executor,
+dataset item derivation, complete end-to-end known-answer hash, compiled inner
+guest, positive receipt and proving-cost measurement remain incomplete. The VM
+uses an explicit dataset-line callback until those cache-derived lines can be
+verified inside the guest. Therefore
+production_checkpoint_guest_randomx_relation_implemented and
+production_checkpoint_randomx_proof_receipt_implemented remain false.
+
+Release-policy boundary
+
+External audit and absolute zero risk are not release requirements. The items
+above remain blockers because they are concrete missing execution and artifact
+facts. This stage performs no deployment, public transaction, push, mining or
+use of real funds.
+

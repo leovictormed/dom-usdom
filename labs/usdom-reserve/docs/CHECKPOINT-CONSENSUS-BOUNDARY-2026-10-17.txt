@@ -1,0 +1,37 @@
+USDOM checkpoint consensus-boundary guard
+Date: 2026-10-17
+
+Finding
+
+The repository already contains adapter-evm and evm-actuator components that
+query an Ethereum JSON-RPC endpoint using the `finalized` tag and corroborate
+objects returned by that endpoint. Those checks are useful operational defenses,
+but the endpoint remains the source of the finalized head, headers, receipts and
+code. A malicious or compromised endpoint can supply a self-consistent alternate
+view. This is not cryptographic Ethereum finality and must not authorize USDOM
+issuance, checkpoints or withdrawals.
+
+Guard
+
+scripts/check-checkpoint-boundary.py inspects the locked normal dependency graph
+of dom-chain with ethereum-checkpoint-poc enabled. It rejects the operational EVM
+adapters and common HTTP/JSON-RPC client crates. It also checks that the feature
+remains opt-in, that installation remains restricted to regtest and that the
+source still declares the TEST ORACLE trust boundary.
+
+The guard intentionally does not approve any existing dependency as a production
+Ethereum verifier. It only prevents an accidental downgrade in which RPC-derived
+finality is wired into DOM consensus while the experiment is being developed.
+
+Replacement criterion
+
+Removing or changing the guard is justified only when dom-chain receives a
+reviewed, deterministic verifier that authenticates a pinned weak-subjectivity
+checkpoint, sync-committee transitions and BLS/SSZ finality; binds the finalized
+execution header; verifies ancestry to the event block; verifies receipt and
+registry account/code/configuration proofs; and reproduces the same verdict on
+every enforcing DOM node without network access during block validation.
+
+RPC may fetch untrusted bytes for that verifier. It may not decide correctness.
+Unavailability must stop checkpoint-dependent progress without selecting a
+quorum, confirmation-count or administrator fallback.

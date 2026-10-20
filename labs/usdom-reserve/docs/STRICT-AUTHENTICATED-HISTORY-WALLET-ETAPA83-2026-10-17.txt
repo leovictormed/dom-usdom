@@ -1,0 +1,39 @@
+Strict authenticated USDOM wallet history — etapa 83
+Date: 2026-10-17
+Status: isolated Regtest implementation; no deployment, push, mainnet activation, or real funds
+
+Outcome
+
+The strict loopback wallet RPC client can now request bounded authenticated history pages and turn them into CanonicalWalletBlock values only after independent verification. The client pins the network, chain ID, USDOM domain, exact trusted tip and preceding block/state root.
+
+For every returned block the wallet:
+
+1. decodes and canonically re-encodes the exact DOM header;
+2. recomputes its block identifier and checks height, parent and timestamp;
+3. decodes every bounded UDPRJ001 projection and validates its domain and canonical commitment;
+4. recomputes the ordered transition Merkle root and version-2 batch commitment from the adjacent state roots;
+5. checks bind_usdom_batch_commitment(raw_rangeproof_root, batch_commitment) against the exact header rangeproof_root;
+6. re-parses each private transfer/burn payload and recomputes its memo scalar, nullifiers and output commitments against the authenticated projection;
+7. requires exact page and continuation ancestry until the terminal block equals the operator-pinned trusted tip.
+
+Intermediate pages remain private to the client implementation. The public API
+releases CanonicalWalletBlock values only after the complete sequence reaches
+the exact trusted tip. One full rescan is capped at 65,536 blocks so a local
+endpoint cannot force unbounded memory or request work; longer histories must
+use a separately designed snapshot/resume protocol.
+
+The history response receives a dedicated 3 MiB client limit. Other RPC responses retain the existing 256 KiB limit. The URL remains literal-loopback HTTP only, redirects remain disabled, and the bearer token must come from an owner-only regular file or an external secret authority.
+
+Validation
+
+- full dom-usdom-wallet suite with rpc-client: 20 passed, including real Groth16 construction; 0 failed.
+- focused strict RPC/history suite: 6 passed; 0 failed.
+- dom-usdom-state: 19 unit tests plus 1 compile-fail doctest passed.
+- tamper cases reject changed header encoding, raw range-proof root, state root, domain, trusted tip and false finality claims.
+- affected-package Clippy with -D warnings passed.
+
+Remaining production blockers
+
+The completed history path closes remote historical deposit recovery at the protocol/library level. Production remains blocked by the Regtest-only activation, missing production spend verification key and trusted setup, missing independently audited circuits and commitment relations, missing real finalized USDT deposit vector, missing production Ethereum finality verifier/registry and succinct DOM burn proof, missing production wallet key management and monotonic seal authority, absent long-running multinode/fault/shadow testing, unset multisigs/economic limits/delays/monitoring/runbooks, and independent audits.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and real_funds_authorized remain false.

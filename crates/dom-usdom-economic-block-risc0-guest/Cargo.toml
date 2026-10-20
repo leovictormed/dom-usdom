@@ -1,0 +1,23 @@
+[package]
+name = "dom-usdom-economic-block-risc0-guest"
+description = "RISC Zero recursive aggregator for one complete DOM economic block"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata.risc0]
+
+[[bin]]
+name = "usdom-economic-block"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+dom-usdom-economic-block-program = { path = "../dom-usdom-economic-block-program", features = ["risc0-recursion"] }
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

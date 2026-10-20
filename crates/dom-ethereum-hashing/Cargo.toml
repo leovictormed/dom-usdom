@@ -1,0 +1,21 @@
+[package]
+name = "ethereum_hashing"
+version = "0.7.0"
+edition = "2021"
+rust-version = "1.80.0"
+license = "Apache-2.0"
+description = "Auditable pure-Rust SHA-256 boundary for DOM Ethereum consensus proofs"
+publish = false
+
+[features]
+default = ["zero_hash_cache"]
+zero_hash_cache = []
+
+[dependencies]
+sha2 = { version = "0.10", default-features = false }
+
+[dev-dependencies]
+hex = "0.4"
+
+[lints.rust]
+unsafe_code = "forbid"

@@ -1,0 +1,85 @@
+USDOM canonical V2 ingress and restart recovery — stage 151
+Date: 2026-10-18
+
+Purpose
+=======
+
+Stage 150 persisted the V1-to-V2 activation boundary but the live ChainState
+could not atomically accept a candidate-v2 package. This stage implements the
+first canonical direct-extension path. It does not activate a public network.
+
+Canonical V2 persistence
+========================
+
+StateCommitmentV2 now has a fixed-order, versioned UDSTV002 encoding. Decode
+validates the complete bridge identity, monetary and authenticated-set
+invariants, rejects truncation and trailing bytes, and re-encodes exactly.
+
+UDV2W001 carries the ordered bounded transition witnesses used by one block.
+Its four-MiB limit leaves room for the separately bounded proof envelope in the
+store's 16-MiB atomic extension-state transaction. The witness commitment is
+included in the opaque verified candidate produced after stateless execution.
+
+Every accepted V2 block persists, atomically with the DOM block and ordinary
+UTXO/kernel changes:
+
+- the exact proof envelope and package commitment;
+- the canonical witness bundle and commitment;
+- the previous and next complete V2 commitments;
+- the version-3 transition receipt and header commitment;
+- the ratified UDACTV02 schedule commitment; and
+- a canonical runtime-tip marker.
+
+Restart restoration reads the canonical block/tip relation, reconstructs the
+package and witnesses, verifies every persisted commitment, reruns the proof
+verifiers and stateless transition, and requires the same receipt and next
+state before returning a trusted V2 tip.
+
+ChainState direct ingress
+=========================
+
+connect_usdom_v2_package_for_schedule accepts only the next canonical block
+under the exact network, chain and migration schedule. It validates parent
+linkage, timestamps, PoW, target, accumulated work, fork choice, ordinary DOM
+inputs, output uniqueness, kernel replay, proof envelope, V2 witnesses and the
+header-bound transition receipt. All state is committed in one LMDB
+transaction. Caller state advances only after that commit succeeds.
+
+The integration vector installs V1 and V2 activation records at genesis,
+rejects a substituted schedule, connects the first V2 block, detects an exact
+duplicate, closes and reopens LMDB, replays recovery verification, opens
+ChainState again and connects the second V2 block.
+
+Validation
+==========
+
+- All 31 dom-usdom-state tests and its compile-fail doctest passed.
+- All 77 dom-chain library tests passed.
+- The six native-USDOM ChainState integration tests passed, including the new
+  V2 direct-ingress/restart/continuation vector.
+- The complete dom-chain test command passed every library, integration,
+  adversarial, property and doctest target. Long maximum-depth reorg cases
+  completed successfully.
+- dom-usdom-state and dom-chain clippy passed for all targets with warnings
+  denied. Cargo formatting and Git whitespace validation passed.
+- The closed-mainnet and real-funds gates rejected the unconfigured release
+  with 130 and 138 blockers, respectively, as intended.
+
+Security boundary and remaining work
+====================================
+
+This stage makes candidate-v2 canonical direct extensions and restart recovery
+real ChainState operations. The node runtime still selects the V1 full-state
+package path. Production still requires:
+
+1. A V2 sidecar carrying both proof envelope and witness bundle, retained side
+   branches, full V2 fork-choice promotion and rollback in one transaction.
+2. V2 package/body IBD, peer relay, orphan handling, mining and node startup
+   selection wired to the persisted UDACTV02 schedule.
+3. A real finalized Ethereum reserve-deposit witness through issuance, private
+   transfer, burn, finalized-burn proof and Ethereum payout.
+4. Production proving artifacts, ceremonies/verifying keys, gas benchmarks,
+   ratified operations and independent audits.
+
+Public-network pins remain unset and readiness gates remain fail closed. No
+push, commit, deployment, transaction or use of funds was performed.

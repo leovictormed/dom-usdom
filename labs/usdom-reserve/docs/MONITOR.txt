@@ -1,0 +1,79 @@
+Monitor v3 do protótipo — resultado local, sem prontidão mainnet
+
+Origem
+Adaptado de scripts/candidate-monitor.mjs e test/candidate-monitor.test.mjs
+em sorenplanck/atualia, commit 7925ea2a701f93e795591db7d0bd0635c14d886f,
+subdiretório labs/dom-private-notes/evm. Esses são os fontes de referência do monitor do protótipo.
+A biblioteca atual está em scripts/candidate-monitor.mjs.
+
+O que foi integrado
+O monitor utiliza o mesmo schema EIP-712 v3 do SDK, confere o domínio retornado
+pelo contrato e exige o hash do bytecode efetivamente implantado, chain ID,
+domínio DOM e guardião esperados. Confere os certificados públicos contra
+visões normalizadas e concordantes do laboratório. snapshotReader continua
+restrito a loopback e chama o verificador Rust externo com material público.
+Não há compiler, Anvil, seed ou chave de atestador importados pelo monitor.
+Os testes Node usam os artefatos do compilador nativo e Anvil isolado.
+
+Correção de concorrência entre incidente e rotação
+A API pauseEpoch(expectedEpoch) verifica a geração atomicamente na EVM e
+só depois executa a pausa emergencial. pause() continua disponível para uma
+intervenção manual que pretenda revogar toda a geração ativa.
+O monitor registra a geração do certificado/Released observado, não a geração
+que estiver ativa quando terminar de consultar as fontes. Usa pauseEpoch.
+Se a rotação vencer a ordenação, a pausa emergencial falha. Somente uma geração
+posterior comprovadamente instalada autoriza tentar a pausa operacional.
+Assim, chaves novas não são revogadas por um incidente antigo. O incidente
+permanece persistido, a reserva fica parada e o monitor nunca autoriza retomada.
+Isso não revoga retroativamente chaves removidas por uma rotação ordinária:
+a investigação deve identificar operadores/chaves comprometidos e impedir sua
+reutilização. Chaves atualmente revogadas pelo contrato permanecem banidas.
+
+Cenários executados
+- Certificado consistente: checkpoint persistido, sem pausa.
+- Queima inexistente ou destino divergente: pausa emergencial da geração
+  implicada, quando ainda ativa, antes da maturidade do pagamento.
+- Fonte indisponível, atrasada ou divergente, reorg EVM e checkpoint corrompido:
+  pausa operacional; nenhuma aprovação silenciosa de retomada.
+- Falha de envio/inclusão ou persistência: erro visível e incidente conservado.
+- Payout histórico órfão: parada, sem fingir reverter o pagamento já feito.
+- Rotação durante a leitura, antes da transmissão ou antes de um incidente
+  histórico: novas chaves preservadas; a reserva continua parada.
+- Lock existente: segundo trabalhador recusado, sem alegar saúde.
+São 20 testes do monitor entre os 27 testes Node totais. As visões DOM usadas
+nesses testes são fixtures normalizadas; o teste NÃO demonstra consenso DOM,
+execução ponta a ponta do binário Rust, USDT real ou multisig de produção.
+Uma suíte opcional adicional, test/integration/rust-snapshot.test.mjs, foi agora
+executada com o binário Rust real e snapshots públicos gerados pelo laboratório:
+três testes cobrem leitura válida com inteiro acima de 2^53, prova interna
+adulterada e fingerprint incorreto. Isso valida o adaptador de leitura; não
+transforma o sequenciador experimental em consenso DOM. Ver RUST-VERIFIER.txt.
+
+Uso e custódia
+monitorOnce recebe a instância ethers da reserva, o adaptador de assinatura do
+guardião, fontes construídas por snapshotReader, pins públicos, checkpoint
+inicial confiável e caminho absoluto do journal. Ver MONITOR.md do snapshot
+original para os parâmetros comuns. A API agora requer o contrato com
+pauseEpoch e domínio v3, além de um novo pin do bytecode implantado.
+Não reutilizar um journal v2: os pins e o domínio precisam corresponder à
+implantação v3. Um multisig de produção requer um adaptador que aguarde a
+execução real; uma proposta ou assinatura parcial não é um recibo de pausa.
+Nenhuma implementação de custódia multisig foi escolhida pelo operador.
+
+Limites preservados
+O modelo com quórum foi autorizado somente para o protótipo. O operador exige
+provas DOM verificáveis na Ethereum para produção; elas não estão implementadas.
+Duas fontes do mesmo sequenciador não
+constituem duas autoridades independentes. Confirmações não provam finalidade
+nativa. O monitor ainda depende de RPC Ethereum, supervisor, disponibilidade,
+relógio e verificador Rust confiáveis. Morte do processo, lock abandonado,
+falta de gás ou indisponibilidade da rede podem impedir a pausa: é necessário
+monitoramento independente de saúde e resposta operacional.
+O histórico é varrido desde o deployment, em lotes de 2.000 blocos e limite de
+100.000 eventos por tipo; o laboratório limita snapshots a 1.024 blocos e
+256 registros. Isso não é um indexador nem um daemon produtivo de longo prazo.
+A biblioteca não foi iniciada contra rede pública nem recebeu credenciais.
+Os novos bloqueios por política do USDT estão no contrato. O monitor ainda
+não emite alertas específicos de pausa, migração, taxas ou congelamento do token;
+um resultado consistente de certificados não atesta a saúde do colateral.
+Os testes separados do fork USDT não ampliam as garantias deste monitor.

@@ -1,0 +1,40 @@
+Stage 186 - objective mainnet assurance and residual-risk policy
+Date: 2026-10-19
+
+Operator direction
+
+The operator explicitly directed that absence of an external audit and absence
+of an impossible zero-risk guarantee must not, by themselves, block mainnet.
+This changes release policy only. It does not authorize deployment, real funds,
+pushes or the conversion of unfinished technical work into a passing fact.
+
+Gate changes
+
+1. The release gate no longer requires external DOM-consensus, privacy-circuit
+   or Solidity audit reports. Optional reports remain hash-validated and cannot
+   be presented with malformed or mismatched evidence.
+2. Four review-only requirement flags were removed from the hard requirement
+   list: independent checkpoint-registry audit, independent issuance review,
+   independent privacy-circuit audit and independent control-plane review.
+3. Two objective documents are now mandatory: securityValidationReport and
+   residualRiskAcceptanceReport. They must be distinct, present and addressed
+   by exact SHA-256 like the other release evidence.
+4. The operator-intent and production-requirement records now state that neither
+   an external audit nor absolute zero risk is required. Release still requires
+   passing technical validation, reproducible artifacts, adversarial tests,
+   operational drills and explicit acceptance of documented residual risk.
+
+Regression protection
+
+A release-fixture test sets every external-audit/review flag false, supplies no
+audit reports and sets an absolute-zero-risk flag false. Both closed-mainnet and
+real-funds assessments still pass when every objective requirement and evidence
+item is valid. Separate mutations prove that a missing security-validation or
+risk-acceptance report and malformed optional audit evidence fail closed.
+
+Current status
+
+This policy removes only assurance conditions that the operator rejected. It
+does not remove unfinished proof execution, absent production configuration,
+missing operational identities, failed or absent vectors, or explicit deploy
+and real-funds authorization. Those are factual blockers and remain enforced.

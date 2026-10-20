@@ -1,0 +1,88 @@
+USDOM NATIVE V4 — CANONICAL REGTEST MINING, STAGE 52
+Date: 2026-10-17
+
+STATUS
+
+This stage makes the isolated native-v4 Regtest runtime capable of mining the
+next canonical DOM block package. It does not activate v4 on Testnet or
+Mainnet, does not create a production proof verifier, and does not authorize
+real funds.
+
+TEMPLATE CONSTRUCTION
+
+1. The ordinary miner snapshots the canonical DOM tip, timestamp, target,
+   mempool transactions, coinbase and raw PMMR roots as before.
+2. When, and only when, the node owns the explicitly restored native-v4
+   Regtest runtime, it acquires the chain lock before the native-runtime lock.
+   Under those locks it snapshots the current tip and derives the native
+   empty-batch header commitment from a cloned state.
+3. If this tip differs from the original mining parent, the template is stale
+   before RandomX starts and is discarded.
+4. The miner binds the empty-batch commitment into the raw range-proof root,
+   selects block version 4, and searches the normal consensus target.
+5. A node without the native runtime keeps the existing required-version and
+   range-proof-root path byte-for-byte at this boundary.
+
+The empty-batch derivation checks that the preview's previous root, new root
+and final state root all equal the runtime's current root. It returns only the
+nonzero header commitment. The runtime verifier independently recomputes this
+receipt during ingress; the template helper does not create a verified
+candidate or persistence capability.
+
+FINALIZATION AND RELAY
+
+After the nonce is found, the miner checks the canonical tip and sync status
+again. A native template is encoded as one canonical UsdomV4BlockPackage with
+the canonical empty proof envelope, then wrapped in the tagged UDOMV4W1 wire
+frame. These exact bytes enter through
+ingest_native_usdom_v4_wire_payload_regtest, the same parser, validation,
+chain-before-runtime lock order, atomic store transaction, mempool/wallet
+reconciliation and relay path used by authenticated peer ingress.
+
+Only a canonical native package increments blocks_mined and preserves a
+provisional wallet coinbase. Native bytes are sent on the capability-filtered
+native relay channel and never on the ordinary block channel. Persisted package
+bytes are identical to relayed bytes and survive the runtime's startup history
+audit.
+
+SECURITY BOUNDARIES
+
+- The code is compiled only with native-usdom-v4-poc and the runtime can still
+  be constructed only through the explicit Regtest activation constructor.
+- The miner has no API for constructing issuance, transfer, burn or checkpoint
+  proof entries. It can advance an empty native state batch only.
+- A changed tip invalidates the template before work begins and is checked
+  again after work. Tip ABA is safe because a canonical block hash determines
+  the reconstructed native state.
+- Timestamp, target, accumulated difficulty, RandomX, DOM transaction balance,
+  PMMR roots and native batch commitment remain consensus-validated.
+- A malformed or mismatched package cannot be relayed before atomic ingress
+  accepts it.
+
+VALIDATION
+
+- dom-node with native-usdom-v4-poc: 326 passed, 0 failed, 1 manual ignored;
+  all binaries and integration targets passed.
+- Native runtime integration: 7 passed, including mine, exact relay,
+  persistence and audited restart.
+- dom-node default: 318 passed, 0 failed, 1 manual ignored; all integration
+  targets passed.
+- dom-chain with native-usdom-v4-poc: 65 library tests and every integration,
+  adversarial, property and deep-reorg target passed.
+- Clippy with -D warnings, release builds, rustfmt and git diff checks passed in
+  both relevant build modes.
+
+REMAINING LIMITS
+
+The standalone node CLI still has no production activation or configuration
+path for the native runtime. There is no proof-candidate pool, fee/weight policy
+for proof work, issuance/transfer/burn proof verifier, positive production
+Ethereum checkpoint witness, snapshot import/export binding native state and
+sidecars, production migration, shadow network, incident drill or independent
+audit. The miner therefore produces empty native batches only.
+
+MAINNET READY: NO
+REAL FUNDS READY: NO
+DEPLOYED: NO
+PUSHED: NO
+

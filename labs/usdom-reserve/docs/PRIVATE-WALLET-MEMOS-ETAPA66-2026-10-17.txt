@@ -1,0 +1,77 @@
+USDOM ETAPA 66 — ENDEREÇO PRIVADO, MEMO AUTENTICADO E SCANNING OFFLINE
+Data: 2026-10-17
+Escopo: implementação isolada no branch local codex/usdom-reserve-v3
+
+DECISÃO
+
+Esta etapa define a primeira fronteira criptográfica de recebimento da carteira
+USDOM. Ela não libera mainnet, deploy, depósitos ou fundos reais. O novo crate
+dom-usdom-wallet não integra o grafo do nó e nunca concede autoridade de
+consenso: ele cria memos para saídas já ligadas ao circuito e examina payloads
+de blocos que o chamador deve autenticar como canônicos.
+
+ENDEREÇO DE RECEBIMENTO
+
+USDADR01 possui largura fixa de 104 bytes e contém:
+
+- chain scalar do protocolo USDOM;
+- compromisso Poseidon do owner secret BN254;
+- chave pública X25519 dedicada ao scanning.
+
+O owner secret e a scan secret são independentes. WalletSecrets não implementa
+Clone, Copy, Debug nem serialização e aplica ZeroizeOnDrop. A geração rejeita
+zero e usa rejection sampling para obter um scalar BN254 canônico sem viés. A
+restauração recebe material de uma fronteira de armazenamento protegida e limpa
+as cópias de arrays recebidas.
+
+MEMO AUTENTICADO
+
+USDMEM01 transporta exatamente uma entrada por compromisso de saída, no máximo
+duas conforme o circuito congelado. Cada entrada contém:
+
+- chave X25519 efêmera de 32 bytes;
+- nonce XChaCha20 de 24 bytes;
+- ciphertext fixo de 64 bytes, incluindo tag Poly1305.
+
+O shared secret X25519 precisa ser contributivo; pontos de baixa ordem são
+recusados. HKDF-SHA256 deriva uma chave por entrada. O contexto autenticado liga
+versão, chain scalar, owner commitment, scan public key, ephemeral public key,
+compromisso da nota e índice da saída. O plaintext contém somente magic interna,
+valor u64 e rho BN254. A carteira recompõe NoteOpening e exige igualdade exata
+com o compromisso público antes de devolver uma nota.
+
+Segredos efêmeros, shared secrets, chaves AEAD, plaintexts, owner secrets, rho e
+notas recebidas usam tipos com limpeza de memória. O backend XChaCha20Poly1305
+também limpa sua chave ao ser descartado. Isso reduz resíduos controláveis, sem
+prometer eliminação absoluta de cópias feitas pelo compilador, alocador, swap ou
+sistema operacional.
+
+SCANNING DE PAYLOADS
+
+dom-usdom-state agora separa o parsing canônico dos payloads privados da etapa
+que verifica Groth16. As funções inspect_private_transfer_outputs e
+inspect_private_burn_outputs retornam uma view explicitamente não confiável de
+compromissos e memo. A verificação de consenso reutiliza o mesmo decoder, para
+evitar formatos divergentes.
+
+dom-chain expõe um iterador read-only sobre kind e payload do envelope v4. A
+documentação exige que uma carteira aceite notas somente de blocos já validados
+e canônicos. Parsing e decriptação por si sós nunca criam uma transição válida.
+
+LIMITAÇÕES RESTANTES DA CARTEIRA
+
+1. armazenamento durável criptografado, anti-rollback, backup e recuperação;
+2. cursor de blocos, confirmação e rollback exato durante reorganizações;
+3. manutenção incremental dos paths Merkle das notas possuídas;
+4. seleção de notas e montagem integral de SpendCircuit;
+5. política de taxas, submissão local autenticada e acompanhamento;
+6. formato de apresentação humana do endereço com checksum e versão de rede;
+7. rotação/separação hierárquica de endereços e análise de metadados;
+8. vetores com depósito Ethereum finalizado, memo, prova, mineração e reorg.
+
+STATUS
+
+O formato de memo e o scanner criptográfico offline estão implementados, mas a
+carteira durável e o witness tracker ainda não existem. mainnet_ready,
+deploy_authorized e real_funds_authorized permanecem false. Nenhum commit, push,
+deploy ou fundo real foi usado.

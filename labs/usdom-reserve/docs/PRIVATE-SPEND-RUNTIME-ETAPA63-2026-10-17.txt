@@ -1,0 +1,137 @@
+USDOM ETAPA 63 — VERIFICADOR PRIVADO NO RUNTIME E REPETIÇÃO COMPLETA DAS SUÍTES
+Data: 2026-10-17
+Escopo: implementação isolada no branch local codex/usdom-reserve-v3
+
+DECISÃO
+
+Esta etapa não libera mainnet, deploy, depósitos ou fundos reais. Ela conecta o
+verificador Groth16 da etapa 62 ao runtime nativo experimental de Regtest e
+remove a divergência anterior entre a entrada criptográfica explícita e os
+caminhos reais de admissão de blocos. Todos os caminhos do runtime recebem a
+mesma instância imutável do SpendVerifier comprometida pela BridgeIdentity.
+
+IDENTIDADE E CARREGAMENTO DA CHAVE
+
+NativeUsdomV4Runtime::restore_with_spend_verifier recebe os bytes canônicos da
+chave verificadora. A inicialização falha antes de liberar o ingresso quando:
+
+- os bytes não formam uma chave Groth16/BN254 canônica;
+- a chave não tem exatamente as nove entradas públicas congeladas;
+- o hash da política de privacidade não corresponde ao binário;
+- o config hash dos bytes exatos da chave difere do valor na BridgeIdentity.
+
+A chave fica privada ao runtime e somente seu config hash é exposto. O caminho
+legado sem chave continua rejeitando transferências e queimas. Reiniciar sem a
+chave também falha se o estado restaurado já contém algum nullifier, impedindo
+que um operador aceite uma história de gastos privados e volte silenciosamente
+para um modo incapaz de revalidá-la.
+
+UM ÚNICO LIMITE DE AUTORIDADE
+
+A mesma função interna de candidato serializado é usada por:
+
+- extensão direta da cadeia canônica;
+- armazenamento e validação de bloco lateral;
+- reconstrução dos blocos anteriores de uma ramificação lateral;
+- promoção atômica de uma reorganização;
+- ingresso do runtime usado por P2P, IBD, fila de órfãos e fila de blocos
+  futuros.
+
+O pacote canônico continua unindo bytes do bloco, envelope de provas e
+compromisso do header. Nenhum desses caminhos aceita uma transição já
+"verificada" fornecida pelo chamador.
+
+AUDITORIA NO RESTART
+
+Quando a chave está instalada, a abertura do runtime percorre novamente cada
+pacote v4 canônico dentro da janela reorganizável, hoje limitada a 1.000
+blocos. O procedimento:
+
+1. confirma a posição canônica e a identidade de cada pacote persistido;
+2. retrocede até o estado autenticado no início da janela;
+3. reexecuta finality, depósito, Groth16 e a máquina de estado na ordem;
+4. compara os bytes exatos do BatchUndo recalculado com o undo persistido;
+5. exige igualdade de state root e de todas as entradas do estado final.
+
+Essa auditoria cobre o histórico que ainda pode participar de uma reorganização.
+Histórico anterior exige snapshot/checkpoint auditado para uma futura ativação
+de produção; o mecanismo atual permanece deliberadamente Regtest-only.
+
+LIMITES DE DISPONIBILIDADE
+
+Antes de parsing caro ou criptografia, o envelope aplica limites por classe:
+
+- no máximo 4 testemunhos de emissão Ethereum;
+- no máximo 16 provas privadas de transferência/queima;
+- no máximo 1 checkpoint Ethereum;
+- payload privado de transferência: no máximo 33.076 bytes;
+- payload privado de queima: no máximo 33.260 bytes;
+- memo cifrado: no máximo 32 KiB;
+- prova Groth16 canônica: exatamente 128 bytes.
+
+Os limites de emissão e checkpoint continuam derivados dos decodificadores de
+finalidade. Isso reduz trabalho criptográfico adversarial e impede que o limite
+genérico do envelope autorize quantidades excessivas de provas caras.
+
+RESERVA ETHEREUM E FIXTURES
+
+A validação da etapa 62 para receivingCommitment BN254 foi mantida. As suítes
+Solidity e Node antigas usavam keccak/random de 256 bits diretamente como
+compromisso; esses valores frequentemente ficam fora do campo e passaram a ser
+rejeitados corretamente. Os fixtures agora convertem apenas a entropia de teste
+para um escalar canônico não zero. A regra do contrato não foi relaxada.
+
+TOOLCHAIN E VALIDAÇÃO
+
+A toolchain foi recomposta fora do repositório e verificada contra checksums
+oficiais: Foundry/Anvil 1.7.1, solc 0.8.37 e Node 24.19.0. Os binários não fazem
+parte do pacote de código; os hashes e versões estão preservados em
+results-stage63-2026-10-17/toolchain-provenance.txt.
+
+Resultados novos:
+
+- Rust: 276 testes aprovados nos quatro comandos de privacidade, estado,
+  dom-chain e runtime do nó; zero falhas;
+- Solidity padrão: 98 testes aprovados; fuzz com 1.024 casos e invariantes com
+  16.384 chamadas;
+- Solidity profundo: 98 testes aprovados; fuzz com 16.384 casos e cada um dos
+  três invariantes com 131.072 chamadas;
+- Node/Anvil: 33 testes aprovados, incluindo execução EVM e monitor de
+  incidentes;
+- cargo fmt e quatro execuções de clippy com warnings tratados como erros:
+  aprovados;
+- npm audit sobre as dependências instaladas pelo lockfile: zero
+  vulnerabilidades conhecidas.
+
+Os avisos do compilador Solidity remanescentes são de código vendor da
+OpenZeppelin, uso intencional de timestamp em delays/prazos e casts limitados em
+testes. Nenhum aviso alterou o resultado das suítes.
+
+BLOQUEIOS PARA FUNDOS REAIS
+
+1. cerimônia Groth16 multiparte de produção, transcript reproduzível e chave
+   verificadora final fixada;
+2. auditorias externas e independentes do circuito, Poseidon, codificações,
+   contrato Solidity e integração Rust;
+3. wallet/prover de produção, memo cifrado, scanning, manutenção de witness,
+   recuperação e proteção de metadados;
+4. pool de candidatos privados e mineração: o miner experimental ainda produz
+   somente envelope vazio, embora rede/IBD já validem pacotes recebidos;
+5. verificador Ethereum de queima finalizada usado pela reserva, com hashes de
+   produção não zero e auditados;
+6. vetor real de depósito USDT finalizado, fork tests contra RPC de arquivo e
+   ensaio multi-nó prolongado sob reorganização/indisponibilidade;
+7. ativação de consenso fora de Regtest, plano de migração/snapshot e regra de
+   hard fork revisados;
+8. endereços de governança e guardião, limites, delays, monitoração, resposta a
+   incidentes e ensaio operacional;
+9. correção de achados externos e canário sem fundos antes de qualquer decisão
+   sobre valor real.
+
+STATUS
+
+O runtime fechado de Regtest agora exerce o verificador privado no ingresso
+real, inclusive reorganizações e restart. O projeto ainda não está pronto para
+mainnet nem para fundos reais. mainnet_ready, deploy_authorized e
+real_funds_authorized permanecem false. Nenhum commit, push, deploy ou uso de
+fundos foi realizado nesta etapa.

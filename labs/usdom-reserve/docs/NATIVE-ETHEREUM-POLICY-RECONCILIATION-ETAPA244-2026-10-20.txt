@@ -1,0 +1,41 @@
+USDOM ETAPA 244 — RECONCILIAÇÃO DAS POLÍTICAS ETHEREUM NATIVAS
+Data: 2026-10-20
+Status: implementado e validado localmente
+
+Achado USDOM-244
+
+Severidade: Alta para integridade de emissão e finalidade.
+Exposição pública atual: nenhuma.
+
+A etapa 243 passou a autenticar o manifesto nativo completo, mas o gate exigia
+apenas que os hashes derivados das políticas de checkpoint e depósito fossem
+não nulos. Um manifesto internamente válido e assinado podia apontar para outro
+registry, outra reserva, outro runtime ou outra configuração Ethereum sem
+coincidir com o release dos contratos.
+
+Correção
+
+O checker Rust agora exporta os campos já validados das duas políticas. O gate
+exige igualdade exata entre:
+
+- registry, runtime, `checkpointConfigHash`, slot zero e domínio do checkpoint;
+- reserva, runtime, domínio e teto por depósito;
+- endereços, hashes, domínio e limites correspondentes do release Ethereum.
+
+O teto de depósito nativo deve ser exatamente o limite de exposição da reserva.
+O requisito `production_native_ethereum_policies_release_reconciled` registra
+essa fronteira de produção. A assinatura do manifesto continua necessária, mas
+não substitui a comparação objetiva das configurações.
+
+Validação focal
+
+- checker Rust: 3/3;
+- readiness: 37/37;
+- nove substituições independentes de política falharam fechadas;
+- sintaxe Node, JSON, diff check e Rustfmt: passaram.
+- suíte Node completa: 108/108;
+- suíte Solidity vigente: 138/138, sem alteração de contrato nesta etapa;
+- lint de produção e compilação forçada: passaram.
+
+A proveniência, o manifesto final e os gates serão registrados no resumo de
+fechamento da etapa.

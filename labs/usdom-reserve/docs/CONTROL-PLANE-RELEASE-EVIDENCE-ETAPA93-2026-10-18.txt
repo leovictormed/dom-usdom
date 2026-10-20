@@ -1,0 +1,60 @@
+Control-plane release evidence — etapa 93
+Date: 2026-10-18
+Status: fail-closed release gate implemented; production roles remain unconfigured
+
+Finding USDOM-093
+
+Severity: High operational risk for production.
+Current public exposure: none; no transaction, commit, tag, push or deployment was made.
+
+The etapa 92 contract pins governance and guardian runtime code hashes. That
+does not reveal or authenticate mutable configuration behind a proxy or Safe.
+A release manifest could previously satisfy the code-identity checks without
+recording owners, threshold, implementation, modules, guard, fallback handler,
+upgrade authority or the operational separation between the two roles.
+
+Remediation
+
+The mainnet release evidence now requires a separate snapshot for governance
+and guardian. Each snapshot must:
+
+- repeat an address exactly matching its release role;
+- repeat a runtime code hash exactly matching reserveConfigHash inputs;
+- contain a nonzero bytes32 configuration commitment;
+- point to a present configuration report with an exact SHA-256.
+
+Governance and guardian configuration commitments must differ. The gate also
+requires distinct hash-addressed reports for signer/custody separation and for
+a completed pause/recovery drill. All new reports participate in the existing
+no-path-reuse rule, preventing one file from satisfying multiple evidence
+slots. Two explicit production requirements remain false until independent
+review and the drill have actually occurred.
+
+An invalid evidence schema no longer hides the individual missing reports. The
+checked-in unconfigured candidate now emits every absent evidence category as
+a separate blocker, which makes release review deterministic and actionable.
+
+Validation
+
+- Node/SDK/EVM suite: 38 passed; 0 failed;
+- synthetic complete closed-mainnet and real-funds manifests: accepted;
+- address substitution: rejected;
+- runtime-code-hash substitution: rejected;
+- zero or shared role-configuration commitment: rejected;
+- missing or hash-mismatched role and separation evidence: rejected;
+- closed-mainnet gate: correctly rejected with 63 blocker assertions;
+- real-funds gate: correctly rejected with 71 blocker assertions;
+- JSON parsing and whitespace checks: passed.
+
+Security boundary
+
+The offline gate proves that the reviewed, hash-addressed evidence is present
+and bound to the intended release identities. It cannot prove the truth of a
+report or inspect live mutable contract state. Before deployment and again
+before the delayed cold-start resume, operators and independent reviewers must
+reconstruct both snapshots from finalized Ethereum state and authenticate the
+report signers. A future live-RPC preflight can automate that comparison once
+the exact production multisig implementation is selected.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

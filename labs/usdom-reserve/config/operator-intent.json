@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "network": "Ethereum mainnet",
+  "chainId": "1",
+  "token": {
+    "symbol": "USDT",
+    "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "expected_decimals": 6,
+    "official_source": "https://tether.to/en/supported-protocols/",
+    "verification": "RPC-supplied Ethereum block 26201446: 6 decimals and matching runtime/block hashes on PublicNode and Alchemy; five post-fix local fork tests passed. See results/usdt-fork-verification.json. No deployment or mainnet transaction."
+  },
+  "prototype_trust_model": "Independent quorum attests verified burns; trust in operators must be explicit.",
+  "production_trust_model": "DOM consensus/state proofs verifiable on Ethereum; quorum restricted to prototype; feasibility/design first; implementation and validation required before real deposits.",
+  "production_approved": false,
+  "release_signing_key_fingerprint": null,
+  "undefined": [
+    "governance multisig",
+    "guardian multisig",
+    "maximum exposure",
+    "outflow capacity",
+    "withdrawal delay",
+    "governance delay",
+    "DOM domain and finality policy"
+  ],
+  "local_test_values_not_approved_for_production": {
+    "chainId": "31337",
+    "threshold": "3 of 4",
+    "maxOutstandingTokens": "100000",
+    "outflowCapacityTokens": "2000",
+    "refillPeriodSeconds": "86400",
+    "withdrawalDelaySeconds": "86400",
+    "governanceDelaySeconds": "172800"
+  },
+  "authority": "Explicit operator response in this conversation; only public parameters recorded.",
+  "native_asset_requirements": {
+    "distinct_from_DOM": true,
+    "mint_transfer_burn_validated_by_native_consensus": true,
+    "DOM_monetary_policy_unchanged": true,
+    "private_amounts_sender_recipient_and_transaction_unlinkability": true,
+    "redemption_hides_private_transfer_history_and_original_deposit_link": true,
+    "acknowledged_public_Ethereum_metadata_and_correlation": true,
+    "no_absolute_anonymity_or_Monero_equivalence_claim": true,
+    "mint_only_against_eligible_USDT_deposits": true,
+    "deposit_consumed_at_most_once": true,
+    "USDOM_mining_reward": false
+  },
+  "current_phase": "preproduction_hardening_fail_closed",
+  "release_assurance_policy": {
+    "external_audit_required_by_gate": false,
+    "absolute_zero_risk_required_by_gate": false,
+    "required_basis": "objective technical validation, reproducible artifacts, adversarial tests, operational drills and explicit operator acceptance of documented residual risk",
+    "authority": "Explicit operator instruction in this conversation on 2026-10-19 and reaffirmed on 2026-10-20: every protocol has risk; absence of a total zero-risk guarantee is not a mainnet blocker. Release still requires objective technical validation and explicit acceptance of documented residual risk."
+  },
+  "residual_risk_acceptance": {
+    "accepted": false,
+    "releaseId": null,
+    "sourceCommit": null,
+    "reserveConfigHash": null,
+    "checkpointRegistryConfigHash": null,
+    "reportSha256": null,
+    "acceptingAuthority": null,
+    "acceptedAt": null,
+    "rule": "Acceptance must identify the exact evidence release, source commit, reserve and checkpoint configuration hashes, report SHA-256, governance authority and uint64 timestamp. It cannot waive a failed technical gate."
+  },
+  "deploy_authorized": false,
+  "real_funds_authorized": false,
+  "finality_direction": "Compare Ethereum-verifiable additional native finality with existing probabilistic PoW; no mechanism selected and no acceptance of probabilistic definitive burn implied.",
+  "finality_comparison": "docs/FINALITY-COMPARISON.txt",
+  "checkpoint_poc_authorization": {
+    "scope": "isolated_proof_of_concept",
+    "first_candidate": "Ethereum checkpoints recognized by DOM consensus",
+    "production_mechanism_approved": false,
+    "requirements": [
+      "Show proposal and validity verification",
+      "DOM consensus must prevent reorgs undoing burns whose redemption is authorized",
+      "Identify operator trust",
+      "Publish only necessary commitments and proofs; protect private transfer history",
+      "Evaluate downtime, censorship, reorgs and recovery on both networks"
+    ],
+    "push_authorized": false,
+    "deploy_authorized": false,
+    "real_funds_authorized": false
+  }
+}

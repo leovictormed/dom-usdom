@@ -1,0 +1,48 @@
+Stage 213 — release-specific residual-risk acceptance
+Date: 2026-10-20
+
+Finding USDOM-213 — Medium release-governance integrity
+
+The release gate required a hash-addressed residual-risk report, but it did not
+prove that the operator had explicitly accepted that report for the exact release
+being evaluated. A report copied from another build, or a still-unaccepted draft,
+could satisfy the document-presence check. This weakened the stated policy that
+objective technical validation and explicit residual-risk acceptance are both
+required.
+
+This is not a zero-risk requirement. External audit and an absolute guarantee of
+no defects remain explicitly outside the gate. Acceptance also cannot turn a
+failed technical, artifact, configuration, preflight or operational check into a
+pass.
+
+Remediation
+
+operator-intent.json now contains a fail-closed residual_risk_acceptance object.
+A valid acceptance must set accepted=true and bind all of the following to the
+release currently assessed:
+
+- evidence releaseId;
+- exact signed source commit;
+- reserveConfigHash;
+- checkpointRegistryConfigHash;
+- exact SHA-256 of the residual-risk acceptance report;
+- the release governance address as accepting authority;
+- a nonzero canonical uint64 acceptance timestamp.
+
+The checked-in object deliberately remains accepted=false with every release
+identity unset. This records the operator's policy without falsely accepting an
+unknown future release. Once a concrete release exists, its governance authority
+must complete and ratify the final report and exact bindings.
+
+Regression validation
+
+The synthetic fully configured release passes in both closed-mainnet and
+real-funds modes. Twelve independent mutations fail closed: absent acceptance,
+false accepted flag, substituted release, source commit, either configuration
+hash, report hash or authority, malformed authority, and zero, noncanonical or
+overflowing timestamp. The existing regression continues to prove that removing
+external audit evidence or setting an absolute-zero-risk claim false does not
+block either mode.
+
+No proof generation, mining, deployment, fund movement, commit or push was
+performed.

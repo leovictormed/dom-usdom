@@ -1,0 +1,27 @@
+[profile.default]
+src = "contracts"
+test = "test/solidity"
+out = "out"
+cache_path = "cache"
+libs = ["vendor"]
+remappings = ["@openzeppelin/contracts/=vendor/openzeppelin-contracts-5.6.1/"]
+solc_version = "0.8.37"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+bytecode_hash = "none"
+ast = true
+fuzz = { runs = 1024 }
+invariant = { runs = 256, depth = 64, fail_on_revert = true }
+
+[profile.deep]
+fuzz = { runs = 16384 }
+invariant = { runs = 1024, depth = 128, fail_on_revert = true }
+
+[fmt]
+line_length = 120
+
+[profile.fork]
+test = "test/fork"
+out = "out-fork"
+cache_path = "cache-fork"

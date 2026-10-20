@@ -1,0 +1,76 @@
+USD0M — POLÍTICA DE SEGMENTO E FRONTEIRA RANDOMX ESTÁVEL — ETAPA 190
+Data: 2026-10-20
+
+RESULTADO
+
+Foram fechadas duas lacunas necessárias ao guest externo de checkpoint.
+
+1. UDCSPOL1 fornece, em um transporte canônico limitado a 4.958 bytes, as
+   preimagens públicas que o estado recursivo guarda por hash: gênese DOM,
+   cronograma UDACTV02, política estática de checkpoints Ethereum, política
+   estática de depósitos Ethereum e chave verificadora Groth16 de gastos
+   privados.
+2. A validação tipada reconstrói todas essas estruturas e exige igualdade com o
+   estado UDCSEG02. Ela cruza network magic, chain ID derivado da gênese,
+   compromisso de ativação, bloco e raiz na fronteira de ativação, config hash
+   do registry, hashes das duas políticas, chain ID e genesis root Ethereum,
+   bridge domain e hash da chave verificadora. Valores truncados, extras,
+   vazios, grandes demais ou não canônicos falham fechados.
+3. UDCRXST1 foi movido para dom-usdom-checkpoint-statement. O guest RandomX não
+   depende mais do crate inteiro de execução do checkpoint para interpretar seu
+   único statement. Mudanças futuras em execução econômica ou política deixam
+   de alterar o ImageID RandomX apenas por metadados de link não relacionados.
+
+ARTEFATOS CANDIDATOS ATUALIZADOS
+
+Cargo.lock SHA-256:
+  745b3c37903c47e71d55b640909e745922e97f5c05afab6970cb8f0aec7edf84
+
+Guest RandomX completo:
+- ELF SHA-256:
+  1a8e491304763477094da84ff0701ea18d935600a3b3a79eb1c1250facd6903f
+- ProgramBinary SHA-256:
+  0601bf022575b060edaeb0b32414b2f53e72f39d2284028069099414653591dd
+- ImageID candidato:
+  8efa49d4fe0f616840013adb1d3029ef71642099cb336c577a2691f7eea1dc24
+
+Guest agregador RandomX:
+- ELF SHA-256:
+  192c97830e7e1c390c025c137480268e0f75dfc96184738fb6a14c8e13e81c6b
+- ProgramBinary SHA-256:
+  3dad95bf467a807c7ef033f88595ea44f14578dca4c7558ad95b7ad76c0d198f
+- ImageID candidato:
+  08abf768e699ecb9d5cd2abc7603368103bcd3ee61afe9066d8a77272ac02ebf
+
+VALIDAÇÃO
+
+- round-trip e mutações de UDCSPOL1, incluindo todos os prefixos truncados;
+- vetor positivo tipado com cronograma, políticas Ethereum e chave Groth16;
+- rejeição de gênese e hash de política substituídos;
+- 35 testes de biblioteca do checkpoint e teste de integração tipado;
+- compilação de statement, transporte e bindings para riscv32im-risc0-zkvm;
+- fronteira de dependências portáteis e Clippy estrito;
+- reconstruções locais dos dois guests e recomputação independente dos
+  ProgramBinary e ImageIDs.
+
+LIMITES
+
+UDCSPOL1 autentica a política, mas ainda não executa as transições do segmento.
+O guest externo precisa consumir esses valores, verificar o recibo UDCRXAG1 e
+executar validação de consenso, estado econômico e estado USDOM. Recibos
+positivos e custos de prova continuam sem medição. Os ImageIDs são candidatos e
+ainda precisam de ratificação na configuração de produção.
+
+Esses são riscos e bloqueios técnicos mensuráveis. Auditoria externa e uma
+garantia impossível de risco zero não são condições do gate. Nenhum push,
+deploy, commit, mineração, transação ou uso de fundos ocorreu.
+
+ADENDO — FRONTEIRA DOM-CONSENSUS
+
+A FFI RandomX nativa passou a ser uma feature explícita de dom-consensus,
+ativada por padrão. O node, dom-chain e os testes padrão continuam incluindo a
+implementação nativa; uma compilação sem default features já exclui randomx-rs
+e preserva as regras não-PoW. A compilação integral desse crate para RV32 ainda
+é false porque dom-crypto traz backends de entropia e curvas voltados ao host.
+Esse próximo limite permanece declarado, sem substituir validação criptográfica
+por stubs.

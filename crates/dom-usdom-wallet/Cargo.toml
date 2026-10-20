@@ -1,0 +1,64 @@
+[package]
+name = "dom-usdom-wallet"
+description = "Offline private note memo and scanning primitives for native USDOM wallets"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = []
+rpc-client = [
+    "dep:dom-consensus",
+    "dep:dom-usdom-rpc-protocol",
+    "dep:dom-serialization",
+    "dep:hex",
+    "dep:reqwest",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:usdom-ethereum-finality-experiment",
+]
+recovery-cli = ["dep:anyhow", "dep:hex", "dep:rand", "dep:rustix"]
+
+[[bin]]
+name = "dom-usdom-wallet-recovery"
+path = "src/bin/dom-usdom-wallet-recovery.rs"
+required-features = ["recovery-cli"]
+
+[dependencies]
+chacha20poly1305.workspace = true
+dom-core.workspace = true
+dom-consensus = { workspace = true, optional = true }
+dom-usdom-rpc-protocol = { workspace = true, optional = true }
+dom-crypto.workspace = true
+dom-serialization = { workspace = true, optional = true }
+dom-wallet-crypto.workspace = true
+dom-usdom-privacy = { path = "../dom-usdom-privacy" }
+dom-usdom-prover = { path = "../dom-usdom-prover" }
+dom-usdom-state = { path = "../dom-usdom-state" }
+hkdf.workspace = true
+fs2 = "=0.4.3"
+rand_core.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+x25519-dalek.workspace = true
+zeroize.workspace = true
+anyhow = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+rand = { version = "0.8.6", optional = true }
+reqwest = { workspace = true, optional = true }
+rustix = { version = "=1.1.4", default-features = false, features = ["process"], optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", optional = true }
+
+[dev-dependencies]
+ark-bn254 = { version = "=0.5.0", default-features = false, features = ["curve"] }
+ark-groth16 = { version = "=0.5.0", default-features = false }
+ark-relations = { version = "=0.5.1", default-features = false }
+ark-serialize = { version = "=0.5.0", default-features = false }
+dom-usdom-state = { path = "../dom-usdom-state", features = ["unsafe-test-oracle"] }
+rand = "0.8.6"
+tempfile.workspace = true
+usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", features = ["unsafe-test-oracle"] }

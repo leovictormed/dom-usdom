@@ -1,0 +1,24 @@
+[package]
+name = "dom-usdom-randomx-aggregate-risc0-guest"
+description = "RISC Zero component guest for ordered DOM RandomX receipt aggregation"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata.risc0]
+
+[[bin]]
+name = "usdom-randomx-aggregate"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", features = ["segment-bindings", "risc0-recursion"] }
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std", "getrandom"] }
+
+[dev-dependencies]
+risc0-binfmt = "=3.0.5"
+risc0-zkos-v1compat = "=2.2.3"

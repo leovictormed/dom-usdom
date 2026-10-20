@@ -1,0 +1,33 @@
+Activation, privacy setup and wallet custody release gate — Stage 237
+Date: 2026-10-20
+Status: fail-closed gate correction; no setup ceremony, deployment, funds,
+        mining, commit or push
+
+Finding USDOM-237 (High)
+
+The requirements ledger correctly records four unfinished production facts:
+
+- the exact scheduled public runtime is not configured;
+- the native privacy Groth16 setup ceremony is not complete;
+- no hardware or operating-system keystore protects production wallet secrets;
+- no production recovery ceremony has demonstrated independent restoration.
+
+Readiness required broader activation, verifying-key and wallet-key-management
+flags. A release author could set those broad flags true while the four precise
+facts remained false. Installing any verifying key does not prove it came from
+the intended ceremony, and an encrypted file alone does not establish
+production custody or tested recovery.
+
+Correction
+
+Closed-mainnet and real-funds modes now independently require the scheduled
+public runtime and completed privacy-key ceremony. Real-funds mode additionally
+requires the selected hardware/OS keystore and completed recovery ceremony.
+Each field has a dedicated mutation assertion and stable blocker.
+
+Boundary
+
+These are concrete activation and custody controls. Independent code audits and
+an absolute zero-risk guarantee remain optional and were not added. The fields
+remain false until actual configuration and ceremonies produce release-bound
+evidence; local unit tests do not satisfy them.

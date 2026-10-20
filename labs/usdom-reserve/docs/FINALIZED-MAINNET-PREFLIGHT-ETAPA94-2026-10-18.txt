@@ -1,0 +1,74 @@
+Finalized Ethereum mainnet preflight and cold-start attestation — etapa 94
+Date: 2026-10-18
+Status: tooling implemented; live execution is blocked by intentionally absent production configuration
+
+Finding USDOM-094
+
+Severity: Critical release-process risk.
+Current public exposure: none; no RPC transaction, commit, tag, push or deployment was made.
+
+The release gate previously checked an offline manifest but did not compare it
+with finalized Ethereum state. A consumed deployer nonce, occupied target
+address, substituted verifier or role contract, unsafe USDT policy, wrong
+deployed runtime or incorrectly initialized reserve could therefore escape an
+offline-only review.
+
+Remediation
+
+The release manifest now requires a nonzero expected reserve runtime code hash.
+The read-only predeployment command queries the finalized Ethereum block tag and
+fails closed unless all of these match the approved release:
+
+- Ethereum chain ID and nonzero finalized block identity;
+- deployer account nonce and deterministic CREATE address;
+- empty reserve code and zero USDT balance at the planned address;
+- token, verifier, governance and guardian runtime code hashes;
+- verifier configuration hash;
+- USDT decimals, pause, deprecation, fee and reserve-blacklist policy.
+
+The postdeployment command additionally authenticates the successful canonical
+deployment transaction, sender, nonce, created address, finalized inclusion and
+reserve runtime code. It reads every immutable reserve getter and requires the
+exact release values. Cold start must remain paused with queue epoch one, no
+resume scheduled, no deposits, releases, reservations, pending entries or USDT
+balance.
+
+The commands accept the RPC endpoint only through ETHEREUM_RPC_URL. The endpoint
+is absent from output, and an exact occurrence in an error message is redacted.
+Postdeployment verification additionally requires the public transaction hash
+through USDOM_DEPLOYMENT_TX_HASH. Both commands are read-only.
+
+Release integration
+
+- closed-mainnet evidence requires a hash-addressed predeployment attestation;
+- real-funds evidence additionally requires the hash-addressed cold-start
+  attestation;
+- the release manifest requires reserveRuntimeCodeHash;
+- production_mainnet_predeployment_preflight_passed remains false until a real
+  approved manifest is checked against finalized mainnet state;
+- production_mainnet_cold_start_attestation_completed remains false until an
+  authorized deployment exists and passes the second check.
+
+Validation
+
+- Node/SDK/EVM suite: 40 passed; 0 failed;
+- predeployment exact-state fixture: passed;
+- postdeployment cold-start fixture: passed;
+- wrong chain, block, nonce, code hash, verifier config and USDT policy: rejected;
+- occupied or preloaded reserve address: rejected;
+- wrong/noncanonical deployment, runtime, immutable getter or initial state: rejected;
+- complete synthetic release manifests for both release modes: passed;
+- closed-mainnet gate: correctly rejected with 66 blocker assertions;
+- real-funds gate: correctly rejected with 75 blocker assertions.
+
+Security boundary
+
+The current live command has not contacted mainnet because the verifier, roles,
+deployer, nonce, runtime hash and other production fields are intentionally
+undefined. A live green result will be valid only for the reported finalized
+block and exact manifest. Operators must rerun predeployment immediately before
+broadcast and ensure the deployer sends no competing transaction. The cold-start
+attestation must be independently reviewed before governance schedules resume.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

@@ -1,0 +1,16 @@
+[package]
+name = "dom-usdom-checkpoint-statement"
+description = "Canonical DOM checkpoint verifier public-statement boundary"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+dom-core.workspace = true
+sha3 = { version = "0.10", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+dom-pow = { path = "../dom-pow" }
+hex.workspace = true

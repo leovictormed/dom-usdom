@@ -1,0 +1,99 @@
+Authenticated DOM checkpoint continuation context — Stage 141
+Date: 2026-10-18
+Status: public continuation authority fixed and tested; production consensus-extension proof program absent
+
+Critical defect corrected
+
+A future checkpoint proof cannot validate DOM consensus from only the preceding
+block identifier, native USDOM root and cumulative work. The first new headers
+also depend on two pieces of older branch history:
+
+1. median-time-past requires the eleven headers ending at the predecessor; and
+2. RandomX requires the block identifier at a scheduled seed height that can
+   predate the predecessor, including a second already-mined seed when a proof
+   span crosses an epoch boundary.
+
+Without a public commitment to that history, a proving program would either be
+unable to validate the extension or would have to trust private history selected
+by the prover. The latter would permit forged MTP or RandomX authority even if
+the visible predecessor block and USDOM root matched the registry.
+
+Canonical continuation context
+
+UDCCTX01 is a fixed 663-byte value. It contains:
+
+- the checkpoint height and block identifier;
+- the exact maximum following span;
+- eleven consecutive (height, block identifier, timestamp) projections ending
+  at the checkpoint, ordered oldest first with strictly increasing timestamps;
+- zero, one or two exact historical RandomX seed anchors required for every
+  child through checkpointHeight + maxSpan; and
+- canonical zero padding for unused seed slots.
+
+The seed set is derived, not chosen: epoch interval 2,048 and seed offset 64 are
+checked against dom-pow in a dev-only parity test. A seed whose height overlaps
+the recent-header window must name the same block. Epoch-zero uses the separate
+manifest-pinned DOM genesis hash. The normal production dependency graph remains
+free of dom-pow, RandomX, node, storage, async and RPC authority.
+
+The context commitment is Keccak-256 of the complete canonical UDCCTX01 bytes.
+The Rust and JavaScript vector is:
+
+  0x22c3db0ae859a1955044a53f8578530a0d57743d44364919a59c6ef6f612973e
+
+Registry and statement binding
+
+DOMCheckpointRegistry now commits initialContextHash in its immutable bootstrap
+configuration, stores latestContextHash, requires every candidate to consume the
+exact latest context, and promotes the proved output context only when the
+work-selected candidate is finalized. Candidate replacement therefore cannot
+substitute either predecessor history or the next round's continuation state.
+The cold-start preflight checks latestContextHash and an empty candidate context.
+Constructor initcode, configuration hashes and release fields all include the
+bootstrap context.
+
+The incompatible statement is UDCPST03/version 3. It is 514 bytes and binds
+previousContextHash, domContextHash and confirmationTimestamp. Its exact
+Solidity type hash is:
+
+  0xdbadedf057492f26395a94fea22a5d9de56e3b0958d6e7f7ff234a88c32f3349
+
+The cross-language statement vector is:
+
+  0xecf78a2c48d81ad85f614fb23a156b7ca6a97f33c32402e3fd88eaa7f017d625
+
+The registry independently rejects zero or unchanged context commitments. It
+also rejects confirmationTimestamp == 0 and any proved confirmation suffix that
+ends after the current Ethereum block timestamp. Since a valid DOM extension
+must have strictly increasing timestamps, this bounds every earlier header in
+the proof as well and removes an unauthenticated host-time input from the future
+proving program.
+
+Verifier and release identity
+
+The checkpoint verifier manifest is now usdom-checkpoint-verifier-config-v3. It
+commits statement/input version 3, UDCCTX01 version 1, the 514-byte statement,
+the 663-byte context and a separate continuationContextRulesHash. The registry
+runtime and constructor initcode are rebuilt and hash-pinned by the tests. The
+production constants remain zero, so Ethereum chain ID 1 construction still
+fails closed.
+
+Security boundary and remaining work
+
+UDCCTX01 authenticates continuation data only after a proof has constructed it
+from fully validated headers. The bootstrap context must be independently
+ratified against the canonical DOM chain. The production proving program must:
+
+- match and parse the exact previous UDCCTX01 commitment;
+- validate every full DOM header and block from the predecessor through the
+  fixed confirmation suffix;
+- use the carried MTP window and only the derived RandomX seed authority;
+- recompute ASERT targets, PoW, per-block and cumulative work, ancestry, block
+  bodies and native USDOM transitions;
+- construct the exact target UDCCTX01 from validated target ancestry;
+- match both public context commitments and confirmation timestamp; and
+- emit only the exact UDCPST03 Solidity hash after all checks succeed.
+
+No succinct production guest/circuit, selected backend proof, verification key,
+Solidity verifier, ratified bootstrap, independent audit or operator approval
+exists yet. This stage therefore does not authorize deployment or real funds.

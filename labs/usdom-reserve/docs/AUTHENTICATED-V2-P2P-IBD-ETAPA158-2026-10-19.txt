@@ -1,0 +1,59 @@
+Authenticated V2 P2P, exact IBD and controlled phase restart — stage 158
+Date: 2026-10-19
+
+Change
+======
+
+The node now transports candidate-V2 native USDOM blocks only as the bounded
+UDOMV2W1 package-and-witness envelope. Protocol-v4 peers advertise exactly one
+native phase: V1 before the persisted migration marker or V2 after it. A
+session cannot negotiate both phases, an unnegotiated V2 command is a peer
+violation, and GetBlockData never downgrades a native package into an ordinary
+block or a V2 package into the V1 command.
+
+V2 now has the same authenticated node paths as V1: bilateral Noise-session
+capability negotiation, relay with origin exclusion, headers-first IBD, exact
+body service, future-timestamp retention, orphan retention and parent recovery.
+Metadata admission parses both the package and its canonical witness bundle
+before consuming bounded queue capacity. Chain locking precedes runtime
+locking, and the V2 runtime verifies and atomically persists the package,
+witnesses, receipt and state before mempool, wallet, metrics or relay effects.
+
+Committing the final V1 block now requests a coordinated process shutdown only
+after the atomic migration marker has committed. The restarted node derives its
+phase from that marker and advertises only V2. This avoids a live process
+continuing to offer stale V1 authority while keeping phase selection entirely
+restart-verifiable. Production operation will require a supervised restart
+runbook and rehearsal at the selected boundary.
+
+The test helper formerly called `mine_v2_empty_child` was renamed to state its
+actual role: it mines an ordinary DOM Regtest block carrying an empty USDOM V2
+transition batch. The coinbase is DOM. An empty USDOM batch leaves
+`total_issued` at zero. USDOM issuance remains possible only through the
+deposit-proof transition tied to an eligible finalized Ethereum reserve
+deposit; there is no USDOM mining reward.
+
+Validation
+==========
+
+The directed lifecycle test passed V1 startup, atomic final-V1 migration,
+coordinated shutdown signaling, V2 restart, exact V2 ingress and restart from a
+V2 tip. A two-node integration test passed protocol-v4 Noise authentication,
+exclusive V2 capability negotiation, headers-first IBD, exact package/witness
+body transfer, canonical convergence and clean shutdown. Capability, relay and
+GetBlockData unit tests passed. The complete dom-chain feature suite passed,
+including 77 library tests and every integration, property, corruption, IBD,
+reorganization and documentation test. All-target Clippy passed for dom-node
+and dom-chain with warnings denied; formatting and diff checks passed.
+
+Security boundary
+=================
+
+This stage closes the V2 network transport and restart boundary. It does not
+yet connect the DOM miner to V2 template construction. After V2 activation,
+miners must mine DOM blocks whose headers commit a revalidated USDOM V2 batch
+and exact execution witnesses; doing so must never create USDOM through the DOM
+coinbase. Real finalized Ethereum deposit/payout settlement, production proving
+artifacts, ratified configuration, operational rehearsals and independent
+audits also remain open. Closed-mainnet and real-funds gates remain closed. No
+push, commit, deployment, transaction or use of funds occurred.

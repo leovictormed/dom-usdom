@@ -1,0 +1,79 @@
+USDOM ETAPA 76 — SEPARAÇÃO CRIPTOGRÁFICA DA EMISSÃO
+Data: 2026-10-17
+
+ACHADO CORRIGIDO
+
+A emissão determinística usava o mesmo domínio de commitment das saídas
+privadas. Como os dados públicos de um depósito finalizado permitem calcular
+o rho de emissão, um atacante poderia antecipar o mesmo commitment como saída
+de uma transferência privada. A emissão legítima seria então recusada pela
+regra global contra commitments duplicados. O atacante não criaria saldo,
+mas poderia bloquear a emissão daquele depósito.
+
+Esta etapa altera deliberadamente a política criptográfica antes da produção.
+A política passa a v3 e seu hash é:
+
+    d66687e30a3540932de46fc6a6c9d151d1a46d5f2e0e0fcd2bca568b05bad90c
+
+SEPARAÇÃO DE ORIGEM
+
+NoteOpening agora compromete explicitamente uma origem:
+
+    1 = saída de transferência privada ou troco
+    2 = emissão derivada de depósito Ethereum finalizado
+
+O circuito fixa toda nova saída privada na origem 1. Ele aceita uma nota de
+entrada de origem 1 ou 2 e prova a validade desse valor. A emissão consensual é
+o único caminho que produz origem 2. Portanto, conhecer os dados públicos do
+depósito não permite criar antecipadamente o mesmo commitment por uma prova de
+transferência válida.
+
+A alteração muda o circuito, a policy hash, a bridge identity e as chaves
+Groth16 correspondentes. Artefatos anteriores não são compatíveis. Isso é
+intencional e fail-closed; ainda não existe chave de produção instalada.
+
+RECONHECIMENTO DA NOTA EMITIDA
+
+EthereumDepositOccurrence representa a ocorrência pública exata: raiz genesis
+dos validadores, bloco, índices de transação e log, depositId, funder, amount e
+receivingCommitment. ethereum_deposit_note_opening centraliza a derivação da
+abertura e do commitment de origem 2 para consenso e carteira.
+
+Antes de a emissão aparecer na cadeia DOM, a carteira registra a ocorrência
+autenticada esperada e confirma que receivingCommitment pertence às suas
+chaves. Quando observa uma transição Issue verificada com o commitment exato,
+ela materializa a nota privada sem memo público. O registro, a origem e a
+abertura ficam no snapshot cifrado USD-WALLET-S7/USWSTA07. Rollback remove a
+nota canônica, preserva a expectativa e permite reconhecer sua reaplicação.
+
+O registro deliberadamente falha se o commitment já tiver sido observado. A
+recuperação de uma carteira que não registrou o depósito antes da varredura
+ainda precisa de um fluxo autenticado de rescan anterior à produção.
+
+PROPRIEDADES VERIFICADAS
+
+- commitments de origem 1 e 2 são diferentes para os demais campos iguais;
+- origem inválida torna o circuito insatisfeito;
+- uma nota de emissão pode ser gasta pelo circuito privado;
+- o estado deriva a mesma nota de emissão a partir da ocorrência exata;
+- registro duplicado e registro tardio falham;
+- uma transição que reutiliza commitment esperado com outro tipo falha;
+- snapshot valida ocorrência, owner, rho, origem, commitment e estado canônico;
+- inclusão, persistência e rollback da nota emitida preservam invariantes.
+
+O QUE AINDA IMPEDE FUNDOS REAIS
+
+1. endpoint autenticado, permit durável e scan exato para queimas;
+2. limpeza/liberação de pendências ligada à finalidade autenticada;
+3. rescan autenticado e recuperação de depósitos esperados;
+4. vetor completo com depósito USDT realmente finalizado, emissão, gasto,
+   queima e resgate;
+5. commitment de estado e regra de finalidade nos headers de produção;
+6. autoridade monotônica de produção para o snapshot da carteira;
+7. cerimônia MPC, chaves finais e auditoria independente do circuito;
+8. testes multinó prolongados, falhas, censura e reorganizações nas duas redes;
+9. parâmetros operacionais, multisigs, observabilidade e procedimentos de
+   resposta a incidentes.
+
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

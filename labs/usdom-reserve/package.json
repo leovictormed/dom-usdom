@@ -1,0 +1,28 @@
+{
+  "name": "usdom-reserve",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "scripts": {
+    "check:mainnet": "node scripts/check-mainnet-readiness.mjs closed-mainnet",
+    "check:real-funds": "node scripts/check-mainnet-readiness.mjs real-funds",
+    "check:mainnet-predeploy": "node scripts/check-mainnet-preflight.mjs predeployment",
+    "check:mainnet-cold-start": "node scripts/check-mainnet-preflight.mjs postdeployment",
+    "check:risc0-health": "node scripts/check-risc0-health.mjs",
+    "prepare:safe-controls": "node scripts/prepare-safe-controls.mjs",
+    "prepare:mainnet-deployment": "node scripts/prepare-mainnet-deployment.mjs",
+    "check:provenance": "python3 scripts/verify-import.py && python3 scripts/check-finalized-burn-risc0-guest.py && python3 scripts/check-finalized-burn-program-boundary.py && python3 scripts/check-finalized-burn-positive-evidence.py && python3 scripts/check-risc0-guest-input-bounds.py --self-test && python3 scripts/check-risc0-guest-input-bounds.py && python3 scripts/check-ethereum-finality-panic-boundary.py --self-test && python3 scripts/check-ethereum-finality-panic-boundary.py && python3 scripts/check-native-state-panic-boundary.py --self-test && python3 scripts/check-native-state-panic-boundary.py && python3 scripts/check-native-privacy-panic-boundary.py --self-test && python3 scripts/check-native-privacy-panic-boundary.py && python3 scripts/check-proof-program-panic-boundary.py --self-test && python3 scripts/check-proof-program-panic-boundary.py && python3 scripts/check-native-wallet-panic-boundary.py --self-test && python3 scripts/check-native-wallet-panic-boundary.py && python3 scripts/source-manifest.py --self-test && python3 scripts/source-manifest.py",
+    "pretest": "npm run lint:production && forge build --force",
+    "lint:production": "forge lint contracts/USDOMProofReserve.sol contracts/DOMCheckpointRegistry.sol contracts/DOMFinalizedBurnRiscZeroVerifier.sol contracts/DOMCheckpointRiscZeroVerifier.sol --report-unused-suppressions -D warnings",
+    "test": "node --test test/node/*.test.mjs",
+    "test:solidity": "forge test -vv",
+    "test:deep": "FOUNDRY_PROFILE=deep forge test --fuzz-seed 0x5553444f4d20261015 -vv"
+  },
+  "dependencies": {
+    "@noble/hashes": "1.3.2",
+    "ethers": "6.17.0"
+  }
+}

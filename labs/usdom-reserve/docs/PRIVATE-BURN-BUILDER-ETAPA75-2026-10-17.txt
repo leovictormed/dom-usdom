@@ -1,0 +1,66 @@
+USDOM ETAPA 75 — CONSTRUTOR DE QUEIMA PRIVADA
+Data: 2026-10-17
+
+Esta etapa implementa a criação offline de uma queima USDOM privada vinculada
+a uma obrigação pública exata de pagamento na Ethereum. Não implementa ainda
+o envio RPC da queima nem afirma finalidade/resgate.
+
+OBRIGAÇÃO PÚBLICA
+
+build_private_burn recebe a BridgeIdentity imutável, destinatário Ethereum,
+valor e timestamp de execução Ethereum previamente autenticado. Ele gera
+burnId e requestId aleatórios e não nulos, fixa chain ID e endereço da reserva,
+calcula validUntil pelo limite máximo da política e deriva o commitment
+Solidity-compatible de BurnIntent.
+
+dom-usdom-state expõe private_burn_effect_scalar como a única derivação pública
+do scalar do circuito. A função valida a identidade da ponte, todos os campos e
+o obligation commitment antes de serializar o BurnRecord canônico. O verificador
+consensual usa a mesma função, removendo uma duplicação entre carteira e nó.
+
+PROVA E PRIVACIDADE
+
+A carteira seleciona no máximo duas notas não gastas e não reservadas. A prova
+Groth16 vincula membership, ownership, nullifiers, valor público queimado,
+BurnRecord, commitments de troco e memo cifrado. A conservação impõe:
+
+    soma(inputs privados) = burn.amount público + soma(troco privado)
+
+Se o valor for exato, não existe output nem memo. Se houver troco, há uma única
+nota cifrada para a própria carteira. Nenhuma associação ao depósito original
+é publicada pelo builder.
+
+RESERVA, SNAPSHOT E REORG
+
+O payload recebe private_burn_payload_id com domínio diferente de transfer.
+Inputs ficam reservados em pending_burns e não podem ser usados por outra
+transferência ou queima. O snapshot passou a USD-WALLET-S5/USWSTA05 e persiste
+payload, anchor, inputs, nullifiers, obrigação e estado de autorização.
+
+WalletTransitionObservation deriva o identifier exato também para Burn. A
+carteira diferencia uma transição que apenas reutilize os mesmos nullifiers da
+inclusão do payload exato. Inclusão e rollback atualizam o conjunto unificado
+de payloads privados sem confundir os domínios.
+
+VERIFICAÇÃO
+
+- dom-usdom-state: 17 testes + compile-fail aprovados;
+- dom-usdom-wallet com rpc-client: 16 testes aprovados;
+- vetor Groth16 real de burn com troco: construção, verificação consensual,
+  snapshot, inclusão exata, rollback e cancelamento aprovados;
+- vetor Groth16 real de burn exato: zero outputs, zero memo e verificação
+  consensual aprovados;
+- clippy -D warnings, cargo fmt, cargo check e diff check aprovados.
+
+LIMITAÇÕES RESTANTES
+
+1. persistência/permit e endpoints submit/scan específicos para burn;
+2. liberação de pendências somente após finalidade autenticada;
+3. registro local da nota emitida por um depósito controlado pela carteira;
+4. fluxo real de depósito USDT finalizado até resgate Ethereum;
+5. parâmetros ZK de produção, cerimônia MPC e auditoria independente;
+6. regra de finalidade e compromisso de estado em headers de produção;
+7. testes multinó prolongados e auditoria externa completa.
+
+mainnet_ready, deploy_authorized e real_funds_authorized permanecem false.
+Nenhum commit, push, deploy ou fundo real foi usado.

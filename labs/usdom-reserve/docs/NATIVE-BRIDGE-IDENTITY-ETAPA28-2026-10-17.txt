@@ -1,0 +1,66 @@
+USDOM nativa — identidade imutável da ponte e rollback autenticado
+Etapa 28, 2026-10-17
+
+Estado: núcleo isolado, sem ativação no consenso DOM. Sem deploy, push ou fundos
+reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Falhas de fronteira corrigidas
+
+Uma BurnRecord comprometia ethereumChainId e reserve, mas o estado nativo apenas
+exigia que fossem não nulos. Assim, uma queima internamente válida poderia apontar
+para outra rede ou outro contrato. O compromisso impediria alteração posterior,
+mas não provaria que o destino era a ponte oficial.
+
+BridgeIdentity agora fixa quatro identidades desde o estado vazio:
+
+- domínio/protocolo DOM;
+- genesis_validators_root da Beacon Chain Ethereum;
+- chain ID EVM como uint256 canônico;
+- endereço imutável da reserva.
+
+Todas entram na raiz composta e na visão persistida. Uma emissão só aceita uma
+âncora de finalidade com o genesis validators root configurado. Uma queima só
+aceita chain ID e reserva configurados, mesmo se seu obligationCommitment tiver
+sido recalculado corretamente para os valores estrangeiros. Reinício rejeita
+metadados ou registros persistidos que não correspondam à identidade esperada.
+
+O genesis validators root é necessário porque chain ID sozinho não autentica a
+cadeia de consenso. A configuração de produção continua vazia; o laboratório
+Helios local já usa o valor de mainnet
+0x4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95,
+mas sua adoção final deve fazer parte do artefato de configuração auditado.
+
+O rollback por lote também deixou de receber um recibo público como autorização.
+Agora recebe diretamente o header_commitment autenticado pelo bloco, recalcula o
+compromisso a partir do domínio, quantidade, raiz do lote e raízes anterior/
+posterior, e falha antes de mutar o estado se houver qualquer diferença. Os bytes
+de undo persistidos nunca autorizam sua própria aplicação.
+
+2. Validação
+
+- 13 testes unitários do estado e 1 compile-fail de isolamento de capacidade;
+- rejeição de chain ID, reserva e Beacon genesis estrangeiros;
+- raiz sensível a cada campo de BridgeIdentity;
+- reconstrução persistida rejeita identidade alterada;
+- integração LMDB de commit/restart/reorg com rollback autenticado;
+- suíte completa dom-store;
+- 33/33 testes Node e check de todos os targets do workspace;
+- all-targets e clippy -D warnings do núcleo Ethereum integrado;
+- rustfmt, clippy com warnings como erros e diff check.
+
+O vetor atualizado do compromisso de cabeçalho para a fixture que agora inclui
+a identidade completa é:
+1fbeafc74c460b0e3d1b1fa46a086f96aca2f46cc5b8843b55ec4bc38d0d7d3c
+
+3. Limites restantes
+
+O compromisso ainda não é um campo do BlockHeader ativo. Até existir a versão de
+bloco, o valor fornecido ao rollback não vem de um cabeçalho de produção. Também
+faltam o envelope limitado de prova, o circuito/verificador privado e a validação
+em todos os ingressos de consenso. mainnet_ready e real_funds_ready permanecem
+false.
+
+O check completo também revelou que o crate Ethereum integrado não declarava
+`snap` e `serde_yaml`, usados por seus testes importados do Helios. As dependências
+de desenvolvimento foram fixadas e o uso obsoleto de GenericArray foi removido.

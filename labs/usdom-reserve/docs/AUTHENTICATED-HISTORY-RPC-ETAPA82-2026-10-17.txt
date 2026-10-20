@@ -1,0 +1,30 @@
+USDOM native authenticated history RPC — etapa 82
+Date: 2026-10-17
+Status: isolated Regtest implementation; no deployment, push, mainnet activation, or real funds
+
+Outcome
+
+The node now exposes POST /usdom/v4/history/scan/v1 behind the existing bearer-token boundary. A request must pin the schema, network magic, chain ID, native USDOM domain, exact trusted tip, first height, bounded page size, and the exact preceding block/state-root anchor.
+
+The node holds one nonblocking stable chain snapshot, rejects a changed tip or anchor, loads only canonical persisted v4 packages, and reauthenticates each ordered UDPRJ001 projection and private payload against USDBAT03, the transition root, batch commitment, exact v4 header and ordinary range-proof root. Pages are contiguous in height, parent hash and native state root. The hard page limit is 16 blocks and the soft JSON budget is 2 MiB; at least one requested canonical block is returned. Continuations bind the last block and state root.
+
+Security properties
+
+- The route is authenticated and separately rate limited.
+- Hex identities are nonzero, fixed-width and lowercase canonical.
+- The exact operator-pinned tip must equal the current node tip under the same lock.
+- A page cannot skip a block, change ancestry, cross a state-root discontinuity, substitute a projection, or detach a private memo from its proof-authenticated public effects.
+- Responses include exact header bytes and the raw range-proof root so a wallet can independently verify the native batch binding.
+- finality_claimed is always false. The endpoint exports evidence under a caller-supplied trusted tip; it does not create finality.
+
+Validation
+
+- dom-rpc: 84 passed, 1 intentionally ignored static note.
+- dom-node library: 328 passed, 1 manual probe ignored.
+- native runtime integration: 8 passed, including two-page tip/domain/state anchoring.
+- dom-chain library: 72 passed plus all integration and doctests; no failures.
+- affected-package Clippy with -D warnings passed.
+
+Production boundary
+
+This endpoint remains compiled only with native-usdom-v4-poc and the authenticated history loader remains Regtest-only. It does not authorize mainnet, deposits, deployment or real funds.

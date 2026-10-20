@@ -1,0 +1,31 @@
+USDOM deployment package pre-broadcast rederivation — stage 251
+Date: 2026-10-20
+
+Finding
+
+The operator runbook generated a deterministic source-derived package, printed
+its SHA-256 and later read transaction fields from the file in `/tmp`. It did
+not rederive or rehash that file immediately before `cast send`. Accidental or
+malicious replacement between review and broadcast could therefore reach the
+hardware-wallet prompt, relying on manual inspection to detect it.
+
+Resolution
+
+1. Package preparation records the canonical SHA-256 in a dedicated exported
+   shell value.
+2. Immediately before every transaction, the runbook regenerates a fresh
+   package from the current exact release and authenticated compiler artifacts.
+3. GNU `cmp` requires byte-for-byte equality with the reviewed package.
+4. `sha256sum` must still equal the value recorded at preparation time.
+5. A temporary rebuilt package is removed under an EXIT trap and before send.
+
+Security effect
+
+The transaction fields read by `cast send` remain tied to the exact reviewed
+release, current source-derived artifacts and previously reviewed package
+bytes at the last local step before the hardware signature.
+
+Operational boundary
+
+This is a local, non-signing comparison. The hardware wallet remains the only
+component authorized to sign after explicit operator authorization.

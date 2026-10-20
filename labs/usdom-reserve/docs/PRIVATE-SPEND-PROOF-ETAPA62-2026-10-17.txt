@@ -1,0 +1,150 @@
+USDOM ETAPA 62 — ÁRVORE POSEIDON E PROVA PRIVADA DE TRANSFERÊNCIA/QUEIMA
+Data: 2026-10-17
+Escopo: implementação isolada no branch local codex/usdom-reserve-v3
+
+DECISÃO
+
+Esta etapa não libera mainnet, deploy, depósitos ou fundos reais. Ela elimina o
+maior placeholder criptográfico que restava no estado nativo: notas privadas
+agora usam uma árvore Poseidon/BN254 de profundidade fixa 32, e transferências e
+queimas possuem uma relação Groth16 verificável. O caminho padrão do runtime
+continua falhando fechado para essas provas; a autoridade nova existe somente
+em uma entrada serializada explícita de Regtest que recebe a chave verificadora
+comprometida pela identidade da ponte.
+
+PRIMITIVAS CONGELADAS
+
+O crate crates/dom-usdom-privacy define:
+
+- escalares BN254 Fr com uma única codificação big-endian de 32 bytes, sem
+  redução implícita;
+- domínios separados para proprietário, nota, nullifier, nó Merkle, cadeia,
+  aleatoriedade de emissão, efeito público e memo cifrado;
+- compromisso Poseidon da nota (cadeia, ativo USDOM, valor u64, proprietário,
+  rho) e nullifier (cadeia, segredo do proprietário, compromisso da nota);
+- árvore Poseidon incremental de profundidade 32 e capacidade 2^32;
+- hash de política que inclui parâmetros Poseidon, domínios, profundidade,
+  limites e a ordem das entradas públicas da relação de gasto.
+
+Hash congelado da política v2:
+ae2e543c75fbd3b4a81a972f2e411b9ceac4943e275f2cf4d75784d28e2243c6
+
+RELAÇÃO DE GASTO
+
+A relação tem no máximo duas entradas e duas saídas, ambas left-packed. Ela
+prova diretamente, sem digest público parcialmente restrito:
+
+1. abertura das notas pelo segredo do proprietário;
+2. compromisso exato de cada nota de entrada;
+3. inclusão em uma raiz Poseidon retida, com caminho de 32 níveis;
+4. índice menor que 2^32;
+5. nullifiers derivados dentro do circuito;
+6. valores limitados a u64;
+7. compromissos das notas de saída derivados dentro do circuito;
+8. conservação inteira: soma das entradas = soma das saídas + queima;
+9. transferência exige pelo menos uma saída e efeito público zero;
+10. queima exige valor e efeito público não zero;
+11. memo não zero exatamente quando há saída privada.
+
+As nove entradas públicas têm ordem fixa: cadeia, raiz, dois nullifiers, dois
+compromissos de saída, valor queimado, efeito e digest do memo. O efeito da
+queima é rederivado do BurnRecord canônico, incluindo destinatário, requestId,
+reserva, chain ID, prazo e obligation commitment. Trocar o destinatário ou o
+memo invalida a prova.
+
+VERIFICADOR E CHAVES
+
+O binário possui somente parsing canônico e verificação Groth16/BN254. Não há
+API de setup ou geração de prova na compilação de produção. O verificador:
+
+- limita e desserializa uma chave comprimida canônica;
+- exige exatamente nove entradas públicas;
+- deriva um config hash do hash da política e dos bytes exatos da chave;
+- aceita somente provas comprimidas canônicas de 128 bytes;
+- verifica cada campo público diretamente.
+
+A identidade nativa agora compromete privacy_policy_hash e
+privacy_verifier_config_hash separadamente. As chaves geradas nos testes são
+toxic waste determinístico, existem apenas no processo de teste e não podem ser
+usadas com valor. Uma cerimônia multiparte, publicação do transcript e auditoria
+independente do circuito/chave continuam obrigatórias.
+
+INTEGRAÇÃO DE ESTADO E REDE
+
+- emissões derivam notas Poseidon de depósitos Ethereum autenticados;
+- notas e nullifiers fora de BN254 Fr são rejeitados pelo consenso;
+- anchors retidos são raízes Poseidon, enquanto a PMMR Blake2 histórica
+  continua comprometida separadamente para defesa em profundidade;
+- rollback e restore reconstroem a árvore Poseidon e conferem todos os anchors;
+- payloads UDSPTR01 e UDSPBR01 têm framing canônico, memo limitado a 32 KiB e
+  prova fixa de 128 bytes;
+- a entrada explícita
+  verify_usdom_v4_serialized_candidate_with_spend_verifier_regtest autentica o
+  payload, aplica a transição opaca e reproduz o compromisso do header;
+- a entrada antiga e o runtime padrão continuam rejeitando transfer/burn, o que
+  evita ativação acidental antes da configuração operacional da chave.
+
+MIGRAÇÃO INCOMPATÍVEL E INTENCIONAL
+
+A troca do acumulador público de anchors e a inclusão dos hashes de política e
+verificador alteram o estado de consenso. Para impedir interpretação silenciosa
+de dados antigos:
+
+- persistência: usdom/v3;
+- testemunho de burn-state: USDBRN03;
+- snapshot manifest: versão 4, domínio manifest:v4.
+
+Não existe migração de saldos porque a funcionalidade permanece isolada em
+Regtest e fundos reais nunca foram autorizados.
+
+RESERVA ETHEREUM
+
+USDOMProofReserve e o protótipo USDOMReserve agora rejeitam
+receivingCommitment zero ou maior/igual ao módulo escalar BN254
+0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001.
+Isso impede que Ethereum aceite uma identidade de destinatário que o consenso
+DOM precise reduzir ou interpretar de outra forma. O limite menos um permanece
+válido.
+
+VALIDAÇÃO
+
+Resultados preservados em results-stage62-2026-10-17. Foram executados testes
+da política/árvore/circuito/verificador, estado nativo, integração serializada
+do bloco, runtime de nó, persistência/reorg e clippy com warnings como erros.
+O teste ponta a ponta prova e aplica uma queima privada, e outro autentica uma
+transferência pelo pacote completo do bloco. Mutações em chave, raiz, valor,
+efeito, memo, destinatário, framing, proof bytes e campos públicos falham.
+
+A suíte Solidity não pôde ser repetida nesta sessão porque forge e node não
+estão instalados nem disponíveis no PATH atual. A alteração é pequena e possui
+teste Foundry adicionado, mas ela permanece como verificação pendente até a
+reposição da toolchain pinada; resultados antigos não são apresentados como se
+validassem esta mudança nova.
+
+BLOQUEIOS PARA FUNDOS REAIS
+
+1. executar e auditar uma cerimônia Groth16 multiparte; fixar a chave final e o
+   transcript reproduzível;
+2. auditoria criptográfica externa do circuito, parâmetros Poseidon, codificação
+   e integração Rust;
+3. conectar o SpendVerifier ao runtime completo, mempool, mineração, IBD e
+   reorg, com política de ativação de produção; hoje a autoridade é explícita e
+   Regtest-only;
+4. implementar carteira/prover, manutenção de witness, scanning, memo cifrado,
+   recuperação e proteção de metadados;
+5. concluir o verificador Ethereum do burn finalizado usado pelo contrato; os
+   hashes de produção do contrato continuam zero e mainnet falha fechado;
+6. obter vetor real de depósito USDT finalizado e executar testes adversariais
+   multi-nó/testnet prolongados;
+7. repor Foundry/Node pinados e repetir fuzz, invariantes, fork e análise
+   estática da reserva;
+8. definir endereços, limites, delays, governança/guardião e plano operacional;
+9. duas auditorias independentes, correção dos achados e canário sem fundos
+   antes de qualquer decisão sobre valor real.
+
+STATUS
+
+A arquitetura está substancialmente mais próxima de um teste fechado, mas não
+está pronta para mainnet nem para fundos reais. mainnet_ready, deploy_authorized
+e real_funds_authorized permanecem false. Nenhum push, commit, deploy ou uso de
+fundos foi realizado nesta etapa.

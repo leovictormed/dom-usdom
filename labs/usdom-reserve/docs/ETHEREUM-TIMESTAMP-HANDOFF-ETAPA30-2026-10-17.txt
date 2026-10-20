@@ -1,0 +1,58 @@
+USDOM / DOM — timestamp Ethereum autenticado no handoff opaco
+Etapa 30, 2026-10-17
+
+Estado: integração isolada, sem ativação de consenso, deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Lacuna corrigida
+
+A etapa 29 fez o estado USDOM exigir execution_block_timestamp na EthereumAnchor,
+mas o resultado opaco do verificador de finalidade ainda exportava apenas número,
+hash, receipts root e state root. O cabeçalho SSZ autenticado continha timestamp,
+porém esse valor se perdia na fronteira tipada. Um integrador poderia acabar
+reintroduzindo um timestamp fornecido pelo relayer.
+
+FinalizedExecution agora inclui timestamp obtido diretamente do
+ExecutionPayloadHeader autenticado. O valor também entra no cabeçalho canônico da
+transcrição de checkpoint. O decoder exige timestamp não nulo, e o replay do
+light client compara a identidade completa esperada com o resultado reconstruído.
+Alterar apenas o timestamp invalida a transcrição.
+
+VerifiedCheckpoint agora guarda e expõe por referência a identidade
+FinalizedExecution completa que produziu seu record. Seus campos continuam
+privados: bytes decodificados ou dados fornecidos pelo relayer não conseguem
+fabricar a capacidade. A função de fixture permanece compilável somente com a
+feature explicitamente insegura de teste.
+
+Cabeçalhos históricos autenticados por prova de ancestralidade carregam o
+próprio timestamp do cabeçalho RLP alvo. A fixture de depósito lê o timestamp do
+bloco Ethereum em vez de inventá-lo.
+
+2. Compatibilidade e limite explícito
+
+O record v2 de 417 bytes consumido pela barreira experimental DOM foi mantido
+byte a byte para não alterar silenciosamente seu formato. O timestamp está na
+capacidade opaca e na transcrição autenticada, mas ainda não é campo do record v2
+nem do BlockHeader DOM. A futura transição nativa de checkpoint deve consumir a
+capacidade opaca completa ou introduzir um formato versionado que também vincule
+o timestamp. Decodificar somente o record v2 não é suficiente para atualizar a
+âncora temporal USDOM.
+
+3. Validação
+
+- 44 testes funcionais do laboratório de finalidade passaram;
+- 5 testes compile-fail confirmaram isolamento das capacidades;
+- 26 testes do handoff verificado e da barreira de reorganização DOM passaram;
+- transcrição canônica valida o novo campo e rejeita identidade zero;
+- vetor v2 de 417 bytes permaneceu idêntico;
+- clippy com warnings como erros, all-target check do dom-chain, rustfmt e
+  git diff --check passaram.
+
+4. Próximo bloqueio
+
+Ainda falta uma transição nativa que converta VerifiedCheckpoint em atualização
+monotônica da EthereumAnchor, persista-a atomicamente e a reverta com o bloco.
+Depois disso continuam necessários BlockHeader v4, ativação por hard fork,
+verificador privado de USDOM, todos os ingressos de consenso, carteira, parâmetros
+de produção, shadow run e auditorias independentes. mainnet_ready e
+real_funds_ready permanecem false.

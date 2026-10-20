@@ -1,0 +1,60 @@
+USDOM nativa — observabilidade das filas de runtime
+Etapa 51, 2026-10-17
+
+Estado: instrumentação operacional somente para o POC Regtest.
+Sem commit, push, deploy ou fundos reais.
+
+1. Séries exportadas
+
+Gauges:
+- dom_native_usdom_v4_future_packages
+- dom_native_usdom_v4_future_bytes
+- dom_native_usdom_v4_orphan_packages
+- dom_native_usdom_v4_orphan_bytes
+
+Counters:
+- dom_native_usdom_v4_future_admission_rejected_total
+- dom_native_usdom_v4_future_expired_total
+- dom_native_usdom_v4_future_evictions_total
+- dom_native_usdom_v4_orphan_evictions_total
+- dom_native_usdom_v4_orphan_admission_rejected_total
+
+As séries são agregadas e não contêm hash, endereço de peer, valor, remetente,
+destinatário nem conteúdo de prova. Builds sem o runtime experimental exportam
+zero, permitindo dashboards estáveis sem sugerir que a função está ativada.
+
+2. Limites e alertas
+
+monitoring/native-usdom-v4-queue-alerts.yml contém regras Prometheus para 75% e
+90% dos limites de bytes: 64 MiB na fila futura e 256 MiB na fila de órfãos.
+Também alerta em qualquer rejeição, expiração ou eviction durante cinco minutos,
+em pacote futuro retido por mais de três minutos e órfão retido por mais de dez.
+
+Esses valores são conservadores para um ensaio fechado. Eles não são parâmetros
+de produção aprovados e precisam ser recalibrados com tráfego de shadow run.
+
+3. Resposta operacional
+
+Alerta de fila futura:
+1. confirmar dom_clock_drift_seconds e a saúde do NTP;
+2. confirmar que native_usdom_v4_future_queue_drain está supervisionada;
+3. comparar rejeições/expirações com logs de TemporarilyInvalid;
+4. se crítico, impedir novo tráfego no ambiente isolado e preservar logs/banco.
+
+Alerta de órfãos:
+1. confirmar peers autenticados, altura anunciada e progresso IBD;
+2. verificar GetBlockData, backoff do MissingBlockTracker e disponibilidade do pai;
+3. confirmar convergência depois que a pressão cessa;
+4. se crítico, impedir novo tráfego no ambiente isolado e preservar logs/banco.
+
+Uma queda de gauge acompanhada por incremento de eviction significa descarte
+sob pressão, não convergência. Uma queda sem eviction/expiração, seguida por
+avanço do tip, indica replay normal. Nunca apagar o banco ou reiniciar antes de
+capturar métricas e logs: as filas são voláteis e o reinício remove a evidência.
+
+4. Limite de autoridade
+
+Os alertas não pausam Ethereum, reserva, consenso DOM ou emissão. O POC nativo
+continua bloqueado a Regtest e nenhuma ponte de fundos reais está ativa. Uma
+política de pausa de produção exigiria autoridade explícita, autenticação,
+runbook aprovado, testes de indisponibilidade e revisão independente.

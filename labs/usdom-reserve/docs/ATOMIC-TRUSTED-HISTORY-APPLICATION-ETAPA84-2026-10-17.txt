@@ -1,0 +1,56 @@
+Atomic trusted-tip wallet history application — etapa 84
+Date: 2026-10-17
+Status: isolated Regtest implementation; no deployment, push, mainnet activation, or real funds
+
+Outcome
+
+The authenticated wallet history path now has one atomic boundary from the
+operator-pinned starting point to the exact trusted terminal tip. The public RPC
+client releases no intermediate page, requires the complete contiguous sequence,
+and caps one full rescan at 65,536 blocks. WalletState then applies that complete
+sequence as a unit.
+
+If continuity, memo authentication, duplicate detection, witness maintenance or
+any other block validation fails, WalletState rolls back every earlier block from
+that call and verifies that the original height and identifier were restored. An
+empty sequence is rejected. This prevents a caller from accidentally persisting a
+prefix of a history scan that never reached the trusted tip.
+
+Solidity validation
+
+The production reserve contracts pass the strict Forge linter. Every intentional
+block.timestamp comparison is documented at the comparison site. These
+comparisons implement the configured withdrawal and governance delays; the
+production policy floor remains six hours for withdrawal delay and two days for
+governance delay. No timing rule or executable contract behavior changed.
+
+The deep Foundry profile completed 98 tests with no failures. It used 16,384 fuzz
+runs for each reserve suite and 1,024 invariant runs with 131,072 calls for each
+of the proof-reserve, quorum-reserve and recovery invariant suites. Contract-size
+checks leave 11,394 bytes of runtime margin for USDOMProofReserve and 7,321 bytes
+for USDOMReserve under the EIP-170 limit.
+
+Validation
+
+- full dom-usdom-wallet suite with rpc-client: 21 passed; 0 failed, including real
+  Groth16 construction and atomic multi-block rollback;
+- focused authenticated-history client and application tests: 7 passed; 0 failed;
+- wallet Clippy with -D warnings passed;
+- Forge deep suite: 98 passed; 0 failed;
+- Forge formatting and production-contract lint with warnings denied passed;
+- repository formatting and diff whitespace checks passed.
+
+Remaining production blockers
+
+This stage removes partial authenticated-history application as a wallet failure
+mode. It does not activate native USDOM on a public network or establish Ethereum
+finality. Production still requires a production activation rule and height, a
+real production privacy verifying key and trusted setup, independent circuit and
+commitment-relation audits, a real finalized USDT deposit vector, the production
+Ethereum finality verifier/registry and succinct DOM burn proof, production wallet
+key custody and monotonic seal authority, long-running multinode/fault/shadow
+tests, selected multisigs and economic parameters, monitoring and incident
+runbooks, and independent end-to-end audits.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

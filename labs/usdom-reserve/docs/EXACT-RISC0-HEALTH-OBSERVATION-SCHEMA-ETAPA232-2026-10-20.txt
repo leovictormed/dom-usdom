@@ -1,0 +1,33 @@
+Stage 232 - Exact standalone RISC Zero health observation schema
+Date: 2026-10-20
+
+Finding USDOM-232 (Low)
+
+The recurring RISC Zero health assessor validated the values it consumed but
+accepted unexpected keys at the observation, direct-verifier and
+emergency-stop levels. It also normalized the selector through generic string
+conversion. The collector emits one fixed representation, so accepting a wider
+shape weakened machine-evidence consistency and could hide misleading fields
+in an archived operational report.
+
+Correction
+
+Standalone health now requires the exact collector key sets at all three
+levels and an exact string selector equal to the pinned value. The assessor has
+an explicit boolean scope for reuse inside mainnet preflight. Embedded mode
+permits the larger preflight envelope while retaining exact nested RISC Zero
+objects; preflight independently enforces its complete phase-specific schema.
+Invalid scope types fail closed.
+
+Tests add and remove keys at every health level, replace the selector with a
+number or alternate case, and exercise both standalone and embedded modes. An
+initial focused run caught the shared-assessor envelope mismatch; the explicit
+scope correction restored valid preflight fixtures without weakening either
+schema.
+
+This is evidence-format hardening. RPC honesty and unknown defects remain
+residual risks that may be explicitly accepted for an exact release. External
+audit and a zero-risk guarantee remain optional.
+
+No deployment, public transaction, fund movement, mining, RISC Zero proof
+generation, commit or push occurred.

@@ -1,0 +1,63 @@
+USD0M — INTEGRAÇÃO DO RECIBO RANDOMX CANÔNICO — ETAPA 189
+Data: 2026-10-19
+
+RESULTADO
+
+O guest RandomX completo agora implementa a relação exata exigida pelo agregador
+recursivo. Ele recebe somente a representação canônica fixa UDCRXST1 de 384
+bytes, rejeita framing não canônico, identidade vazia, versão de bloco
+incorreta, altura ou seed fora do calendário, target compacto inválido, target
+expandido divergente e hash declarado acima do target. Em seguida constrói o
+cache Argon2d RandomX de 256 MiB a partir do seed_hash autenticado, executa o
+hash do pow_preimage de 224 bytes e exige igualdade com randomx_hash.
+
+O journal deixou de ser o formato diagnóstico UDRXH001. O guest publica agora
+exatamente os 32 bytes:
+
+  keccak256("DOM:checkpoint-randomx-statement:v1" || UDCRXST1)
+
+Esse é o mesmo compromisso derivado pelo agregador a partir do pacote privado
+de bloco e passado a env::verify como journal do recibo interno. Portanto não
+há mais adaptação ambígua de key/input/hash entre os dois guests.
+
+ARTEFATOS FIXADOS
+
+- RISC Zero: 3.0.6, kernel v1compat 2.2.3
+- Cargo.lock SHA-256:
+  99ebc56f6e345f068a34630587888410673cabdfa92c618143ebb203c55f60f1
+- ELF RV32 SHA-256:
+  bff18f86b77e7a41dd931aa0b187ab49effaaca6e40c2e0413d080d0162cf68e
+- ProgramBinary SHA-256:
+  57712c3a644e5c90f46d683afeec21ab1460887a0cddf3006338618f2d0bac93
+- ImageID candidato:
+  2058876b522b931d981a56883eec727b8351634fb3904b712ae103b245c94a2c
+
+O ELF e o ProgramBinary foram reconstruídos em diretórios temporários limpos e
+comparados byte a byte com os artefatos fixados. O lock do agregador foi
+sincronizado; o seu ProgramBinary e ImageID permanecem inalterados porque sua
+relação não mudou.
+
+VALIDAÇÃO EXECUTADA
+
+- compilação host do guest e de suas dependências;
+- compilação release para riscv32im-risc0-zkvm-elf;
+- verificação de framing do ProgramBinary e recomputação do ImageID;
+- checker fail-closed de fonte, dependências, lock, hashes e proveniência;
+- testes da declaração UDCRXST1 e dos bindings por bloco no checkpoint program;
+- vetores RandomX bit-exact e end-to-end contra RandomX v1.2.1;
+- Clippy estrito e formatação do workspace afetado.
+
+LIMITES E RISCO RESIDUAL
+
+Não foi gerado um recibo positivo nesta máquina e o custo de execução/prova do
+cache RandomX de 256 MiB dentro da zkVM ainda não foi medido. Assim,
+production_checkpoint_randomx_proof_receipt_implemented,
+production_checkpoint_randomx_complete_guest_positive_receipt_executed,
+production_checkpoint_randomx_complete_guest_proving_cost_measured e
+production_checkpoint_randomx_complete_guest_production_approved continuam
+false. O ImageID também ainda precisa ser ratificado na configuração de
+produção e composto pelo guest externo que executará todas as transições DOM.
+Esses são bloqueios técnicos ou operacionais concretos; auditoria externa e
+garantia absoluta de risco zero não são bloqueios de release.
+
+Nenhum push, deploy, transação, mineração ou uso de fundos ocorreu.

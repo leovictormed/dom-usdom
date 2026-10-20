@@ -1,0 +1,44 @@
+Stage 172 - bounded checkpoint segment transition statement
+Date: 2026-10-19
+
+UDCSEG01 supplies a canonical recursive frontier, but a receipt also needs an
+exact public statement that links its input and output frontiers to one bounded
+private witness. Without that layer, an aggregator could not distinguish a
+valid continuation from a receipt for different policies, endpoints or input.
+
+Implemented UDCSTN01
+
+1. CheckpointSegmentTransition has an exact 2,190-byte UDCSTN01 encoding. It
+   contains the block count, a nonzero private-input commitment and the complete
+   previous and next UDCSEG01 states.
+2. Each segment is limited to 1 through 32 consecutive blocks. The next height
+   must equal the previous height plus that count, the block identifier must
+   change and big-endian accumulated work must strictly increase.
+3. Network magic, chain identity, activation schedule, checkpoint registry
+   configuration, checkpoint/deposit policies and privacy-verifier identity
+   must remain byte-identical across the transition.
+4. Both endpoints undergo their complete UDCSEG01 validation. Decoding requires
+   exact length and canonical re-encoding, and a domain-separated Keccak-256
+   commitment binds the entire transition statement.
+
+Verification
+
+- Three directed tests cover exact round trip and size, every truncated prefix,
+  trailing and framing data, zero and excessive spans, height disagreement,
+  non-increasing work, policy substitution, missing private input and commitment
+  changes across both endpoints and the private input.
+- The package passed 12 default tests and 17 host-reference tests with zero
+  failures. The release-only 390-block vector remains deliberately ignored in
+  the ordinary suite.
+- Clippy passed for all targets and all features with warnings denied; rustfmt
+  check passed.
+
+Remaining boundary
+
+UDCSTN01 is a public transition statement, not a transition proof. No guest yet
+parses the committed private blocks and witnesses or recomputes header syntax,
+timestamps, ASERT difficulty, RandomX work, native USDOM transitions and
+ordinary-DOM economic roots. Recursive receipt aggregation is also absent.
+Production ImageIDs, measured prover limits, positive real vectors, bootstrap
+ratification and independent audits remain open. Mainnet and real funds remain
+blocked. No deploy, public transaction, funds, commit or push occurred.

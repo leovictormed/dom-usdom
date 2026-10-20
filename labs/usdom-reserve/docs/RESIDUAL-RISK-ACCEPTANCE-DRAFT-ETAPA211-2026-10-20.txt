@@ -1,0 +1,155 @@
+USD0M production residual-risk acceptance — DRAFT
+Stage 211, 2026-10-20
+
+Status
+
+This document is a release-specific acceptance template. It is not an accepted
+report, does not authorize deployment or funds, and must not satisfy the release
+gate while any release identity below is blank. Its purpose is to make the
+remaining risks explicit after objective technical validation. It does not ask
+for, imply or promise zero risk.
+
+Release identity — mandatory before acceptance
+
+- source commit: UNSET
+- signed source tag: UNSET
+- reserve source-manifest SHA-256: UNSET
+- Ethereum chain ID: 1
+- USDOMProofReserve address: UNSET
+- USDT address: 0xdAC17F958D2ee523a2206206994597C13D831ec7
+- reserve runtime code hash: UNSET
+- reserve initcode hash: UNSET
+- reserveConfigHash: UNSET
+- finalized-burn verifier address/code/config hashes and ImageID: UNSET
+- checkpoint registry address/code/config hash: UNSET
+- checkpoint verifier address/code/config hashes and ImageID: UNSET
+- DOM activation schedule commitment and first v4 height: UNSET
+- production privacy verifying-key hash: UNSET
+- governance and guardian multisigs plus signer policy: UNSET
+- maximum exposure, daily outflow, withdrawal delay and governance delay: UNSET
+- security-validation, predeployment, cold-start and recovery-drill evidence hashes: UNSET
+
+Acceptance rule
+
+Risk acceptance cannot override a failed consensus invariant, a known path to
+unauthorized mint or payout, mismatched artifacts, missing production keys,
+unrehearsed control-plane recovery, or a failed mainnet preflight. Those are
+technical/configuration failures. This report applies only after both release
+gates are otherwise satisfied and every referenced artifact is hash-addressed.
+
+R1 — USDT issuer control
+
+USDT's issuer can pause, deprecate, enable fees, blacklist accounts or make
+issuer-authorized balance changes. A reserve or recipient freeze can delay or
+prevent payout even when the USDOM burn is valid. Contract checks fail closed
+before admission/execution where observable, exact transfer deltas reject fee or
+redirection semantics, and renewable queue leases preserve unpaid claims. The
+protocol cannot remove issuer authority over USDT.
+
+R2 — irreversible burns and destination mistakes
+
+Native private-note nullifiers make a burn irreversible. Queue expiry no longer
+forfeits the claim, but an incorrect recipient, lost recipient key, permanently
+frozen destination or permanent reserve freeze can still make value inaccessible.
+Wallet confirmation, address checks, recent finalized proofs and renewable queue
+leases reduce operational loss; they cannot recover a deliberately immutable
+recipient without adding a new, separately reviewed recovery protocol.
+
+R3 — Ethereum consensus and execution
+
+Release safety assumes Ethereum finalized headers, execution payloads, receipts,
+storage proofs and the deployed EVM semantics are verified correctly. Consensus
+failure, a finalized-chain safety failure or a defect in the embedded verifier
+can invalidate that assumption. The system pins chain/genesis identity, bounded
+witness schemas, verifier artifacts and current finality and tests reorganization
+and ancestry rejection.
+
+R4 — DOM PoW and checkpoint finality
+
+DOM validity still depends on its consensus rules, RandomX relation, cumulative
+work and the additional Ethereum checkpoint mechanism. Network partition,
+censorship, insufficient honest work, challenge-window failure or unavailable
+proof producers can halt checkpoints; a consensus/proof defect can select an
+invalid state. Fixed predecessor/context bindings, highest-work competition,
+challenge delay, canonical fork floors and permanent guardian halt reduce this
+risk but do not make it zero.
+
+R5 — zero-knowledge proof systems
+
+Soundness depends on the native privacy circuit, RISC Zero guest programs,
+Groth16/STARK implementations, verification keys, setup parameters and recursive
+composition. Cryptographic breaks, incorrect constraints or artifact substitution
+could permit invalid state or payout. Exact ImageIDs, code/config hashes,
+reproducible source manifests, differential vectors, negative tests and immutable
+adapters constrain the release identity.
+
+R6 — privacy and correlation
+
+DOM hides native note values, senders and recipients under the implemented
+proof scheme, but Ethereum deposits and payouts expose amounts, addresses and
+timing. External observation, amount matching, wallet/network metadata and user
+behavior can correlate activity. The release must not claim absolute anonymity
+or Monero equivalence.
+
+R7 — wallet keys, backups and rollback
+
+Loss or compromise of viewing/spending material can cause permanent loss or
+privacy disclosure. Encrypted backups and snapshot seals do not replace a
+production OS/hardware keystore, a rollback-resistant monotonic seal authority
+or a rehearsed recovery ceremony. Those integrations remain hard real-funds
+requirements and cannot be waived by this report.
+
+R8 — governance, guardian and operational keys
+
+Compromised control-plane keys can pause service or authorize resume; guardian
+or governance unavailability can prolong an incident. They cannot directly sweep
+collateral or replace immutable verifier/limits, and mainnet starts paused, but
+key custody, independent signers, monitoring and rehearsed recovery remain
+necessary. Permanent halt deliberately favors safety over liveness.
+
+R9 — congestion, capacity and data availability
+
+Ethereum fees, DOM congestion, RPC censorship, checkpoint/prover outages,
+rate-limit saturation and unavailable witnesses can delay issuance or payout.
+Delays and queue leases protect review and accounting but do not guarantee a
+fixed completion time. Operators must maintain independent data sources and
+published liveness objectives without promising continuous availability.
+
+R10 — immutable implementation and migration
+
+The production reserve has no upgrade, sweep or arbitrary-call path. Immutability
+reduces administrative attack surface but means a newly discovered defect may
+require pausing, deploying a separately reviewed successor and a public migration
+procedure. Some failure modes can strand collateral until USDT or the original
+recipient becomes usable.
+
+R11 — compiler, build and supply chain
+
+Correctness assumes the pinned Solidity/Rust/Node/Foundry/RISC Zero toolchains,
+dependencies and build hosts produce the reviewed artifacts. Source hashes,
+locked dependencies, deterministic manifests, source-verified bytecode derivation,
+signed commits/tags and independent rebuild evidence reduce substitution risk.
+
+R12 — undiscovered defects and model limits
+
+Passing unit, fuzz, invariant, integration, fork, adversarial and reproducibility
+checks cannot prove the absence of every defect. Models may omit rare interactions
+or future ecosystem behavior. Monitoring, conservative initial limits, staged
+activation, emergency response and explicit exposure caps bound impact.
+
+Operator acceptance — intentionally incomplete
+
+The authorized operators must fill every release identity, attach the final
+objective validation and drill hashes, record any additional findings, and sign
+an exact digest of this completed document. Acceptance means the listed residual
+risks are understood for that exact release and chosen exposure; it does not mean
+the risks are absent. Until then:
+
+- accepted: NO
+- accepting authority: UNSET
+- acceptance timestamp: UNSET
+- completed document SHA-256: UNSET
+- signatures / ratification reference: UNSET
+
+No mining, proof generation, deployment, fund movement, commit or push was
+performed in preparing this draft.

@@ -1,0 +1,40 @@
+USDOM predeployment adapter receipt binding — stage 248
+Date: 2026-10-20
+
+Finding
+
+Stage 247 authenticated both RISC Zero adapter deployment receipts during the
+postdeployment cold start. The operational sequence necessarily deploys those
+adapters before collecting predeployment evidence for the still-empty registry
+and reserve. Despite already having both transaction hashes, that intermediate
+closed-mainnet gate authenticated only the adapters' live code and immutable
+configuration. Exact receipt provenance was deferred until the real-funds
+gate.
+
+Resolution
+
+1. Both adapter deployment records are now mandatory common fields in the
+   exact predeployment and postdeployment observation schemas.
+2. The same receipt validation runs before either phase-specific branch. It
+   verifies status, release sender, canonical nonce, CREATE address, null
+   destination, zero value, approved source-derived initcode, canonical nonzero
+   transaction hash, canonical receipt block and finalized inclusion.
+3. The RPC collector requires both adapter transaction hashes in both phases
+   and observes the records inside the same rechecked finalized snapshot.
+4. The closed-mainnet runbook passes those hashes explicitly when collecting
+   predeployment evidence, before registry or reserve broadcast.
+5. Readiness independently recomputes the predeployment assessment, so altered,
+   omitted or schema-extended adapter receipt evidence fails closed.
+
+Security effect
+
+The gate that authorizes the registry and reserve deployment now proves adapter
+transaction provenance rather than waiting for the later real-funds gate. A
+release cannot advance through the closed deployment boundary using only a
+matching live runtime/configuration observation.
+
+Operational boundary
+
+The change adds no key, signing, broadcast or fund-moving interface. Both
+adapter transactions must already have been explicitly authorized and finalized
+before predeployment collection.

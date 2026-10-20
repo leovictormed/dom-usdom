@@ -1,0 +1,43 @@
+Stage 181 - RISC Zero RandomX receipt assumption boundary
+Date: 2026-10-19
+
+Purpose
+
+UDCSEG02 stores a 32-byte RISC Zero ImageID and the RandomX receipt journal is
+the 32-byte UDCRXST1 commitment. RISC Zero internally represents Digest as
+eight u32 words. Converting through host integer notation or reversing each word
+would request a receipt for another ImageID even though the displayed hex looked
+related. The exact conversion and guest call therefore need one owned boundary.
+
+Implemented boundary
+
+1. The optional risc0-recursion feature pins risc0-zkvm exactly to 3.0.6 and
+   does not enter the default portable dependency graph.
+2. checkpoint_randomx_receipt_image_id_digest uses RISC Zero's direct
+   [u8; 32] conversion. No integer parser, host endian conversion or word
+   reversal occurs.
+3. On target_os=zkvm only,
+   verify_checkpoint_randomx_receipt_assumption_in_guest calls env::verify with
+   the state-pinned Digest and the exact raw 32-byte UDCRXST1 commitment.
+4. The guest-only cfg prevents a native host call from being represented as
+   successful recursive receipt verification.
+5. The byte-order vector 00 01 ... 1f round-trips through Digest::as_bytes and
+   displays as the same canonical 64 hexadecimal digits. Its first word is also
+   checked against native in-memory byte order.
+
+Verification
+
+- 20 risc0-recursion portable tests pass;
+- default portable, host-reference and all-feature profiles remain covered;
+- strict all-target/all-feature Clippy, rustfmt and dependency graph checks are
+  recorded in results-stage181-2026-10-19.
+
+Security status
+
+This implements the exact recursive assumption call site and removes byte-order
+ambiguity. It does not provide the receipt being assumed: the RandomX guest,
+its independently audited ImageID, proving capacity and segment guest are still
+absent. A conditional receipt with an unresolved assumption must never be sent
+to Ethereum as a complete proof. Mainnet and real funds remain fail closed. No
+deploy, public transaction, funds, commit or push occurred. The node and miner
+remained stopped.

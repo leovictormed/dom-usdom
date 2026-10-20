@@ -1,0 +1,71 @@
+USDOM ETAPA 67 — ESTADO CANÔNICO E ROLLBACK DA CARTEIRA PRIVADA
+Data: 2026-10-17
+Escopo: implementação isolada no branch local codex/usdom-reserve-v3
+
+DECISÃO
+
+Esta etapa adiciona uma projeção atômica e reorg-aware, ainda somente em memória,
+à biblioteca offline dom-usdom-wallet. Ela não libera mainnet, deploy, depósitos
+ou fundos reais. A carteira continua fora do grafo de dependências do nó e aceita
+somente observações criadas a partir de VerifiedTransition.
+
+VÍNCULO ENTRE PROVA E PAYLOAD
+
+VerifiedTransition agora expõe apenas seus efeitos públicos já verificados:
+classe, nullifiers e compromissos de notas, mantendo os campos privados fora da
+interface. WalletTransitionObservation::from_verified exige o payload canônico
+exato para transfer e burn, usa o mesmo decoder do consenso e compara, na ordem,
+todos os nullifiers e compromissos. Divergência, ausência, framing inválido ou
+payload inesperado falham antes de atingir o estado da carteira.
+
+ESTADO CANÔNICO
+
+WalletState parte de um tip autenticado cuja árvore de notas é vazia. Cada bloco
+precisa apresentar altura sucessora, parent id igual ao tip e identifier não
+nulo. Para cada transição, a carteira:
+
+- rejeita scalars não canônicos, zeros e efeitos repetidos no bloco ou histórico;
+- reconstrói a árvore global de compromissos na ordem de consenso;
+- autentica e abre memos destinados às suas scan keys;
+- recompõe cada compromisso antes de registrar a nota possuída;
+- deriva nullifiers localmente e marca notas gastas, inclusive quando recebidas
+  e gastas no mesmo bloco;
+- prepara árvore, inventário e índices em estruturas temporárias e só publica a
+  alteração depois que o bloco inteiro passa.
+
+Uma falha deixa tip, saldo, árvore, conjuntos de replay e notas inalterados.
+O saldo usa u128 e as notas secretas preservam zeroização no descarte.
+
+ROLLBACK
+
+Cada bloco aplicado guarda undo exato com árvore anterior, compromissos e
+nullifiers introduzidos, notas recebidas e notas antigas marcadas como gastas.
+rollback_tip aceita somente o identifier do tip atual, valida todas as referências
+antes da primeira mutação, remove os efeitos do bloco e restaura parent, altura,
+árvore e estado de gasto. Rollback fora de ordem ou com histórico inconsistente
+falha fechado.
+
+LIMITAÇÕES RESTANTES
+
+1. o estado é volátil: não existe armazenamento durável criptografado,
+   autenticação de snapshots, anti-rollback, backup ou recuperação;
+2. WalletState inicia somente sobre uma árvore vazia e ainda não restaura um
+   snapshot autenticado não vazio;
+3. a árvore global é reconstruída, mas paths Merkle atualizados para notas
+   possuídas ainda não são mantidos nem exportados ao prover;
+4. emissão proveniente de depósito não possui fluxo de registro da nota própria;
+5. falta um adaptador do nó que produza CanonicalWalletBlock diretamente das
+   notificações canônicas e coordene detach/attach de reorg;
+6. conjuntos globais e histórico de undo crescem sem compactação persistente;
+7. seleção de notas, montagem do SpendCircuit, assinatura/autenticação local,
+   submissão e acompanhamento da transação ainda não existem;
+8. faltam vetores reais de depósito Ethereum finalizado, transferência privada,
+   burn, reinício e reorganizações multinó.
+
+STATUS
+
+Aplicação atômica, tracking de gastos e rollback exato em memória estão
+implementados e testados. A carteira durável, witnesses de gasto e o caminho
+completo de transação continuam bloqueadores. mainnet_ready, deploy_authorized e
+real_funds_authorized permanecem false. Nenhum commit, push, deploy ou fundo real
+foi usado.

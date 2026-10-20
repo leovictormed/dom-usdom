@@ -1,0 +1,55 @@
+Forced canonical release build — etapa 97
+Date: 2026-10-18
+Status: authoritative gate rebuild implemented; production release remains fail closed
+
+Finding USDOM-097
+
+Severity: Critical release-integrity risk.
+Current public exposure: none; no transaction, commit, tag, push or deployment was made.
+
+Etapas 95 and 96 verified the artifact presented to the gate, but the readiness
+command could consume an artifact already present under out/. An old or manually
+altered artifact might therefore be assessed unless the operator remembered to
+run the exact build command first.
+
+Remediation
+
+scripts/check-mainnet-readiness.mjs now invokes Foundry itself before reading
+any artifact:
+
+forge build contracts/USDOMProofReserve.sol --force \
+  --ignored-error-codes 6335 -D warnings
+
+The explicit source path compiles only the production reserve and its imports,
+excluding test contracts and their source-map/AST effects from the release
+artifact. --force prevents cache reuse. Compiler and linter warnings fail the
+gate; code 6335 is the documented OpenZeppelin 5.6.1 warning about an identifier
+that a future Solidity version may reserve. The artifact-policy verifier then
+checks exact compiler settings and source hashes as before.
+
+The forge path may be supplied through USDOM_FORGE for an isolated pinned
+toolchain. The default remains forge from PATH. A missing tool or failed build
+causes exit status 2 before any readiness result can be green.
+
+Validation
+
+- two forced production-only builds: passed;
+- canonical candidate artifact SHA-256 from both builds:
+  de92faa86173a784f0b67d9f08fabfa809c48bb729add481ff3ef2a1f0985393;
+- closed-mainnet command performed its own build and rejected with 68 blockers;
+- real-funds command performed its own build and rejected with 77 blockers;
+- Node/SDK/EVM suite after a full test build: 41 passed; 0 failed;
+- contract-only lint with warnings denied and documented 6335 ignored: passed.
+
+The etapa 96 full-project artifact SHA remains valid for that historical test
+run, but it is superseded for release use by the production-only hash above.
+
+Security boundary
+
+This removes reliance on operator build order and stale local artifacts. It
+does not authenticate the forge executable itself. The exact Solidity metadata
+policy, signed source provenance, toolchain provenance, hash-addressed artifact
+and independent reproducible-build report remain mandatory complementary gates.
+
+mainnet_ready, closed_mainnet_test_ready, deploy_authorized and
+real_funds_authorized remain false.

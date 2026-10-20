@@ -1,0 +1,29 @@
+Stage 216 — total fail-closed optional-review schema
+Date: 2026-10-20
+
+Finding USDOM-216 — Low availability and release-diagnostic integrity
+
+The three optional external-review fields are intentionally not release
+requirements. When present, they must be arrays of valid hash-addressed reports.
+The assessor correctly recorded a blocker for an object, string or number, but a
+later spread operation assumed the value was iterable. A JSON object therefore
+terminated the pure assessment or command-line evidence collection with an
+exception instead of returning the complete blocker report.
+
+Remediation
+
+Both the pure gate and command-line collector now normalize only actual arrays
+for document enumeration. Any other JSON value contributes no documents and is
+still rejected by the existing explicit evidence_<field>_invalid blocker. No
+invalid value is silently accepted, and no malformed optional field can suppress
+unrelated readiness findings.
+
+Regression validation
+
+Object, string and numeric values are tested independently for each of
+DOM-consensus, privacy-circuit and Solidity review collections. All nine cases
+return a normal NOT READY report with the exact schema blocker and no exception.
+Empty or absent review arrays remain valid because external audit is optional.
+
+No proof generation, mining, deployment, fund movement, commit or push was
+performed.

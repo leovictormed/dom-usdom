@@ -1,0 +1,77 @@
+USDOM nativa — pacote canônico de bloco v4 e capacidade vinculada
+Etapa 35, 2026-10-17
+
+Estado: caminho isolado somente para Regtest. Sem ativação em ChainState,
+mineração, P2P ou IBD; sem deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Pacote único de bloco e provas
+
+UsdomV4BlockPackage elimina a fronteira pública que recebia um Block e um
+UsdomV4ProofEnvelope separados. O wire format canônico é:
+
+  "USDOMBL4" || framing_version:u16BE || block_len:u32BE ||
+  proof_envelope_len:u32BE || block[block_len] || envelope[envelope_len]
+
+O decoder exige framing versão 1, Block versão 4, tamanhos mínimos, envelope no
+limite já definido, consumo exato e reserialização byte a byte. Bloco legado cru,
+versão desconhecida, truncamento, bytes extras, comprimentos falsos e framing
+ambíguo falham antes da verificação de provas.
+
+2. Contabilidade combinada
+
+Cabeçalho do pacote, bloco econômico e envelope compartilham o limite existente
+MAX_BLOCK_SERIALIZED_SIZE de 16 MiB. A soma usa aritmética verificada. Portanto,
+um envelope individualmente válido não pode ampliar o limite de rede quando
+anexado a um bloco grande. O limite interno de 8 MiB do envelope continua ativo.
+
+Esta etapa cobre bytes. Uma política de peso/custo criptográfico própria ainda é
+necessária antes de qualquer ativação, pois tamanho serializado e tempo de
+verificação não são equivalentes.
+
+3. Única entrada pública e vínculo da capacidade
+
+verify_usdom_v4_serialized_candidate_regtest é agora a única entrada pública do
+adaptador nativo v4. Ela decodifica o pacote completo, autentica o envelope,
+recalcula o estado e valida o corpo comprometido pelo cabeçalho.
+
+VerifiedUsdomV4Candidate passou a carregar privadamente:
+
+  - o identificador canônico do cabeçalho DOM validado; e
+  - Blake2b-256 com tag DOM:usdom-block-package-v4:v1 sobre todos os bytes do
+    pacote, inclusive as provas.
+
+Assim, a futura persistência atômica poderá exigir a capacidade do pacote exato,
+sem aceitar que o estado verificado seja associado por engano a outro bloco ou
+a outra codificação de witness. A estrutura não é construível nem clonável por
+chamadores externos.
+
+Vetor congelado do pacote vazio de teste:
+
+16aba23a8c221f53db524db3f495298b395b6134a527c6784a892a3c8cdd7efb
+
+4. Validação adversarial
+
+Os testes cobrem roundtrip exato, pacote cru legado, todas as truncagens do
+cabeçalho, magic e versão errados, comprimentos falsos, bytes extras, bloco de
+versão antiga, pacote acima de 16 MiB, substituição de um byte e bytes arbitrários
+por proptest. A API pública continua rejeitando tipos de prova sem verificador,
+rede errada, bridge divergente e witness Ethereum inválido.
+
+- 64 testes da biblioteca dom-chain com o feature nativo passaram;
+- 16 testes do estado USDOM e 1 compile-fail passaram;
+- integração LMDB de commit/restart/reorg passou;
+- Clippy de todos os alvos dom-chain passou com warnings como erros;
+- build release sem unsafe-test-oracle passou;
+- rustfmt e diff check passaram.
+
+5. Limites restantes
+
+ChainState ainda não aceita nem persiste o pacote v4. O mesmo caminho precisa
+cobrir validação contextual completa, commit direto, side branches, reorg, IBD,
+mineração e reinício. A política de peso/custo das provas também falta.
+
+Continuam ausentes witness positivo de registry real, verificadores revisados de
+emissão/transferência/queima privadas, carteira, ativação/migração, parâmetros,
+shadow run e auditorias independentes. mainnet_ready e real_funds_ready
+permanecem false.

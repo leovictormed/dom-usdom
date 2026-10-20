@@ -1,0 +1,62 @@
+USDOM nativa — compromisso canônico da intenção de queima
+Etapa 26, 2026-10-17
+
+Estado: prova de conceito isolada. Sem ativação, deploy, push ou fundos reais.
+Base: sorenplanck/dom-protocol d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c.
+
+1. Fronteira corrigida
+
+O estado nativo registrava a identidade e o valor da queima, enquanto a reserva
+Ethereum calculava separadamente o pagamento final. Faltava um compromisso único
+que provasse que a queima aceita pela DOM autorizava exatamente o mesmo burnId,
+requestId, destinatário, valor, domínio, prazo, chain ID e contrato de reserva.
+Sem essa ligação, uma futura implementação de circuito poderia aceitar campos
+substituídos entre a transição nativa e o pagamento.
+
+BurnRecord agora carrega ethereumChainId, reserve, validUntil e o compromisso da
+obrigação. A transição de estado recalcula e exige:
+
+  keccak256(abi.encode(
+    keccak256("BurnIntent(bytes32 burnId,bytes32 requestId,address recipient,uint64 amount,bytes32 domDomain,uint64 validUntil,uint256 ethereumChainId,address reserve)"),
+    burnId, requestId, recipient, amount, domDomain, validUntil,
+    ethereumChainId, reserve
+  ))
+
+A mesma fórmula existe no contrato e no SDK. O domínio inclui chain ID e endereço
+da reserva, impedindo que uma intenção seja reutilizada em outra rede ou
+implantação. height, blockHash, stateRoot e finalityBeaconSlot são acrescentados apenas
+depois, no enunciado de finalidade; não pertencem à intenção criada antes da
+inclusão em bloco.
+
+O formato persistido e a raiz do conjunto de queimas incluem todos esses campos.
+A aplicação e a reconstrução do banco rejeitam compromisso incorreto, chain ID
+zero, reserva zero ou prazo zero antes de alterar o estado. A unicidade de burnId
+e requestId da etapa anterior continua obrigatória.
+
+2. Vetor independente e validação
+
+O typehash canônico é:
+0xf1d5a150f09a125f5ab99669e765334c3d22034c98b84d0f903a900320b7f446
+
+Um vetor calculado de forma independente pela ABI da EVM produz:
+0x791b46726c85d41f47efeecf7439db782c6da3124153b4e683c72fd8d9f17c56
+
+- dom-usdom-state: 10 testes unitários e 1 compile-fail passaram;
+- integração LMDB de connect/restart/reorg: passou;
+- dom-store completo: passou;
+- clippy com warnings como erros, rustfmt e diff check: passaram;
+- Solidity padrão e profundo: 95/95 passaram;
+- teste profundo: 16.384 casos por propriedade e três invariantes de 1.024
+  execuções x profundidade 128 (131.072 chamadas por invariante);
+- SDK/monitor Node: 33/33 passaram;
+- fork local no bloco Ethereum finalizado 26.210.509: 7/7 passaram, sem
+  transação pública.
+
+3. Limite de segurança atual
+
+Esta etapa fecha a substituição de campos entre a queima nativa e a obrigação de
+pagamento. Ela não demonstra que a queima ocorreu, que a raiz foi validada pelo
+consenso DOM ou que a finalidade é verificável na Ethereum. O circuito privado,
+o compromisso da raiz USDOM no cabeçalho DOM e o verificador de produção ainda
+não existem. Os hashes de produção continuam zero e o construtor mainnet segue
+fechado. mainnet_ready e real_funds_ready permanecem false.

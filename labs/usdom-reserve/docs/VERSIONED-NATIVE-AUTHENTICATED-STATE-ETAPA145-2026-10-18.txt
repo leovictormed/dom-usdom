@@ -1,0 +1,96 @@
+USDOM versioned native authenticated state — stage 145
+Date: 2026-10-18
+
+Purpose
+=======
+
+Stage 144 introduced bounded native sparse caches and note-accumulator
+frontiers, but deliberately left them outside the active v1 consensus root.
+While composing a candidate version-2 root, this review found that the five
+obvious replay-protection sets were insufficient: issuance also enforces one
+execution identity per Ethereum block number and one complete Beacon identity
+per slot. A stateless verifier without authenticated versions of those indexes
+could fail to preserve the full-state conflict rule.
+
+Candidate version-2 commitment
+==============================
+
+StateCommitmentV2 is a distinct, domain-separated candidate. It does not alter
+or activate the existing v1 root. Its DOM:usdom-state:v2 preimage binds:
+
+* immutable DOM, Ethereum, reserve, checkpoint, deposit and privacy policies;
+* PMMR and Poseidon note roots and note count;
+* seven sparse authenticated roots and their unique-key counts;
+* retained note-anchor history root and count;
+* total issued and burned amounts; and
+* the latest authenticated Ethereum high-water anchor.
+
+The seven sets cover notes, nullifiers, consumed deposits, burns, withdrawal
+request identifiers, finalized execution identities by block number, and full
+Beacon identities by slot. The current v1 root is unchanged and remains the
+only active native consensus root.
+
+Ethereum identity indexes
+=========================
+
+NativeUsdomState maintains the two added sparse trees beside reference-counted
+identity maps. The first issuance at a height or slot inserts the exact leaf.
+Another issuance may reuse it only when the execution hash/timestamp or full
+Beacon anchor is identical. Exact reuse increments an internal reference count
+without changing the authenticated root or unique-key count. Any conflict
+fails atomically. Rollback removes the leaf only after the last referencing
+issuance is reversed.
+
+Restore reconstructs both maps and roots from authoritative issuance entries,
+rejecting conflicts. Cheap root-time invariants compare sparse leaf counts with
+the unique identity-map sizes. Tests cover exact sharing, conflict rejection,
+persistent reconstruction and rollback of both shared and final references.
+
+Bounded set-transition witness
+==============================
+
+UDNSET01 carries at most six ordered UDSMPR01 paths plus a canonical membership
+bitmap. Ordinary note, nullifier, deposit, burn and request effects must be
+nonmembership insertions. Issuance execution/Beacon effects may instead prove
+membership of the exact existing identity; such a no-op does not increment its
+unique-key count. A false membership flag, an unauthorized membership flag,
+an altered identity, unused bitmap bits, oversized counts, trailing bytes and
+noncanonical sparse paths all fail closed.
+
+Candidate v2 set updates and UDAFRT01 accumulator updates are checked against
+the full-state issuance, transfer and burn transitions. The witness generator
+uses the same seven live shadow caches and verifies the generated witness
+against the current candidate commitment before returning it.
+
+Frozen vectors
+==============
+
+Keccak-256 of the UDNSET01 burn-transition witness:
+  ca28e857bc63a31044b7f9b86302f4bdaa72d9c45ef97c718e33517664c0ba93
+
+Keccak-256 of the UDNSET01 issuance witness reusing both Ethereum identities:
+  c6e24aa9ffd2d5c106d4b7590fb6151b21b521543ad7bc4213be20d31772b832
+
+Candidate v2 root after the frozen issue/transfer/burn sequence:
+  fceaa6fdd22ee1e50ac9737cb1ae536f077c14e243df6912b31c4bbb8b41d39b
+
+Security boundary and remaining work
+====================================
+
+This stage does not authorize mainnet, deployment or real funds. It provides a
+candidate state shape and bounded authenticated-set transitions, not a
+consensus migration. Production still requires:
+
+1. Freeze an activation rule that derives the exact v2 start state from a
+   ratified v1 snapshot and persists/rebuilds every cache within measured
+   operational bounds.
+2. Compose UDNSET01 and UDAFRT01 with monetary, timing, Ethereum-high-water and
+   proof-verification rules in one complete stateless native executor.
+3. Port the full checkpoint relation into a selected production proving
+   backend and publish reproducible time and memory bounds.
+4. Produce the complete 360+30 positive serialized checkpoint vector and
+   immutable verifier/key or trusted-setup artifacts.
+5. Ratify bootstrap, multisig, guardian, limits and incident procedures, then
+   obtain independent audits and conduct a capped public test before funds.
+
+No push, deployment, transaction or use of funds was performed.
