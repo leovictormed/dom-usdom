@@ -1,0 +1,36 @@
+Etapa 541 — vínculo da identidade do toolchain dos guests
+
+Achado
+
+Os builds source-based conferiam Cargo.lock do workspace e do guest, ELF,
+ProgramBinary e ImageID, mas invocavam cargo +risc0 apenas pelo nome mutável do
+toolchain instalado. Os registros PROVENANCE declaram rustc commit e LLVM exatos;
+os scripts não verificavam essas identidades antes do build. Portanto um
+toolchain diferente podia executar e somente falhar tardiamente por divergência
+do artefato, sem uma rejeição explícita da proveniência do builder.
+
+Correção
+
+Os seis builders source-based agora exigem rustup e capturam
+`rustup run risc0 rustc --version --verbose`. O commit completo
+e638c6cfea1eff5fbbb24a27e60538e3760d21b8 e LLVM 22.1.6 precisam aparecer como
+linhas exatas antes de qualquer cargo build. O checker estrutural exige os dois
+pins, o comando de identidade e as comparações exatas em todos esses builders.
+O finalized-burn permanece no boundary separado de imagem Docker por digest.
+
+Demais vínculos auditados
+
+Cada build source-based continua exigindo locks hash-pinned, `--locked`, hash e
+comparação byte a byte do ELF quando aplicável, recomputação do ImageID pelo
+packager, hash e comparação do ProgramBinary. O build Docker liga tag e digest,
+confere ELF e recomputa IID com r0vm. PROOF-PROGRAM-MANIFEST exige igualdade
+exata entre inventário declarado e SOURCES | ARTIFACTS, incluindo locks,
+manifests, fontes, scripts e artefatos. Nenhum caminho adicional foi aceito.
+
+Teste adversarial
+
+O self-test remove separadamente expected_rustc_commit e expected_llvm_version de
+um builder válido e exige rejeição estrutural. Bash -n cobre os seis scripts e o
+self-test completo do checker passa sem executar qualquer compilação.
+
+O manifesto não foi regenerado e nenhum fact foi criado nesta etapa.

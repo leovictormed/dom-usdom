@@ -1,0 +1,29 @@
+USD0M stage 514 — checkpoint outer-plan input snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The checkpoint outer planner consumed the complete embedded segment-plan input
+surface plus live segment job and receipt indexes, segment receipts and outer
+guest artifacts only after Cargo compilation. Replacement could make its three
+outputs describe multiple filesystem generations.
+
+Correction
+==========
+
+The planner now captures all five upstream indexes, every canonical segment
+source, referenced RandomX/economic receipt, the segment ELF/program/ImageID,
+the segment job and receipt indexes, every uniquely cataloged canonical segment
+receipt, and the outer ELF/program/ImageID into one owner-only layout replica.
+Planning runs only inside that replica. The statement and chain are durably
+installed before the outer job index, so interruption leaves no completion
+marker for a partially published plan.
+
+Evidence and scope
+==================
+
+The operator-runbook suite asserts the full private replica, strict receipt
+catalog, isolated execution and publication order. Readiness requires
+`production_checkpoint_outer_plan_inputs_snapshotted=true`. No proof, network,
+signing, deployment or funds operation is executed.

@@ -1,0 +1,13 @@
+Stage 1164 — finalized checkpoint event bounded integer parsing
+Date: 2026-10-26
+
+The finalized checkpoint event validator now applies lexical ceilings of 20,
+39 and 78 decimal digits for uint64, uint128 and uint256 respectively before
+BigInt conversion. Existing exact numeric ceilings remain in force.
+
+New adversarial vectors exercise 100,000-digit top-level block height,
+timestamp and registry total-issued evidence. The full focused report suite
+passes 8/8 with pinned Node 24.19.0; targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

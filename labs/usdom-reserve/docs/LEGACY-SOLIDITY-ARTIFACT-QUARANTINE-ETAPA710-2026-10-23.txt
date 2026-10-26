@@ -1,0 +1,52 @@
+ETAPA 710 — Legacy Solidity artifact quarantine and publication policy
+Date: 2026-10-23
+
+Finding
+-------
+`results/build-identity.json` was an orphan prototype observation from
+2026-10-15. It correctly named solc 0.8.37 but recorded a historical Shanghai
+experiment, while the production policy has required Cancun since ETAPA96.
+No active source, checker, readiness gate or publication tool consumed it, and
+the complete `results/` tree was already ignored by Git and excluded from
+MANIFEST.sha256. Its top-level generic name could nevertheless be mistaken by
+an operator for current build evidence.
+
+Correction
+----------
+The file was preserved under
+`results/legacy-prototype-2026-10-15/build-identity.json`, beside an explicit
+`LEGACY-NOT-RELEASE-EVIDENCE.txt` marker. Nothing historical was deleted.
+These local result trees remain outside source/release manifests and cannot be
+selected by release evidence.
+
+Added `scripts/check-solidity-artifact-publication.py` and connected it to
+`check:provenance`. The checker requires:
+
+* exact Foundry solc 0.8.37, Cancun, optimizer 200 and metadata-none policy;
+* exact 0.8.37 pragmas in all four production contracts;
+* the full compiler commit and Cancun policy in compiled-runtime validation;
+* exact compiler commit, EVM, optimizer, metadata and no-via-IR in each
+  canonical publishable artifact that exists;
+* `results/` exclusion from Git and `results`/`results-stage*` exclusion from
+  the source-manifest implementation;
+* absence of legacy result paths from both checked-in manifests and release
+  evidence; and
+* absence of the ambiguous top-level prototype build identity.
+
+The release readiness code already restricts the four Solidity evidence paths
+to their canonical Foundry `out/` locations and compiled-runtime authenticates
+their sources/settings. The new provenance check catches stale local artifacts
+and policy drift earlier without weakening those semantic gates.
+
+Validation
+----------
+
+* checker self-test: pass, including stale artifact compiler, stale Foundry EVM
+  and legacy evidence-path mutations;
+* checker against the current project and four canonical artifacts: pass;
+* strict production Solidity lint: pass;
+* Python syntax, Forge formatting and `git diff --check`: pass;
+* quarantine presence and former ambiguous-path absence: pass.
+
+No Rust, Cargo or RISC Zero command was run. No commit, push, deployment,
+signature, transmission or funds operation occurred.

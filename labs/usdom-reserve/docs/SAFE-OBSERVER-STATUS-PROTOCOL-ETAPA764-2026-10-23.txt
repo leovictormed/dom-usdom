@@ -1,0 +1,24 @@
+ETAPA 764 — Safe observer status protocol
+Date: 2026-10-23
+
+Finding
+=======
+The Safe execution observer treated exit 3 as pending but did not authenticate its stderr marker,
+bound either channel or validate successful stdout before use. Partial JSON, arbitrary status-3
+errors, timeouts or signaled termination could be confused with a legitimate not-finalized state.
+
+Correction
+==========
+The observer emits exactly `USDOM_SAFE_RECOVERY_NOT_FINALIZED\n` and empty stdout only for its
+typed not-finalized error. The executor bounds stdout to 2 MiB and stderr to 64 KiB. Status 0
+requires empty stderr plus bounded strict JSON stdout. Status 3 requires empty stdout and the exact
+single-line marker. Every other status, including timeout 124 and signal-style 143, fails; error
+text is not replayed to avoid credential leakage or ambiguous authority.
+
+Validation
+==========
+Tests cover status 0, status 3, ordinary failure, timeout and termination, plus stderr on success,
+partial stdout, wrong marker and multiline marker. Executor/adversarial/durable suites pass 14/14.
+Shell/Node syntax and diff checks pass. No observer, RPC or operational child ran.
+
+No Ledger, signing, deploy, transmission, commit, push or funds were used.

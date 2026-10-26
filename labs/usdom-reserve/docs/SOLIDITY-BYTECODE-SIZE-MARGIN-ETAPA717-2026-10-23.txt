@@ -1,0 +1,65 @@
+ETAPA 717 — Production bytecode size, initcode and deployment-gas margin
+Date: 2026-10-23
+
+Scope
+-----
+Audited the four canonical Solidity artifacts against the EIP-170 runtime
+limit, EIP-3860 initcode limit and the existing mainnet deployment gas policy.
+No functionality was removed because every production contract retains the
+required margin.
+
+Measured canonical artifacts
+----------------------------
+
+Contract                                  Runtime   EIP-170 margin   Creation   Conservative EIP-3860 margin
+USDOMProofReserve                          18,232             6,344     24,753                         20,303
+DOMCheckpointRegistry                       8,821            15,755     13,774                         31,282
+DOMFinalizedBurnRiscZeroVerifier             1,909            22,667      2,623                         42,433
+DOMCheckpointRiscZeroVerifier                1,910            22,666      2,624                         42,432
+
+EIP-170 permits 24,576 runtime bytes and EIP-3860 permits 49,152 total
+initcode bytes. The conservative initcode column deducts 4,096 additional
+bytes for constructor arguments even though all four constructors use much
+smaller fixed-size ABI tuples.
+
+Policy enforcement
+------------------
+The publication/provenance checker now rejects:
+
+* runtime above 20,480 bytes, preserving at least 4,096 bytes below EIP-170;
+* raw creation bytecode plus a 4,096-byte constructor-argument allowance above
+  40,960 bytes, preserving at least 8,192 bytes below EIP-3860; and
+* malformed or odd-length creation/runtime bytecode before size evaluation.
+
+These are release safety margins rather than mere consensus-limit checks. A
+future feature must receive explicit review before consuming the reserve's
+remaining 6,344 runtime bytes.
+
+Deployment gas
+--------------
+Focused Foundry setup traces measured constructor creation gas as follows:
+
+* USDOMProofReserve: 4,228,726 gas;
+* DOMCheckpointRegistry: 2,226,921 gas;
+* DOMFinalizedBurnRiscZeroVerifier: 478,838 gas;
+* DOMCheckpointRiscZeroVerifier: 479,198 gas.
+
+The largest constructor remains below 4.23 million gas. The mainnet executor
+already applies a 125% buffer to the live estimate and rejects a buffered limit
+above 20 million gas. Applying that buffer to the measured reserve creation is
+about 5.29 million gas, leaving substantial operational headroom. Actual
+pre-sign and pre-publish RPC estimates remain mandatory; this local measurement
+does not replace them.
+
+Validation
+----------
+
+* canonical artifact checker: pass for all four contracts;
+* structural self-test: rejects runtime one byte beyond the margin policy and
+  creation bytecode one byte beyond its conservative margin policy;
+* focused constructor/configuration traces: 4/4 pass;
+* Python syntax, strict production lint, Forge formatting and diff checks pass.
+
+No artifact/vector was manually rewritten. No Rust, Cargo or RISC Zero command,
+commit, push, mainnet deployment, signature, transmission or funds operation
+occurred.

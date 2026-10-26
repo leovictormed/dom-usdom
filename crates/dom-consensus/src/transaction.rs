@@ -272,7 +272,8 @@ impl CoinbaseKernel {
                 Err(DomError::Invalid("coinbase value overflow".into()))
             }
             CoinbaseValueClassification::ExpectedAboveMaximum => {
-                let expected = expected.expect("classification excludes reward/fee overflow");
+                let expected =
+                    expected.ok_or_else(|| DomError::Invalid("coinbase value overflow".into()))?;
                 Err(DomError::Invalid(format!(
                     "coinbase expected value {} exceeds MAX_PROVABLE_VALUE {}",
                     expected,
@@ -285,7 +286,8 @@ impl CoinbaseKernel {
                 dom_crypto::MAX_PROVABLE_VALUE
             ))),
             CoinbaseValueClassification::ValueMismatch => {
-                let expected = expected.expect("classification excludes reward/fee overflow");
+                let expected =
+                    expected.ok_or_else(|| DomError::Invalid("coinbase value overflow".into()))?;
                 Err(DomError::Invalid(format!(
                     "coinbase explicit_value {}: expected {} (reward={} + fees={})",
                     self.explicit_value, expected, reward, total_tx_fees
@@ -355,8 +357,11 @@ pub struct Transaction {
 
 impl Transaction {
     pub fn weight(&self) -> u32 {
-        self.weight_checked()
-            .expect("deserialized transaction count limits keep weight in u32")
+        // `Transaction` has public fields and can therefore also be assembled
+        // by in-process callers without passing through the bounded decoder.
+        // Returning the maximum makes every admission/consensus weight check
+        // fail closed instead of allowing such an object to abort the node.
+        self.weight_checked().unwrap_or(u32::MAX)
     }
 
     pub fn fee_shape(&self) -> Result<fee_policy::TransactionShape, DomError> {
@@ -874,6 +879,19 @@ mod tests {
     fn tx_weight_calculation() {
         let tx = minimal_tx(); // 0 inputs + 1 output*21 + 1 kernel*3 = 24
         assert_eq!(tx.weight(), WEIGHT_OUTPUT + WEIGHT_KERNEL);
+    }
+
+    #[test]
+    fn programmatic_oversized_transaction_weight_fails_closed_without_panicking() {
+        let mut tx = minimal_tx();
+        tx.inputs = (0..=dom_core::MAX_INPUTS_PER_TX)
+            .map(|_| TransactionInput {
+                commitment: g_point(),
+            })
+            .collect();
+
+        assert!(tx.weight_checked().is_err());
+        assert_eq!(tx.weight(), u32::MAX);
     }
 
     #[test]

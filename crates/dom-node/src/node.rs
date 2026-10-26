@@ -40,6 +40,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Mutex, Notify};
 use tracing::{info, warn};
+use zeroize::Zeroizing;
 
 /// One already-validated canonical native-USDOM package queued for peer fan-out.
 /// `exclude_peer` prevents immediate echo on the connection that delivered it.
@@ -108,7 +109,7 @@ pub struct DomNode {
     /// Dandelion++ router.
     pub dandelion: Arc<Mutex<DandelionRouter>>,
     /// Node's Noise static keypair private key.
-    pub noise_privkey: [u8; 32],
+    pub noise_privkey: Zeroizing<[u8; 32]>,
     /// Broadcast channel for relaying newly-mined or received blocks to all peers.
     /// Senders: miner after connect_block; message_loop after accepting a relayed Block.
     /// Receivers: one per connected peer task.
@@ -126,7 +127,7 @@ pub struct DomNode {
     /// node constructor; it can only be installed by an explicit constructor
     /// that supplies the bridge policies and activation authority.
     #[cfg(feature = "native-usdom-v4-poc")]
-    native_usdom_v4_runtime: Option<Arc<Mutex<dom_chain::NativeUsdomV4Runtime>>>,
+    pub(crate) native_usdom_v4_runtime: Option<Arc<Mutex<dom_chain::NativeUsdomV4Runtime>>>,
     /// Exact ratified schedule used by runtime, IBD and package ingress.
     #[cfg(feature = "native-usdom-v4-poc")]
     native_usdom_v4_schedule: Option<dom_chain::NativeUsdomV4ActivationSchedule>,
@@ -134,6 +135,11 @@ pub struct DomNode {
     /// runtime and is installed only after an atomically persisted migration.
     #[cfg(feature = "native-usdom-v4-poc")]
     native_usdom_v2_runtime: Option<Arc<Mutex<dom_chain::NativeUsdomV2Runtime>>>,
+    /// Global fail-fast admission gate shared by every peer/RPC/IBD native
+    /// proof path. The consensus locks serialize commits already; admitting a
+    /// queue of proof jobs only retains attacker-controlled payloads.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    native_usdom_proof_admission: Arc<NativeProofAdmission>,
     /// Exact persisted candidate-V2 migration selected at startup.
     #[cfg(feature = "native-usdom-v4-poc")]
     native_usdom_v2_schedule: Option<dom_chain::NativeUsdomV2ActivationSchedule>,
@@ -141,6 +147,12 @@ pub struct DomNode {
     /// The preceding V1 package must commit the migration marker atomically.
     #[cfg(feature = "native-usdom-v4-poc")]
     candidate_v2_first_height: Option<u64>,
+    /// Optional ratified multi-peer sync collector. Every v4-capable build can
+    /// announce tips, but `None` ignores observations and therefore cannot
+    /// create durable preactivation evidence.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    sync_attestation_collector:
+        Option<Arc<Mutex<dom_usdom_checkpoint_program::SyncAttestationCollector>>>,
     /// Broadcast channel for Dandelion++ Fluff-phase transactions.
     /// Every connected peer task forwards every Fluff envelope to its peer.
     /// Senders: submit_tx (local origination) and Command::Tx handler when
@@ -183,7 +195,7 @@ pub struct DomNode {
     /// Serializes the authenticated bounded regtest mining control. This is
     /// distinct from the continuous miner, which must be disabled for RPC
     /// mining so height-sensitive laboratory tests remain deterministic.
-    pub(crate) regtest_rpc_mining_active: Arc<AtomicBool>,
+    pub(crate) bounded_rpc_mining_active: Arc<AtomicBool>,
     /// Peer Exchange state: known peer addresses learned from seeds and Addr
     /// gossip, plus GetAddr cooldown tracking (RFC-0005 §6).
     pub pex: Arc<Mutex<crate::pex::PexManager>>,
@@ -208,6 +220,8 @@ struct PeerConn<'a> {
     native_usdom_v4_negotiated: bool,
     #[cfg(feature = "native-usdom-v4-poc")]
     native_usdom_v2_negotiated: bool,
+    #[cfg(feature = "native-usdom-v4-poc")]
+    sync_tip_v1_negotiated: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -252,9 +266,14 @@ struct NodeServices {
     #[cfg(feature = "native-usdom-v4-poc")]
     native_usdom_v2_runtime: Option<Arc<Mutex<dom_chain::NativeUsdomV2Runtime>>>,
     #[cfg(feature = "native-usdom-v4-poc")]
+    native_usdom_proof_admission: Arc<NativeProofAdmission>,
+    #[cfg(feature = "native-usdom-v4-poc")]
     native_usdom_v2_schedule: Option<dom_chain::NativeUsdomV2ActivationSchedule>,
     #[cfg(feature = "native-usdom-v4-poc")]
     candidate_v2_first_height: Option<u64>,
+    #[cfg(feature = "native-usdom-v4-poc")]
+    sync_attestation_collector:
+        Option<Arc<Mutex<dom_usdom_checkpoint_program::SyncAttestationCollector>>>,
 }
 
 /// Broadcast channels shared across connection tasks.
@@ -294,6 +313,94 @@ struct NativeUsdomV4Ingress {
     orphan_pool: Arc<Mutex<RuntimeNativeUsdomV4OrphanPool>>,
     candidate_v2_first_height: Option<u64>,
     migration_shutdown: Option<NodeTaskSupervisor>,
+    proof_admission: Arc<NativeProofAdmission>,
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+struct NativeProofAdmission {
+    capacity: Arc<tokio::sync::Semaphore>,
+    inflight: std::sync::Mutex<std::collections::HashSet<[u8; 32]>>,
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+impl NativeProofAdmission {
+    fn new() -> Self {
+        Self {
+            capacity: Arc::new(tokio::sync::Semaphore::new(1)),
+            inflight: std::sync::Mutex::new(std::collections::HashSet::new()),
+        }
+    }
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+struct NativeProofPermit {
+    _capacity: tokio::sync::OwnedSemaphorePermit,
+    digest: [u8; 32],
+    admission: Arc<NativeProofAdmission>,
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+impl Drop for NativeProofPermit {
+    fn drop(&mut self) {
+        if let Ok(mut inflight) = self.admission.inflight.lock() {
+            inflight.remove(&self.digest);
+        }
+    }
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+fn is_exact_canonical_block(
+    chain: &ChainState,
+    height: u64,
+    block_hash: Hash256,
+) -> Result<bool, DomError> {
+    Ok(chain.store.get_hash_at_height(height)? == Some(*block_hash.as_bytes()))
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+fn try_acquire_native_proof_permit(
+    admission: &Arc<NativeProofAdmission>,
+    wire_payload: &[u8],
+) -> Result<NativeProofPermit, DomError> {
+    let digest = *dom_crypto::hash::blake2b_256(wire_payload).as_bytes();
+    {
+        let mut inflight = admission
+            .inflight
+            .lock()
+            .map_err(|_| DomError::Internal("native proof admission lock poisoned".into()))?;
+        if !inflight.insert(digest) {
+            return Err(DomError::PolicyRejected(
+                "duplicate native USDOM proof package is already in flight".into(),
+            ));
+        }
+    }
+    match admission.capacity.clone().try_acquire_owned() {
+        Ok(capacity) => Ok(NativeProofPermit {
+            _capacity: capacity,
+            digest,
+            admission: admission.clone(),
+        }),
+        Err(_) => {
+            admission
+                .inflight
+                .lock()
+                .map_err(|_| DomError::Internal("native proof admission lock poisoned".into()))?
+                .remove(&digest);
+            Err(DomError::PolicyRejected(
+                "native USDOM proof admission is at global capacity".into(),
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+fn is_native_proof_capacity_error(error: &DomError) -> bool {
+    matches!(
+        error,
+        DomError::PolicyRejected(message)
+            if message == "native USDOM proof admission is at global capacity"
+                || message == "duplicate native USDOM proof package is already in flight"
+    )
 }
 
 #[cfg(feature = "native-usdom-v4-poc")]
@@ -303,6 +410,10 @@ impl NativeUsdomV4Ingress {
         wire_payload: &[u8],
         now: Timestamp,
     ) -> Result<dom_chain::ConnectResult, DomError> {
+        let proof_permit = Arc::new(try_acquire_native_proof_permit(
+            &self.proof_admission,
+            wire_payload,
+        )?);
         let metadata = native_usdom_v4_package_metadata(wire_payload)?;
         use dom_consensus::block::{
             validate_future_timestamp_with_buffer_limits, TimestampDecision,
@@ -348,17 +459,23 @@ impl NativeUsdomV4Ingress {
                 )));
             }
         }
-        let result =
-            match Box::pin(self.ingest_once(wire_payload, now, self.relay_exclude_peer)).await {
-                Ok(result) => result,
-                Err(error @ DomError::Orphan(_)) => {
-                    self.queue_orphan(wire_payload, metadata, self.relay_exclude_peer)
-                        .await;
-                    return Err(error);
-                }
-                Err(error) => return Err(error),
-            };
-        Box::pin(self.reprocess_orphan_descendants(metadata.block_hash, now)).await;
+        let result = match Box::pin(self.ingest_once(
+            wire_payload,
+            now,
+            self.relay_exclude_peer,
+            proof_permit.clone(),
+        ))
+        .await
+        {
+            Ok(result) => result,
+            Err(error @ DomError::Orphan(_)) => {
+                self.queue_orphan(wire_payload, metadata, self.relay_exclude_peer)
+                    .await;
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+        Box::pin(self.reprocess_orphan_descendants(metadata.block_hash, now, proof_permit)).await;
         Ok(result)
     }
 
@@ -367,6 +484,7 @@ impl NativeUsdomV4Ingress {
         wire_payload: &[u8],
         now: Timestamp,
         relay_exclude_peer: Option<std::net::SocketAddr>,
+        proof_permit: Arc<NativeProofPermit>,
     ) -> Result<dom_chain::ConnectResult, DomError> {
         use dom_wire::message::UsdomV4PackagePayload;
         let framed = UsdomV4PackagePayload::from_bytes(wire_payload)?;
@@ -385,6 +503,9 @@ impl NativeUsdomV4Ingress {
         let package_bytes = framed.package_bytes;
         let candidate_v2_first_height = self.candidate_v2_first_height;
         let result = tokio::task::spawn_blocking(move || {
+            // Keep global admission occupied even if the async caller is
+            // cancelled while Tokio cannot cancel this blocking job.
+            let _proof_permit = proof_permit;
             // Expensive Ethereum/Groth16 verification belongs on Tokio's
             // blocking pool. The consensus lock order remains chain first.
             let mut chain = chain;
@@ -490,7 +611,12 @@ impl NativeUsdomV4Ingress {
         );
     }
 
-    async fn reprocess_orphan_descendants(&self, parent_hash: [u8; 32], now: Timestamp) {
+    async fn reprocess_orphan_descendants(
+        &self,
+        parent_hash: [u8; 32],
+        now: Timestamp,
+        proof_permit: Arc<NativeProofPermit>,
+    ) {
         let mut ready_parents = vec![parent_hash];
         while let Some(available_parent) = ready_parents.pop() {
             let children = self
@@ -522,7 +648,13 @@ impl NativeUsdomV4Ingress {
                     );
                     continue;
                 }
-                match Box::pin(self.ingest_once(&child.wire_payload, now, child.exclude_peer)).await
+                match Box::pin(self.ingest_once(
+                    &child.wire_payload,
+                    now,
+                    child.exclude_peer,
+                    proof_permit.clone(),
+                ))
+                .await
                 {
                     Ok(_) => ready_parents.push(child.block_hash),
                     Err(DomError::Orphan(error)) => {
@@ -581,6 +713,7 @@ struct NativeUsdomV2Ingress {
     native_future_queue: Arc<NativeUsdomV4FutureQueue>,
     state_events: Arc<Notify>,
     orphan_pool: Arc<Mutex<RuntimeNativeUsdomV4OrphanPool>>,
+    proof_admission: Arc<NativeProofAdmission>,
 }
 
 #[cfg(feature = "native-usdom-v4-poc")]
@@ -590,6 +723,10 @@ impl NativeUsdomV2Ingress {
         wire_payload: &[u8],
         now: Timestamp,
     ) -> Result<dom_chain::ConnectResult, DomError> {
+        let proof_permit = Arc::new(try_acquire_native_proof_permit(
+            &self.proof_admission,
+            wire_payload,
+        )?);
         let metadata = native_usdom_v2_package_metadata(wire_payload)?;
         use dom_consensus::block::{
             validate_future_timestamp_with_buffer_limits, TimestampDecision,
@@ -629,17 +766,23 @@ impl NativeUsdomV2Ingress {
                 )));
             }
         }
-        let result =
-            match Box::pin(self.ingest_once(wire_payload, now, self.relay_exclude_peer)).await {
-                Ok(result) => result,
-                Err(error @ DomError::Orphan(_)) => {
-                    self.queue_orphan(wire_payload, metadata, self.relay_exclude_peer)
-                        .await;
-                    return Err(error);
-                }
-                Err(error) => return Err(error),
-            };
-        Box::pin(self.reprocess_orphan_descendants(metadata.block_hash, now)).await;
+        let result = match Box::pin(self.ingest_once(
+            wire_payload,
+            now,
+            self.relay_exclude_peer,
+            proof_permit.clone(),
+        ))
+        .await
+        {
+            Ok(result) => result,
+            Err(error @ DomError::Orphan(_)) => {
+                self.queue_orphan(wire_payload, metadata, self.relay_exclude_peer)
+                    .await;
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+        Box::pin(self.reprocess_orphan_descendants(metadata.block_hash, now, proof_permit)).await;
         Ok(result)
     }
 
@@ -648,6 +791,7 @@ impl NativeUsdomV2Ingress {
         wire_payload: &[u8],
         now: Timestamp,
         relay_exclude_peer: Option<std::net::SocketAddr>,
+        proof_permit: Arc<NativeProofPermit>,
     ) -> Result<dom_chain::ConnectResult, DomError> {
         let framed = dom_wire::message::UsdomV2PackagePayload::from_bytes(wire_payload)?;
         let package = dom_chain::UsdomV4BlockPackage::from_bytes(&framed.package_bytes)?;
@@ -659,6 +803,9 @@ impl NativeUsdomV2Ingress {
         let runtime = self.runtime.clone().lock_owned().await;
         let package_bytes = framed.package_bytes;
         let result = tokio::task::spawn_blocking(move || {
+            // `spawn_blocking` is not cancellable once running. Owning a
+            // permit clone here prevents early readmission on caller abort.
+            let _proof_permit = proof_permit;
             // Package proofs and stateless witnesses can be CPU-intensive;
             // keep them away from peer/RPC executor threads.
             let mut chain = chain;
@@ -729,7 +876,12 @@ impl NativeUsdomV2Ingress {
         record_native_orphan_admission(&self.metrics, outcome);
     }
 
-    async fn reprocess_orphan_descendants(&self, parent_hash: [u8; 32], now: Timestamp) {
+    async fn reprocess_orphan_descendants(
+        &self,
+        parent_hash: [u8; 32],
+        now: Timestamp,
+        proof_permit: Arc<NativeProofPermit>,
+    ) {
         let mut ready_parents = vec![parent_hash];
         while let Some(available_parent) = ready_parents.pop() {
             let children = self
@@ -761,7 +913,13 @@ impl NativeUsdomV2Ingress {
                     );
                     continue;
                 }
-                match Box::pin(self.ingest_once(&child.wire_payload, now, child.exclude_peer)).await
+                match Box::pin(self.ingest_once(
+                    &child.wire_payload,
+                    now,
+                    child.exclude_peer,
+                    proof_permit.clone(),
+                ))
+                .await
                 {
                     Ok(_) => ready_parents.push(child.block_hash),
                     Err(DomError::Orphan(_)) => {
@@ -920,6 +1078,15 @@ async fn drain_native_usdom_v4_future_packages(
                     block_hash = %hex::encode(deferred.block_hash),
                     "deferred native USDOM v4 package moved to orphan retention: {error}"
                 ),
+                Err(error) if is_native_proof_capacity_error(&error) => {
+                    let admission = queue.admit(deferred).await;
+                    record_native_future_admission(&template.metrics, admission);
+                    template.refresh_queue_metrics().await;
+                    tracing::debug!(
+                        ?admission,
+                        "native USDOM v4 future package retained while proof gate is busy"
+                    );
+                }
                 Err(error) => tracing::debug!(
                     block_hash = %hex::encode(deferred.block_hash),
                     "dropping rejected deferred native USDOM v4 package: {error}"
@@ -964,6 +1131,15 @@ async fn drain_native_usdom_v2_future_packages(
                     block_hash = %hex::encode(deferred.block_hash),
                     "deferred native USDOM V2 package moved to orphan retention: {error}"
                 ),
+                Err(error) if is_native_proof_capacity_error(&error) => {
+                    let admission = queue.admit(deferred).await;
+                    record_native_future_admission(&template.metrics, admission);
+                    template.refresh_queue_metrics().await;
+                    tracing::debug!(
+                        ?admission,
+                        "native USDOM V2 future package retained while proof gate is busy"
+                    );
+                }
                 Err(error) => tracing::debug!(
                     block_hash = %hex::encode(deferred.block_hash),
                     "dropping rejected deferred native USDOM V2 package: {error}"
@@ -1167,7 +1343,10 @@ const FUTURE_BLOCK_QUEUE_MAX_AGE_SECS: u64 = dom_core::MAX_FUTURE_BLOCK_TIME
     + dom_core::FUTURE_BLOCK_SOFT_BUFFER_SECS
     + FUTURE_BLOCK_QUEUE_DRAIN_INTERVAL_SECS * 2;
 const METRICS_CONTENT_TYPE: &str = "text/plain; version=0.0.4";
+const METRICS_MAX_IN_FLIGHT: usize = 8;
+const METRICS_IO_TIMEOUT: Duration = Duration::from_secs(5);
 const HELLO_EXCHANGE_TIMEOUT_SECS: u64 = dom_wire::handshake::HANDSHAKE_TIMEOUT_SECS;
+const OUTBOUND_CONNECT_TIMEOUT_SECS: u64 = 10;
 const PEER_ROTATION_METADATA_KEY: &[u8] = b"dom/peer_rotation_state/v2";
 const LEGACY_PEER_ROTATION_METADATA_KEY: &[u8] = b"dom/peer_rotation_state/v1";
 const PEER_REPUTATION_METADATA_KEY: &[u8] = b"dom/peer_reputation_state/v2";
@@ -1239,6 +1418,11 @@ async fn bind_metrics_listener(
     let parsed: std::net::SocketAddr = metrics_addr.parse().map_err(|e| {
         DomError::Internal(format!("Invalid metrics listen addr {metrics_addr}: {e}"))
     })?;
+    if !parsed.ip().is_loopback() {
+        return Err(DomError::PolicyRejected(
+            "metrics listener must use an explicit loopback address".into(),
+        ));
+    }
     let listener = tokio::net::TcpListener::bind(parsed)
         .await
         .map_err(|e| DomError::Internal(format!("metrics bind {parsed}: {e}")))?;
@@ -1249,14 +1433,25 @@ async fn serve_metrics(
     listener: tokio::net::TcpListener,
     metrics: Arc<Metrics>,
 ) -> Result<(), DomError> {
+    let capacity = Arc::new(tokio::sync::Semaphore::new(METRICS_MAX_IN_FLIGHT));
     loop {
         let (mut stream, _) = listener
             .accept()
             .await
             .map_err(|e| DomError::Internal(format!("metrics accept: {e}")))?;
-        if let Err(e) = handle_metrics_connection(&mut stream, &metrics).await {
-            tracing::debug!("metrics request failed: {e}");
-        }
+        let Ok(permit) = Arc::clone(&capacity).try_acquire_owned() else {
+            // Fail closed without queueing sockets: one local scraper must not
+            // retain arbitrary pending work or starve the observability loop.
+            drop(stream);
+            continue;
+        };
+        let metrics = Arc::clone(&metrics);
+        tokio::spawn(async move {
+            let _permit = permit;
+            if let Err(e) = handle_metrics_connection(&mut stream, &metrics).await {
+                tracing::debug!("metrics request failed: {e}");
+            }
+        });
     }
 }
 
@@ -1265,9 +1460,9 @@ async fn handle_metrics_connection(
     metrics: &Metrics,
 ) -> Result<(), DomError> {
     let mut buf = [0u8; 1024];
-    let n = stream
-        .read(&mut buf)
+    let n = tokio::time::timeout(METRICS_IO_TIMEOUT, stream.read(&mut buf))
         .await
+        .map_err(|_| DomError::Internal("metrics read timeout".into()))?
         .map_err(|e| DomError::Internal(format!("metrics read: {e}")))?;
     let request = std::str::from_utf8(&buf[..n]).unwrap_or_default();
     let first_line = request.lines().next().unwrap_or_default();
@@ -1279,12 +1474,12 @@ async fn handle_metrics_connection(
         ("405 Method Not Allowed", "method not allowed\n".to_string())
     };
     let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {METRICS_CONTENT_TYPE}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\nContent-Type: {METRICS_CONTENT_TYPE}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
-    stream
-        .write_all(response.as_bytes())
+    tokio::time::timeout(METRICS_IO_TIMEOUT, stream.write_all(response.as_bytes()))
         .await
+        .map_err(|_| DomError::Internal("metrics write timeout".into()))?
         .map_err(|e| DomError::Internal(format!("metrics write: {e}")))?;
     Ok(())
 }
@@ -1370,9 +1565,24 @@ async fn purge_mempool_confirmed_inputs(
 }
 
 impl DomNode {
+    #[cfg(all(test, feature = "ethereum-checkpoint-verified-poc"))]
+    fn init_with_verified_restart_floor_for_test(
+        config: NodeConfig,
+        checkpoint: &usdom_ethereum_finality_experiment::checkpoints::VerifiedCheckpoint,
+        policy_hash: [u8; 32],
+    ) -> Result<Self, DomError> {
+        Self::init_inner(config, None, false, Some((checkpoint, policy_hash)))
+    }
+
     /// Initialize the node from configuration.
     pub fn init(config: NodeConfig) -> Result<Self, DomError> {
-        Self::init_inner(config, None, false)
+        Self::init_inner(
+            config,
+            None,
+            false,
+            #[cfg(feature = "ethereum-checkpoint-verified-poc")]
+            None,
+        )
     }
 
     /// Initialize the node with an explicit LMDB map size override.
@@ -1382,7 +1592,13 @@ impl DomNode {
     /// CI does not reserve a full production-sized LMDB map for each temporary
     /// node/store instance.
     pub fn init_with_map_size(config: NodeConfig, map_size: usize) -> Result<Self, DomError> {
-        Self::init_inner(config, Some(map_size), false)
+        Self::init_inner(
+            config,
+            Some(map_size),
+            false,
+            #[cfg(feature = "ethereum-checkpoint-verified-poc")]
+            None,
+        )
     }
 
     /// Initialize an explicitly isolated Regtest node with a restored and
@@ -1394,6 +1610,9 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
     ) -> Result<Self, DomError> {
         Self::init_native_usdom_v4_regtest_inner(
             config,
@@ -1401,6 +1620,7 @@ impl DomNode {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             None,
         )
     }
@@ -1414,6 +1634,9 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifying_key: &[u8],
     ) -> Result<Self, DomError> {
         Self::init_native_usdom_v4_regtest_inner(
@@ -1422,6 +1645,7 @@ impl DomNode {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             Some(spend_verifying_key),
         )
     }
@@ -1434,6 +1658,9 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
     ) -> Result<Self, DomError> {
         Self::init_native_usdom_v4_regtest_inner(
             config,
@@ -1441,6 +1668,7 @@ impl DomNode {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             None,
         )
     }
@@ -1454,6 +1682,9 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifying_key: &[u8],
     ) -> Result<Self, DomError> {
         Self::init_native_usdom_v4_regtest_inner(
@@ -1462,6 +1693,7 @@ impl DomNode {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             Some(spend_verifying_key),
         )
     }
@@ -1473,6 +1705,9 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifying_key: Option<&[u8]>,
     ) -> Result<Self, DomError> {
         if config.network != dom_config::Network::Regtest {
@@ -1480,7 +1715,13 @@ impl DomNode {
                 "native USDOM v4 node runtime is available only on explicit Regtest".into(),
             ));
         }
-        let mut node = Self::init_inner(config, map_size_override, true)?;
+        let mut node = Self::init_inner(
+            config,
+            map_size_override,
+            true,
+            #[cfg(feature = "ethereum-checkpoint-verified-poc")]
+            None,
+        )?;
         let chain_mutex = Arc::get_mut(&mut node.chain).ok_or_else(|| {
             DomError::Internal(
                 "native USDOM runtime must be restored before sharing chain state".into(),
@@ -1492,6 +1733,7 @@ impl DomNode {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
                 key,
             )?,
             None => dom_chain::NativeUsdomV4Runtime::restore(
@@ -1499,6 +1741,7 @@ impl DomNode {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
             )?,
         };
         node.native_usdom_v4_schedule = Some(runtime.activation_schedule());
@@ -1515,6 +1758,9 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifying_key: &[u8],
         schedule: dom_chain::NativeUsdomV4ActivationSchedule,
     ) -> Result<Self, DomError> {
@@ -1524,8 +1770,10 @@ impl DomNode {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifying_key,
             schedule,
+            None,
         )
     }
 
@@ -1539,6 +1787,9 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifying_key: &[u8],
         v1_schedule: dom_chain::NativeUsdomV4ActivationSchedule,
         first_v2_height: u64,
@@ -1549,9 +1800,42 @@ impl DomNode {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifying_key,
             v1_schedule,
             first_v2_height,
+            None,
+        )
+    }
+
+    /// Scheduled candidate startup with a manifest-pinned Ethereum witness
+    /// that has already been replay-verified into an opaque checkpoint.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn init_native_usdom_candidate_with_restart_checkpoint(
+        config: NodeConfig,
+        bridge: dom_usdom_state::BridgeIdentity,
+        checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
+        deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
+        spend_verifying_key: &[u8],
+        v1_schedule: dom_chain::NativeUsdomV4ActivationSchedule,
+        first_v2_height: u64,
+        restart_checkpoint: &usdom_ethereum_finality_experiment::checkpoints::VerifiedCheckpoint,
+    ) -> Result<Self, DomError> {
+        Self::init_native_usdom_candidate_for_schedule_inner(
+            config,
+            None,
+            bridge,
+            checkpoint_policy,
+            deposit_policy,
+            closure_policy,
+            spend_verifying_key,
+            v1_schedule,
+            first_v2_height,
+            Some(restart_checkpoint),
         )
     }
 
@@ -1564,6 +1848,9 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifying_key: &[u8],
         v1_schedule: dom_chain::NativeUsdomV4ActivationSchedule,
         first_v2_height: u64,
@@ -1574,9 +1861,11 @@ impl DomNode {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifying_key,
             v1_schedule,
             first_v2_height,
+            None,
         )
     }
 
@@ -1588,9 +1877,15 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifying_key: &[u8],
         v1_schedule: dom_chain::NativeUsdomV4ActivationSchedule,
         first_v2_height: u64,
+        restart_checkpoint: Option<
+            &usdom_ethereum_finality_experiment::checkpoints::VerifiedCheckpoint,
+        >,
     ) -> Result<Self, DomError> {
         if v1_schedule.network_magic() != config.network.magic()
             || first_v2_height <= v1_schedule.first_v4_height()
@@ -1599,7 +1894,13 @@ impl DomNode {
                 "native USDOM V1/V2 schedule does not match configured network or heights".into(),
             ));
         }
-        let mut node = Self::init_inner(config, map_size_override, true)?;
+        let policy_hash: [u8; 32] = checkpoint_policy.policy_hash().into();
+        let mut node = Self::init_inner(
+            config,
+            map_size_override,
+            true,
+            restart_checkpoint.map(|checkpoint| (checkpoint, policy_hash)),
+        )?;
         let chain_mutex = Arc::get_mut(&mut node.chain).ok_or_else(|| {
             DomError::Internal(
                 "native USDOM runtime must be restored before sharing chain state".into(),
@@ -1626,6 +1927,7 @@ impl DomNode {
                         bridge,
                         checkpoint_policy,
                         deposit_policy,
+                        closure_policy,
                         spend_verifying_key,
                         v1_schedule,
                     )?;
@@ -1653,6 +1955,7 @@ impl DomNode {
                         bridge,
                         checkpoint_policy,
                         deposit_policy,
+                        closure_policy,
                         spend_verifying_key,
                         v2_schedule,
                     )?;
@@ -1672,6 +1975,9 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifying_key: &[u8],
         schedule: dom_chain::NativeUsdomV4ActivationSchedule,
     ) -> Result<Self, DomError> {
@@ -1681,8 +1987,39 @@ impl DomNode {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifying_key,
             schedule,
+            None,
+        )
+    }
+
+    /// Scheduled V1 startup with a manifest-pinned, replay-verified external
+    /// checkpoint floor.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn init_native_usdom_v4_with_restart_checkpoint(
+        config: NodeConfig,
+        bridge: dom_usdom_state::BridgeIdentity,
+        checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
+        deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
+        spend_verifying_key: &[u8],
+        schedule: dom_chain::NativeUsdomV4ActivationSchedule,
+        restart_checkpoint: &usdom_ethereum_finality_experiment::checkpoints::VerifiedCheckpoint,
+    ) -> Result<Self, DomError> {
+        Self::init_native_usdom_v4_for_schedule_inner(
+            config,
+            None,
+            bridge,
+            checkpoint_policy,
+            deposit_policy,
+            closure_policy,
+            spend_verifying_key,
+            schedule,
+            Some(restart_checkpoint),
         )
     }
 
@@ -1694,15 +2031,27 @@ impl DomNode {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifying_key: &[u8],
         schedule: dom_chain::NativeUsdomV4ActivationSchedule,
+        restart_checkpoint: Option<
+            &usdom_ethereum_finality_experiment::checkpoints::VerifiedCheckpoint,
+        >,
     ) -> Result<Self, DomError> {
         if schedule.network_magic() != config.network.magic() {
             return Err(DomError::PolicyRejected(
                 "native USDOM node schedule does not match configured network".into(),
             ));
         }
-        let mut node = Self::init_inner(config, map_size_override, true)?;
+        let policy_hash: [u8; 32] = checkpoint_policy.policy_hash().into();
+        let mut node = Self::init_inner(
+            config,
+            map_size_override,
+            true,
+            restart_checkpoint.map(|checkpoint| (checkpoint, policy_hash)),
+        )?;
         let chain_mutex = Arc::get_mut(&mut node.chain).ok_or_else(|| {
             DomError::Internal(
                 "native USDOM runtime must be restored before sharing chain state".into(),
@@ -1713,6 +2062,7 @@ impl DomNode {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifying_key,
             schedule,
         )?;
@@ -1765,6 +2115,7 @@ impl DomNode {
             orphan_pool: self.native_usdom_v4_orphan_pool.clone(),
             candidate_v2_first_height: self.candidate_v2_first_height,
             migration_shutdown: Some(self.task_supervisor.clone()),
+            proof_admission: self.native_usdom_proof_admission.clone(),
         }
         .ingest(wire_payload, now)
         .await
@@ -1780,6 +2131,20 @@ impl DomNode {
     #[cfg(feature = "native-usdom-v4-poc")]
     pub fn has_native_usdom_v2_runtime(&self) -> bool {
         self.native_usdom_v2_runtime.is_some()
+    }
+
+    /// Enable authenticated sync-tip observation before starting P2P tasks.
+    /// The trusted Noise identities and quorum are operator-ratified inputs;
+    /// without this explicit call observations are ignored and no receipt is persisted.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    pub fn configure_sync_attestation(
+        &mut self,
+        policy: dom_usdom_checkpoint_program::SyncAttestationPolicy,
+    ) -> Result<(), DomError> {
+        self.sync_attestation_collector = Some(Arc::new(Mutex::new(
+            dom_usdom_checkpoint_program::SyncAttestationCollector::new(policy)?,
+        )));
+        Ok(())
     }
 
     /// Ingest one exact candidate-V2 package/witness envelope through the
@@ -1806,6 +2171,7 @@ impl DomNode {
             native_future_queue: self.native_usdom_v4_future_queue.clone(),
             state_events: self.state_events.clone(),
             orphan_pool: self.native_usdom_v4_orphan_pool.clone(),
+            proof_admission: self.native_usdom_proof_admission.clone(),
         }
         .ingest(wire_payload, now)
         .await
@@ -2014,8 +2380,20 @@ impl DomNode {
     pub(crate) async fn complete_native_usdom_v4_mining_candidate(
         &self,
         candidate_id: Hash256,
+        canonical_height: u64,
+        canonical_block_hash: Hash256,
     ) -> Result<bool, DomError> {
         if let Some(runtime) = self.native_usdom_v4_runtime.as_ref() {
+            // The ingress result and this cleanup are separated by an async
+            // boundary. A competing block may reorganize the just-mined block
+            // away in that interval. Recheck the exact canonical identity
+            // while holding the chain lock, then take the runtime lock in the
+            // global chain-before-runtime order. A reorg can no longer remove
+            // a still-usable volatile candidate through a stale result.
+            let chain = trace_lock("chain", &self.chain).await;
+            if !is_exact_canonical_block(&chain, canonical_height, canonical_block_hash)? {
+                return Ok(false);
+            }
             let mut runtime = trace_lock("native_usdom_v4_runtime", runtime).await;
             let result = runtime.complete_mining_candidate(candidate_id);
             let (count, bytes) = runtime.mining_candidate_stats();
@@ -2036,8 +2414,17 @@ impl DomNode {
     pub(crate) async fn complete_native_usdom_v2_mining_candidate(
         &self,
         candidate_id: Hash256,
+        canonical_height: u64,
+        canonical_block_hash: Hash256,
     ) -> Result<bool, DomError> {
         if let Some(runtime) = self.native_usdom_v2_runtime.as_ref() {
+            // See the V1 path above: cleanup authority comes from the current
+            // canonical index, never from an ingress result that may have gone
+            // stale while this task was descheduled.
+            let chain = trace_lock("chain", &self.chain).await;
+            if !is_exact_canonical_block(&chain, canonical_height, canonical_block_hash)? {
+                return Ok(false);
+            }
             let mut runtime = trace_lock("native_usdom_v2_runtime", runtime).await;
             let result = runtime.complete_mining_candidate(candidate_id);
             let (count, bytes) = runtime.mining_candidate_stats();
@@ -2071,10 +2458,153 @@ impl DomNode {
         self.native_usdom_v2_relay_tx.subscribe()
     }
 
+    /// Build the first candidate-v2 checkpoint source while retaining the
+    /// canonical chain and native-runtime locks for one coherent snapshot.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    pub async fn build_first_v2_checkpoint_source(
+        &self,
+        randomx_receipt_image_id: [u8; 32],
+    ) -> Result<dom_usdom_checkpoint_program::AuthenticatedCheckpointSourceBundle, DomError> {
+        let runtime = self.native_usdom_v2_runtime.as_ref().ok_or_else(|| {
+            DomError::PolicyRejected(
+                "candidate-v2 checkpoint source requires the active V2 runtime".into(),
+            )
+        })?;
+        let chain = self.chain.clone().lock_owned().await;
+        let runtime = runtime.clone().lock_owned().await;
+        tokio::task::spawn_blocking(move || {
+            let schedule = runtime.activation_schedule();
+            let closure_policy = runtime.issuance_closure_policy().ok_or_else(|| {
+                DomError::PolicyRejected(
+                    "candidate-v2 checkpoint source requires an issuance closure policy".into(),
+                )
+            })?;
+            dom_usdom_checkpoint_program::build_first_v2_checkpoint_source(
+                &chain,
+                schedule,
+                runtime.checkpoint_policy(),
+                runtime.deposit_policy(),
+                closure_policy,
+                runtime.spend_verifying_key(),
+                runtime.state(),
+                randomx_receipt_image_id,
+            )
+        })
+        .await
+        .map_err(|error| {
+            DomError::Internal(format!(
+                "candidate-v2 checkpoint source task failed: {error}"
+            ))
+        })?
+    }
+
+    /// Build the latest fully confirmed candidate-v2 checkpoint source set
+    /// while retaining the canonical chain and runtime locks for one coherent
+    /// snapshot.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    pub async fn build_latest_v2_checkpoint_sources(
+        &self,
+        randomx_receipt_image_id: [u8; 32],
+        checkpoint_interval_blocks: u32,
+        checkpoint_confirmation_depth_blocks: u32,
+    ) -> Result<dom_usdom_checkpoint_program::AuthenticatedCheckpointSourceSet, DomError> {
+        let runtime = self.native_usdom_v2_runtime.as_ref().ok_or_else(|| {
+            DomError::PolicyRejected(
+                "candidate-v2 checkpoint sources require the active V2 runtime".into(),
+            )
+        })?;
+        let chain = self.chain.clone().lock_owned().await;
+        let runtime = runtime.clone().lock_owned().await;
+        tokio::task::spawn_blocking(move || {
+            let schedule = runtime.activation_schedule();
+            let closure_policy = runtime.issuance_closure_policy().ok_or_else(|| {
+                DomError::PolicyRejected(
+                    "candidate-v2 checkpoint sources require an issuance closure policy".into(),
+                )
+            })?;
+            dom_usdom_checkpoint_program::build_latest_v2_checkpoint_sources(
+                &chain,
+                schedule,
+                runtime.checkpoint_policy(),
+                runtime.deposit_policy(),
+                closure_policy,
+                runtime.spend_verifying_key(),
+                runtime.state(),
+                randomx_receipt_image_id,
+                checkpoint_interval_blocks,
+                checkpoint_confirmation_depth_blocks,
+            )
+        })
+        .await
+        .map_err(|error| {
+            DomError::Internal(format!(
+                "candidate-v2 checkpoint source-set task failed: {error}"
+            ))
+        })?
+    }
+
+    /// Build one canonical `UDFINL04` finalized-burn source while holding the
+    /// chain and candidate-V2 runtime locks for a coherent offline snapshot.
+    ///
+    /// The raw Ethereum witness selects the checkpoint independently; callers
+    /// must pass the block identifier authenticated by that witness. This
+    /// method never proves, publishes or submits the resulting input.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    pub async fn build_finalized_burn_prover_input(
+        &self,
+        v1_schedule: dom_chain::NativeUsdomV4ActivationSchedule,
+        canonical_checkpoint: Hash256,
+        burn_id: [u8; 32],
+        checkpoint_statement: dom_chain::CheckpointStatementV6,
+        checkpoint_witness_bytes: Vec<u8>,
+    ) -> Result<dom_chain::FinalizedBurnProverInput, DomError> {
+        let runtime = self.native_usdom_v2_runtime.as_ref().ok_or_else(|| {
+            DomError::PolicyRejected(
+                "finalized-burn source requires the active candidate-V2 runtime".into(),
+            )
+        })?;
+        let network_magic = self.config.network.magic();
+        let chain = self.chain.clone().lock_owned().await;
+        let runtime = runtime.clone().lock_owned().await;
+        tokio::task::spawn_blocking(move || {
+            let spend_verifier = dom_usdom_privacy::verifier::SpendVerifier::from_bytes(
+                runtime.spend_verifying_key(),
+            )
+            .map_err(|error| {
+                DomError::Internal(format!(
+                    "restored finalized-burn spend verifier is invalid: {error}"
+                ))
+            })?;
+            dom_chain::export_finalized_burn_prover_input_for_schedule(
+                &chain.store,
+                network_magic,
+                runtime.bridge_identity(),
+                canonical_checkpoint,
+                burn_id,
+                v1_schedule,
+                runtime.activation_schedule(),
+                runtime.checkpoint_policy().clone(),
+                runtime.deposit_policy(),
+                runtime.issuance_closure_policy(),
+                &spend_verifier,
+                checkpoint_statement,
+                checkpoint_witness_bytes,
+            )
+        })
+        .await
+        .map_err(|error| {
+            DomError::Internal(format!("finalized-burn source task failed: {error}"))
+        })?
+    }
+
     fn init_inner(
         config: NodeConfig,
         map_size_override: Option<usize>,
         allow_native_usdom_v4_activation: bool,
+        #[cfg(feature = "ethereum-checkpoint-verified-poc")] restart_checkpoint: Option<(
+            &usdom_ethereum_finality_experiment::checkpoints::VerifiedCheckpoint,
+            [u8; 32],
+        )>,
     ) -> Result<Self, DomError> {
         info!("Initializing DOM node ({:?} network)", config.network);
         info!("Data directory: {}", config.data_dir);
@@ -2091,13 +2621,27 @@ impl DomNode {
             None => DomStore::open(data_path)?,
         };
 
-        // Generate or load Noise keypair.
-        let noise_privkey = load_or_create_noise_static_key(&store)?;
+        // Validate chain state and any required external restart floor before
+        // creating even unrelated node metadata in this data directory.
+        #[cfg(feature = "ethereum-checkpoint-verified-poc")]
+        let chain = match restart_checkpoint {
+            Some((checkpoint, policy_hash)) => ChainState::open_with_verified_checkpoint_floor(
+                store,
+                genesis_hash,
+                config.network.magic(),
+                checkpoint,
+                policy_hash,
+            )?,
+            None => ChainState::open(store, genesis_hash, config.network.magic())?,
+        };
+        #[cfg(not(feature = "ethereum-checkpoint-verified-poc"))]
+        let chain = ChainState::open(store, genesis_hash, config.network.magic())?;
+
+        // Generate or load the Noise key only after the rollback barrier has
+        // accepted this database snapshot.
+        let noise_privkey = Zeroizing::new(load_or_create_noise_static_key(&chain.store)?);
         let noise_pubkey = dom_wire::handshake::derive_static_pubkey(&noise_privkey);
         info!("Node identity: {}", hex::encode(noise_pubkey));
-
-        // Initialize chain state
-        let chain = ChainState::open(store, genesis_hash, config.network.magic())?;
         #[cfg(feature = "native-usdom-v4-poc")]
         if chain.native_usdom_v4_activation_initialized()? && !allow_native_usdom_v4_activation {
             return Err(DomError::PolicyRejected(
@@ -2152,15 +2696,13 @@ impl DomNode {
             let path = Path::new(wallet_path);
             match WalletDir::open(path, wallet_password) {
                 Ok(wallet_dir) => {
-                    info!("Wallet loaded from {:?}", wallet_dir.path());
+                    info!("Configured wallet loaded");
                     Some(Arc::new(Mutex::new(wallet_dir)))
                 }
-                Err(e) => {
+                Err(_error) => {
                     warn!(
-                        "Could not open wallet directory {path:?}: {e}. Mining stays \
-                         disabled without a wallet (DOM-SEC-004 fail-closed). Create a \
-                         deterministic wallet with `dom-wallet init` or the desktop \
-                         wallet and point wallet_path at that directory."
+                        "Could not open configured wallet; mining remains disabled \
+                         (DOM-SEC-004 fail-closed)"
                     );
                     None
                 }
@@ -2218,9 +2760,13 @@ impl DomNode {
             #[cfg(feature = "native-usdom-v4-poc")]
             native_usdom_v2_runtime: None,
             #[cfg(feature = "native-usdom-v4-poc")]
+            native_usdom_proof_admission: Arc::new(NativeProofAdmission::new()),
+            #[cfg(feature = "native-usdom-v4-poc")]
             native_usdom_v2_schedule: None,
             #[cfg(feature = "native-usdom-v4-poc")]
             candidate_v2_first_height: None,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            sync_attestation_collector: None,
             tx_fluff_tx,
             tx_stem_tx,
             config: config.clone(),
@@ -2255,7 +2801,7 @@ impl DomNode {
             task_supervisor: NodeTaskSupervisor::new(),
             state_events: Arc::new(Notify::new()),
             ibd_active_sessions: Arc::new(AtomicU64::new(0)),
-            regtest_rpc_mining_active: Arc::new(AtomicBool::new(false)),
+            bounded_rpc_mining_active: Arc::new(AtomicBool::new(false)),
             pex: Arc::new(Mutex::new(crate::pex::PexManager::for_network(
                 PEX_MAX_KNOWN_PEERS,
                 config.network,
@@ -2372,6 +2918,7 @@ impl DomNode {
                     orphan_pool: self.native_usdom_v4_orphan_pool.clone(),
                     candidate_v2_first_height: self.candidate_v2_first_height,
                     migration_shutdown: Some(self.task_supervisor.clone()),
+                    proof_admission: self.native_usdom_proof_admission.clone(),
                 });
         let v2_ingress =
             self.native_usdom_v2_runtime
@@ -2388,6 +2935,7 @@ impl DomNode {
                     native_future_queue: queue.clone(),
                     state_events: self.state_events.clone(),
                     orphan_pool: self.native_usdom_v4_orphan_pool.clone(),
+                    proof_admission: self.native_usdom_proof_admission.clone(),
                 });
         supervisor
             .spawn_critical(
@@ -2879,10 +3427,7 @@ impl DomNode {
                                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                     }
                                 } else {
-                                    tracing::debug!(
-                                        "Stem-timed-out tx {} not in mempool; dropping",
-                                        hex::encode(tx_hash)
-                                    );
+                                    tracing::debug!("stem-timed-out transaction no longer present");
                                 }
                             }
                         }
@@ -2963,7 +3508,7 @@ impl DomNode {
                     }
                     // Spawn connection handler
                     let config = self.config.clone();
-                    let privkey = self.noise_privkey;
+                    let privkey = self.noise_privkey.clone();
                     let chain = self.chain.clone();
                     let channels = BroadcastChannels {
                         block_relay_tx: self.block_relay_tx.clone(),
@@ -3005,9 +3550,13 @@ impl DomNode {
                         #[cfg(feature = "native-usdom-v4-poc")]
                         native_usdom_v2_runtime: self.native_usdom_v2_runtime.clone(),
                         #[cfg(feature = "native-usdom-v4-poc")]
+                        native_usdom_proof_admission: self.native_usdom_proof_admission.clone(),
+                        #[cfg(feature = "native-usdom-v4-poc")]
                         native_usdom_v2_schedule: self.native_usdom_v2_schedule,
                         #[cfg(feature = "native-usdom-v4-poc")]
                         candidate_v2_first_height: self.candidate_v2_first_height,
+                        #[cfg(feature = "native-usdom-v4-poc")]
+                        sync_attestation_collector: self.sync_attestation_collector.clone(),
                     };
                     let peers = svc.peers.clone();
                     let metrics = svc.metrics.clone();
@@ -3092,9 +3641,13 @@ impl DomNode {
             #[cfg(feature = "native-usdom-v4-poc")]
             native_usdom_v2_runtime: self.native_usdom_v2_runtime.clone(),
             #[cfg(feature = "native-usdom-v4-poc")]
+            native_usdom_proof_admission: self.native_usdom_proof_admission.clone(),
+            #[cfg(feature = "native-usdom-v4-poc")]
             native_usdom_v2_schedule: self.native_usdom_v2_schedule,
             #[cfg(feature = "native-usdom-v4-poc")]
             candidate_v2_first_height: self.candidate_v2_first_height,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            sync_attestation_collector: self.sync_attestation_collector.clone(),
         };
         let mut configured_seed_ip_cache = HashMap::<String, HashSet<std::net::IpAddr>>::new();
         loop {
@@ -3171,7 +3724,7 @@ impl DomNode {
                     );
 
                     let config = self.config.clone();
-                    let privkey = self.noise_privkey;
+                    let privkey = self.noise_privkey.clone();
                     let chain = self.chain.clone();
                     let channels = BroadcastChannels {
                         block_relay_tx: self.block_relay_tx.clone(),
@@ -3364,6 +3917,7 @@ impl dom_rpc::NodeHandle for DomNode {
             };
         use dom_wire::dandelion::{DandelionPhase, StemEnvelope};
         let relayed = match phase {
+            DandelionPhase::Suppressed => false,
             DandelionPhase::Fluff => self.tx_fluff_tx.send(tx_bytes.clone()).is_ok(),
             DandelionPhase::Stem => {
                 if let Some(target) = stem_target {
@@ -3383,10 +3937,7 @@ impl dom_rpc::NodeHandle for DomNode {
                 .txs_relayed
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         } else {
-            info!(
-                "tx accepted but not relayed: no peer subscribers (tx {})",
-                hex::encode(hash)
-            );
+            info!("transaction accepted but no relay subscriber was available");
         }
 
         Ok(dom_rpc::TxAdmission {
@@ -3458,7 +4009,7 @@ async fn handle_inbound(
     mut stream: tokio::net::TcpStream,
     addr: std::net::SocketAddr,
     config: NodeConfig,
-    privkey: [u8; 32],
+    privkey: Zeroizing<[u8; 32]>,
     chain: Arc<Mutex<ChainState>>,
     channels: BroadcastChannels,
     svc: NodeServices,
@@ -3486,7 +4037,7 @@ async fn handle_inbound(
     // so a wrong guess costs this connection, and recovery happens when the
     // peer redials (its dial loop treats handshake failure as retryable).
     let prologue_version = node_prologue_version(
-        native_usdom_is_enabled(&svc),
+        native_usdom_is_enabled(&svc) || sync_tip_transport_is_enabled(&svc),
         svc.prologue_prefs.version_for(addr.ip()),
     );
     let transport = match tokio::select! {
@@ -3566,6 +4117,11 @@ async fn handle_inbound(
                     local_wire_capabilities(&svc, prologue_version),
                     peer_hello.capabilities,
                 );
+            let _sync_tip_session_negotiated = dom_wire::message::sync_tip_v1_capability_negotiated(
+                prologue_version,
+                local_wire_capabilities(&svc, prologue_version),
+                peer_hello.capabilities,
+            );
             if native_session_negotiated && native_v2_session_negotiated {
                 warn!("peer {addr} negotiated mutually exclusive USDOM phases");
                 return None;
@@ -3693,6 +4249,8 @@ async fn handle_inbound(
                     native_usdom_v4_negotiated: native_session_negotiated,
                     #[cfg(feature = "native-usdom-v4-poc")]
                     native_usdom_v2_negotiated: native_v2_session_negotiated,
+                    #[cfg(feature = "native-usdom-v4-poc")]
+                    sync_tip_v1_negotiated: _sync_tip_session_negotiated,
                 },
                 &config,
                 addr,
@@ -3747,7 +4305,7 @@ async fn handle_inbound(
 async fn connect_outbound(
     addr: &str,
     config: NodeConfig,
-    privkey: [u8; 32],
+    privkey: Zeroizing<[u8; 32]>,
     chain: Arc<Mutex<ChainState>>,
     channels: BroadcastChannels,
     svc: NodeServices,
@@ -3793,7 +4351,19 @@ async fn connect_outbound(
     let (mut stream, transport, prologue_version) = loop {
         let mut stream = match tokio::select! {
             _ = shutdown.wait() => return OutboundAttemptOutcome::Shutdown,
-            result = tokio::net::TcpStream::connect(addr) => result,
+            result = tokio::time::timeout(
+                Duration::from_secs(OUTBOUND_CONNECT_TIMEOUT_SECS),
+                tokio::net::TcpStream::connect(addr),
+            ) => match result {
+                Ok(result) => result,
+                Err(_) => {
+                    warn!(
+                        "Connection to {addr} timed out after \
+                         {OUTBOUND_CONNECT_TIMEOUT_SECS}s"
+                    );
+                    return OutboundAttemptOutcome::RetryableFailure;
+                }
+            },
         } {
             Ok(s) => s,
             Err(e) => {
@@ -3817,11 +4387,11 @@ async fn connect_outbound(
         let peer_ip = config_ip.or_else(|| stream.peer_addr().ok().map(|socket| socket.ip()));
         let prologue_version = match peer_ip {
             Some(ip) => node_prologue_version(
-                native_usdom_is_enabled(&svc),
+                native_usdom_is_enabled(&svc) || sync_tip_transport_is_enabled(&svc),
                 svc.prologue_prefs.version_for(ip),
             ),
             None => node_prologue_version(
-                native_usdom_is_enabled(&svc),
+                native_usdom_is_enabled(&svc) || sync_tip_transport_is_enabled(&svc),
                 unkeyed_version.unwrap_or(dom_wire::handshake::SUPPORTED_PROLOGUE_VERSIONS[0]),
             ),
         };
@@ -3921,6 +4491,11 @@ async fn connect_outbound(
                     local_wire_capabilities(&svc, prologue_version),
                     peer_hello.capabilities,
                 );
+            let _sync_tip_session_negotiated = dom_wire::message::sync_tip_v1_capability_negotiated(
+                prologue_version,
+                local_wire_capabilities(&svc, prologue_version),
+                peer_hello.capabilities,
+            );
             if native_session_negotiated && native_v2_session_negotiated {
                 warn!("peer {addr} negotiated mutually exclusive USDOM phases");
                 return OutboundAttemptOutcome::RetryableFailure;
@@ -4041,6 +4616,8 @@ async fn connect_outbound(
                     native_usdom_v4_negotiated: native_session_negotiated,
                     #[cfg(feature = "native-usdom-v4-poc")]
                     native_usdom_v2_negotiated: native_v2_session_negotiated,
+                    #[cfg(feature = "native-usdom-v4-poc")]
+                    sync_tip_v1_negotiated: _sync_tip_session_negotiated,
                 },
                 &config,
                 peer_addr,
@@ -4139,8 +4716,22 @@ fn local_wire_capabilities(svc: &NodeServices, wire_version: u32) -> u64 {
     wire_capabilities(
         native_usdom_v4_is_enabled(svc),
         native_usdom_v2_is_enabled(svc),
+        sync_tip_transport_is_enabled(svc),
         wire_version,
     )
+}
+
+fn sync_tip_transport_is_enabled(svc: &NodeServices) -> bool {
+    #[cfg(feature = "native-usdom-v4-poc")]
+    {
+        let _ = svc;
+        true
+    }
+    #[cfg(not(feature = "native-usdom-v4-poc"))]
+    {
+        let _ = svc;
+        false
+    }
 }
 
 fn native_usdom_v4_is_enabled(svc: &NodeServices) -> bool {
@@ -4179,15 +4770,26 @@ fn node_prologue_version(native_usdom_v4_enabled: bool, candidate: u32) -> u32 {
     }
 }
 
-fn wire_capabilities(v1_enabled: bool, v2_enabled: bool, wire_version: u32) -> u64 {
-    if wire_version != 4 || v1_enabled == v2_enabled {
+fn wire_capabilities(
+    v1_enabled: bool,
+    v2_enabled: bool,
+    sync_tip_enabled: bool,
+    wire_version: u32,
+) -> u64 {
+    if wire_version != 4 {
         return 0;
     }
-    if v1_enabled {
+    let mut capabilities = if v1_enabled == v2_enabled {
+        0
+    } else if v1_enabled {
         dom_wire::message::CAPABILITY_NATIVE_USDOM_V4
     } else {
         dom_wire::message::CAPABILITY_NATIVE_USDOM_V2
+    };
+    if sync_tip_enabled {
+        capabilities |= dom_wire::message::CAPABILITY_SYNC_TIP_V1;
     }
+    capabilities
 }
 
 #[cfg(feature = "native-usdom-v4-poc")]
@@ -4383,15 +4985,15 @@ async fn hello_exchange_inner(
         .as_secs();
     // Note: scorer not available here — log drift for now
     // Full integration requires passing scorer or metrics into hello_exchange
-    let drift = (our_ts as i64 - peer_hello.local_timestamp as i64).abs();
-    if drift > dom_core::PEER_DRIFT_DISCONNECT_SECS {
+    let drift = our_ts.abs_diff(peer_hello.local_timestamp);
+    if drift > dom_core::PEER_DRIFT_DISCONNECT_SECS as u64 {
         return Err(DomError::Invalid(format!(
             "peer clock drift too large: {}s (limit {}s)",
             drift,
             dom_core::PEER_DRIFT_DISCONNECT_SECS
         )));
     }
-    if drift > dom_core::PEER_DRIFT_WARN_SECS {
+    if drift > dom_core::PEER_DRIFT_WARN_SECS as u64 {
         warn!("Peer clock drift warning: {}s for peer at exchange", drift);
     }
 
@@ -4461,6 +5063,20 @@ fn annotate_send_err(kind: &str, peer_addr: std::net::SocketAddr, e: DomError) -
             ..
         } => e,
         _ => DomError::Internal(format!("{kind} send to {peer_addr}: {e}")),
+    }
+}
+
+/// Preserve the error class for a Dandelion++ stem write without recording
+/// either the selected hop or the fact that this peer was selected for stem.
+/// Those two fields, combined with wall-clock logs, identify the private relay
+/// edge that Dandelion++ is intended to hide from routine telemetry.
+fn redact_stem_send_err(e: DomError) -> DomError {
+    match &e {
+        DomError::PeerMisbehavior {
+            kind: PeerMisbehavior::WriteTimeout,
+            ..
+        } => e,
+        _ => DomError::Internal("private transaction relay write failed".into()),
     }
 }
 
@@ -5304,7 +5920,10 @@ async fn advance_peer_rotation_cooldowns(
 
 pub(crate) fn load_or_create_noise_static_key(store: &DomStore) -> Result<[u8; 32], DomError> {
     match store.get_metadata(NOISE_STATIC_KEY_METADATA_KEY)? {
-        Some(bytes) => parse_persisted_noise_static_key(&bytes),
+        Some(bytes) => {
+            let bytes = Zeroizing::new(bytes);
+            parse_persisted_noise_static_key(&bytes)
+        }
         None => {
             let (privkey, _) = dom_wire::handshake::generate_static_keypair();
             store.put_metadata(NOISE_STATIC_KEY_METADATA_KEY, &privkey)?;
@@ -5539,15 +6158,18 @@ async fn build_locator(chain: &Arc<Mutex<ChainState>>) -> Result<Vec<[u8; 32]>, 
     let tip_height = c.tip_height.0;
     let mut out: Vec<[u8; 32]> = Vec::new();
     let mut step: u64 = 1;
-    let mut h: i64 = tip_height as i64;
-    while h >= 0 && out.len() < dom_core::MAX_LOCATOR_HASHES {
-        if let Some(hash) = c.store.get_hash_at_height(h as u64)? {
+    let mut height = Some(tip_height);
+    while let Some(h) = height {
+        if out.len() >= dom_core::MAX_LOCATOR_HASHES {
+            break;
+        }
+        if let Some(hash) = c.store.get_hash_at_height(h)? {
             out.push(hash);
         }
         if out.len() >= 10 {
             step = step.saturating_mul(2);
         }
-        h -= step as i64;
+        height = h.checked_sub(step);
     }
     Ok(out)
 }
@@ -5909,6 +6531,7 @@ async fn resume_ibd_block_sync(
                         orphan_pool: runtime.svc.native_usdom_v4_orphan_pool.clone(),
                         candidate_v2_first_height: runtime.svc.candidate_v2_first_height,
                         migration_shutdown: Some(runtime.svc.task_supervisor.clone()),
+                        proof_admission: runtime.svc.native_usdom_proof_admission.clone(),
                     }
                     .ingest(&wire_payload, ibd_now())
                     .await?;
@@ -5944,6 +6567,7 @@ async fn resume_ibd_block_sync(
                         native_future_queue: runtime.svc.native_usdom_v4_future_queue.clone(),
                         state_events: runtime.state_events.clone(),
                         orphan_pool: runtime.svc.native_usdom_v4_orphan_pool.clone(),
+                        proof_admission: runtime.svc.native_usdom_proof_admission.clone(),
                     }
                     .ingest(&wire_payload, ibd_now())
                     .await?;
@@ -7014,6 +7638,40 @@ fn catchup_interval() -> tokio::time::Interval {
     timer
 }
 
+#[cfg(feature = "native-usdom-v4-poc")]
+fn unix_time_seconds() -> Result<u64, DomError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .map_err(|_| DomError::Internal("system clock precedes Unix epoch".into()))
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+fn checkpoint_sync_tip(chain: &ChainState) -> dom_usdom_checkpoint_program::SyncTip {
+    let mut total_difficulty = [0; 32];
+    chain.tip_difficulty.to_big_endian(&mut total_difficulty);
+    dom_usdom_checkpoint_program::SyncTip {
+        network_magic: chain.network_magic,
+        chain_id: *derive_chain_id(chain.network_magic, &chain.genesis_hash).as_bytes(),
+        height: chain.tip_height.0,
+        block: *chain.tip_hash.as_bytes(),
+        total_difficulty,
+    }
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+fn sync_tip_payload(chain: &ChainState, generated_at: u64) -> dom_wire::message::SyncTipPayload {
+    let tip = checkpoint_sync_tip(chain);
+    dom_wire::message::SyncTipPayload {
+        network_magic: tip.network_magic,
+        chain_id: tip.chain_id,
+        height: tip.height,
+        block: tip.block,
+        total_difficulty: tip.total_difficulty,
+        generated_at,
+    }
+}
+
 async fn message_loop(
     conn: PeerConn<'_>,
     config: &NodeConfig,
@@ -7057,6 +7715,8 @@ async fn message_loop(
         native_usdom_v4_negotiated,
         #[cfg(feature = "native-usdom-v4-poc")]
         native_usdom_v2_negotiated,
+        #[cfg(feature = "native-usdom-v4-poc")]
+        sync_tip_v1_negotiated,
     } = conn;
     #[cfg(feature = "native-usdom-v4-poc")]
     let ibd_native_usdom_v4_negotiated = native_usdom_v4_negotiated;
@@ -7066,6 +7726,8 @@ async fn message_loop(
     let ibd_native_usdom_v2_negotiated = native_usdom_v2_negotiated;
     #[cfg(not(feature = "native-usdom-v4-poc"))]
     let ibd_native_usdom_v2_negotiated = false;
+    #[cfg(feature = "native-usdom-v4-poc")]
+    use dom_wire::message::SyncTipPayload;
     use dom_wire::message::{
         AddrPayload, BlockPayload, Command, GetAddrPayload, GetBlockDataPayload, GetHeadersPayload,
         HeadersPayload, WireMessage,
@@ -7237,8 +7899,11 @@ async fn message_loop(
                             .txs_relayed
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("tx_fluff lagged by {n} for {peer_addr}");
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        // Neither the peer nor the precise missed-envelope count
+                        // belongs in telemetry: together with wall-clock log time
+                        // they expose a per-peer transaction propagation signal.
+                        tracing::warn!("transaction fluff relay receiver lagged");
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         return Err(DomError::Internal("tx_fluff channel closed".into()));
@@ -7259,7 +7924,7 @@ async fn message_loop(
                                 payload: env.tx_bytes,
                             };
                             if let Err(e) = codec.send(stream, &msg).await {
-                                return Err(annotate_send_err("stem", peer_addr, e));
+                                return Err(redact_stem_send_err(e));
                             }
                             svc.metrics
                                 .txs_relayed
@@ -7267,8 +7932,10 @@ async fn message_loop(
                         }
                         // else: this envelope is targeted at a different peer; ignore
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("tx_stem lagged by {n} for {peer_addr}");
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        // A stem receiver is the selected privacy hop. Logging its
+                        // address or exact queue delta makes that choice observable.
+                        tracing::warn!("transaction stem relay receiver lagged");
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         return Err(DomError::Internal("tx_stem channel closed".into()));
@@ -7285,6 +7952,22 @@ async fn message_loop(
                 };
                 if let Err(e) = codec.send(stream, &ping).await {
                     return Err(annotate_send_err("ping", peer_addr, e));
+                }
+                #[cfg(feature = "native-usdom-v4-poc")]
+                if sync_tip_v1_negotiated {
+                    let generated_at = unix_time_seconds()?;
+                    let payload = {
+                        let chain = chain.lock().await;
+                        sync_tip_payload(&chain, generated_at)
+                    };
+                    let advertisement = WireMessage {
+                        magic: config.network.magic(),
+                        command: Command::SyncTip,
+                        payload: payload.to_bytes()?,
+                    };
+                    if let Err(error) = codec.send(stream, &advertisement).await {
+                        return Err(annotate_send_err("sync-tip", peer_addr, error));
+                    }
                 }
             }
             _ = catchup_timer.tick() => {
@@ -7430,6 +8113,94 @@ async fn message_loop(
                     }
                     Command::Pong => {
                         // Liveness confirmed; nothing else to do until peer tracking added
+                    }
+                    #[cfg(feature = "native-usdom-v4-poc")]
+                    Command::SyncTip => {
+                        if !sync_tip_v1_negotiated {
+                            let error = DomError::Malformed(
+                                "sync-tip received without negotiated capability [ban+20]".into(),
+                            );
+                            let _ = record_peer_violation(&chain, &svc.peers, peer_addr, &error).await;
+                            return Err(error);
+                        }
+                        let payload = match SyncTipPayload::from_bytes(&msg.payload) {
+                            Ok(payload) => payload,
+                            Err(error) => {
+                                let _ = record_peer_violation(
+                                    &chain,
+                                    &svc.peers,
+                                    peer_addr,
+                                    &error,
+                                )
+                                .await;
+                                return Err(error);
+                            }
+                        };
+                        let peer_id = codec.peer_id().ok_or_else(|| {
+                            DomError::PolicyRejected(
+                                "sync-tip session has no authenticated Noise identity".into(),
+                            )
+                        })?;
+                        let received_at = unix_time_seconds()?;
+                        let local_tip = {
+                            let chain = chain.lock().await;
+                            checkpoint_sync_tip(&chain)
+                        };
+                        let advertised_tip = dom_usdom_checkpoint_program::SyncTip {
+                            network_magic: payload.network_magic,
+                            chain_id: payload.chain_id,
+                            height: payload.height,
+                            block: payload.block,
+                            total_difficulty: payload.total_difficulty,
+                        };
+                        let receipt = {
+                            let Some(collector) = svc.sync_attestation_collector.as_ref() else {
+                                // Transport support is network-wide. Nodes without a
+                                // ratified local policy announce their own tip but retain
+                                // no remote observations and can never persist a receipt.
+                                continue;
+                            };
+                            let observed = {
+                                let mut collector = collector.lock().await;
+                                collector.observe(
+                                    peer_id,
+                                    advertised_tip,
+                                    payload.generated_at,
+                                    received_at,
+                                    local_tip,
+                                )
+                            };
+                            match observed {
+                                Ok(receipt) => receipt,
+                                Err(error) => {
+                                    let _ = record_peer_violation(
+                                        &chain,
+                                        &svc.peers,
+                                        peer_addr,
+                                        &error,
+                                    )
+                                    .await;
+                                    return Err(error);
+                                }
+                            }
+                        };
+                        if let Some(receipt) = receipt {
+                            let policy = svc
+                                .sync_attestation_collector
+                                .as_ref()
+                                .expect("negotiated collector")
+                                .lock()
+                                .await
+                                .policy()
+                                .clone();
+                            // Recheck the tip under the chain lock before the one-record
+                            // LMDB commit. A concurrent block makes the receipt stale and
+                            // it is deliberately not persisted.
+                            let chain = chain.lock().await;
+                            if checkpoint_sync_tip(&chain) == receipt.tip {
+                                receipt.save(&chain.store, &policy, received_at)?;
+                            }
+                        }
                     }
                     Command::Hello => {
                         // Second Hello after handshake is a protocol violation
@@ -7831,10 +8602,7 @@ async fn message_loop(
                             svc.metrics
                                 .suppressed_duplicate_tx_relays
                                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            tracing::debug!(
-                                "Tx {} already in mempool — skipping replay before validation",
-                                hex::encode(tx_hash)
-                            );
+                            tracing::debug!("duplicate transaction replay suppressed");
                         } else {
                         match Transaction::from_bytes(&tx_bytes) {
                             Ok(tx) => {
@@ -7881,10 +8649,7 @@ async fn message_loop(
                                 };
                                 if accepted.is_ok() {
                                     svc.state_events.notify_waiters();
-                                    tracing::debug!(
-                                        "Accepted relayed tx {} from {peer_addr}",
-                                        hex::encode(tx_hash)
-                                    );
+                                    tracing::debug!("relayed transaction accepted");
                                     // Dandelion++ re-route: decide Stem vs Fluff,
                                     // then dispatch the tx over the correct channel.
                                     let peer_list: Vec<std::net::SocketAddr> = if let Ok(p) = svc.peers.try_lock() {
@@ -7901,6 +8666,7 @@ async fn message_loop(
                                     };
                                     use dom_wire::dandelion::{DandelionPhase, StemEnvelope};
                                     match phase {
+                                        DandelionPhase::Suppressed => {}
                                         DandelionPhase::Fluff => {
                                             if tx_fluff_tx.send(tx_bytes.clone()).is_ok() {
                                                 svc.metrics.txs_relayed.fetch_add(
@@ -7926,19 +8692,12 @@ async fn message_loop(
                                 } else if let Err(e) = accepted {
                                     tracing::debug!(
                                         event = "consensus_rejection",
-                                        peer_addr = %peer_addr,
-                                        tx_hash = %hex::encode(tx_hash),
-                                        reason = %e,
                                         failure_class = "consensus_rejection",
                                         "relayed transaction rejected"
                                     );
                                     let banned =
                                         record_peer_violation(&chain, &svc.peers, peer_addr, &e)
                                             .await;
-                                    tracing::debug!(
-                                        "Rejected relayed tx {} from {peer_addr}: {e}",
-                                        hex::encode(tx_hash)
-                                    );
                                     if banned {
                                         return Err(e);
                                     }
@@ -7948,7 +8707,7 @@ async fn message_loop(
                                 let banned =
                                     record_peer_violation(&chain, &svc.peers, peer_addr, &e)
                                         .await;
-                                tracing::debug!("Invalid tx from {peer_addr}: {e}");
+                                tracing::debug!("malformed relayed transaction rejected");
                                 if banned {
                                     return Err(e);
                                 }
@@ -8110,6 +8869,7 @@ async fn message_loop(
                             orphan_pool: svc.native_usdom_v4_orphan_pool.clone(),
                             candidate_v2_first_height: svc.candidate_v2_first_height,
                             migration_shutdown: Some(svc.task_supervisor.clone()),
+                            proof_admission: svc.native_usdom_proof_admission.clone(),
                         };
                         match ingress.ingest(&msg.payload, ibd_now()).await {
                             Ok(dom_chain::ConnectResult::BestChain) => {
@@ -8233,6 +8993,7 @@ async fn message_loop(
                             native_future_queue: svc.native_usdom_v4_future_queue.clone(),
                             state_events: svc.state_events.clone(),
                             orphan_pool: svc.native_usdom_v4_orphan_pool.clone(),
+                            proof_admission: svc.native_usdom_proof_admission.clone(),
                         };
                         match ingress.ingest(&msg.payload, ibd_now()).await {
                             Ok(dom_chain::ConnectResult::BestChain) => info!(
@@ -8330,6 +9091,94 @@ async fn message_loop(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "native-usdom-v4-poc")]
+    #[test]
+    fn native_proof_admission_is_global_fail_fast_and_releases() {
+        let admission = std::sync::Arc::new(NativeProofAdmission::new());
+        let permit = super::try_acquire_native_proof_permit(&admission, b"package-a").unwrap();
+        assert!(super::try_acquire_native_proof_permit(&admission, b"package-b").is_err());
+        drop(permit);
+        assert!(super::try_acquire_native_proof_permit(&admission, b"package-b").is_ok());
+    }
+
+    #[cfg(feature = "native-usdom-v4-poc")]
+    #[test]
+    fn native_proof_permit_survives_async_owner_cancellation_pattern() {
+        let admission = std::sync::Arc::new(NativeProofAdmission::new());
+        let async_owner = std::sync::Arc::new(
+            super::try_acquire_native_proof_permit(&admission, b"package-a").unwrap(),
+        );
+        let blocking_owner = async_owner.clone();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            release_rx.recv().unwrap();
+            drop(blocking_owner);
+        });
+
+        drop(async_owner);
+        assert!(super::try_acquire_native_proof_permit(&admission, b"package-b").is_err());
+        release_tx.send(()).unwrap();
+        worker.join().unwrap();
+        assert!(super::try_acquire_native_proof_permit(&admission, b"package-b").is_ok());
+    }
+
+    #[cfg(feature = "native-usdom-v4-poc")]
+    #[test]
+    fn identical_native_proof_package_is_suppressed_while_inflight() {
+        let admission = std::sync::Arc::new(NativeProofAdmission::new());
+        let permit = super::try_acquire_native_proof_permit(&admission, b"same-package").unwrap();
+        let error = match super::try_acquire_native_proof_permit(&admission, b"same-package") {
+            Ok(_) => panic!("duplicate package must be suppressed"),
+            Err(error) => error,
+        };
+        assert!(format!("{error}").contains("already in flight"));
+        assert!(
+            super::is_native_proof_capacity_error(&error),
+            "a deferred duplicate must be requeued while the original proof job owns capacity"
+        );
+        drop(permit);
+        assert!(
+            super::try_acquire_native_proof_permit(&admission, b"same-package").is_ok(),
+            "invalid/aborted packages must not create a persistent negative cache"
+        );
+    }
+
+    #[test]
+    fn relay_logs_do_not_link_valid_transactions_to_ingress_peers() {
+        let source = include_str!("node.rs");
+        let production = source
+            .split_once("#[cfg(test)]\nmod tests {")
+            .expect("node test module marker")
+            .0;
+        for forbidden in [
+            "Accepted relayed tx",
+            "Rejected relayed tx",
+            "Invalid tx from",
+            "Stem-timed-out tx {}",
+            "tx_hash = %hex::encode(tx_hash)",
+            "tx accepted but not relayed: no peer subscribers (tx {})",
+            "tx_fluff lagged by {n} for {peer_addr}",
+            "tx_stem lagged by {n} for {peer_addr}",
+        ] {
+            assert!(
+                !production.contains(forbidden),
+                "privacy-linkable relay log reintroduced: {forbidden}"
+            );
+        }
+        for required in [
+            "duplicate transaction replay suppressed",
+            "relayed transaction accepted",
+            "malformed relayed transaction rejected",
+            "transaction fluff relay receiver lagged",
+            "transaction stem relay receiver lagged",
+        ] {
+            assert!(
+                production.contains(required),
+                "redacted relay log missing: {required}"
+            );
+        }
+    }
+
     use super::{
         annotate_send_err, bind_metrics_listener, bind_p2p_listener, catchup_interval,
         clear_persisted_mempool_snapshot, clear_persisted_peer_reputation,
@@ -8340,13 +9189,14 @@ mod tests {
         load_peer_rotation_snapshot, node_prologue_version, parse_persisted_noise_static_key,
         peer_violation_score, pending_peer_violation_score, persist_ibd_state,
         persist_mempool_snapshot, persist_peer_reputation_snapshot, purge_mempool_confirmed_inputs,
-        reconcile_mempool_after_connect, record_peer_violation, refresh_peer_metrics,
-        relay_block_action, resolve_configured_dns_seeds, restore_peer_rotation_state,
-        serve_metrics, sync_mode_for_peer, trace_lock, tx_hash, wire_capabilities,
-        DeferredReplayAction, DomNode, IbdActiveGuard, IbdRoundState, OutboundAttemptOutcome,
-        RelayBlockAction, CATCHUP_MAX_HASHES_PER_TICK, LEGACY_PEER_REPUTATION_METADATA_KEY,
-        LEGACY_PEER_ROTATION_METADATA_KEY, MEMPOOL_METADATA_KEY, METRICS_CONTENT_TYPE,
-        NOISE_STATIC_KEY_METADATA_KEY, PEER_REPUTATION_METADATA_KEY, PEER_ROTATION_METADATA_KEY,
+        reconcile_mempool_after_connect, record_peer_violation, redact_stem_send_err,
+        refresh_peer_metrics, relay_block_action, resolve_configured_dns_seeds,
+        restore_peer_rotation_state, serve_metrics, sync_mode_for_peer, trace_lock, tx_hash,
+        wire_capabilities, DeferredReplayAction, DomNode, IbdActiveGuard, IbdRoundState,
+        OutboundAttemptOutcome, RelayBlockAction, CATCHUP_MAX_HASHES_PER_TICK,
+        LEGACY_PEER_REPUTATION_METADATA_KEY, LEGACY_PEER_ROTATION_METADATA_KEY,
+        MEMPOOL_METADATA_KEY, METRICS_CONTENT_TYPE, NOISE_STATIC_KEY_METADATA_KEY,
+        PEER_REPUTATION_METADATA_KEY, PEER_ROTATION_METADATA_KEY,
     };
 
     #[test]
@@ -8431,12 +9281,15 @@ mod tests {
     fn native_wire_capability_requires_runtime_and_v4_session() {
         let v1 = dom_wire::message::CAPABILITY_NATIVE_USDOM_V4;
         let v2 = dom_wire::message::CAPABILITY_NATIVE_USDOM_V2;
-        assert_eq!(wire_capabilities(true, false, 4), v1);
-        assert_eq!(wire_capabilities(false, true, 4), v2);
-        assert_eq!(wire_capabilities(false, false, 4), 0);
-        assert_eq!(wire_capabilities(true, true, 4), 0);
-        assert_eq!(wire_capabilities(true, false, 3), 0);
-        assert_eq!(wire_capabilities(false, true, 2), 0);
+        let sync = dom_wire::message::CAPABILITY_SYNC_TIP_V1;
+        assert_eq!(wire_capabilities(true, false, false, 4), v1);
+        assert_eq!(wire_capabilities(false, true, false, 4), v2);
+        assert_eq!(wire_capabilities(false, false, false, 4), 0);
+        assert_eq!(wire_capabilities(true, true, false, 4), 0);
+        assert_eq!(wire_capabilities(false, false, true, 4), sync);
+        assert_eq!(wire_capabilities(true, false, true, 4), v1 | sync);
+        assert_eq!(wire_capabilities(true, false, true, 3), 0);
+        assert_eq!(wire_capabilities(false, true, true, 2), 0);
         assert_eq!(node_prologue_version(true, 4), 4);
         assert_eq!(node_prologue_version(false, 4), 3);
         assert_eq!(node_prologue_version(false, 3), 3);
@@ -8847,6 +9700,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn metrics_listener_rejects_non_loopback_before_bind() {
+        let mut config = regtest_node_config(std::path::Path::new("/tmp/dom-metrics-public"));
+        config.metrics_listen_addr = Some("0.0.0.0:0".to_string());
+        let error = bind_metrics_listener(&config)
+            .await
+            .expect_err("unauthenticated metrics must not bind publicly");
+        assert!(matches!(error, DomError::PolicyRejected(_)));
+    }
+
+    #[tokio::test]
     async fn metrics_endpoint_serves_prometheus_text() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -8872,6 +9735,8 @@ mod tests {
 
         assert!(response.starts_with("HTTP/1.1 200 OK"));
         assert!(response.contains(&format!("Content-Type: {METRICS_CONTENT_TYPE}")));
+        assert!(response.contains("Cache-Control: no-store\r\n"));
+        assert!(response.contains("X-Content-Type-Options: nosniff\r\n"));
         assert!(response.contains("dom_chain_height 42"));
         server.abort();
         let _ = server.await;
@@ -10313,6 +11178,29 @@ mod tests {
         );
         assert!(matches!(&other, DomError::Internal(m) if m.contains("relay send to")));
         assert_eq!(peer_violation_score(&other), None);
+    }
+
+    #[test]
+    fn stem_send_error_does_not_disclose_selected_privacy_hop() {
+        let error = redact_stem_send_err(DomError::Internal(
+            "write frame to 198.51.100.8:3414 failed".into(),
+        ));
+        let rendered = error.to_string();
+        assert_eq!(
+            rendered,
+            "internal error: private transaction relay write failed"
+        );
+        assert!(!rendered.contains("198.51.100.8"));
+        assert!(!rendered.contains("stem"));
+
+        let timeout = redact_stem_send_err(DomError::peer_misbehavior(
+            PeerMisbehavior::WriteTimeout,
+            "write timeout after 30s",
+        ));
+        assert_eq!(
+            peer_violation_score(&timeout),
+            Some(ban_scores::PROTOCOL_VIOLATION)
+        );
     }
 
     #[test]
@@ -11972,5 +12860,56 @@ mod tests {
         assert_eq!(sync_mode_for_peer(100, ours, 100, theirs), Some(true));
         assert_eq!(sync_mode_for_peer(100, ours, 100, ours), None);
         assert_eq!(sync_mode_for_peer(100, ours, 99, theirs), None);
+    }
+
+    #[cfg(feature = "ethereum-checkpoint-verified-poc")]
+    #[test]
+    fn verified_restart_constructor_reaches_required_floor_before_node_metadata() {
+        use alloy::primitives::B256;
+        use usdom_ethereum_finality_experiment::checkpoints::{
+            unsafe_test_only_verified_checkpoint, CHECKPOINT_RECORD_LENGTH,
+        };
+
+        let dir = fresh_test_dir("verified-restart-floor");
+        let wire = hex::decode(
+            include_str!(
+                "../../../labs/usdom-ethereum-finality/fixtures/checkpoint-handoff-v2.hex"
+            )
+            .trim(),
+        )
+        .unwrap();
+        let source_record: [u8; CHECKPOINT_RECORD_LENGTH] = wire.try_into().unwrap();
+        let mut floor = dom_chain::ethereum_checkpoint_poc::decode_test_oracle_v2(&source_record)
+            .expect("canonical handoff fixture");
+        floor.dom_network_magic = dom_core::NETWORK_MAGIC_REGTEST;
+        floor.checkpoint_event_digest =
+            dom_chain::ethereum_checkpoint_poc::expected_checkpoint_event_digest(floor);
+        let record: [u8; CHECKPOINT_RECORD_LENGTH] =
+            dom_chain::ethereum_checkpoint_poc::encode_test_oracle_v2(floor)
+                .unwrap()
+                .try_into()
+                .unwrap();
+        let policy_hash = [0x91; 32];
+        let checkpoint =
+            unsafe_test_only_verified_checkpoint(record, 1_700_000_000, B256::from(policy_hash));
+        let error = DomNode::init_with_verified_restart_floor_for_test(
+            regtest_node_config(&dir),
+            &checkpoint,
+            policy_hash,
+        )
+        .err()
+        .expect("an empty database cannot satisfy a nonempty external floor");
+        assert!(
+            error.to_string().contains("required checkpoint is missing"),
+            "{error}"
+        );
+
+        let store = open_test_store(&dir);
+        assert!(store
+            .get_metadata(NOISE_STATIC_KEY_METADATA_KEY)
+            .unwrap()
+            .is_none());
+        drop(store);
+        crate::test_dir::remove_test_dir(&dir);
     }
 }

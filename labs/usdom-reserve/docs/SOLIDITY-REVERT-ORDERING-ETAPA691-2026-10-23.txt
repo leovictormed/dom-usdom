@@ -1,0 +1,91 @@
+Stage 691 — Solidity custom-error and fail-closed ordering audit (2026-10-23)
+
+Scope
+
+Audited public Solidity revert surfaces and ordering across reserve deposits,
+withdrawal admission/execution, cleanup/recovery, notary rotation, checkpoint
+submission/finalization/halt and both RISC Zero adapters. Checked that terminal
+local errors precede expensive external calls, effects follow all authorization,
+downstream failures are bounded/normalized, and errors reveal no private witness.
+
+Confirmed defect and correction
+
+Three permissionless admission paths performed bounded but unnecessary external
+identity/token calls before rejecting calldata that was already terminally
+invalid:
+
+- `DOMCheckpointRegistry.submitCheckpointCandidate` probed the guardian Safe
+  before validating checkpoint fields, fixed proof length and selector.
+- `USDOMProofReserve.queueWithdrawal` probed USDT policy/balance before amount,
+  deadline, permanent statement/request binding and active replay checks.
+- Prototype `USDOMReserve.queueWithdrawal` probed token policy before epoch,
+  window, duplicate-ID and signature-count checks.
+
+The checks are reordered so pure/local structure, bounds, timestamps, bindings,
+replay and fixed counts fail first. Safe/token/verifier calls remain mandatory
+for every otherwise admissible request and still execute before any state write.
+This reduces attacker-selected gas expenditure and gives operators the terminal
+input error rather than a coincidental external-health error.
+
+Downstream revert containment
+
+- Reserve/registry verifier calls have fixed 5,000,000-gas budgets, copy exactly
+  one word and normalize revert, malformed/trailing/oversized data to
+  `InvalidProof`, `VerifierChanged` or configuration rejection.
+- Safe probes have 50,000-gas budgets and fixed 32/96/160-byte buffers. Revert
+  bombs, malformed arrays and dirty words become `GuardianChanged`,
+  `ControlPlaneChanged` or constructor rejection.
+- Production ERC-20 transfer/balance calls have fixed 500,000-gas budgets and
+  one-word output buffers; hostile failures normalize to `UnsupportedToken`.
+  Policy getters target the same immutable codehash-pinned Ethereum USDT runtime;
+  their ordinary upstream revert contains no private protocol witness.
+- RISC Zero adapters copy no receipt-verifier returndata, reject every nonempty
+  success response and expose only `InvalidProof`/`VerifierChanged`. The target
+  verifier codehash, selector, chain and ImageID are immutable.
+- No external call occurs after a state change unless the complete transaction
+  is intentionally atomic under `nonReentrant`; any downstream failure rolls
+  back effects and events.
+
+Operator error classes
+
+Terminal for the exact input/configuration include `InvalidConfiguration`,
+`InvalidDeposit`, `InvalidBurn`, `InvalidCheckpoint`, `InvalidProof`,
+`AlreadyUsed`, `PendingMismatch`, `InvalidQuorum`, `RevokedNotary` and invalid
+certificate windows. Retryable after time or external restoration include
+`TooEarly`, pause/resume gates, `Insolvent`, unsafe/frozen token state,
+`VerifierChanged`, `GuardianChanged`/`ControlPlaneChanged` and a temporarily
+empty outflow bucket. `OutflowLimit` is terminal when the requested amount
+exceeds immutable capacity and retryable at execution when only current bucket
+availability is insufficient; callers can distinguish these using amount versus
+public capacity/availability. A proof-reserve stale lease can renew only the
+permanently bound exact debt; the prototype requires discard and fresh quorum.
+
+Privacy
+
+Custom errors contain selectors and, only for `FrozenTokenAccount`, the public
+Ethereum account whose token policy failed. They do not include proof bytes,
+DOM private notes, openings, signatures, secrets or internal transfer history.
+Downstream revert payloads are not copied at bounded verifier/Safe/token transfer
+boundaries.
+
+Material regressions
+
+- A malformed checkpoint returns `InvalidCheckpoint` even while the Safe policy
+  is drifted; the same structurally valid request still returns `GuardianChanged`.
+- An over-capacity burn returns `OutflowLimit` while token policy is paused,
+  proving the terminal local bound precedes external token probes.
+- Once an exact burn/request is queued, its replay returns `AlreadyUsed` even if
+  token policy subsequently becomes unsafe; the original pending debt remains.
+- Related quorum, duplicate and checkpoint/proof admission tests remain green.
+
+Validation
+
+- focused ordering/regression set: 4/4 passed;
+- complete Solidity campaign: 169/169 passed across 14 suites, including all
+  invariant campaigns;
+- `forge lint` completed on all five production contracts with only previously
+  inventoried prototype heuristic warnings;
+- `forge fmt --check` and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit, push,
+deployment, signature, transmission or funds operation was performed.

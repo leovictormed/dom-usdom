@@ -1,0 +1,73 @@
+USD + DOM — resposta verificável a incidente upstream RISC Zero
+Etapa 310 — 2026-10-22
+
+Achado
+
+O monitor de saúde e os preflights detectavam a ativação do emergency-stop do
+RISC Zero, mas não existia uma resposta canônica que vinculasse a mesma
+observação finalizada às duas fronteiras independentes: a fila de resgates da
+reserva e a admissão de novos checkpoints. Também era necessário impedir que
+uma falha de RPC ou um valor `paused` indisponível autorizasse a operação
+irreversível `haltPermanently()`.
+
+Correção
+
+`sdk/risc0-incident-response.mjs` agora:
+
+- reexecuta a avaliação estrita da referência e da observação finalizada;
+- vincula endereços e hashes de runtime aos alvos aprovados da release;
+- usa `pauseQueueEpoch(observedEpoch)` para impedir que uma transação atrasada
+  invalide uma geração de fila diferente da observada;
+- emite `haltPermanently()` somente para uma observação estruturalmente válida
+  que confirme emergency-stop ou divergência de identidade upstream;
+- diante de observação indisponível, malformada ou atomicamente inconsistente,
+  pausa a reserva, mas não autoriza a parada irreversível do registry;
+- compromete plano, ordem, calldata, precondições e pós-condições em um hash;
+- recomputa o plano a partir da observação original antes de qualquer envio;
+- exige inclusão bem-sucedida e confirma os dois estados on-chain.
+
+O assessor de saúde agora distingue `paused=true` de estado ausente ou não
+booleano. O segundo caso produz `risc0_estop_state_invalid` e nunca é tratado
+como confirmação suficiente para interromper o registry permanentemente.
+
+Ensaio isolado
+
+O comando fixo `npm run --silent drill:risc0-upstream-response` recompila os
+contratos e executa o ensaio numa EVM Anvil isolada. O ensaio implanta a reserva
+de prova, o registry, verificadores e guardiões contratuais separados, injeta
+uma observação finalizada com emergency-stop confirmado e executa as duas
+ações por seus respectivos adaptadores. A validação exige:
+
+- reserva pausada;
+- `queueEpoch` avançado de 1 para 2;
+- novos depósitos rejeitados;
+- registry permanentemente interrompido;
+- recibos bem-sucedidos para ambos os papéis;
+- adulteração de plano e substituição da observação rejeitadas;
+- falha não confirmada incapaz de gerar `haltPermanently()`.
+
+Limites preservados
+
+O ensaio prova o comportamento do software e dos contratos sem afirmar que as
+Safes de produção já existem ou que uma resposta operacional real já ocorreu.
+As identidades de hardware, assinaturas, configuração final, deploy e
+atestação de recuperação do plano de controle permanecem em seus gates
+independentes. O executor não contém chaves e aceita adaptadores de transação;
+proposta de Safe não é confundida com inclusão on-chain.
+
+Nenhuma mainnet, RPC público, prova RISC Zero, mineração, chave, assinatura,
+deploy público, transação pública, fundo, commit, tag ou push foi utilizado.
+
+Validação histórica da etapa 310
+
+- comando fixo do ensaio: 7/7 testes aprovados;
+- validação focada de saúde, resposta e readiness: 50/50 aprovada;
+- lint de produção e rebuild forçado dos contratos: aprovados;
+- regressão Node completa: 239/239 aprovada;
+- proveniência completa: 1.039 fontes verificadas;
+- gate de mainnet fechada: NOT READY esperado, 159 bloqueios únicos;
+- gate de fundos reais: NOT READY esperado, 170 bloqueios únicos.
+
+Nota: a etapa 311 substitui o plano v1 por um plano v2 multifuente e eleva o
+ensaio para 8/8, a suíte focada para 51/51 e a regressão para 240/240. Consulte
+`docs/MULTISOURCE-RISC0-INCIDENT-RESPONSE-ETAPA311-2026-10-22.txt`.

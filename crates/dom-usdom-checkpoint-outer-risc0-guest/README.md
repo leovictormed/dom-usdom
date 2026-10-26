@@ -1,7 +1,7 @@
 # USDOM outer checkpoint RISC Zero guest
 
 This guest composes the complete checkpoint-segment receipts into the exact
-`UDCPST04` statement consumed by `DOMCheckpointRegistry`. It authenticates the
+`UDCPST06` statement consumed by `DOMCheckpointRegistry`. It authenticates the
 previous registry state and policy, requires exact segment boundaries at the
 target height and confirmation tip, and verifies every segment receipt under
 the complete-segment ImageID frozen in `src/main.rs`. Segment sizes may vary

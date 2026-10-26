@@ -1,0 +1,73 @@
+ETAPA 1037 — USDOM/Ethereum time and height authorities
+Date: 2026-10-23
+
+Conclusion
+==========
+
+The reviewed protocol uses the correct consensus clock for each decision. No
+concrete wrong-clock, off-by-one, unchecked overflow, reorg rollback or expired
+debt loss was found. Boundary regression and a structural gate were added so
+these relationships cannot drift silently.
+
+Authority map
+=============
+
+1. Ethereum deposits and checkpoints
+
+- Beacon finality verification authenticates the finalized slot, execution
+  header and timestamp. Transcript replay may not end before that finalized
+  slot and may not exceed the slot ceiling derived for the containing DOM block.
+- Issuance and checkpoint admission compare the authenticated Ethereum
+  execution timestamp to the authenticated DOM header timestamp. The inclusive
+  age boundary subtracts the configured DOM future-clock allowance; a finalized
+  timestamp may lead DOM only by that allowance. Both additions are checked.
+- DOM block timestamps are strictly greater than their parent, above MTP and
+  bounded against local time by the consensus future-time limit. A reorg rolls
+  both header time and native state/anchor back atomically, then revalidates the
+  replacement branch.
+
+2. Burn deadline
+
+- The wallet derives `validUntil` from the latest authenticated finalized
+  Ethereum execution timestamp using checked addition.
+- Native consensus requires a sufficiently recent Ethereum anchor. It derives
+  the minimum relay/execution window from the later of DOM and Ethereum time,
+  and derives the absolute maximum only from authenticated Ethereum time.
+- Both endpoints are inclusive. One second below the minimum or above the
+  maximum fails; overflow fails. Existing state tests cover these boundaries,
+  stale anchors, zero time, maximum integers and impossible policies.
+
+3. Checkpoint confirmation
+
+- Confirmation height, accumulated work and timestamp come from the proved DOM
+  suffix tip, rather than a relayer clock. The Ethereum registry commits them,
+  rejects a confirmation timestamp later than its own consensus timestamp, and
+  starts a separate challenge delay from the Ethereum inclusion timestamp.
+
+4. Reserve queue, finality age and debt
+
+- Queue `readyAt` and `expiresAt` use checked Ethereum `block.timestamp`
+  addition. Execution is allowed exactly at both endpoints; pruning/discarding
+  becomes possible only at `expiresAt + 1`, so the boundary is consistent.
+- Queue expiry removes a temporary collateral reservation. It does not erase
+  the proof-authorized burn debt. The immutable burn/request pairing remains and
+  can receive a renewed lease with an equal or newer recent finality slot.
+- Beacon recency derives the current slot from Ethereum Mainnet genesis and the
+  twelve-second cadence. Future slots fail. The exact maximum-age slot remains
+  valid and the following slot-age fails.
+- The outflow bucket uses Ethereum consensus time, refills monotonically from
+  its persisted update timestamp, rounds capacity downward only, and caps at
+  `outflowCapacity`. Reorgs revert the bucket state with the transaction/state
+  that changed it; replacement Ethereum blocks must advance parent timestamp.
+
+Changes and evidence
+====================
+
+- Added `finalized_time_window_has_exact_inclusive_bounds_and_checked_overflow`
+  covering both inclusive boundaries, one-second violations and u64 overflow.
+- Added `labs/usdom-reserve/scripts/check-usdom-time-authorities-stage1037.py`.
+- Gate, Python syntax, rustfmt and targeted diff checks pass.
+
+Full Cargo and Forge execution remains deferred while the independent RISC0
+proof is active on the resource-constrained host. No network, push, deployment,
+signing or funds were used.

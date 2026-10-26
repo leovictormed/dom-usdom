@@ -1,0 +1,22 @@
+Stage 484 — mainnet preflight deployment reference binding
+Date: 2026-10-23
+
+The mainnet preflight accepted up to four deployment transaction hashes through
+independent environment variables. The deployment executor already persisted
+create-once raw-validation and submission-hash artifacts, but the preflight did
+not consume them and could therefore be detached from the reviewed package,
+identity observation and signed raw transaction.
+
+The preflight now takes only the owner-controlled deployment evidence directory.
+For each required index it reads the fixed mode-0600 raw-validation and
+submission-hash records, checks canonical framing and equality, and requires the
+package SHA-256, identity-observation SHA-256 and observation hash recorded by
+the validated Ledger handoff. It derives all receipt hashes from these records
+and rereads every byte after the multi-RPC observation. Predeployment requires
+indices 0 and 1; postdeployment requires all four indices.
+
+`production_mainnet_preflight_deployment_references_bound` is a structural fact.
+No network access, signature, deployment, funds, mining, commit or push occurred.
+
+Validation: direct operational inputs 13/13; operator runbook 71/71; readiness
+60/60.

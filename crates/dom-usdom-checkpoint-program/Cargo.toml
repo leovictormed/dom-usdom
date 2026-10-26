@@ -7,6 +7,11 @@ authors.workspace = true
 license.workspace = true
 publish = false
 
+[[bin]]
+name = "dom-usdom-export-randomx-statement"
+path = "src/bin/dom-usdom-export-randomx-statement.rs"
+required-features = ["host-reference"]
+
 [features]
 default = []
 risc0-recursion = ["dep:risc0-zkvm"]
@@ -48,7 +53,10 @@ host-reference = [
     "dep:dom-serialization",
     "dep:dom-usdom-privacy",
     "dep:dom-usdom-state",
+    "dep:dom-wallet-crypto",
     "dep:usdom-ethereum-finality-experiment",
+    "dep:lmdb",
+    "dep:dom-store",
 ]
 
 [dependencies]
@@ -60,7 +68,10 @@ dom-serialization = { workspace = true, optional = true }
 dom-usdom-privacy = { path = "../dom-usdom-privacy", optional = true }
 dom-usdom-state = { path = "../dom-usdom-state", optional = true }
 dom-usdom-checkpoint-statement = { path = "../dom-usdom-checkpoint-statement" }
+dom-wallet-crypto = { workspace = true, optional = true }
 primitive-types = { workspace = true, optional = true }
+lmdb = { workspace = true, optional = true }
+dom-store = { workspace = true, optional = true }
 risc0-zkvm = { version = "=3.0.6", default-features = false, optional = true }
 sha3 = { version = "0.10", default-features = false, features = ["std"] }
 thiserror.workspace = true
@@ -77,3 +88,4 @@ dom-pow = { path = "../dom-pow", default-features = false }
 hex.workspace = true
 primitive-types.workspace = true
 rand = "0.8.6"
+tempfile.workspace = true

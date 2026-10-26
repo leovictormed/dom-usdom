@@ -1,0 +1,49 @@
+USD + DOM — materialização dos pins Solidity de produção
+Etapa 440 — 2026-10-22
+
+Problema corrigido
+------------------
+Os contratos recusam corretamente qualquer implantação na Ethereum mainnet
+enquanto seis constantes de produção permanecem zeradas. O processo, porém,
+não tinha um comando canônico para fixá-las; dependia de edição manual e podia
+misturar hashes de releases diferentes ou deixar apenas um contrato alterado.
+
+Implementação
+-------------
+`npm run --silent materialize:production-solidity-pins` não aceita argumentos.
+Ele lê os hashes já reconciliados em `proof-reserve.unconfigured.json`, exige a
+release Ethereum ainda não autorizada e substitui exatamente uma declaração de
+cada constante:
+
+- código e configuração do verificador, mais a configuração pré-ativação da
+  reserva;
+- código e configuração do verificador, mais a configuração pré-ativação do
+  registry.
+
+Nota da etapa 442: as duas configurações compiladas são deliberadamente
+pré-ativação. A configuração completa da reserva, o compromisso de ativação e a
+raiz vazia são armazenados pelo construtor e validados pelo release. Compilá-los
+no runtime criaria uma dependência circular com o estado nativo que autentica o
+próprio runtime.
+
+Hash zero, campo ausente, declaração duplicada e valor preexistente divergente
+são rejeitados. Repetir o comando é idempotente. A escrita usa lock, arquivo
+temporário, fsync e substituição atômica por fonte; uma interrupção é retomável
+porque um pin já gravado só é aceito quando coincide com a mesma release.
+O materializador não altera autorização, não assina e não transmite nada.
+Os locks são os mesmos das configurações e das fontes, e o SHA-256 da release
+e dos dois contratos é revalidado antes da primeira escrita, antes de cada
+substituição e ao final. Assim uma configuração concorrente não pode ser
+compilada com pins derivados de outro snapshot.
+
+Validação
+---------
+- casos de sucesso, idempotência, zero, ausência, duplicação, divergência e
+  autorização indevida são testados;
+- os contratos reais são consumidos pelo teste para detectar mudança futura
+  no formato das declarações;
+- regressão focada passa 74/74 e a regressão Node completa passa 328/328;
+- a compilação forçada dos quatro contratos de produção passa com warnings
+  tratados como erro.
+- a proveniência completa passa para 169 imports, todas as fronteiras de prova
+  e panic, e 1.243 arquivos fonte.

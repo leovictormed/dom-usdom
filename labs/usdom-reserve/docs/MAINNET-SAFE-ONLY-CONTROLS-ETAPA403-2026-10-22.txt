@@ -1,0 +1,45 @@
+USDOM stage 403 — mainnet Safe-only controls
+Date: 2026-10-22
+
+Finding
+=======
+
+The release pipeline required 2-of-3 Safes, but contract construction still
+classified a failed or absent masterCopy() call as a direct immutable control
+on every chain. That fallback is useful for local tests, yet it allowed a chain
+ID 1 configuration to reach production-pin validation without first proving
+that each authority actually exposed the required Safe policy surface.
+
+Correction
+==========
+
+Both production contracts now reject a control whose exact bounded
+masterCopy() probe fails when block.chainid is 1. Reserve governance, reserve
+guardian and checkpoint guardian must therefore be proxy controls whose
+singleton and 2-of-3/no-module policy pass construction. Direct immutable
+control contracts remain available on non-mainnet development networks.
+
+The distinction is enforced before the zero production-artifact pins: tests
+separately prove that direct mainnet controls fail with InvalidConfiguration
+and valid Safe-shaped controls continue to the expected ProductionUnavailable
+gate until ratified verifier/configuration hashes are compiled into the release.
+
+Evidence
+========
+
+- Focused mainnet constructor tests pass 2/2.
+- Complete Solidity suite: 145/145 pass, including invariant campaigns.
+- Complete Node suite: 304/304 pass.
+- Reserve and registry runtime hashes are unchanged because the new check is
+  constructor-only; initcode vectors were regenerated and verified.
+- Production lint/forced build and whitespace checks pass.
+
+No live RPC, signature, transaction, deployment, funds, mining, project commit,
+tag or push occurred. The detached finalized-burn capacity proof remained
+active and was not restarted or modified.
+
+Next action
+===========
+
+Continue reviewing constructor/runtime trust distinctions and bounded hostile
+return behavior while the detached capacity proof runs.

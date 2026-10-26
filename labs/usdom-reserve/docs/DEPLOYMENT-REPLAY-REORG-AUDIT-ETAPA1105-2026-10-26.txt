@@ -1,0 +1,29 @@
+USD0M deployment replay/reorg audit — Stage 1105 — 2026-10-26
+
+The signed deployment transaction is replay-safe through the CREATE nonce and
+exact chain-1 signature. Before signing, and again after the unbounded transmit
+authorization prompt, every independent RPC must report the exact finalized
+and pending nonce, empty target code, zero target balance, bounded estimate and
+the same pinned finalized fee anchor. The transaction hash must be absent from
+every source before a new publication. If already observed, the flow switches
+to receipt recovery rather than publishing another transaction.
+
+After mining, every source must return the same successful receipt and
+canonical receipt-block hash below its finalized head. The flow repeats receipt,
+ancestry and runtime-code checks after the wait, then establishes one common
+all-source finalized barrier. It reads the fixed barrier before and after the
+runtime query and rechecks it immediately before create-once persistence. A
+reorg or provider divergence at any boundary aborts without promoting evidence.
+
+Stage 1104 additionally binds each source to Ethereum mainnet genesis, closing
+same-chainId fork replay. Package, observation, raw transaction, validation and
+hash files are byte-rechecked through signing, transmission and persistence.
+
+Validation: replay/reorg and identity suites pass 9/9; diff checks pass. The
+requested broad 32/32 suite cannot yet be made green without changing policy:
+the mathematical minimum for four nonempty initcodes is 14,480,032 gas while
+the concurrently reduced aggregate cap is 12,000,000. This depends on the
+coordinated canonical Forge measurement and ceiling reconciliation. No fixture
+was falsified and no cap was enlarged.
+
+No network, Cargo, Forge, signing, deployment, commit or push ran.

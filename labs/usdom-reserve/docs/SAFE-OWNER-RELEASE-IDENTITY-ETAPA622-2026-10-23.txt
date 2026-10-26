@@ -1,0 +1,61 @@
+ETAPA 622 — owner commitments na identidade de release da proof reserve
+Data: 2026-10-23
+
+Escopo
+------
+Auditoria Solidity/testes/documentacao da ligacao introduzida na etapa 617
+entre owner commitments, reserveConfigHash, configuracao pre-ativacao,
+runtime/initcode e premissas do plano/readiness. Nenhum Rust, Cargo, RISC Zero,
+deploy, assinatura ou fundo foi tocado.
+
+Defeito confirmado
+------------------
+A etapa 617 armazenava os owner commitments como immutables e os revalidava em
+runtime, mas CONTROL_PLANE_IDENTITY_TYPEHASH e _controlPlaneIdentityHash ainda
+incluiam apenas account/codehash e implementation/codehash. Logo listas de
+owners diferentes produziam a mesma governance/guardian identity e o mesmo
+policy/preactivation config hash autorizado. O runtime mudava, mas a identidade
+de configuracao declarada nao explicava essa mudanca.
+
+Correcao
+--------
+- CONTROL_PLANE_IDENTITY_TYPEHASH agora inclui bytes32 ownersCommitment.
+- Os commitments de governance e guardian entram nos respectivos identity
+  hashes antes de ReservePolicy. Portanto alteram reserveConfigHash e o
+  PRODUCTION_RESERVE_PREACTIVATION_CONFIG_HASH exigido na chain ID 1.
+- Controles diretos nao proxy continuam canonicos com commitment zero.
+- A ordem ABI de getOwners permanece parte do commitment. A regressao agora
+  cobre tanto substituicao por outro EOA quanto permuta de 0x101/0x102.
+
+Runtime, initcode e plano
+------------------------
+Os owner commitments sao immutables, portanto listas distintas produzem
+runtimes/codehashes distintos. O initcode continua igual para a mesma Config,
+pois owners sao estado externo lido durante o construtor e nao calldata. Isso
+e esperado e agora esta provado em teste: o hash de initcode sozinho nao pode
+autorizar o deploy. Na mainnet, o construtor calcula o hash pre-ativacao com os
+owners observados e reverte se ele nao corresponder ao pin compilado; readiness
+tambem deve ler ambos getters e o runtime codehash apos o deploy.
+
+Achado de integracao pendente
+-----------------------------
+O SDK/plano/readiness off-chain ainda usa o typehash anterior de quatro campos
+e ainda nao recebe governanceOwnersCommitment/guardianOwnersCommitment. Por
+restricao desta etapa somente Solidity/testes/docs, esses arquivos nao foram
+alterados. Antes de materializar uma release, uma etapa coordenada deve atualizar
+o schema off-chain, vetores, ABI/readiness e pins; ate la, a divergencia faz a
+preparacao falhar, em vez de autorizar owners errados.
+
+Validacao
+---------
+- teste novo initcode/config/runtime: passou 1/1;
+- testes focados de identity e drift (incluindo order): passaram 2/2;
+- suite USDOMProofReserve: 43/43 passou, fuzz de 1024 runs;
+- suite Solidity completa apos a ligacao: passou sem falhas (151 testes);
+- solc 0.8.37, forge fmt e git diff --check: passaram.
+
+Conclusao
+---------
+Owners diferentes nao compartilham mais identidade de configuracao autorizada.
+O pin mainnet do construtor cobre o estado Safe observado, mesmo que o initcode
+isolado seja identico. A sincronizacao off-chain esta explicitamente pendente.

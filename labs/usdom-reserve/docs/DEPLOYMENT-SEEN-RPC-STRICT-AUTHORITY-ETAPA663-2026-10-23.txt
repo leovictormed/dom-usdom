@@ -1,0 +1,32 @@
+ETAPA 663 — OBSERVAÇÃO ESTRITA DE TRANSAÇÃO DO DEPLOYMENT
+Data: 2026-10-23
+
+Correção
+As duas respostas `eth_getTransactionByHash` do executor de deployment deixaram
+de passar por command substitution e variável shell. Tanto a observação antes
+do prompt de transmissão quanto a reobservação posterior à autorização escrevem
+os bytes RPC diretamente em arquivo privado no tmpfs. O checker estrito valida
+UTF-8 fatal, ausência de chaves duplicadas e propriedades do arquivo antes de jq.
+
+Garantias preservadas
+- A primeira passagem aceita somente null ou o hash esperado em cada RPC.
+- Se nenhuma fonte viu a transação, o operador ainda precisa autorizar transmissão.
+- Após o prompt, nonce finalized/pending, ausência de código e null em todas as
+  fontes são rechecados antes de publicar.
+- Raw, validação e hash persistidos continuam comparados após snapshots TOCTOU.
+
+Regressões
+- Proibição abrangente de qualquer `name=$(rpc rpc eth_getTransactionByHash ...)`.
+- Exigência dos dois redirecionamentos diretos e dos checkers preexistentes.
+- Ataques com `hash` duplicado por escape, outra chave duplicada e UTF-8 inválido
+  são rejeitados repetidamente com bytes idênticos.
+- 2/2 testes Node, bash -n e git diff --check passaram.
+
+Inventário residual
+A busca em labs/usdom-reserve/scripts, sdk e scripts não encontrou command
+substitution `eth_getTransactionByHash`, pipeline desse RPC para jq, nem jq de
+`seen`/`transmit_seen` por here-string. Saídas escalares de cast (nonce, code,
+estimate, publish) permanecem texto deliberadamente validado por regex/igualdade
+e não são JSON entregue ao jq.
+
+Nenhum RPC, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

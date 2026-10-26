@@ -1,0 +1,39 @@
+Stage 1158 — on-chain canonical Safe singleton pin
+Date: 2026-10-26
+
+Integration assumption hardened
+===============================
+
+Production tooling required the canonical Safe 1.4.1 singleton address and
+runtime hash, while the two production contracts themselves accepted any
+singleton address/code hash that exposed the expected Safe-shaped view surface;
+the release-specific configuration hash was the only on-chain binding to the
+tool-selected value. A mistaken or compromised release materialization could
+therefore pin a Safe-shaped implementation with different authorization logic.
+
+Correction
+==========
+
+On Ethereum chain ID 1, USDOMProofReserve and DOMCheckpointRegistry now require
+both canonical Safe 1.4.1 singleton facts directly:
+
+- address 0x41675C099F32341bf84BFc5382aF534df5C7461a;
+- extcodehash 0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4.
+
+These checks precede threshold/owner/module/guard/fallback validation. Existing
+immutable identity and continuous code-hash checks remain in force, so the new
+pin removes an external configuration assumption without weakening drift
+detection or non-mainnet isolated tests.
+
+Evidence
+========
+
+- Both production-policy regressions assert the exact constants and prove a
+  Safe-shaped noncanonical singleton fails with InvalidConfiguration on chain 1.
+- Focused tests pass 2/2 using pinned Forge and solc 0.8.37.
+- The complete offline Forge suite exits 0 after recompiling the affected graph.
+- USDOMProofReserve runtime is 20,556 bytes (4,020-byte EIP-170 margin).
+- DOMCheckpointRegistry runtime is 10,350 bytes (14,226-byte margin).
+
+No Rust, Cargo, operational/readiness script, real network, signing, deployment,
+funds, commit or push was used.

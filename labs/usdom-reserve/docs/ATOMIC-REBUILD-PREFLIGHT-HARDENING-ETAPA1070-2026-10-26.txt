@@ -1,0 +1,67 @@
+ETAPA 1070 — HARDENING DO PREFLIGHT E DA PUBLICAÇÃO DO REBUILD
+Data: 2026-10-26
+
+Escopo
+Auditoria leve das pré-condições do rebuild determinístico atual. Nenhum Cargo/RISC0
+pesado, rede, push, deploy, assinatura ou fundo foi utilizado.
+
+Achados corrigidos
+1. A checagem `output.exists()` ocorria antes de `os.replace()`. Um diretório vazio
+   criado nessa janela poderia ser substituído, contrariando a promessa de publicação
+   sem overwrite.
+2. O ambiente mínimo trocava HOME, mas não fornecia um CARGO_HOME autenticado nem
+   RUSTC/RUSTDOC pinados. Um estágio Rust real não tinha uma fonte offline explícita,
+   e depender do cache mutável do operador seria incompatível com reprodutibilidade.
+3. A árvore publicada era chamada imutável, mas permanecia gravável, e não havia
+   barreira de durabilidade para arquivos, diretórios e entrada no diretório pai.
+
+Correções
+- O schema do manifesto passou a `usdom-checkpoint-rebuild-orchestrator-v2`.
+- O manifesto exige `cargoHome`, manifesto SHA-256 do snapshot Cargo, `rustc` e
+  `rustdoc`; ambos os executáveis precisam estar na lista de ferramentas pinadas.
+- O snapshot offline usa schema estrito, raiz absoluta sem symlinks, diretórios sem
+  escrita e inventário completo byte-ordenado de arquivos diretos single-link, com
+  path relativo canônico, SHA-256, tamanho e modo 0400/0500. Arquivos extras,
+  ausentes, modificados, hardlinks e symlinks falham fechados.
+- Antes dos estágios, o snapshot é copiado para um CARGO_HOME privado dentro da
+  execução e todo o conteúdo copiado é revalidado. A cópia fica gravável apenas pela
+  execução para permitir os locks internos do Cargo. Os estágios recebem exatamente
+  CARGO_HOME privado, CARGO_NET_OFFLINE=true e RUSTC/RUSTDOC pinados, preservando o
+  ambiente mínimo anterior.
+- O resultado publicado registra path e SHA-256 do manifesto do cache offline.
+- A árvore final é selada em modos 0400/0500, cada arquivo e diretório recebe fsync,
+  e a publicação usa `renameat2(RENAME_NOREPLACE)`. Kernel/filesystem sem essa
+  garantia falha fechado. O diretório pai recebe fsync após a publicação.
+- Falha concorrente após o selamento restaura apenas o temporário para remoção e não
+  deixa candidato parcial.
+
+Validação
+- `py_compile`: aprovado.
+- Suite do orquestrador: 9/9.
+- Suites de handoff genérico e adaptador v5: 10/10.
+- Gates de carteira ETAPA1059/1060/1061: PASS/PASS/PASS.
+- `git diff --check`: aprovado.
+- O teste adversarial cria o output depois da checagem inicial: o rename NOREPLACE
+  recusa a publicação, preserva o diretório concorrente e remove o temporário.
+- Testes confirmam modos finais read-only, propagação do ambiente offline e rejeição
+  de cache ou ferramenta substituídos.
+
+Handoff real e recursos
+O handoff terminal real foi autenticado pelo mesmo validador do orquestrador:
+`/home/leonardov/.local/share/dom-usdom/handoffs/randomx-v5-20261026-failed-stale-handoff.json`,
+SHA-256 `24e5919a8247310acbc52bc490656179a158cf242f73332086e5a1b7e7c3992a`,
+classificação `failed-stale`, releaseAllowed=true e promotionAllowed=false.
+
+O host possui aproximadamente 275,7 GB livres, 4,1 GB de RAM disponível e 11,8 GB
+de swap livre na inspeção. A pressão de I/O caiu para menos de 10% antes das suítes.
+
+Pré-condições restantes
+- consolidar a implementação atual em commit/tree limpos; HEAD histórico
+  `d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c` não contém a árvore de trabalho atual;
+- materializar o snapshot Cargo offline read-only e seu manifesto completo;
+- materializar o manifesto v2 de produção com o commit/tree e ferramentas reais;
+- executar primeiro o dry-run com os dois hashes explícitos;
+- somente então iniciar o rebuild pesado segment -> outer -> finalized-burn ->
+  propagate -> receipts -> gate.
+
+Nenhum desses valores será inferido ou preenchido com artefatos históricos.

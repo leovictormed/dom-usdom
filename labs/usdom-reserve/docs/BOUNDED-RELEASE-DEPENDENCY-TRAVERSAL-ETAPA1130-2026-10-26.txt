@@ -1,0 +1,24 @@
+Bounded release dependency traversal — Stage 1130 — 2026-10-26
+
+Finding
+
+The release dependency checker used recursive Path.glob and discarded paths
+containing target only after traversal. It therefore entered the active Cargo
+target tree and could spend minutes or hours on generated compiler output.
+
+Correction
+
+The checker now uses one top-down os.walk helper with followlinks disabled,
+fail-closed traversal errors and directory pruning before descent. Cargo inputs
+prune .git, node_modules and target. npm inputs apply the same boundary.
+Symlink directories outside those generated boundaries and symlink dependency
+files are rejected so an input cannot disappear behind a non-traversed alias.
+
+Evidence
+
+- python3 -m unittest scripts.tests.test_release_dependency_policy -v: 4/4
+- python3 scripts/check-release-dependency-policy.py: PASS
+- live inventory: 36 Cargo locks, 15,017 Cargo package entries, 234 Cargo
+  manifests, four npm locks and 241 npm entries
+
+No network, secret, signature, deployment, funds, commit or push was used.

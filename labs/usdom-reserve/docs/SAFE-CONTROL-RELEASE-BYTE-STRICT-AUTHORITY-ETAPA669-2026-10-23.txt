@@ -1,0 +1,31 @@
+ETAPA 669 — EVIDÊNCIA SAFE RELEASE COM FRONTEIRA ESTRITA DE BYTES
+Data: 2026-10-23
+
+Inventário
+A busca distinguiu fontes Solidity, tokens/logs e métricas de documentos JSON.
+Ainda existem vários scripts de produção com Buffer.toString('utf8') antes do
+parser estrito. A maior autoridade seguinte foi safe-control-release-artifacts:
+ela lê bundle, três relatórios de papéis, separação, recovery drill e fragmento
+que alimentam as materializações de configuração e metadados Safe de release.
+
+Correção
+Todos esses documentos agora passam por parseSafeControlReleaseArtifactBytes,
+que chama parseStrictJsonBytes diretamente nos bytes. UTF-8 inválido falha antes
+de qualquer substituição; chaves duplicadas continuam falhando.
+
+Garantias preservadas
+- máximo 4 MiB e profundidade 48 por documento;
+- leitura direta dentro do projeto;
+- validação integral do artifact set recuperável e do fragmento;
+- SHA-256 do bundle, relatórios governance/guardian/checkpoint guardian,
+  separação e recovery conferidos contra cada referência do fragmento;
+- consumidores de release config e release metadata usam a mesma fronteira.
+
+Testes leves
+- schema duplicado por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige parseStrictJsonBytes(bytes) e proíbe bytes.toString;
+- 2/2 testes passaram em menos de 0,3 s;
+- node --check e git diff --check passaram.
+Nenhuma suíte pesada foi iniciada durante o build RandomX.
+
+Nenhum RPC, Rust/Cargo, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

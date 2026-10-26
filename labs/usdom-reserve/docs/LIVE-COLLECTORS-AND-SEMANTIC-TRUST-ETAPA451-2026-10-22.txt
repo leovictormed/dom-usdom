@@ -1,0 +1,23 @@
+USD0M stage 451 - bounded live collectors and semantic trust evidence
+
+The checkpoint-finalized event now has a live collector with a public
+create-once source catalog and private create-once observation. Two to five
+runtime-only HTTPS RPCs must agree on chain, receipt, finalized block, the
+single Checkpoint log, registry runtime and all nine post-state queries, then
+repeat the same receipt/block/code/state reads without drift.
+
+Mainnet predeployment and cold-start collection no longer embeds RPC URLs or
+uses permissive JSON transport. A catalog binds independent operator IDs to
+origin commitments; runtime URLs remain only in the environment. The bounded
+provider disables batching and enforces HTTPS, timeout, no redirects, response
+limits, strict duplicate-free JSON and exact request IDs.
+
+Residual-risk evidence is reconstructed canonically and records, without
+granting, the release's real-funds authorization scope. This removed a cycle
+that made the document impossible for a closed-mainnet release. The shared
+trusted-setup decision is reconstructed from both verifier configs and one
+content-hashed transcript, while security-validation v2 pins and rechecks every
+executed tool binary.
+
+Focused collector, report and integrated-gate tests pass. No live RPC, build
+ceremony, signature, deployment, transaction or funds were used.

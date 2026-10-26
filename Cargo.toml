@@ -20,6 +20,7 @@ members = [
     "crates/dom-usdom-rpc-protocol",
     "crates/dom-usdom-finalized-burn-program",
     "crates/dom-usdom-finalized-burn-risc0-guest",
+    "crates/dom-usdom-finalized-burn-proof-host",
     "crates/dom-usdom-checkpoint-statement",
     "crates/dom-usdom-checkpoint-program",
     "crates/dom-usdom-checkpoint-segment-risc0-guest",
@@ -31,6 +32,9 @@ members = [
     "crates/dom-usdom-randomx-portable",
     "crates/dom-usdom-randomx-risc0-guest",
     "crates/dom-usdom-randomx-aggregate-risc0-guest",
+    "crates/dom-usdom-randomx-proof-host",
+    "crates/dom-usdom-economic-proof-host",
+    "crates/dom-usdom-checkpoint-proof-host",
     "crates/dom-usdom-wallet",
     "crates/dom-wire",
     "crates/dom-tx",
@@ -364,6 +368,10 @@ lto             = "fat"
 codegen-units   = 1
 panic           = "abort"
 overflow-checks = true   # consensus-critical: never disable
+
+[profile.release-validation]
+inherits        = "release"
+debug           = 1      # retain actionable failure locations in release-vector evidence
 
 [profile.dev]
 overflow-checks = true   # enforce even in dev

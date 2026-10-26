@@ -1,0 +1,15 @@
+Stage 1147 — timestamp arithmetic precheck
+Date: 2026-10-26
+
+The quorum prototype added block.timestamp and a delay before checking whether
+the result fit its canonical uint64 clock. At the uint256 boundary Solidity
+could therefore emit Panic(0x11), bypassing the contract's explicit
+TimestampOverflow boundary. _timestampAfter now validates both the delay and
+the current timestamp against uint64.max before addition, matching the proof
+reserve and preserving one deterministic fail-closed protocol error.
+
+The timestamp regression now covers block.timestamp == uint256.max and passes
+1/1 with pinned Forge and solc 0.8.37. The complete offline Forge suite also
+recompiled the affected graph and exited without failures. Runtime is 14,610
+bytes, leaving 9,966 bytes below EIP-170. git diff --check passes. No Cargo,
+Rust, network, signing, deployment, funds, commit or push was used.

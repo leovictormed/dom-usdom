@@ -20,12 +20,17 @@ const fields = Object.freeze([
   'ethereumChainId','riscZeroVerifier','riscZeroVerifierCodeHash','riscZeroVerifierSelector',
   'finalizedBurnGuestImageId','journalSchemaHash',
 ]);
+const adapterFields=Object.freeze([
+  'ethereumChainId','riscZeroVerifier','riscZeroVerifierCodeHash','riscZeroVerifierSelector',
+  'finalizedBurnGuestImageId',
+]);
 const abi = AbiCoder.defaultAbiCoder();
 
 export const VERIFIER_CONFIG_SCHEMA = 'usdom-finalized-burn-verifier-config-v5';
 export const FINALIZED_BURN_PROOF_ACCEPTED_HASH = id('USDOM_FINALIZED_BURN_PROOF_V1');
 export const FINALIZED_BURN_RISC0_JOURNAL_SCHEMA_HASH = id('raw-statement-hash-32-bytes-v1');
 export const FINALIZED_BURN_RISC0_GROTH16_V3_SELECTOR = '0x73c457ba';
+export const FINALIZED_BURN_EVM_SEAL_BYTES = 4 + 8 * 32;
 export const FINALIZED_BURN_PROOF_SYSTEM = 'risc0-groth16-v3';
 export const VERIFIER_PROTOCOL_TYPEHASH = id(
   'VerifierProtocol(uint16 statementVersion,uint16 transitionCommitmentVersion,uint16 burnStateWitnessVersion,uint16 finalizedBurnProverInputVersion,uint16 publicOutputVersion,bytes32 burnStatementTypeHash,bytes32 burnIntentTypeHash,bytes32 privateBurnIdTypeHash,bytes32 activationScheduleCommitment,bytes32 domGenesisHash,uint32 domNetworkMagic,bytes32 domChainId,uint64 firstV4Height,bytes32 activationEmptyStateRoot)',
@@ -48,6 +53,36 @@ function exactObject(input) {
       || Object.keys(input).length !== fields.length || fields.some(field => !(field in input))) {
     throw new Error('exact finalized-burn verifier configuration fields required');
   }
+}
+
+export function finalizedBurnAdapterConfigHash(input) {
+  if(!input||typeof input!=='object'||Array.isArray(input)
+      ||Object.keys(input).length!==adapterFields.length||adapterFields.some(field=>!(field in input))) {
+    throw new Error('exact finalized-burn adapter fields required');
+  }
+  const c={...input};
+  c.ethereumChainId=uint(c.ethereumChainId,256);
+  if(c.ethereumChainId===0n) throw new Error('ethereumChainId must be nonzero');
+  try { c.riscZeroVerifier=getAddress(c.riscZeroVerifier); }
+  catch { throw new Error('riscZeroVerifier must be a nonzero canonical address'); }
+  if(c.riscZeroVerifier===getAddress('0x0000000000000000000000000000000000000000')) {
+    throw new Error('riscZeroVerifier must be a nonzero canonical address');
+  }
+  c.riscZeroVerifierCodeHash=hash(c.riscZeroVerifierCodeHash,'riscZeroVerifierCodeHash');
+  c.finalizedBurnGuestImageId=hash(c.finalizedBurnGuestImageId,'finalizedBurnGuestImageId');
+  if(typeof c.riscZeroVerifierSelector!=='string'
+      ||c.riscZeroVerifierSelector.toLowerCase()!==FINALIZED_BURN_RISC0_GROTH16_V3_SELECTOR) {
+    throw new Error('unsupported RISC Zero verifier selector');
+  }
+  c.riscZeroVerifierSelector=c.riscZeroVerifierSelector.toLowerCase();
+  const verifierConfigHash=keccak256(abi.encode(
+    ['bytes32','uint256','address','bytes32','bytes4','bytes32','bytes32','bytes32'],
+    [FINALIZED_BURN_RISC0_ADAPTER_CONFIG_TYPEHASH,c.ethereumChainId,c.riscZeroVerifier,
+      c.riscZeroVerifierCodeHash,c.riscZeroVerifierSelector,c.finalizedBurnGuestImageId,
+      FINALIZED_BURN_RISC0_JOURNAL_SCHEMA_HASH,FINALIZED_BURN_PROOF_ACCEPTED_HASH],
+  ));
+  return {...c,journalSchemaHash:FINALIZED_BURN_RISC0_JOURNAL_SCHEMA_HASH,
+    proofAcceptedHash:FINALIZED_BURN_PROOF_ACCEPTED_HASH,verifierConfigHash};
 }
 
 function hash(value, name, {zero = false} = {}) {
@@ -99,7 +134,8 @@ export function finalizedBurnVerifierConfigHash(input) {
   c.firstV4Height = uint(c.firstV4Height, 64);
   c.maxProofBytes = uint(c.maxProofBytes, 32);
   c.minimumFinalityBeaconSlot = uint(c.minimumFinalityBeaconSlot, 64);
-  if (c.domNetworkMagic === 0n || c.firstV4Height === 0n || c.maxProofBytes !== 65_536n
+  if (c.domNetworkMagic === 0n || c.firstV4Height === 0n
+      || c.maxProofBytes !== BigInt(FINALIZED_BURN_EVM_SEAL_BYTES)
       || c.minimumFinalityBeaconSlot === 0n) {
     throw new Error('invalid finalized-burn verifier numeric policy');
   }
@@ -123,11 +159,12 @@ export function finalizedBurnVerifierConfigHash(input) {
     throw new Error('unsupported RISC Zero verifier or journal identity');
   }
   c.riscZeroVerifierSelector=c.riscZeroVerifierSelector.toLowerCase();
-  if (typeof c.trustedSetupRequired !== 'boolean') throw new Error('trustedSetupRequired must be boolean');
+  if (c.trustedSetupRequired !== true) {
+    throw new Error('risc0-groth16-v3 requires the RISC Zero trusted setup to be declared');
+  }
   c.trustedSetupTranscriptSha256 = hash(
     c.trustedSetupTranscriptSha256,
     'trustedSetupTranscriptSha256',
-    {zero:!c.trustedSetupRequired},
   );
   const proofSystemIdHash = keccak256(toUtf8Bytes(c.proofSystem));
   const protocolHash = keccak256(abi.encode(
@@ -152,12 +189,10 @@ export function finalizedBurnVerifierConfigHash(input) {
     ['bytes32','bytes32','bytes32','bytes32'],
     [VERIFIER_CONFIG_TYPEHASH,protocolHash,stateRulesHash,proofSystemHash],
   ));
-  const verifierConfigHash=keccak256(abi.encode(
-    ['bytes32','uint256','address','bytes32','bytes4','bytes32','bytes32','bytes32'],
-    [FINALIZED_BURN_RISC0_ADAPTER_CONFIG_TYPEHASH,c.ethereumChainId,c.riscZeroVerifier,
-      c.riscZeroVerifierCodeHash,c.riscZeroVerifierSelector,c.finalizedBurnGuestImageId,
-      c.journalSchemaHash,FINALIZED_BURN_PROOF_ACCEPTED_HASH],
-  ));
+  const verifierConfigHash=finalizedBurnAdapterConfigHash({ethereumChainId:c.ethereumChainId,
+    riscZeroVerifier:c.riscZeroVerifier,riscZeroVerifierCodeHash:c.riscZeroVerifierCodeHash,
+    riscZeroVerifierSelector:c.riscZeroVerifierSelector,
+    finalizedBurnGuestImageId:c.finalizedBurnGuestImageId}).verifierConfigHash;
   const manifest=Object.fromEntries(fields.map(name=>[
     name,typeof c[name] === 'bigint' ? c[name].toString() : c[name],
   ]));

@@ -1,0 +1,31 @@
+ETAPA 711 — aggregate readiness Git and Forge child identity
+Date: 2026-10-23
+
+Finding
+=======
+Aggregate readiness selected Forge through USDOM_FORGE/PATH and Git through PATH. Forge controls
+the artifacts whose runtime/initcode bindings enter readiness; Git supplies HEAD, parents,
+identities, status, provenance diff, tags and signature verification. Neither executable was
+identity-snapshotted in this checker, and ordinary Git text used tolerant decoding/trim framing.
+
+Correction
+==========
+Forge and Git now resolve through snapshotExecutable and are invoked only through their absolute
+resolved paths. Forge is checked immediately after build and both executables are re-hashed and
+re-statted before readiness assessment/output. USDOM_FORGE selection and literal Git execution
+were removed.
+
+Git ordinary commands use bounded Buffer output, fatal UTF-8 and explicit framing with empty
+stderr. Empty output is permitted only as a defined command result (for example clean status).
+The NUL-framed diff-tree output is fatal-decoded before its exact pair framing is validated.
+Signature verification keeps its protocol-specific stdout/stderr channels, both fatal-decoded,
+and the dedicated fingerprint parser remains authoritative. Forge logs remain nonsemantic;
+compiled artifacts are independently read byte-strict and cross-bound to sources/configuration.
+
+Validation
+==========
+Focused aggregate-readiness structural/adversarial suite passes 5/5. Node syntax and git diff
+checks pass. No Git, Forge or aggregate readiness child was executed.
+
+No heavy build, Cargo, Rust, Solidity, RISC0 proof, RPC, signing, commit, tag, publication,
+transmission, deployment, funds, staging or push was performed.

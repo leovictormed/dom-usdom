@@ -1,0 +1,19 @@
+Stage 477 — Safe recovery presign envelope reobservation
+Date: 2026-10-23
+
+The Safe recovery executor previously constructed and persisted its multi-RPC
+EIP-1559 envelope before the operator authorization prompt. After an arbitrary
+human delay it checked only that the local file was unchanged, so a changed
+pending nonce, gas estimate, base fee or balance was not reobserved immediately
+before Ledger signing.
+
+After authorization and before accessing the Ledger, the executor now reruns
+the fixed cataloged multi-RPC envelope planner, compares the complete canonical
+result with the persisted envelope and validates it again. Any state drift,
+source substitution, catalog change or input TOCTOU fails closed and requires a
+fresh ceremony.
+
+`production_safe_recovery_presign_envelope_reobserved` is structural. No
+network, signature, deployment, funds, mining, commit or push occurred.
+
+Validation: complete operator runbook passes 71/71; readiness passes 60/60.

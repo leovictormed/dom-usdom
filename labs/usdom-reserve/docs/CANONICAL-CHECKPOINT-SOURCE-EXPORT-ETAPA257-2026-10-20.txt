@@ -1,0 +1,86 @@
+USDOM stage 257 — canonical checkpoint-source export
+Date: 2026-10-20
+
+Outcome
+
+The first candidate-v2 checkpoint segment can now be exported from an
+authenticated persisted DOM node state without an operator supplying a block,
+height, seed, state root, policy, package or RandomX ImageID. The fixed
+laboratory command is:
+
+  npm run --silent export:canonical-checkpoint-source
+
+The command is offline. It starts no miner, disables the node wallet, accepts
+no human-filled arguments, and uses fixed laboratory paths. The production
+requirement
+`production_checkpoint_canonical_source_export_fail_closed` is true and is an
+independent closed-mainnet gate input with mutation coverage.
+
+Authenticated inputs and snapshot rules
+
+1. The wrapper requires the exact native-runtime manifest and a one-line
+   lowercase SHA-256 pin. It rejects a missing, symlinked or mismatched file.
+2. Candidate-v2 manifests must contain one nonzero 32-byte
+   `randomx_receipt_image_id`. Legacy-v1 manifests must omit it. The manifest
+   loader validates this rule before the node state is opened.
+3. The binary takes the candidate activation height and RandomX ImageID only
+   from that validated manifest. Its parser has no source-field override.
+4. The node-owned API holds the canonical-chain and candidate-v2 runtime locks
+   while the source is built. The builder also checks the persisted tip before
+   and after construction.
+5. The chain tip must be exactly the first candidate-v2 height. The activation
+   parent, package identifier, canonical height index, schedule, network magic,
+   chain ID, native state undo and execution witnesses must agree.
+6. The previous economic state is reconstructed by replaying canonical block
+   bodies from genesis through the activation parent. Both eleven-header
+   contexts, historical RandomX seed anchors and total-difficulty endpoints are
+   derived from the canonical store.
+7. Before any bytes are returned, the builder executes the complete portable
+   checkpoint-segment relation over the derived transition, private input,
+   policy input and native-state opening.
+
+Output behavior
+
+The exporter invalidates all four old fixed outputs before it opens the node.
+It writes each replacement to a mode-0600 temporary file, flushes it, renames
+it into place and flushes the directory. Any publication error deletes the
+temporary files and invalidates the whole fixed output set. The four outputs
+are:
+
+  checkpoint-segment-transition.bin
+  checkpoint-segment-private-input.bin
+  checkpoint-segment-policy-input.bin
+  checkpoint-segment-native-state-opening.bin
+
+Each final file replacement is atomic. The command is an offline exclusive
+operation; consumers must wait for successful process completion before
+reading the four-file set.
+
+Regtest evidence
+
+The persisted-chain integration test mined exactly eleven deterministic local
+Regtest blocks. It exercised the real persisted native-v1 path through height
+10, installed candidate v2 at the activation boundary, connected the first v2
+block at height 11 and exported the four sources. The test reparsed every
+encoding, re-executed the complete portable relation, checked both endpoints
+and the manifest-selected ImageID, and proved that a zero ImageID fails closed.
+
+The same fixture then closed the store and launched the actual offline binary
+against it. Four pre-existing stale files were replaced, and every exported
+byte was identical to the in-process authenticated bundle. The dedicated
+integration passed 1/1; the binary parser passed 2/2; the complete checkpoint
+host-reference suite passed 42 executed tests; and the laboratory regression
+passed 123/123 Node tests plus production lint and a forced Forge build.
+
+Current limits
+
+This path intentionally supports only the first one-block candidate-v2
+bootstrap segment. It is not yet a rolling multi-segment exporter. Replaying
+the economic state from genesis is deterministic but may be operationally
+expensive on a mature mainnet and still needs a measured production run. The
+required mainnet node data and finalized hash-pinned runtime manifest do not
+yet exist in the evidence directory. No positive RandomX zkVM receipt, proving
+cost measurement, outer checkpoint receipt, EVM gas result, deployment or
+real-funds authorization is created by this stage.
+
+No public network, deploy, fund movement, push or persistent miner was used.

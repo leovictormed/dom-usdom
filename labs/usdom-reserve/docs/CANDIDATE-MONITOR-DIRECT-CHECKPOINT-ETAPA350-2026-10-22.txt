@@ -1,0 +1,37 @@
+USD + DOM — checkpoint direto e durável do monitor candidato
+Etapa 350 — 2026-10-22
+
+Problema corrigido
+
+O monitor candidato já sincronizava o diário antes e depois do rename, porém
+mantinha uma implementação própria e reabria o checkpoint com `readFile(path)`.
+Essa leitura seguia symlink e não rejeitava hard links, dono inesperado ou troca
+do arquivo durante a leitura. Um checkpoint sintaticamente válido colocado por
+um caminho indireto poderia alcançar a validação sem a garantia de inode usada
+pelos demais fluxos operacionais.
+
+Correção
+
+- a leitura exige `readDirectFile`, tamanho entre 1 byte e 1 MiB, proprietário
+  atual, um único link e modo exato 0600;
+- a escrita usa `writePrivateJsonDurable`, eliminando a implementação duplicada;
+- o writer comum usa temporário aleatório com O_EXCL/O_NOFOLLOW, fsync do arquivo
+  antes do rename, fsync do diretório depois e verificação byte a byte do destino;
+- um checkpoint inválido ou indireto continua provocando pausa operacional antes
+  de qualquer declaração saudável;
+- se o caminho inseguro também impedir o diário de incidente, o monitor confirma
+  a pausa on-chain e retorna erro explícito em vez de sobrescrever o link.
+
+Validação
+
+- o novo teste substitui um checkpoint saudável por symlink para uma cópia de
+  conteúdo válido;
+- o monitor rejeita a leitura, pausa a reserva, preserva ausência de revogação de
+  emergência, não segue nem sobrescreve o link e reporta a falha do diário;
+- suíte focada de monitor e durabilidade: 23/23 aprovada;
+- lint de produção, build Solidity forçado de 44 arquivos e regressão Node
+  completa: 292/292 aprovados.
+
+A prova RISC Zero ativa permaneceu em execução e não foi reiniciada. Nenhuma
+chave, assinatura, publicação, implantação, mineração, transmissão ou
+movimentação de fundos foi realizada.

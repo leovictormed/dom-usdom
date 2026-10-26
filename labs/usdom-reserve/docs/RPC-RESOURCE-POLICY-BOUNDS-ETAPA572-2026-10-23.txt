@@ -1,0 +1,69 @@
+RPC operational resource-policy audit — stage 572
+Date: 2026-10-23
+Scope: crates/dom-rpc/src/{lib.rs,middleware.rs}
+
+Finding corrected
+=================
+DOM_RPC_RATELIMIT_SUBMIT and DOM_RPC_RATELIMIT_READ were parsed through
+`var(...).ok().and_then(parse.ok()).unwrap_or(default)`. Malformed, non-UTF-8,
+out-of-u32 values therefore silently selected the default rather than the
+operator-reviewed setting. Any very large valid u32 was accepted as a burst,
+which could make admission control practically ineffective.
+
+Correction
+==========
+The production boundary now accepts only canonical ASCII decimal values in
+these closed intervals:
+
+* DOM_RPC_RATELIMIT_SUBMIT: 1..=1,000 (default 10)
+* DOM_RPC_RATELIMIT_READ: 1..=10,000 (default 100)
+
+Unset variables retain their documented defaults. Empty, zero, signed,
+whitespace-padded, leading-zero, malformed, non-UTF-8, overflowing and
+above-policy values return a typed `RpcError` from RPC construction before the accept
+loop begins. They can no longer silently select another policy or create an
+unbounded burst. The comments now accurately distinguish burst capacity from
+the sustained one-request-per-second refill.
+
+Other resource boundaries reviewed
+==================================
+* Ordinary request bodies are capped at 1,024,000 bytes before JSON handling.
+* Native issuance is isolated at 4 MiB, one concurrent request and 120 s.
+* Candidate-V2 uses its exact protocol-derived maximum and one concurrent
+  request; it remains inside the ordinary 30 s timeout.
+* Private transfer and burn proof submissions share one concurrency permit
+  before decoding and use the ordinary request-body and timeout boundaries.
+* Closed-Mainnet one-block mining is authenticated, limited to one concurrent
+  request, 4 KiB of input and its explicit four-hour operation budget.
+* Ordinary requests have a 30 s HTTP budget. The long issuance and isolated
+  mining routes are deliberately outside that shorter layer.
+* Mempool pagination uses checked multiplication and a clamped page size.
+  Chain, full-fidelity, private-transition and USDOM-history scans have fixed
+  block-count bounds; their implementations additionally enforce the response
+  soft budgets and consensus block limits.
+* Rate-limit instances remain separated per capability, and production keys
+  remain the kernel-observed TCP peer address rather than forwarding headers.
+
+No additional concrete fail-open or unbounded client-controlled allocation was
+established in this scope. Timeouts bound awaiting HTTP work but cannot
+forcibly preempt a synchronous NodeHandle implementation; the audited node
+implementations use bounded/nonblocking snapshot operations for those paths,
+while proof and mining work use the asynchronous interfaces and explicit
+concurrency gates.
+
+Light validation
+================
+* rustfmt --edition 2021 --check crates/dom-rpc/src/middleware.rs: PASS
+* git diff --check -- crates/dom-rpc/src/middleware.rs: PASS
+* source assertions for strict var_os parsing, zero/upper bounds, canonical
+  decimal grammar, non-UTF-8 rejection, typed error propagation and pre-accept
+  validation: 10/10
+* Unit regressions were added for defaults, boundaries, zero, oversized,
+  signed, padded, leading-zero, malformed, u32 overflow, invalid internal
+  defaults and non-UTF-8 bytes. A constructor regression proves an invalid
+  policy returns `RpcError::Internal` instead of constructing a service or
+  panicking.
+
+Cargo execution remains queued until the active pinned RandomX proof releases
+the shared compiler/memory resources. This stage creates no readiness fact and
+performed no push, deployment, signing, transaction, mining or funds action.

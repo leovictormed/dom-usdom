@@ -1,0 +1,19 @@
+Stage 501 — Finalized-deposit witness input snapshots
+Date: 2026-10-23
+
+Finalized-deposit witness construction validated the native runtime manifest
+and deposit source paths before invoking Cargo. Compilation could take a long
+time, after which the generated binary reopened the original paths. This left
+shell-to-binary check/open windows for the runtime policy and deposit evidence.
+
+The command now copies the manifest and pin through the direct public-file
+reader and the owner-only deposit source through the direct private-file reader
+into a private temporary directory. Validation and witness construction consume
+only those snapshots. Cargo is no longer exec-replaced so the directory is
+removed after completion.
+
+`production_finalized_deposit_witness_inputs_snapshotted` is a structural fact.
+No compilation, witness generation, network access, funds, mining, commit or
+push occurred while producing this evidence.
+
+Validation: shell syntax and complete operator runbook 71/71; readiness 60/60.

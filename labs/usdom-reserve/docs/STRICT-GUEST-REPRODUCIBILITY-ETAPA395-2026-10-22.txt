@@ -1,0 +1,37 @@
+DOM/USDOM hardening stage 395 — strict guest reproducibility relations
+
+Date: 2026-10-22
+
+Four guest build scripts previously built checkpoint/economic programs and
+printed hashes without comparing them to the committed release artifacts.
+They now build in isolated temporary target directories and fail unless the
+user ELF, packaged ProgramBinary and computed ImageID exactly match the pinned
+files and constants.
+
+Each guest-local Cargo.lock is an immutable provenance snapshot for its
+committed binary, while the workspace lock is the dependency graph used by a
+prospective rebuild. Every build script now verifies these two distinct roles
+against separately pinned SHA-256 values before compilation. The complete and
+aggregate RandomX scripts also authenticate their committed ImageID files.
+
+The finalized-burn Docker build now uses an isolated target directory and
+requires Docker, the digest-pinned builder and r0vm. ImageID computation is no
+longer silently skipped when r0vm is absent; its result must equal the raw
+32-byte committed ImageID.
+
+The proof-program checker now enforces these relations structurally and
+independently recomputes the current lock, ELF, ProgramBinary and ImageID
+constants from the committed artifacts.
+
+Validation completed without launching expensive guest builds:
+
+- all seven build scripts parse and retain executable mode: 7/7;
+- all seven guest provenance lock snapshots match their original fixed hashes;
+- the workspace lock and all pinned artifact/ImageID constants match their
+  separately declared files: 7/7;
+- proof-program checker and mutation self-test pass over 98 critical entries;
+- repository whitespace validation passes.
+
+A complete isolated rebuild of all guests remains required after the active
+capacity proof ends. That run is the authoritative test that the current source
+and synchronized lock reproduce the already committed binaries exactly.

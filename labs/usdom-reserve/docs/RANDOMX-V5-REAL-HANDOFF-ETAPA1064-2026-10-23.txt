@@ -1,0 +1,21 @@
+ETAPA 1064 — ADAPTADOR REAL DO HANDOFF RANDOMX V5
+Data: 2026-10-23
+
+Achado
+A auditoria final encontrou uma incompatibilidade operacional concreta. A prova ativa grava `usdom-local-randomx-proof-run-v5` em `status.json`; o handoff genérico ETAPA1060 exige run-manifest/terminal/receipt-index que o runner histórico nunca produzirá. Portanto seu término não poderia liberar de forma autenticada o novo orquestrador.
+
+Correção
+`adapt-randomx-v5-proof-handoff.py` lê o formato real sem alterar nem sinalizar a execução. Ele autentica SHA do runner revisado, build-status, source graph, Cargo.lock histórico, recursion artifact, prover binary, job index e artefatos ELF/program/IID. Enquanto `running`, exige PID vivo com cmdline byte-exato `bash <runner-v5.sh>` e emite receita `active` sem liberação.
+
+Após término, exige ausência do processo correspondente, combinação status/exit coerente e, em sucesso, o receipt-set index completo: schema, job hash, dois receipts únicos, hashes/tamanhos, flags verified/generates_proofs, dev_mode=false e mines=false. Todos os arquivos são diretos, link count 1, contidos no root e limitados.
+
+A classificação `current-complete` exige simultaneamente Cargo.lock, sourceGraph e proof schema atuais. A execução ativa foi construída com Cargo.lock `025152...cd95`, enquanto o lock atual é `a8cf...dfc2`; por isso seu eventual sucesso será `historical-stale`, com releaseAllowed=true e promotionAllowed=false. A receita terminal tem o schema exato exigido pelo orquestrador ETAPA1061.
+
+Estado observado uma única vez
+PID 2400602 permaneceu ativo, estado S, start ticks 35610440, cmdline SHA-256 `acacc008...aa28`. O adaptador classificou `active`, releaseAllowed=false e promotionAllowed=false. Nenhum polling contínuo foi iniciado.
+
+Validação
+Testes fake leves 4/4: active, success histórico, failure terminal e substituição de runner/status/job/index/receipt. py_compile e diff-check passaram. Não houve sinal, restart, escrita no run, build pesado, rede, push, deploy ou fundo.
+
+Cobertura restante
+Não há outra lacuna local conhecida no handoff/rebuild. Restam o término real, a classificação terminal pelo adaptador e o rebuild pesado isolado; hashes/sourceGraph do novo candidato somente poderão ser derivados do commit limpo e do rebuild real.

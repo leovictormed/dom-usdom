@@ -1,0 +1,52 @@
+Stage 261 - Complete recursive economic checkpoint sources
+Date: 2026-10-20
+
+Finding
+
+The complete segment guest already supported recursive economic block receipts,
+but authenticated source construction always embedded a full sparse multiproof.
+A valid maximum-weight DOM block could exceed the 16 MiB component limit, and a
+fixed 32-block source segment could exceed the 64 MiB aggregate limit. The true
+production-completeness requirement therefore overstated the implemented path.
+
+Correction
+
+Source construction now derives every ordinary-DOM block as ordered bounded
+economic chunks. A host-only canonical builder prevalidates full block effects,
+creates at most 512-key UTXO chunks followed by kernel chunks, advances the exact
+intermediate sparse state, and emits each UDECTN01 statement/witness plus the
+terminal UDECBT01 block claim. A 601-UTXO-plus-one-kernel vector produces three
+chunks and reaches the same roots as complete state execution.
+
+Authenticated source segments now carry only the 222-byte economic block claim
+and are limited to three blocks. A compile-time inequality proves that three
+maximum 16 MiB packages, three maximum 4 MiB native witnesses, three block
+claims and framing remain below 64 MiB. The maximum 720-block cadence therefore
+uses at most 240 segments, below the outer limit of 720, while preserving an
+exact target boundary.
+
+Both single and rolling exporters publish deterministic block/chunk artifacts
+and a separate JSON index bound to the exact checkpoint source. Existing
+checkpoint source-index framing remains unchanged, so RandomX statement export
+continues to consume the same authenticated segment files. Stale cleanup accepts
+only exact generated names and preserves unrelated operator files.
+
+Validation
+
+The checkpoint-program host-reference suite passes 38/38. The recursive 601
+effect vector and transport partition tests pass. Both source exporter suites
+pass 3/3. A persisted Regtest chain integration builds actual recursive sources,
+exports two block records with nonempty chunk sources, reexecutes the resulting
+checkpoint inputs and passes 1/1. Strict Clippy with warnings denied passes for
+the complete checkpoint program and both exporters. Focused release/operator
+tests pass 46/46.
+
+Security status
+
+This closes canonical source availability and transport completeness; it does
+not generate or verify a cryptographic economic chunk/block receipt. Positive
+chunk, block, segment and outer receipts, proving-cost measurements and final
+production ImageIDs remain fail-closed release facts. No public network action,
+deployment, funds, zkVM proof, public mining, commit or push occurred. Only the
+explicitly authorized deterministic Regtest fixture mined local test blocks and
+it exited normally.

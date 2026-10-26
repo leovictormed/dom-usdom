@@ -1,0 +1,25 @@
+ETAPA771 — EXECUTOR AUTHORITY TOOL PARITY
+Date: 2026-10-23
+
+Finding
+-------
+Both mainnet executors pinned Cast, Node and jq, but continued to resolve `cmp`
+and `sha256sum` through PATH while comparing and hashing transaction, receipt,
+package and evidence snapshots. A substituted executable after bootstrap could
+therefore falsely approve equality or an expected digest.
+
+Correction
+----------
+Both executors now pin `sha256sum` and `cmp` by absolute path, owner, hardlink
+count, mode, parent-directory trust, inode metadata and SHA-256 identity. Every
+post-bootstrap hash goes through `sha256_file`, which rechecks the executable
+and accepts exactly one canonical GNU digest line. Every authoritative compare
+rechecks `cmp` immediately before invoking its pinned path. Cast, Node and jq
+rechecks now hash through the pinned SHA-256 helper.
+
+Regression control and validation
+---------------------------------
+The parity test covers both executors and rejects late PATH hashing, direct PATH
+comparison, or a pinned comparison without its immediate recheck. Focused Node
+tests pass 15/15; both scripts pass `bash -n`; Node syntax and `git diff --check`
+pass. No executor, RPC, Ledger, signing, deployment or transmission ran.

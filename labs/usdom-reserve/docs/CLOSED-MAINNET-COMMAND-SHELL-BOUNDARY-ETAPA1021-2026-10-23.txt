@@ -1,0 +1,45 @@
+ETAPA1021 — closed-mainnet command generator shell boundary
+Date: 2026-10-23
+
+Boundary audited
+----------------
+The ETAPA1019 generator and every emitted phase were checked for phase-argument
+injection, command substitution, word splitting, glob expansion, control/newline
+injection, inherited executable search paths and accidental secret material.
+
+Findings and fixes
+------------------
+1. The generated PATH appended the caller's PATH. A hostile or accidentally
+   shadowed executable could therefore be selected when a pinned directory did
+   not contain it. Generated programs now use an explicit closed directory list
+   and include the pinned Node 24.19.0 directory; caller PATH is never inherited.
+2. Ledger output was quoted but was not format-validated before construction of
+   the identity JSON. Each of the three reads must now match exactly one
+   20-byte 0x-prefixed hexadecimal address before comparison or persistence.
+   Embedded newlines, control bytes, shell fragments and extra output fail.
+3. The initial ETAPA1019 test scanned generator source with a broad placeholder
+   expression. Legitimate shell redirections could span the pattern and cause a
+   false positive. The executable gate now inspects each emitted phase rather
+   than safety prose/source syntax.
+
+Properties demonstrated
+------------------------
+- Phase is matched only by an exact case arm; seven hostile values including
+  command substitutions, backticks, glob, traversal, newline and control byte
+  return EX_USAGE (64) with empty stdout.
+- All eight phase outputs contain no forbidden secret-variable/placeholder
+  marker and no disallowed ASCII control byte.
+- All eight outputs pass `bash -n` without being executed.
+- Static project, evidence and RPC values are emitted from repository-owned
+  constants; no external path/config/RPC value is interpolated by the generator.
+- Dynamic values in generated programs are quoted; Ledger identities also pass
+  strict lexical validation. The programs do not use eval, shell -c or xargs.
+
+Validation
+----------
+Pinned `/home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node`
+ran the focused executable test: 1/1 passed. Generator `bash -n` and focused
+`git diff --check` passed.
+
+No network request, hardware operation, secret generation, signature,
+deployment, broadcast, push or movement of funds was performed.

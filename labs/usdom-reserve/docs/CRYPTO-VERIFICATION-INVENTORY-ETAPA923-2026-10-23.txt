@@ -1,0 +1,49 @@
+ETAPA923 — verificações criptográficas nos 59 fontes Rust USDOM
+Data: 2026-10-23
+
+Escopo e contagens
+==================
+
+O inventário cobriu os 59 fontes Rust `crates/dom-usdom-*`, sem diretórios de
+teste/target nem módulos unitários `cfg(test)`. As fronteiras criptográficas de
+produção encontradas foram:
+
+- 1 verificação Groth16 BN254;
+- 5 verificações de assumptions dentro de guests RISC Zero;
+- 9 verificações de receipts RISC Zero nos hosts;
+- 3 consumos diretos do SpendVerifier (duas transições e self-check do prover);
+- 4 consumos de prova de membership da carteira;
+- 18 gates sintáticos de igualdade de commitment/config/journal: 9 journals,
+  6 verifier/config hashes e 3 commitments de configuração/estado.
+
+Não há verificação direta de assinatura nestes 59 fontes de produção. As duas
+ocorrências de `excess_signature` estão em fixtures unitárias; validação das
+assinaturas econômicas pertence à relação de consenso DOM chamada pelo programa.
+
+Resultado
+=========
+
+Nenhum resultado criptográfico ignorado ou capability criada antes da
+verificação foi confirmado. Groth16 exige comprimento exato, decode comprimido,
+consumo integral, re-encoding canônico, chave vinculada ao policy/config hash e
+resultado booleano verdadeiro antes de construir `VerifiedTransition`. Receipts
+RISC Zero são limitados, rejeitam trailing/codificação não canônica quando vêm de
+bytes, exigem kind, journal e ImageID, e só então são reutilizados/publicados.
+Assumptions dos guests são verificadas antes do journal externo ser committed.
+Comparações de hashes/configuração são públicas; não existe comparação
+autenticadora variável de senha, bearer token ou credential nestes fontes.
+
+Foi corrigida a lacuna real de controle de regressão: o novo teste
+`test/node/rust-crypto-verification-inventory.test.mjs` congela as contagens,
+proíbe resultados descartados via `let _`, e exige canonicidade, key/config
+binding, verify-before-capability, journal/ImageID e ausência de comparações
+variáveis de autenticadores secretos.
+
+Validação
+=========
+
+- `node --test labs/usdom-reserve/test/node/rust-crypto-verification-inventory.test.mjs`
+- `git diff --check` nos arquivos da ETAPA923 e nas duas continuações.
+
+Nenhum Cargo pesado, prova, RPC, deploy, assinatura, transmissão, commit ou push
+foi executado.

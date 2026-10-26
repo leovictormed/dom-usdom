@@ -1,0 +1,58 @@
+Etapa 547 — auditoria de privacidade do caminho issuance/spend/burn
+
+Escopo
+
+Foram revisados dom-usdom-wallet builder/burn_builder/lib/snapshot, o circuito e
+verificador dom-usdom-privacy, as transições dom-usdom-state e os CLIs de
+observação, preparação e submissão.
+
+Evidência
+
+1. Randomness de outputs, memo encryption e prova é recebida por uma interface
+   RngCore + CryptoRng. random_scalar amostra 32 bytes em buffer Zeroizing e
+   rejeita valores fora do campo ou zero. Cada output recebe rho próprio e a
+   cifragem usa segredo efêmero. O request_id do burn usa nova amostra, rejeita
+   zero, burn_id e IDs pendentes, com orçamento finito que falha fechado.
+
+2. O nullifier é derivado da abertura da nota e do owner secret sob o chain
+   scalar. Inputs são ordenados pelo nullifier antes do statement. Estado e
+   parser rejeitam zero, escalar não canônico, repetição na transição e nullifier
+   já gasto. Reservas persistentes impedem que a própria wallet construa dois
+   payloads concorrentes com a mesma nota; cancelamento é proibido depois de
+   observação canônica ou autorização durável de submissão.
+
+3. Transfer e burn somam no máximo duas notas com checked_add, derivam change
+   com checked_sub e rejeitam insuficiência/overflow. O circuito impõe soma dos
+   inputs igual à soma dos outputs mais burn_amount. Owner/value/rho, membership,
+   anchor, nullifiers, output commitments, memo commitment e efeito de burn
+   integram a relação verificada.
+
+4. RecipientAddress valida chain, owner commitment e chave X25519. O memo
+   autenticado liga slot, commitment, recipient owner/scan key e opening. Burn
+   liga recipient Ethereum, amount, chain id, reserve, validade, nullifiers,
+   burn_id/request_id e obligation commitment; substituições são rejeitadas.
+
+5. Snapshots privados retêm openings, payloads pendentes e reservas sob a
+   fronteira cifrada/owner-only já auditada. Estado de consenso persiste somente
+   commitments, nullifiers, obrigações públicas e memo cifrado. CLIs imprimem
+   IDs/hashes/commitments e flags operacionais; não imprimem owner/scan secrets,
+   rho, note openings, memo plaintext ou provas de recovery.
+
+Limites e claims
+
+- Issuance pública mantém deposit_id, amount e note commitment; burn precisa
+  publicar amount e recipient para criar a obrigação de reserva.
+- Nullifiers, note commitments, anchors, payload IDs e memo ciphertext são
+  observáveis e podem permitir correlação temporal/volumétrica.
+- A seleção de notas é determinística por menor change/quantidade/commitment,
+  o que evita ambiguidade mas não oferece coin-selection privacy aleatória.
+- O código não implementa proteção de metadata de transporte, timing, IP,
+  tamanho de lote ou comportamento do relayer.
+- A revisão estática não afirma anonimato perfeito, resistência global a análise
+  de tráfego ou ausência de side channels do prover/plataforma.
+
+Resultado
+
+Nenhum achado concreto reproduzível de reuse, double-spend, inflação, recipient
+substitution ou plaintext leakage foi encontrado. Não houve alteração de código,
+fact ou execução criptográfica pesada.

@@ -1,4 +1,4 @@
-# Bitcoin evidence V2 fuzzing
+# Protocol parser fuzzing
 
 These standalone cargo-fuzz targets exercise only the production V2 Bitcoin
 evidence APIs. They do not import the legacy evidence types or the F5 harness,
@@ -27,3 +27,36 @@ cargo fuzz run fuzz_witness_parser -- -max_len=2048 -max_total_time=60
 
 A bounded campaign is evidence only for that platform, toolchain, and duration;
 it does not replace the deterministic V2 vectors or full package tests.
+
+## Native USDOM block framing
+
+`usdombl4` submits arbitrary bytes directly to
+`UsdomV4BlockPackage::from_bytes`. Every successfully decoded package must
+round-trip to the exact input bytes and decode identically a second time. The
+checked-in corpus includes a constructor-produced canonical package so the
+fuzzer starts beyond the outer framing and exercises the ordinary block and
+proof-envelope parsers. The `dom-chain` unit suite separately rejects every
+proper prefix of that canonical package, which makes complete truncation
+coverage deterministic rather than dependent on a time-bounded fuzz run.
+
+Regenerate the canonical corpus seed only from the source-built test helper:
+
+```text
+DOM_USDOMBL4_CORPUS_OUT="$PWD/fuzz/corpus/usdombl4/canonical-empty-v4-package" \
+  cargo test --locked -p dom-chain --features native-usdom-v4-poc \
+  native_usdom_v4::tests::block_package_roundtrips_and_rejects_split_or_ambiguous_framing \
+  -- --exact
+```
+
+Run a bounded local campaign from `fuzz/` with the protocol dictionary and the
+checked-in corpus:
+
+```text
+cargo fuzz run usdombl4 corpus/usdombl4 -- \
+  -dict=usdombl4.dict -max_len=4194304 -max_total_time=300
+```
+
+The seed regeneration command mutates only the named corpus file. The fuzz
+campaign must run with sanitizers on a dedicated development machine; it does
+not grant release authority or replace the deterministic parser, consensus and
+canonical-encoding tests.

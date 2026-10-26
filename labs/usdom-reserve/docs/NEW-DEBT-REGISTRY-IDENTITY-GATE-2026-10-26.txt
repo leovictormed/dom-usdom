@@ -1,0 +1,44 @@
+NEW DEBT REGISTRY IDENTITY GATE — 2026-10-26
+
+Finding
+=======
+
+USDOMProofReserve revalidated the immutable checkpoint-registry dependency for
+deposits and terminal shutdown, but the first acceptance of a finalized-burn
+proof did not repeat that check. That first acceptance creates an irreversible
+collateral liability. If the selected registry runtime or its committed
+configuration identity diverged, the reserve could still ask the burn verifier
+to authorize a new debt even though it no longer recognized the checkpoint
+authority selected at deployment.
+
+This is distinct from registry halt or graceful closure. A halt freezes future
+checkpoint progression but does not invalidate finalized burns already proved
+against the last accepted state. Those debts must remain claimable.
+
+Fix
+===
+
+The non-renewal branch of queueWithdrawal now calls
+_requireCheckpointRegistryUnchanged() after structural/finality checks and
+before any token probe, proof verification or permanent debt mutation.
+
+The check intentionally does not run for renewal or executeWithdrawal. Once a
+valid proof has created a debt, registry failure, emergency halt or later
+identity drift cannot be used to strand the beneficiary. Verifier and token
+identity checks remain independently enforced in those paths.
+
+Validation
+==========
+
+The new regression mutates checkpointConfigHash and proves that:
+
+1. a fresh burn cannot create totalProvedDebtAmount and reverts RegistryChanged;
+2. after restoring the identity and proving another burn, subsequent registry
+   drift does not prevent its delayed payout.
+
+The focused regression passes. The complete offline Forge suite exits 0.
+USDOMProofReserve runtime is 20,633 bytes, leaving 3,943 bytes under EIP-170;
+DOMCheckpointRegistry remains 10,418 bytes. The whitespace check passes.
+
+No Rust/Cargo, operational script, network, signing, deployment, funds, commit
+or push was used.

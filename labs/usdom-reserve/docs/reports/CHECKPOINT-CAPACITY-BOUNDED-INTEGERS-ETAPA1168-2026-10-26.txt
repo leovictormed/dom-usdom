@@ -1,0 +1,13 @@
+Stage 1168 — checkpoint-capacity bounded integer parsing
+Date: 2026-10-26
+
+The checkpoint proof-capacity semantic validator now applies decimal digit
+ceilings for each supported uint width before exact bounded conversion. This
+also protects its isolated-EVM receipt commitment.
+
+Adversarial tests cover 100,000-digit block-number and adapter-gas fields. The
+focused capacity-report suite passes 5/5 with pinned Node 24.19.0; targeted
+diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

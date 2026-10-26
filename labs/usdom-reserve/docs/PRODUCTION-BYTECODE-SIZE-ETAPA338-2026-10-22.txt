@@ -1,0 +1,30 @@
+USD + DOM — limites de bytecode dos contratos de produção
+Etapa 338 — 2026-10-22
+
+Objetivo
+
+Confirmar no compilador fixado que nenhum dos quatro contratos da fronteira
+Ethereum se aproxima dos limites de implantação da mainnet.
+
+Resultado de `forge build --sizes`
+
+Contrato                                 Runtime   Initcode   Margem runtime   Margem initcode
+DOMCheckpointRegistry                    6.059 B    8.923 B       18.517 B          40.229 B
+DOMCheckpointRiscZeroVerifier            1.922 B    2.636 B       22.654 B          46.516 B
+DOMFinalizedBurnRiscZeroVerifier         1.921 B    2.635 B       22.655 B          46.517 B
+USDOMProofReserve                       14.660 B   18.281 B        9.916 B          30.871 B
+
+As margens foram calculadas pelo Foundry contra 24.576 bytes de runtime
+(EIP-170) e 49.152 bytes de initcode (EIP-3860). O contrato maior,
+USDOMProofReserve, usa aproximadamente 59,6% do limite de runtime e 37,2% do
+limite de initcode. Portanto, os quatro artefatos são implantáveis quanto ao
+tamanho e preservam margem material para metadados e a configuração já
+compilada.
+
+Limite da evidência
+
+Este ensaio prova somente os limites estáticos do bytecode produzido pela
+configuração fixada do repositório. A implantação determinística, os hashes
+exatos da versão, o custo de gás e a execução em fork/mainnet continuam sendo
+validados por gates próprios. Nenhuma chave, assinatura, deploy, transmissão,
+mineração ou fundo foi usado.

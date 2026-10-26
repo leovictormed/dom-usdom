@@ -1,0 +1,13 @@
+ETAPA 900 — persistência nos crates dom-usdom
+
+Escopo focado: 59 arquivos Rust em `crates/dom-usdom-*`, excluindo `tests/` e `target/`. A busca lexical por `write`, `write_all`, `rename`, `remove_file` e `create_new` retornou 69 ocorrências em 15 arquivos. Revisão nominal separou 18 fronteiras persistentes de produção (8 remoções/invalidações de arquivos e 10 interfaces/chamadas de escrita TPM); as outras 51 ocorrências são testes internos, serialização in-memory, stdout/stdin ou comentários. Foram ainda auditados 5 call sites de publicação canônica via `save_private_bytes`, que encapsulam temp/create, fsync, rename, modo e autoridade de caminho. Total de fronteiras persistentes/helpers revisadas: 23.
+
+Classificação: os 5 publishers canônicos são trocas atômicas e duráveis; as 10 fronteiras TPM usam estado NV/entrada memfd ou pipe, validação de tamanho e ferramenta direta, portanto fsync de diretório e generation ordering de filesystem não se aplicam; as 8 invalidações de filesystem precisam rejeitar caminhos indiretos, remover o completion/artifact correto e sincronizar o diretório pai.
+
+Maior gap confirmado: `remove_direct_file` no checkpoint proof host removia receipt inválido sem fsync do diretório pai. O exporter unitário RandomX também removia outputs sem fsync e aceitava symlink como removível. Uma queda podia restaurar a entrada de diretório antiga e reexpor artifact/report stale após retry.
+
+Correção: ambos agora exigem arquivo regular direto, removem, abrem o pai e executam `sync_all`; o exporter rejeita explicitamente symlink e objetos não regulares. Os demais seis pontos de remoção já sincronizavam o diretório através do próprio helper ou ao fim da invalidação em lote.
+
+Estado final: 8/8 invalidações duráveis e fail-closed; 5/5 publishers atômicos; 10/10 fronteiras TPM com autoridade/tamanho e sem semântica de directory fsync; 23/23 fronteiras classificadas, 0 pendentes neste escopo.
+
+Validação leve: regressões estruturais 2/2, `rustfmt --check` nos dois arquivos e `git diff --check` aprovados. Nenhum Cargo build, prova ou RPC foi executado.

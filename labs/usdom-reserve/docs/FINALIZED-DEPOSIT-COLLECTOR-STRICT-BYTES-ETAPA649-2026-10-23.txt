@@ -1,0 +1,23 @@
+ETAPA 649 — COLETOR DE DEPÓSITO FINALIZADO COM BYTES ESTRITOS
+Data: 2026-10-23
+
+Foi auditado o coletor que converte observações Ethereum execution/Beacon em
+evidência de depósito apta a autorizar emissão nativa. Ele consome fontes RPC
+secretas, catálogo público, release, manifesto/pin e hash da transação.
+
+Fontes RPC, catálogo, release e manifesto eram convertidos com
+`Buffer.toString('utf8')` antes do parser estrito. O pin e o hash da transação
+também usavam conversão tolerante, e o hash aceitava whitespace por `trim`.
+Agora os JSONs usam `parseStrictJsonBytes` (UTF-8 fatal + chaves duplicadas),
+pin/hash usam decodificação fatal, e a transação exige exatamente bytes32
+hexadecimal canônico minúsculo seguido por uma quebra de linha. O buffer com
+URLs/credenciais RPC é zerado em `finally`, inclusive se o parse falhar.
+
+Foram preservados limites de resposta, redirect:error, consenso execution ↔
+Beacon, duas observações idênticas por fonte, reconciliação entre operadores,
+releitura byte a byte de todos os inputs e saída privada create-once com fsync.
+
+Validação: ataques compartilhados de byte 0xff/chave escapada duplicada; suites
+strict JSON + finalized deposit passaram 9/9; writer boundary 1/1; `node
+--check` e `git diff --check` passaram. Nenhum RPC, emissão, prova, assinatura,
+transmissão, deploy, commit, push ou fundos foram usados.

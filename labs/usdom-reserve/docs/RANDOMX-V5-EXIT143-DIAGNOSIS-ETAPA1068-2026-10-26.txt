@@ -1,0 +1,92 @@
+RandomX historical v5 exit-143 diagnosis — Stage 1068
+Date: 2026-10-26
+Scope: read-only reconstruction of the terminal event. No proof/build was
+started, stopped, signalled or modified during this investigation.
+
+Conclusion
+==========
+
+The immediate cause is proven: the RISC0 prover subprocess received SIGTERM
+(signal 15). This was not a normal prover return, panic, malformed-proof error,
+kernel OOM kill, systemd MemoryMax kill, reboot or shutdown.
+
+The preserved evidence does not identify the sender of SIGTERM. Consequently,
+the defensible classification is "externally delivered SIGTERM; sender
+undetermined", rather than OOM, prover failure, or an attributed manual stop.
+
+Evidence timeline
+=================
+
+* build-status.json records a successful pinned host build from
+  2026-10-23T16:01:39Z through 16:12:20Z, exitCode 0.
+* status.json records the v5 proof starting at 2026-10-23T16:15:07Z and ending
+  at 2026-10-26T13:36:55Z with status failed and exitCode 143.
+* GNU time records 69:21:41 wall time, 9,266.18 s user CPU, 526.03 s system
+  CPU, 4,117,416 KiB maximum RSS, and explicitly:
+
+      Command terminated by signal 15
+
+* The runner invokes the prover through /usr/bin/time. After that child exits,
+  it records the child status and exits with the same status. Shell status 143
+  is 128 + SIGTERM(15). The runner had no timer and no signal-generating code.
+* prover.log is zero bytes. There is no prover diagnostic, panic, Rust error or
+  ordinary nonzero return preceding termination.
+* At 2026-10-26T10:37:00.312750-03:00 the user systemd manager records:
+
+      Main process exited, code=exited, status=143/n/a
+
+  It then records result exit-code, 2h43m12.885s CPU, 3.0G memory peak and
+  6.4G swap peak. `code=exited` for the runner is consistent with the runner
+  surviving the child's SIGTERM, writing status.json, and propagating 143.
+* The machine remained in the same boot. There is no reboot/shutdown boundary
+  at the terminal timestamp.
+
+OOM and resource-limit assessment
+=================================
+
+* Kernel logs contain no OOM-kill, memory-cgroup kill, killed-process entry or
+  reference to runner PID 2400602, time PID 2400778, or prover PID 2400779 at
+  the terminal event.
+* `/var/log/syslog` contains no systemd-oomd, earlyoom kill decision, "low
+  memory", "sending SIGTERM", or killed-process entry at the event. The most
+  recent periodic earlyoom sample before it, at 10:24:15-03, reports 17.73%
+  memory available and 22.51% swap free and no victim selection.
+* A cgroup/kernel OOM enforcement normally kills with SIGKILL and would yield
+  137 or a systemd OOM/signal result, not a child SIGTERM followed by a clean
+  runner exit 143. The observed path contradicts that mechanism.
+* Resource pressure was severe and explains the slow execution, but the
+  available evidence does not show it caused termination.
+
+Service-stop and external-signal assessment
+===========================================
+
+* The historical transient v5 unit file is no longer retained by the current
+  manager. Current `systemctl show` defaults therefore cannot establish all of
+  its historical properties.
+* Syslog records neither "Stopping usdom-randomx-pinned-v5" nor a normal
+  stopped/deactivated result. It only records the runner later exiting 143.
+* A normal systemd stop of the whole control group would ordinarily signal the
+  runner too; this runner has no TERM trap that could then write the observed
+  final status. The evidence better fits SIGTERM delivered to the prover child
+  (or a process group that did not terminate the runner immediately).
+* Searches of the available shell/Codex command records found no command that
+  sent TERM to PID 2400602, 2400778, 2400779 or stopped the v5 unit.
+
+Attribution limit
+=================
+
+Linux does not persist the sending PID/UID for an ordinary signal unless an
+audit/eBPF rule was active. No such signal audit record is available here, and
+the transient unit definition was collected after removal. Therefore the
+sender cannot be reconstructed from retained evidence. Plausible mechanisms
+such as an unlogged external `kill`, host supervision, or another process are
+not distinguishable and must not be asserted as facts.
+
+Impact
+======
+
+No receipt or successful proof resulted. The run remains authenticated failed
+historical evidence only and has no promotion authority. A current-source proof
+must be rebuilt and rerun; the exit does not demonstrate a RISC0 correctness
+failure, but it also provides no successful cryptographic proof.
+

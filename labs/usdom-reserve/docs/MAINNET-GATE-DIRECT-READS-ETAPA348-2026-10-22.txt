@@ -1,0 +1,40 @@
+USD + DOM — leitura direta nos gates mainnet e saúde RISC Zero
+Etapa 348 — 2026-10-22
+
+Problema corrigido
+
+O gate principal já usava a fronteira direta para configuração e evidência,
+mas ainda reabria fontes Solidity do artefato por pathname comum. O preflight
+mainnet e os dois comandos de observação/saúde RISC Zero também abriam seus
+arquivos de configuração dessa forma. Um processo concorrente sob a mesma conta
+poderia tentar trocar um arquivo ou inserir um link entre verificações.
+
+Correção
+
+- `check-mainnet-readiness.mjs` lê os dois contratos principais e todas as
+  fontes enumeradas nos quatro artefatos compilados pelo descritor direto;
+- `check-mainnet-preflight.mjs` lê a configuração da reserva e a referência do
+  verificador RISC Zero pela mesma fronteira;
+- `collect-risc0-health-sources.mjs` lê catálogo e referência diretamente, com
+  limite explícito;
+- `check-risc0-health.mjs` lê a referência RISC Zero diretamente;
+- os quatro comandos deixaram de importar `readFile` de `node:fs/promises`.
+
+As leituras rejeitam symlink final, hard link, dono diferente, caminho resolvido
+diferente, tamanho fora do limite e mutação de inode/tamanho/mtime/ctime durante
+a leitura.
+
+Validação
+
+- testes focados de fronteira, preflight e saúde: 11/11 aprovados;
+- a primeira execução direta de `node --test` ocorreu depois de o gate compilar
+  somente os quatro contratos de produção e, por isso, encontrou 22 artefatos
+  de mocks ausentes; todos os demais 268 testes passaram;
+- o comando autoritativo `npm test` refez o `pretest`, lint e build forçado dos
+  44 arquivos, e então a regressão completa passou 290/290;
+- o gate rejeitou a configuração incompleta como esperado e não apresentou
+  erro da nova fronteira. Antes da regeneração do manifesto havia exatamente o
+  bloqueio temporário `source_manifest_unverified`.
+
+Nenhuma chave, assinatura, publicação, implantação, mineração, transmissão ou
+movimentação de fundos foi realizada.

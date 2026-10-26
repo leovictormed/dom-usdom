@@ -1,0 +1,35 @@
+ETAPA 712 — release ceremony Git executable pinning
+Date: 2026-10-23
+
+Finding
+=======
+The source-commit and evidence-commit/tag ceremonies checked that Git existed, then repeatedly
+resolved `git` through PATH before and after the operator's TTY authorization. A PATH or binary
+replacement between review and the commit/tag action could redirect the mutating authority.
+
+Correction
+==========
+Both ceremonies now resolve Git once to a canonical absolute path. They require an executable
+regular target with one link, safe root/current ownership, non-group/world-writable executable
+and containing directory, then snapshot device/inode/size/mtime/ctime plus SHA-256.
+
+Every Git invocation uses the captured absolute path. `assert_git_unchanged` rechecks current
+PATH resolution, metadata and content hash immediately after the exact TTY phrase and immediately
+before each signed commit; the evidence ceremony also rechecks immediately before the signed tag.
+Existing authorization-state equality, index allowlists, rollback, author/committer identity,
+signature verification and tag phrase remain unchanged.
+
+Scope note
+==========
+Other tools are still preflighted by command name in these broad ceremonies. Git was prioritized
+because it performs the irreversible commit/tag mutations and supplies their identity. Node/JQ/
+SSH-keygen/npm hardening remains independently auditable; no mutation was executed here.
+
+Validation
+==========
+Structural ceremony tests pass 2/2 and require absolute Git usage, owner/mode/link/directory and
+metadata/hash snapshots, post-authorization rechecks and absence of literal `git -C`. `bash -n`
+passes for both scripts and git diff check passes. No ceremony or Git command was run.
+
+No Git mutation, Forge build, Cargo, Rust, Solidity, RISC0 proof, RPC, signing, tag, publication,
+transmission, deployment, funds, staging, commit or push was performed.

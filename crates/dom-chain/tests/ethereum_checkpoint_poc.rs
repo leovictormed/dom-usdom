@@ -280,12 +280,13 @@ fn opaque_verified_handoff_reaches_the_real_regtest_barrier() {
         reopened.tip_height.0,
         &verified,
     )
-    .unwrap_err();
+    .err()
+    .expect("restart without an external floor must fail");
     assert!(err.to_string().contains("test oracle is regtest-only"));
 }
 
 #[test]
-fn consensus_carried_floor_restarts_without_external_handoff() {
+fn consensus_carried_floor_requires_external_restart_handoff() {
     let (dir, chain, hashes) = canonical_chain();
     let floor = oracle(3, hashes[3]);
     let value = checkpoint::encode_test_oracle_v2(floor).unwrap();
@@ -304,10 +305,33 @@ fn consensus_carried_floor_restarts_without_external_handoff() {
         .unwrap();
     drop(chain);
 
-    let reopened = ChainState::open(
+    let error = ChainState::open(
         common::open_test_store(dir.path()),
         Hash256::ZERO,
         NETWORK_MAGIC_REGTEST,
+    )
+    .err()
+    .expect("restart without an external floor must fail");
+    assert!(
+        error
+            .to_string()
+            .contains("external restart checkpoint floor is required"),
+        "{error}"
+    );
+    require_error(
+        ChainState::open_with_test_checkpoint_floor(
+            common::open_test_store(dir.path()),
+            Hash256::ZERO,
+            NETWORK_MAGIC_REGTEST,
+            oracle(4, hashes[4]),
+        ),
+        "persisted checkpoint is below required floor",
+    );
+    let reopened = ChainState::open_with_test_checkpoint_floor(
+        common::open_test_store(dir.path()),
+        Hash256::ZERO,
+        NETWORK_MAGIC_REGTEST,
+        floor,
     )
     .unwrap();
     assert_eq!(reopened.tip_hash, hashes[5]);
@@ -495,6 +519,12 @@ fn v2_encoding_roundtrips_all_domain_and_locator_fields() {
     assert_eq!(&raw[321..353], expected.checkpoint_config_hash.as_bytes());
     assert_eq!(&raw[353..385], expected.bridge_domain.as_bytes());
     assert_eq!(&raw[385..417], expected.checkpoint_event_digest.as_bytes());
+    for end in 0..raw.len() {
+        assert!(checkpoint::decode_test_oracle_v2(&raw[..end]).is_err());
+    }
+    let mut trailing = raw.clone();
+    trailing.push(0);
+    assert!(checkpoint::decode_test_oracle_v2(&trailing).is_err());
     assert_eq!(checkpoint::load(&chain.store).unwrap(), Some(expected));
     assert!(chain
         .store
@@ -680,6 +710,37 @@ fn malformed_anchor_fails_closed_on_restart() {
 }
 
 #[test]
+fn corrupt_persisted_checkpoint_is_internal_not_peer_invalidity() {
+    let (_dir, chain, _) = canonical_chain();
+    chain
+        .store
+        .put_metadata(checkpoint::CHECKPOINT_KEY, &[1, 2])
+        .unwrap();
+    let error = checkpoint::load(&chain.store).unwrap_err();
+    assert!(matches!(error, dom_core::DomError::Internal(_)));
+
+    chain
+        .store
+        .delete_metadata(checkpoint::CHECKPOINT_KEY)
+        .unwrap();
+    chain
+        .store
+        .apply_reorg_with_consensus_state(
+            chain.tip_hash.as_bytes(),
+            &[],
+            &[],
+            &[],
+            &[ConsensusStateUpdate {
+                key: checkpoint::CONSENSUS_CHECKPOINT_KEY.to_vec(),
+                value: Some(vec![1, 2]),
+            }],
+        )
+        .unwrap();
+    let error = checkpoint::load_consensus(&chain.store).unwrap_err();
+    assert!(matches!(error, dom_core::DomError::Internal(_)));
+}
+
+#[test]
 fn legacy_v1_anchor_fails_closed_instead_of_becoming_no_checkpoint() {
     let (dir, chain, _) = canonical_chain();
     chain
@@ -726,7 +787,7 @@ fn restart_with_persisted_anchor_requires_external_floor() {
             Hash256::ZERO,
             NETWORK_MAGIC_REGTEST,
         ),
-        "persisted checkpoint requires external floor",
+        "external restart checkpoint floor is required",
     );
     open_required(dir.path(), oracle(3, hashes[3])).unwrap();
 }

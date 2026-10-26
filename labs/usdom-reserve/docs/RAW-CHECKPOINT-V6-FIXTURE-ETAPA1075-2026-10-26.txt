@@ -1,0 +1,41 @@
+ETAPA 1075 — RAW CHECKPOINT V6 FIXTURE / E2E FINALIZED BURN
+Data: 2026-10-26
+Escopo: crates/dom-usdom-finalized-burn-program/tests/raw_checkpoint_positive.rs
+
+Resultado
+- O E2E raw-checkpoint/finalized-burn passa novamente sem relaxar validacao.
+- A diferenca de 33 bytes foi derivada do formato, nao aceita por atualizacao cega:
+  CHECKPOINT_STATEMENT_V4_BYTES = 518;
+  V5 acrescenta total_issued:u128 e total_burned:u128 = 32 bytes;
+  V6 acrescenta issuance_closed:bool canonico = 1 byte;
+  CHECKPOINT_STATEMENT_V6_BYTES = 551, portanto 551 - 518 = 33.
+- O comprimento observado do input UDFINL04 e 64815 porque o checkpoint witness
+  permanece com 62638 bytes e o statement interno cresceu exatamente 33 bytes.
+
+Correcao
+- Removidas as assercoes frageis de comprimento total literal e SHA-256 do blob
+  privado completo.
+- O teste agora calcula o comprimento a partir de todos os componentes canonicos,
+  verifica magic e fronteiras exatas de schedule, statement, policy, length words,
+  burn witness e checkpoint witness.
+- O teste prova explicitamente a extensao V4 -> V5 -> V6, confere os dois u128 e
+  o byte booleano nos offsets canonicos e exige round-trip byte-a-byte via
+  FinalizedBurnProverInput::from_bytes(...).to_bytes().
+- O known-answer do statement_hash publico Solidity permanece fixo, pois e uma
+  fronteira publica relevante ao contrato e nao depende do envelope privado.
+- Validacao negativa preservada e ampliada: replay ceiling alterado, byte residual
+  e truncatura sao todos rejeitados.
+
+Verificacao executada
+CARGO_NET_OFFLINE=true cargo test -p dom-usdom-finalized-burn-program \
+  --test raw_checkpoint_positive --locked --offline -j1 -- --nocapture
+Resultado: 1 passed; 0 failed; duracao do teste 1.37s (rebuild total 2m48s).
+
+cargo fmt --all -- --check
+Resultado: passou apos rustfmt focalizado.
+
+git diff --check -- crates/dom-usdom-finalized-burn-program/tests/raw_checkpoint_positive.rs
+Resultado: passou.
+
+Limites de acao
+- Nenhum commit, push, deploy, assinatura ou movimentacao de fundos.

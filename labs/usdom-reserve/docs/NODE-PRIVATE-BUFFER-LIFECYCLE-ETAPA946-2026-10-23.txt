@@ -1,0 +1,20 @@
+ETAPA946 — NODE PRIVATE BUFFER LIFECYCLE
+Date: 2026-10-23
+
+Inventory
+- Shared runtime-secret JSON reader serves 23 production scripts. Per read it
+  owns exactly two credential-bearing Buffers: primary capture and independent
+  stability verification. Both are erased in finally on success/error.
+- Three secret-node launchers already track and fill their password/token
+  buffers in finally. Raw/signature/witness readers are bounded artifact
+  validators; JS strings created by JSON parsing cannot be reliably zeroized.
+
+Correction
+- The largest shared family retained its *_FILE handoff in process.env for the
+  process lifetime and possible child inheritance. The helper now snapshots the
+  path once and immediately deletes the environment entry before filesystem or
+  JSON work. Both byte captures retain unconditional fill(0).
+- Result: 23/23 consumers inherit the correction; two secret buffers per call
+  erase on all exits and zero secret-file path variables remain inheritable.
+
+Tests 4/4 and diff-check pass; no operation executed.

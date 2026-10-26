@@ -1,0 +1,42 @@
+[package]
+name = "dom-usdom-finalized-burn-proof-host"
+description = "Fail-closed planning for one authenticated finalized USDOM burn proof"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = []
+prove = ["dep:bincode", "dep:risc0-zkvm", "risc0-zkvm/client", "risc0-zkvm/prove"]
+
+[[bin]]
+name = "dom-usdom-plan-finalized-burn-proof"
+path = "src/bin/plan.rs"
+
+[[bin]]
+name = "dom-usdom-prove-finalized-burn"
+path = "src/bin/prove.rs"
+required-features = ["prove"]
+
+[[bin]]
+name = "dom-usdom-package-finalized-burn-evm-proof"
+path = "src/bin/package-evm.rs"
+required-features = ["prove"]
+
+[dependencies]
+zeroize.workspace = true
+dom-usdom-finalized-burn-program = { path = "../dom-usdom-finalized-burn-program" }
+dom-wallet-crypto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+bincode = { workspace = true, optional = true }
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std", "disable-dev-mode"], optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

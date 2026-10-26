@@ -1,0 +1,25 @@
+ETAPA 808 — decodificação real e ImageID dos ProgramBinary RISC Zero
+Data: 2026-10-23
+Escopo: validação sem execução de prova dos sete artefatos fornecidos a prove_with_opts.
+
+ACHADO
+A ETAPA800 provava por inspeção que os hosts selecionavam os arquivos empacotados e conferia seus SHA-256, mas não decodificava os bytes pelo parser oficial risc0-binfmt nem recalculava o ImageID. Um arquivo com hash pinado incorretamente classificado poderia, portanto, escapar desse teste estrutural e falhar apenas ao iniciar o prover caro.
+
+CORREÇÃO
+- dom-risc0-program-packager ganhou modo read-only `--verify PROGRAM EXPECTED_IMAGE_ID`.
+- A verificação usa `ProgramBinary::decode`, exige que `encode()` reproduza exatamente os bytes (codificação canônica), carrega user/kernel ELF ao executar `compute_image_id` e compara o Digest com o ImageID esperado.
+- As leituras continuam limitadas a 128 MiB, por arquivo regular direto e singly-linked, com identidade/tamanho rechecados.
+- `scripts/check-risc0-proof-program-binary.py` mantém inventário exato dos sete hosts, confere SHA-256 antes do decoder e exige saída canônica com o ImageID.
+- A extensão legada `.elf` de finalized-burn foi efetivamente decodificada como ProgramBinary; não foi tratada como ELF cru.
+
+EVIDÊNCIA SEM PROVA
+- Compilação isolada do utilitário contra os rlibs risc0-binfmt/zkos já presentes no cache; nenhum prover foi iniciado.
+- Checker real: 7/7 artefatos decodificados, canonical round-trip aprovado e ImageID recalculado igual aos sete valores pinados.
+- RandomX corrompido no magic: rejeitado como `Malformed ProgramBinary`.
+- RandomX íntegro com ImageID esperado falso: rejeitado com `ProgramBinary ImageID mismatch`.
+- `node --test test/node/risc0-program-binary-prover-binding.test.mjs`: 3/3.
+- `python3 -m py_compile scripts/check-risc0-proof-program-binary.py`: passou.
+- rustfmt focado e `git diff --check`: passaram.
+
+LIMITES
+Nenhuma prova, RPC, assinatura, transmissão, deploy ou fundo foi usado. O checker elimina erro de framing/artefato/ImageID antes da prova, mas não substitui a futura execução completa do prover.

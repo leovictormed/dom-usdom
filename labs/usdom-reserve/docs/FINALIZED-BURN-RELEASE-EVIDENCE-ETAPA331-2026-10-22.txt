@@ -1,0 +1,70 @@
+Stage 331 — release-specific finalized-burn evidence hardening
+
+The finalized-burn end-to-end report is now schema v3. A report must bind the
+exact release and source commit, reserve and adapter, pinned RISC Zero verifier
+runtime, guest ProgramBinary and ImageID, statement, input, succinct receipt,
+Groth16 receipt and selector-prefixed EVM seal. It also records bounded artifact
+sizes, separate proving and compression time/memory, a coherent execution
+interval, isolated-EVM gas, and one finalized block observed by two to four
+distinct ordered RPC identities. It must explicitly state local proving,
+development mode disabled, no mining, no broadcast and releaseSpecific=true.
+
+Schema v3 also carries the exact ten-field finalized-burn tuple. The release
+gate canonicalizes every uint64, address and bytes32 and independently
+recomputes the Solidity-compatible statement hash from the release chain ID,
+reserve address and activation-schedule commitment. Changing the payout amount,
+recipient, burn/request identity, DOM block/state identity, finality slot or
+intent deadline invalidates the report instead of leaving an opaque nonzero
+statement hash accepted on trust.
+
+The new finalized-burn artifact collector walks the complete on-disk source,
+job, receipt and Groth16 graph. Every path is fixed and bounded. Files and all
+ancestor directories must be direct, owned by the current user and private.
+The collector cross-checks exact schemas, program and ImageID bytes, input
+copies, index hashes, receipt hashes and sizes, statement propagation, the
+Groth16 journal and the EVM selector before constructing unsigned reserve
+calldata through the independent submission validator.
+
+The immutable-source boundary was also extracted into a shared validator for
+the checkpoint and finalized-burn release executors. It requires HEAD to equal
+the declared source commit and permits only evidence metadata, operator intent
+and evidence files to differ while the signed evidence child commit is built.
+Deletion, rename, copy, conflict, code change and noncanonical path states fail
+closed.
+
+Validation performed:
+
+- finalized-burn artifact collector positive and substitution/permission tests;
+- finalized-burn report v3 release-gate mutation tests;
+- shared checkpoint source-boundary tests;
+- combined focused suite: 49/49 passed.
+
+This stage does not claim that a release-specific receipt has already been
+generated. It makes the future receipt and report mechanically verifiable and
+prevents a generic capacity run from satisfying the release evidence slot.
+
+The fixed executor `npm run --silent check:finalized-burn-release-e2e` now
+connects these boundaries. It accepts no arguments, requires the exact signed
+source commit with only evidence-layer differences, copies the authenticated
+source into a private workspace, prebuilds the fixed local prover, measures the
+succinct proof and Groth16 compression separately, invokes the strict artifact
+collector, observes the pinned verifier runtime through two finalized RPC
+sources, deploys the exact adapter in an isolated chain-ID-1 Anvil, verifies the
+real selector-prefixed seal, measures gas, rechecks configuration/source bytes
+and atomically writes the v3 report. It has no signing, wallet, broadcast,
+mining or fund path.
+
+The fixed no-argument materializer
+`npm run --silent materialize:finalized-burn-release-evidence` accepts only the
+newest canonical successful run for the exact source commit. It revalidates the
+v3 report against the release and verifier, rejects evidence-path collisions,
+canonicalizes and hashes the report, publishes it before its metadata reference,
+and atomically updates only the fixed release-evidence slot. A crash can leave
+an unreferenced report but cannot create a dangling evidence hash. The command
+cannot choose an arbitrary report and has no Git publication, signing, network
+transaction or funds capability.
+
+Immediately before both atomic publications, it rereads byte-for-byte the
+release configuration, verifier manifest and release-evidence metadata. A
+concurrent mutation of any input aborts rather than publishing metadata for a
+report validated against stale configuration.

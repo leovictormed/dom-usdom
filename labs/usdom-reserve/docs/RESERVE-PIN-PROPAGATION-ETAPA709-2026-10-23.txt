@@ -1,0 +1,48 @@
+ETAPA709 — propagação dos pins da reserve após ETAPA701
+Data: 2026-10-23
+
+Achado corrigido
+
+O produtor raiz de release derivava os dois adapters a partir dos artefatos,
+mas deixava `reserveRuntimeCodeHash` e `reserveInitcodeHash` como recebidos no
+template. Assim, uma release core poderia terminar sem os pins da reserve ou,
+em template preenchido, depender de valores não rederivados pelo próprio
+produtor.
+
+Correção
+
+- O produtor release core agora carrega o artefato `USDOMProofReserve`, verifica
+  todos os hashes de fonte, deriva primeiro a configuração completa e depois
+  executa `deriveReserveArtifactBinding` sobre exatamente essa configuração.
+- Uma segunda reconciliação fail-closed exige que o config hash do artefato seja
+  o `reserveConfigHash` derivado e instala runtime/initcode somente quando o
+  campo está nulo ou já é idêntico.
+- O preactivation ocorre antes de activationScheduleCommitment, empty root e
+  reserveConfigHash existirem; portanto o initcode definitivo ainda não pode
+  ser derivado. Essa fase agora exige explicitamente runtime/initcode da reserve
+  nulos, impedindo que pins antigos ganhem autoridade antecipada. A release core
+  posterior é a primeira fase autorizada a preenchê-los.
+- Deployment e readiness já rederivam `deriveReserveArtifactBinding`; preflight
+  compara runtime implantado e initcode da transação; reproducible-build exige
+  duas compilações idênticas; readiness/authorization compara os pins compilados
+  com a release exata. Esses caminhos foram preservados e incluídos na busca
+  estrutural.
+
+Evidência de identidade
+
+- runtime atual: `0x8d00a296475d54a6d0bfafc07dc3466b081647eb9a84264d64786753d943e419`;
+- initcode atual: `0xbf95ead725910b814d37c5a9ad7e38f4edd7952d91248bb16012744605776a3f`.
+
+Os pins anteriores aparecem apenas em regressões `assert.notEqual` e em
+documentação histórica. Nenhum produtor, SDK, configuração operacional ou
+manifesto ativo contém esses literais.
+
+Validação
+
+- Testes diferenciais de compiled runtime, release/preactivation core e build
+  reprodutível: 15/15.
+- Busca estrutural dos sete consumidores ativos: 1/1.
+- Node syntax checks e `git diff --check`: aprovados.
+
+Nenhum RPC real, materialização, commit, push, deploy, assinatura, transmissão
+ou fundo foi usado.

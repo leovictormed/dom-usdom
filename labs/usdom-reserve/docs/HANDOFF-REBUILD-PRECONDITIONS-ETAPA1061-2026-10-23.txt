@@ -1,0 +1,28 @@
+ETAPA 1061 — PRÉ-CONDIÇÕES DO HANDOFF PARA REBUILD
+Data: 2026-10-23
+
+Achado e correção
+A auditoria pós-ETAPA1060 encontrou que o orquestrador validava fontes, ferramentas, lock e outputs, mas ainda podia ser chamado sem consumir a receita do handoff. Isso permitia iniciar o novo pipeline enquanto a prova anterior permanecesse `active`.
+
+O orquestrador agora exige `--handoff-recipe` e `--expected-handoff-sha256`. A receita deve ser arquivo regular direto, link count 1, conteúdo SHA-256 exato e schema estrito. Somente `current-complete`, `historical-stale` ou `failed-stale` com `releaseAllowed=true` e terminal autenticado permitem avançar. `active`, ausência de terminal, hash substituído ou combinação classificação/promotion inconsistente falham antes do teste de fonte, lock e execução.
+
+Inventário exato do handoff/rebuild
+1. A prova existente escreve `run-manifest.json`; o verificador observa PID/start ticks/cmdline sem controlar o processo.
+2. Após término, terminal, receipt index, receipts, status e target devem reconciliar por SHA-256.
+3. `check-long-proof-handoff.py` cria receita imutável. Prova histórica/falha autoriza apenas liberação; não promoção.
+4. O SHA-256 da receita entra explicitamente no comando do orquestrador e no resultado publicado.
+5. O orquestrador autentica manifesto externo, commit/tree limpos e executáveis, adquire lock e exporta a fonte fixada.
+6. A ordem interna obrigatória é `segment`, `outer`, `finalized-burn`, `propagate`, `receipts`, `gate`; não há opção de pular/reordenar.
+7. Cada estágio usa argv sem shell e outputs declarados. Os três builds precisam alterar seus outputs; byte-identidade é stale.
+8. Gate bem-sucedido publica todo o candidato por rename atômico. Qualquer falha remove tudo.
+
+Pré-condições ainda externas/evidenciais
+- término autenticado da prova atual;
+- commit/tree limpos depois da integração das mudanças;
+- hashes reais dos executáveis e um manifesto materializado contra esse commit;
+- rebuild pesado que derive novos ImageIDs/hashes e receipts reais.
+
+Esses valores não podem ser preenchidos antes dos eventos correspondentes. Não há lacuna local restante no controle de handoff/isolamento: valores ausentes falham fechados e não são inferidos ou inventados.
+
+Validação
+As duas suítes leves passaram juntas 13/13. Incluem receita ativa, substituída e semanticamente inconsistente, além das regressões anteriores de processo/artefatos/lock/rollback/stale/publicação. py_compile e git diff --check passaram. Nenhuma promoção, build pesado, rede, push, deploy ou fundo foi usado.

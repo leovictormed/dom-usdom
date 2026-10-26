@@ -1,0 +1,20 @@
+Stage 563 — RPC peer identity and forwarding-header rate-limit audit
+Date: 2026-10-23
+
+Finding
+
+Production used tower_governor SmartIpKeyExtractor. That extractor selects X-Forwarded-For, X-Real-IP or Forwarded before the TCP ConnectInfo address. The DOM RPC listener accepts connections directly and has no trusted-proxy allowlist, so an unauthenticated or credentialed remote client could rotate a forged header and receive a fresh rate-limit bucket for every request. This defeated the intended CPU/memory protection on transaction, wallet, mining and proof-verifying USDOM routes.
+
+Correction
+
+Both production submit and read governors now use PeerIpKeyExtractor. The existing into_make_service_with_connect_info wiring supplies the kernel-observed TCP peer address; client forwarding headers no longer influence the key. A deployment behind a proxy consequently shares the proxy address bucket unless a future, explicit trusted-proxy policy is implemented. Sharing is fail closed for capacity and is preferable to accepting attacker-selected identity.
+
+Evidence
+
+- Added production-bound integration regression `crates/dom-rpc/tests/rate_limit_peer_ip.rs`: three concurrent connections from one TCP peer present three different X-Forwarded-For values against a two-request burst and require exactly one HTTP 429.
+- Source formatting checks pass for middleware and the focused regression file.
+- Structural review confirms no SmartIpKeyExtractor remains in executable middleware; the only textual mention explains why it is forbidden.
+- Full Cargo execution is queued until the active RandomX proof releases constrained memory. This stage claims no readiness fact from an unexecuted test.
+- RandomX service was not stopped, restarted or changed.
+
+No push, commit, deployment, signing, transaction or funds action occurred.

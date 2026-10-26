@@ -1,0 +1,31 @@
+USD + DOM — extração fail-closed dos hashes da recuperação Safe
+Etapa 340 — 2026-10-22
+
+Achado
+
+Depois de observar e persistir as três execuções finalizadas de recuperação, o
+executor fazia `export VAR=$(jq -er ...)`. Em Bash, o status de `export` pode
+ocultar o status não zero da substituição de comando. Um arquivo ausente,
+malformado ou sem `transactionHash` poderia, portanto, não interromper o script
+no ponto de autenticação pretendido.
+
+As validações posteriores tenderiam a falhar, mas avançar com variáveis vazias
+enfraquecia a atomicidade operacional e tornava o diagnóstico ambíguo em uma
+cerimônia de recuperação.
+
+Correção
+
+Cada um dos três hashes agora é extraído em uma atribuição própria sob
+`set -euo pipefail`. Somente depois de todos os `jq -er` concluírem com sucesso
+as variáveis são exportadas em uma instrução separada. Assim, qualquer falha de
+parsing encerra o fluxo antes da coleta do estado final.
+
+Validação
+
+- `bash -n`: aprovado;
+- ShellCheck warning-or-higher, excluindo somente o idioma intencional
+  `CDPATH= cd` (SC1007): aprovado sem avisos;
+- suíte operacional/runbook: 58/58 testes aprovados;
+- `git diff --check`: aprovado.
+
+Nenhuma chave, assinatura, deploy, transmissão, mineração ou fundo foi usado.

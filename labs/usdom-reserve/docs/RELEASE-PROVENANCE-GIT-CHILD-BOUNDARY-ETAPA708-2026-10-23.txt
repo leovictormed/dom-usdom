@@ -1,0 +1,33 @@
+ETAPA 708 — release provenance Git child boundary
+Date: 2026-10-23
+
+Finding
+=======
+Release provenance derives the source commit, author/committer identities, signed-commit
+fingerprint and tag absence through Git. The materializer invoked `git` by PATH without an
+identity snapshot, accepted ordinary command output through tolerant string decoding and did
+not recheck HEAD or its three JSON inputs immediately before emitting the release authority.
+A substituted Git binary or concurrent repository/input mutation could alter provenance.
+
+Correction
+==========
+Git is now resolved through snapshotExecutable, invoked only through its absolute resolved
+path and re-hashed/re-statted with its containing directory before output. Ordinary Git commands
+use bounded Buffer output, fatal UTF-8, exact single-newline framing and mandatory empty stderr.
+`verify-commit --raw` retains its protocol-specific stderr channel because Git emits signature
+status there; both channels receive fatal decoding and the existing fingerprint parser remains.
+
+Package, release-evidence and operator-intent JSON now parse directly from strict bytes. Before
+emitting output, the materializer re-resolves HEAD and re-reads all three files, requiring exact
+commit and Buffer equality. Existing commit identity, signature anchor, tracked-file and tag
+absence checks remain.
+
+Validation
+==========
+A focused structural test passes 1/1 and requires executable snapshot/recheck, absolute child
+execution, bounded bytes, fatal decoding, stderr policy, strict JSON bytes and final input/HEAD
+TOCTOU checks. Node syntax and git diff checks pass. The real Git CLI integration test was not
+run in this light stage because the task prohibited real child execution.
+
+No child process, build, Cargo, Rust, Solidity, RISC0 proof, RPC, signing, transmission,
+deployment, funds, staging, commit or push was performed.

@@ -1,0 +1,29 @@
+ETAPA1022 — DOM checkpoint reorg barrier (2026-10-23)
+
+Result: no additional bypass found.
+
+The single ordinary fork promotion and both native USDOM V4/V2 promotions
+refresh the persisted checkpoint, find the common ancestor, and call
+check_reorg before fork choice or state mutation. An ancestor equal to the
+floor is allowed; an ancestor below it is rejected, so the checkpoint block and
+all later authorized burns remain in ancestry. Direct extensions cannot remove
+history. Local mining enters through the same direct-extension validation.
+
+IBD validates the current floor before accepting header batches. Side headers
+and bounded side blocks may be retained, but cannot become canonical except via
+the guarded promotion functions. Snapshot/state restoration authenticates the
+checkpoint commitment and reconstructed ancestry; compaction retains the
+checkpoint/rolling boundary needed for replay. Restart additionally requires an
+external independently retained floor whenever checkpoint state exists, rejects
+database rollback below it, and verifies its exact canonical block.
+
+Peer sync therefore may download an incompatible fork but cannot promote it.
+Undo records are consumed only inside guarded atomic promotions. The persisted
+checkpoint update, canonical pointers, USDOM state, undo/sidecars and archive
+changes share the consensus-state transaction, preventing a crash window that
+advances authorization without its reorg barrier.
+
+Evidence: `python3 labs/usdom-reserve/scripts/check-dom-checkpoint-reorg-barrier.py`,
+`python3 -m py_compile labs/usdom-reserve/scripts/check-dom-checkpoint-reorg-barrier.py`,
+and `git diff --check` pass. Cargo/Forge were intentionally not run while the
+long RISC Zero proof owns constrained resources.

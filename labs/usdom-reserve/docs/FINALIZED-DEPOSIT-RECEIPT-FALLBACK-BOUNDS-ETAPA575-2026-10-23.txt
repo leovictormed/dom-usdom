@@ -1,0 +1,33 @@
+USDOM finalized-deposit receipt fallback work bound — stage 575
+Date: 2026-10-23
+
+Finding
+=======
+
+The finalized-deposit collector bounded the completed receipt set to 4,096,
+but applied that check only after its compatibility fallback. If an execution
+RPC rejected eth_getBlockReceipts, the collector iterated the untrusted block
+transaction array and made one eth_getTransactionReceipt request per entry
+before enforcing the limit. The 32 MiB block-response ceiling limited memory,
+but did not adequately limit network requests or elapsed work.
+
+Correction
+==========
+
+`boundedTransactionHashes` now validates the transaction worklist immediately
+after obtaining the deposit block and before either receipt path. It requires
+1..4,096 canonical nonzero transaction hashes, normalizes case and rejects
+duplicates. Both the primary collection and every independent repeat
+observation use this prevalidated list for fallback requests, length checks and
+receipt identity/order reconciliation.
+
+Validation
+==========
+
+Focused finalized-deposit and RPC tests pass 9/9. The new behavioral regression
+covers normalization, empty lists, malformed elements, duplicates and 4,097
+entries. The collector passes Node syntax validation and the relevant diff is
+clean. Heavy integrated proof/readiness suites remain queued behind the active
+real RISC Zero job.
+
+No push, deploy, signing, broadcast or funds action occurred.

@@ -1,0 +1,28 @@
+ETAPA735 — partial recovery finalized-anchor authentication
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+Completion manifests recorded the all-RPC finalized block established by
+ETAPA732, but recovery validated only its shape. It proved current receipt
+finality without asking whether each RPC still recognized the stored finalized
+anchor. A forged manifest or a violation of Ethereum finalized ancestry could
+therefore avoid direct detection at that boundary.
+
+For every predecessor and every independent RPC, recovery now reads the stored
+finalized number/hash from the strict private manifest, requires the current
+finalized head not to regress below it, fetches the block by the exact stored
+number, and compares both returned number and hash. Absence, reorg, divergence
+or finality regression fails before nonce, runtime or next-role authorization.
+The manifest remains bound to the current package/release/observation/catalog
+and is byte-rechecked after the RPC sequence.
+
+Verification
+============
+
+- Focused positive and adversarial structural tests: 9/9 passed.
+- Bash syntax and `git diff --check`: passed.
+
+No real RPC, deployment, signature, materialization, funds action, commit or
+push occurred.

@@ -60,6 +60,7 @@ prop_compose! {
             disable_dns_seeds,
             seed_peers,
             mine,
+            closed_mainnet_test: false,
             miner_throttle: MinerThrottleConfig {
                 enabled: throttle_enabled,
                 yield_every_nonces,

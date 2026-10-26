@@ -1,0 +1,37 @@
+ETAPA 666 — ÍNDICES FINALIZED-BURN COM FRONTEIRA ESTRITA DE BYTES
+Data: 2026-10-23
+
+Inventário
+Nos módulos SDK compartilhados, duas fronteiras ainda convertiam JSON com
+Buffer.toString('utf8') antes do parser estrito: os índices do coletor de
+finalized burn e os índices do coletor de capacidade de checkpoint. Foi
+priorizado finalized burn porque seus quatro índices vinculam input privado,
+job RISC0, receipt verificado, receipt Groth16 e seal EVM que formam o resgate.
+
+Correção
+`strictIndex` em finalized-burn-artifact-collector.mjs agora chama
+parseStrictJsonBytes diretamente sobre os bytes. Assim, UTF-8 inválido é
+rejeitado antes que substituição possa alterar a identidade do documento;
+chaves duplicadas continuam rejeitadas.
+
+Garantias preservadas
+- limite por índice de 1 MiB e profundidade 32;
+- arquivos/diretórios privados, owner-only, sem symlink/hardlink;
+- hashes SHA-256 de todo o grafo e vínculos cruzados;
+- réplica privada e recheck dos origins contra TOCTOU;
+- validação semântica de receipt, Groth16, image ID, statement e seal EVM.
+
+Testes
+- índice com schema duplicado por escape é rejeitado;
+- índice com UTF-8 inválido é rejeitado;
+- regra estrutural exige parseStrictJsonBytes(artifact.bytes) e proíbe toString;
+- novas regressões: 2/2 passaram; node --check e git diff --check passaram.
+A suíte integral lenta iniciou e seus dois primeiros casos passaram, mas foi
+encerrada para não manter carga prolongada concorrente; as regressões focadas
+cobrem diretamente a mudança.
+
+Próximo item inventariado
+checkpoint-capacity-artifact-collector.mjs contém a fronteira equivalente e é
+o próximo candidato independente.
+
+Nenhum RPC, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

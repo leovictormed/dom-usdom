@@ -1,0 +1,36 @@
+ETAPA910 — COMMIT-CEREMONY JQ AUTHENTICATION
+Date: 2026-10-23
+
+Fixed input: the 28 bare-real baseline left by ETAPA908; no new filesystem inventory was performed.
+
+Corrected 9/9 JQ calls across commit-release-source and commit-release-evidence. Each resolves through a same-shell wrapper that immediately rechecks the shared bounded absolute JQ executable/hash/canonical-parent pin. No Git command, commit, tag or signing ceremony was executed.
+
+Remaining bare-real baseline calls: 19
+
+Remaining groups:
+jq	wallet/TPM/deposit/burn	2
+node	commit ceremonies	4
+node	wallet/TPM/deposit/burn	4
+timeout	collectors/services	4
+timeout	proof planners	5
+
+Exact remaining baseline call sites:
+labs/usdom-reserve/scripts/run-closed-mainnet-node.sh:46: timeout --signal=TERM --kill-after=2s 30s \
+labs/usdom-reserve/scripts/run-closed-mainnet-node.sh:164: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/commit-release-source.sh:87: node --input-type=module - "$source_tag" <<'NODE'
+labs/usdom-reserve/scripts/plan-authenticated-economic-receipt-set.sh:80: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/plan-authenticated-randomx-receipt-set.sh:67: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/collect-ethereum-checkpoint-consensus.sh:18: timeout --signal=TERM --kill-after=2s 30s \
+labs/usdom-reserve/scripts/collect-ethereum-checkpoint-consensus.sh:31: timeout --signal=TERM --kill-after=5s 300s \
+labs/usdom-reserve/scripts/plan-authenticated-finalized-burn.sh:69: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/prepare-native-receiving-wallet.sh:245: jq -n \
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-outer.sh:73: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-segment-set.sh:105: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/prepare-closed-mainnet-private-burn.sh:140: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST" \
+labs/usdom-reserve/scripts/prepare-closed-mainnet-private-burn.sh:142: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST_PIN" \
+labs/usdom-reserve/scripts/provision-closed-mainnet-tpm-keystore.sh:120: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST" \
+labs/usdom-reserve/scripts/provision-closed-mainnet-tpm-keystore.sh:122: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST_PIN" \
+labs/usdom-reserve/scripts/commit-release-evidence.sh:71: node --input-type=module - "$source_tag" <<'NODE'
+labs/usdom-reserve/scripts/commit-release-evidence.sh:207: node scripts/check-mainnet-readiness.mjs closed-mainnet > "$closed_report"
+labs/usdom-reserve/scripts/commit-release-evidence.sh:208: node scripts/check-mainnet-readiness.mjs real-funds > "$real_report"
+labs/usdom-reserve/scripts/submit-closed-mainnet-private-burn.sh:258: jq -n --arg inputs "$input_commitment" --arg manifest "$manifest_sha256" \

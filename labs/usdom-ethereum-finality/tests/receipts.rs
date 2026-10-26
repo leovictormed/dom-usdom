@@ -45,11 +45,11 @@ fn client() -> &'static HistoricalCapellaClient {
             serde_json::from_str(include_str!("../fixtures/updates.json")).unwrap();
         for value in updates {
             let update: Update<Spec> = serde_json::from_value(value["data"].clone()).unwrap();
-            c.accept(&GenericUpdate::from(&update), 7109432).unwrap();
+            c.accept(&GenericUpdate::from(&update)).unwrap();
         }
         let f: Value = serde_json::from_str(include_str!("../fixtures/finality.json")).unwrap();
         let f: FinalityUpdate<Spec> = serde_json::from_value(f["data"].clone()).unwrap();
-        c.accept(&GenericUpdate::from(&f), 7109432).unwrap();
+        c.accept(&GenericUpdate::from(&f)).unwrap();
         c
     })
 }

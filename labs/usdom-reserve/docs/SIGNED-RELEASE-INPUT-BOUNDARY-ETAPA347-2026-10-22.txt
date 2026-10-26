@@ -1,0 +1,48 @@
+USD + DOM — fronteira direta para assinaturas e evidência operacional
+Etapa 347 — 2026-10-22
+
+Problema corrigido
+
+A etapa 344 protegeu os oito fluxos centrais de recuperação Safe, o token RPC e
+a emissão por depósito. Uma nova varredura encontrou caminhos auxiliares que
+ainda abriam assinaturas ou evidências por pathname comum:
+
+- a assinatura da autorização final de produção;
+- as quatro assinaturas das atestações nativas;
+- identidade pública, custódia TPM e ensaio de recuperação da carteira nativa;
+- cinco verificadores/coletores auxiliares do controle Safe.
+
+Os scripts shell verificavam alguns desses arquivos antes de chamar Node, mas
+existia uma janela entre o `stat` do shell e a abertura posterior. Outros três
+arquivos da carteira não tinham essa fronteira direta.
+
+Correção
+
+- `readDirectProjectFile` agora propaga tamanho mínimo, modo privado e rótulo à
+  leitura do descritor já aberto;
+- assinaturas da autorização e das quatro atestações exigem arquivo direto,
+  proprietário atual, um único link, modo 0600 e tamanho limitado;
+- os três artefatos da carteira nativa exigem a mesma fronteira privada, com
+  limite de 4 MiB;
+- os validadores de plano, pacote, envelope, transação bruta, alvo e evidência
+  Safe usam `readDirectFile` em vez de `readFile(path)`;
+- a resolução de `/proc/self/fd` continua vinculando o inode aberto ao caminho
+  absoluto esperado e a leitura rejeita mutação de inode/tamanho/mtime/ctime.
+
+Validação
+
+- o teste adversarial de link simbólico agora cobre 13 fluxos Safe;
+- a unidade da fronteira confirma a aplicação de modo 0600 também para caminhos
+  relativos ao projeto;
+- testes estáticos impedem os três fluxos de assinatura/atestações de voltarem
+  a importar `readFile` diretamente;
+- testes focados: 8/8 aprovados;
+- lint dos contratos, build Solidity forçado de 44 arquivos e regressão Node
+  completa: 289/289 aprovados.
+
+Os avisos emitidos pelo build são os avisos Foundry/OpenZeppelin já avaliados;
+nenhum erro de compilação ou teste ocorreu. A prova RISC Zero ativa permaneceu
+em execução e não foi reiniciada.
+
+Nenhuma chave, assinatura, publicação, implantação, mineração, transmissão ou
+movimentação de fundos foi realizada.

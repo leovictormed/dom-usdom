@@ -1,0 +1,26 @@
+ETAPA 837 — private-burn pinned Cargo boundary
+Date: 2026-10-23
+
+Finding
+
+Private-burn preparation and submission invoked `cargo build` directly through
+PATH while private wallet state, TPM authorities, recovery material and RPC token
+snapshots were active. The produced binaries were hashed later, but a substituted
+Cargo could execute build-time code before those checks.
+
+Correction
+
+- Both flows resolve Cargo once and require a regular executable, non-symlink,
+  single link, safe owner/mode and safely owned non-writable directory.
+- Cargo stat identity and SHA-256 are captured.
+- Each locked release build uses only the exact resolved path and is surrounded
+  by identity rechecks; bare `cargo build` is prohibited by regression.
+- Existing environment sanitization, core-dump suppression, binary hash checks
+  and private status-preserving cleanup remain active.
+
+Validation
+
+- Both scripts pass `bash -n`.
+- Cargo boundary plus credential environment, crash and cleanup tests: 10/10 pass.
+- Diff check passes.
+- No Cargo build, private burn, TPM, RPC, commit, push or funds action ran.

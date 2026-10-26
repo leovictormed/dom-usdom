@@ -1,0 +1,33 @@
+USDⓄM RESERVE — BROADCAST RECEIPT PRE-JOURNAL (STAGE 416)
+Date: 2026-10-22
+
+Finding
+
+Safe and contract deployment receipts were written to predictable `/tmp`
+paths. Ordinary redirection could replace prior evidence. A write failure could
+also be discovered only after a hardware-wallet broadcast had already begun,
+creating dangerous retry ambiguity.
+
+Correction
+
+- Every receipt now lives in the owner-only control-plane evidence directory.
+- Shell noclobber mode and a 0600 umask reserve a new receipt inode and keep its
+  descriptor open before `cast send` starts.
+- Broadcast output is written through that already-open descriptor and synced
+  before it is parsed through the strict private-file reader.
+- A failed command retains its attempt journal and explicitly requires nonce
+  reconciliation before any retry.
+- Rebuild output may overwrite only fresh `mktemp` files via explicit `>|`;
+  authority and receipt paths remain create-only.
+- Regression forbids the former receipt paths and requires all three documented
+  broadcast loops to pre-open, sync and privately read their journals.
+
+Validation
+
+- all 37 runbook Bash blocks parse;
+- operator/runbook suite: 64/64 passed;
+- complete Node regression before the subsequent legacy-SDK removal: 306/306 passed;
+- the active non-development finalized-burn proof was not changed or restarted.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

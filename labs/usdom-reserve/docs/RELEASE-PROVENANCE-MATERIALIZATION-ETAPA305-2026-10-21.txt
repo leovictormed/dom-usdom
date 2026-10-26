@@ -1,0 +1,67 @@
+USDOM — identidade de proveniência da release (etapa 305)
+Data: 2026-10-21
+Escopo: implementação local; nenhum commit ou tag da release foi criado
+
+RISCOS TRATADOS
+
+O documento local de continuação era excluído do manifesto, mas permanecia
+visível ao Git e tornaria `repository_dirty` impossível de fechar. Além disso,
+releaseId, sourceCommit, sourceTag e fingerprint ainda dependeriam de cópia
+manual depois do commit fonte, criando risco de identidade cruzada entre
+configuração, evidência, aceitação de risco e assinatura Git.
+
+IMPLEMENTAÇÃO
+
+- `docs/CONTINUATION-STATE.md` agora é ignorado pelo componente e continua
+  explicitamente excluído do manifesto fonte;
+- a identidade canônica é derivada da versão do pacote e do HEAD fonte:
+  releaseId e sourceTag são `usdom-v<versão>`, e sourceCommit é o objeto Git
+  lowercase completo;
+- o materializador autentica autor e committer `Soren Planck
+  <sorenplanck@tutamail.com>`, verifica a assinatura do HEAD e exige igualdade
+  com o fingerprint Ed25519 obtido da âncora externa;
+- os dois JSONs precisam existir no commit fonte; o índice deve estar vazio e
+  somente os dois metadados ou `evidence/` podem estar alterados;
+- importação e manifesto fonte são revalidados antes de qualquer escrita;
+- somente três campos do manifesto de evidência, o fingerprint do operador e
+  dois campos de identidade da aceitação residual são preenchidos;
+- aprovação de produção, deploy, fundos reais e aceitação residual permanecem
+  falsas;
+- o writer usa lock, temporários locais, fsync e substituições atômicas, é
+  retomável depois de interrupção e não contém commit, tag, push, RPC,
+  transação ou acesso ao conteúdo da chave privada.
+
+ARQUIVOS PRINCIPAIS
+
+- `.gitignore`
+- `sdk/release-provenance-materialization.mjs`
+- `scripts/prepare-release-provenance-materialization.mjs`
+- `scripts/materialize-release-provenance.sh`
+- `test/node/release-provenance-materialization.test.mjs`
+- `docs/CLOSED-MAINNET-LINUX-RUNBOOK.md`
+
+VALIDAÇÃO LOCAL
+
+- sintaxe shell e JavaScript passa;
+- derivação, idempotência, preservação de autorização e substituições maliciosas
+  passam na suíte pura;
+- uma fixture Git real cria uma chave Ed25519 efêmera, assina o commit fonte,
+  autentica o fingerprint correto e rejeita outro fingerprint;
+- 93/93 testes focados de readiness, runbook e materialização passam;
+- 50/50 testes do runbook passam depois da integração operacional;
+- lint dos contratos de produção, rebuild Foundry e 216/216 testes Node passam;
+- proveniência passa 169 imports/16 mudanças declaradas, 45 fontes de programas
+  de prova, 7 fontes de carteira/8 arquivos de crate e 1009 fontes do
+  laboratório;
+- os gates permanecem esperadamente fechados com 163 bloqueios únicos no
+  closed-mainnet e 174 no real-funds; não há bloqueio de implementação da etapa
+  305, auditoria externa ou garantia impossível de risco zero;
+- nenhum RPC, dispositivo persistente, assinatura da release real, transação,
+  deploy, fundo, mineração, prova, commit, tag ou push foi usado.
+
+LIMITES
+
+O materializador exige um commit fonte já assinado e não o cria. Também não
+cria o filho de evidência ou a tag. Esses passos serão uma cerimônia local
+separada, sem push, depois que todos os fatos objetivos e autorizações da
+release estiverem completos.

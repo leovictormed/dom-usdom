@@ -1,3 +1,10 @@
+SUPERSEDED SECURITY RECORD — DO NOT EXECUTE
+
+This historical stage described a 1-of-1 topology that is prohibited by the
+current production and closed-mainnet workflow. The authoritative ceremony is
+CLOSED-MAINNET-LINUX-RUNBOOK.md and requires three independent hardware seeds
+with an immutable 2-of-3 threshold.
+
 USDOM SAFE CONTROL HARDWARE BOOTSTRAP — STAGE 252
 Date: 2026-10-20
 
@@ -36,7 +43,8 @@ Implementation
   approved owner, threshold 1, no delegatecall target/data and no payment.
 - Factory, singleton and fallback-handler code must exist at a finalized
   Ethereum mainnet block. Their addresses, runtime hashes and the factory
-  proxy-creation-code hash are fixed in the builder and must equal:
+  proxy-creation-code hash are fixed in the builder, cannot be replaced through
+  its public API, and must equal:
   - factory 0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67,
     code hash 0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317;
   - singleton 0x41675C099F32341bf84BFc5382aF534df5C7461a,
@@ -57,12 +65,20 @@ Implementation
 
 Validation
 
-- A read-only Ethereum mainnet smoke run produced three distinct addresses and
-  the canonical Safe 1.4.1 factory, singleton and fallback handler identities.
+- Read-only Ethereum mainnet smoke runs through PublicNode and MEV Blocker read
+  finalized state and produced byte-identical packages with SHA-256
+  c73881310c1c1d0ecf2f840c3b19040e31b6bff1f711a1f0b93dc9cf69844cde,
+  including three distinct addresses and the canonical Safe 1.4.1 factory,
+  singleton, fallback handler and proxy creation bytecode identities.
 - Five deterministic tests pass: valid three-role preparation, reproducibility
   after earlier Safe deployments, contract-owner rejection, wrong-chain RPC
-  rejection and rejection of a non-pinned identity.
+  rejection and rejection of a non-pinned identity. The tests use exact
+  finalized Safe bytecode captured byte-identically through both live RPCs,
+  rather than an injectable substitute for the production identity.
 - npm reported zero known vulnerabilities after installing the exact package.
+- The runbook gives each read-only package build a 60-second endpoint timeout;
+  an unavailable RPC aborts and must be replaced instead of bypassing the
+  independent comparison.
 
 Residual risk and limits
 

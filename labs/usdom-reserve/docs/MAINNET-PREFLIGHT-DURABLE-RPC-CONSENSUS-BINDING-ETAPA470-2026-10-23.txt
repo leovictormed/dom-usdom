@@ -1,0 +1,14 @@
+Stage 470 — mainnet-preflight durable RPC-consensus binding
+Date: 2026-10-23
+
+The preflight collector reconciled cataloged finalized RPC snapshots but its
+materialized report retained only the first observation. Reports now include
+canonical RPC-consensus evidence with count, ordered distinct operator/origin
+entries and a domain-separated commitment. Materialization requires and
+recomputes this evidence; the catalog remains in the input TOCTOU reread.
+
+`production_mainnet_preflight_durable_report_binds_rpc_consensus` is structural;
+no live preflight is claimed. No network, signing, deployment, funds, mining,
+commit or push occurred.
+
+Validation: focused preflight tests pass 7/7; readiness passes 60/60.

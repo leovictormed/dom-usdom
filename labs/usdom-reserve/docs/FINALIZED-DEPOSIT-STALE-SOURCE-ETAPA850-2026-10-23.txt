@@ -1,0 +1,10 @@
+ETAPA 850 — invalidacao da fonte de deposito finalizado
+Data: 2026-10-23
+
+Achado e correcao
+
+O coletor de deposito finalizado publicava fonte privada create-once, mas mantinha a geracao anterior durante toda nova coleta Ethereum/Beacon. Uma falha de RPC, finality ou reconciliacao deixava a evidencia antiga observavel como resultado corrente.
+
+Agora o coletor valida o diretorio privado e remove com fsync a fonte anterior antes de ler credenciais por stdin, configuracao, manifesto, hash de transacao ou emitir qualquer RPC. A nova fonte continua create-once e somente aparece apos reconciliacao independente das fontes catalogadas e releitura estavel de todos os inputs. ENOENT e idempotente; links, hardlinks, owner/mode e pai inseguros falham fechados pelo helper compartilhado.
+
+Validacao: suite durable 9/9, sintaxe Node e diff-check aprovados. Nenhum RPC real ou operacao externa foi executado.

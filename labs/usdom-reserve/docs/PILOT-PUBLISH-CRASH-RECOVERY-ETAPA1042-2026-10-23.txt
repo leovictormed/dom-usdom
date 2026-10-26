@@ -1,0 +1,32 @@
+ETAPA1042 — pilot publish/receipt crash recovery
+
+Concrete gap
+------------
+Both pilot executors persisted the signed raw transaction before publication, but
+required the pending nonce to remain unchanged whenever no receipt file existed.
+A process or power loss after Ethereum accepted the transaction and before the
+receipt file was installed advanced the nonce by one. Restart then failed forever,
+even though the exact signed transaction hash remained authenticated locally.
+
+Correction
+----------
+A shared canonical nonce classifier now accepts only two unanimous dual-RPC states:
+(1) the exact planned nonce means publication may be prompted; (2) its exact
+successor means publication already occurred and only the receipt for the locally
+validated signed hash may be recovered. RPC disagreement, rollback, jumps, uint64
+overflow and noncanonical integers fail closed. Recovery never republishes and never
+asks for another publication authorization. Receipt block/hash and finalized heads
+still must agree on both RPCs before a finality marker or phase evidence is written.
+
+The pre-sign simulation/allowance checks are skipped only when an already validated
+raw transaction exists; otherwise they remain mandatory. A foreign replacement at
+the same nonce cannot be accepted because recovery requests the immutable expected
+transaction hash and validates its sender, target, status, block and canonical hash.
+
+Validation
+----------
+- focused Node nonce/recovery tests passed 2/2;
+- deposit and redemption executor suites passed;
+- shell syntax and focused diff check passed.
+
+No network, signer, proof, deployment, publication, push or funds were used.

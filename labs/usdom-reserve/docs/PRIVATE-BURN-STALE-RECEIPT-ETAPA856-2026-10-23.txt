@@ -1,0 +1,6 @@
+ETAPA 856 — invalidacao do receipt de private burn
+Data: 2026-10-23
+
+O submitter preservava receipt antigo durante leitura da senha de recovery, unlock TPM e RPC autenticado. Agora um CLI minimo usa o helper duravel compartilhado para remover somente o receipt derivado antes de qualquer segredo/RPC. O intent imutavel anti-replay permanece intacto e byte-bound; o novo receipt continua produzido por ultimo pelo submitter nativo.
+
+Validacao: Bash/Node syntax, suites private-burn/durable 12/12 e diff-check aprovados. Nenhum RPC ou operacao externa.

@@ -1,0 +1,21 @@
+ETAPA1052 — exact reserve-side redemption accounting
+
+Concrete gap
+------------
+Payout evidence proved the recipient gained exactly one USDT, but did not independently
+prove the reserve lost the same amount or that totalReleased/outstanding moved by the
+corresponding exact deltas.
+
+Correction
+----------
+The pre-execute finalized dual-RPC baseline now also binds reserve USDT balance,
+totalReleased and outstanding. After the finalized execute receipt, both RPCs must
+show reserve balance -1,000,000, totalReleased +1,000,000 and outstanding -1,000,000,
+in addition to recipient +1,000,000 and paid replay flags. Output-last evidence and
+the offline checklist bind/recompute every before/after value. Old incomplete
+baselines fail before signing.
+
+Validation
+----------
+Pinned Node 24.19.0 full pilot operational set passed 22/22, zero failures. Bash
+syntax and focused diff check passed. No heavy build or external action occurred.

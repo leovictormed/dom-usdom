@@ -1,0 +1,60 @@
+ETAPA652 — PREACTIVATION CEREMONY AND ARTIFACT BINDING
+Date: 2026-10-23
+
+Scope
+- Audited production-preactivation-core and its fixed materialization wrapper.
+- Reconciled ETAPA651 checkpoint guardian owner identity and the later ETAPA661
+  bounded ERC20 reserve bytecode.
+- No production template was materialized and no external action was performed.
+
+Findings and corrections
+1. The preactivation producer derived adapter runtimes but did not retain their
+   initcode hashes. It now obtains each adapter runtime, initcode and config hash
+   from one source-verified artifact binding and materializes both verifier
+   initcode pins together with their runtime/config pins.
+2. Finalized-burn and checkpoint adapter bindings independently recompute the
+   expected immutable configuration and reject a supplied stale config hash.
+3. One canonical ordered three-owner list now derives the governance, reserve
+   guardian and checkpoint guardian commitments. A reordered or substituted
+   list cannot preserve the authorized checkpoint registry identity.
+4. DOMCheckpointRegistry's control-plane typehash and config hash now include
+   guardianOwnersCommitment. The Node derivation, runtime immutable patching,
+   initcode/config derivation, readiness, submission, reproducible-build,
+   solidity-pin, release-core and preactivation consumers use the same field.
+   A non-Safe test control contract is represented exactly as Solidity does by
+   bytes32(0); production release validation still requires the canonical
+   nonzero Safe commitment.
+5. The fixed wrapper hashes the release template before preparation and checks
+   it again under the config-directory flock immediately before durable install.
+   Existing assign/cmp/install behavior remains fail-closed and idempotent.
+6. Native preactivation facts remain exact-schema inputs: the Ethereum trusted
+   checkpoint, DOM domain/network/chain, activation predecessor, checkpoint
+   cadence and total-work anchor are reconciled before the registry pin. Empty
+   state root, activation schedule and reserve final config stay unset until
+   their dependent post-compilation phase.
+
+Fresh source-derived vectors
+- USDOMProofReserve runtime (ETAPA661):
+  0x1d2a2b4b2e8cfffc96dee68d2cdf9d4f822f36f8a50707f3b7f2c8b005682498
+  size 16933 bytes
+- USDOMProofReserve initcode (ETAPA661):
+  0xe4719f8fd72f041494b0ce88f4f51321e4d882b248e3ff02a3cefe88162b9fe0
+  size 23774 bytes
+- DOMCheckpointRegistry runtime (ETAPA651):
+  0x0b010f257e09690ef6067f962c3cc8fec7f495ec04ed0be87fa312b003826732
+  size 8821 bytes
+- DOMCheckpointRegistry initcode (ETAPA651):
+  0x833876c13226d2f733f99d71b0df3d827bd5b95436f2f8cd1ff2084944f4c52f
+  size 14286 bytes
+
+All ETAPA648 reserve/registry bytecode pins and the intermediate registry
+initcode hash 0x5aef711e69210873ee52bbd15ee94e6a7bb11cf52ad8de103a317363b14e76bd
+are stale and must be rejected.
+
+Validation
+- Focused Node ceremony/config/artifact suites: 28/28 passed.
+- Updated preactivation/runtime suite: 6/6 passed.
+- Solidity registry constructor/capability regressions: 2/2 passed.
+- Full local EVM SDK/runtime/deployment differential: 1/1 passed.
+- Node syntax for all changed modules, shell syntax for the wrapper and
+  repository whitespace checks passed.

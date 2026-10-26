@@ -1,0 +1,36 @@
+USDOM closed-mainnet pilot safe diagnostics audit — Stage 1115
+Date: 2026-10-26
+
+Finding
+=======
+Eleven pilot entry points emitted Error.message (or a JSON derivative) to stderr.
+An exception originating in RPC, parsing, durable-file or transaction handling can
+contain credentials, raw signed transactions, private witness material, or both
+deposit and redemption identifiers. URL-only replacement did not cover this class.
+
+Correction
+==========
+Added sdk/pilot-safe-diagnostics.mjs. Its observable failure record is a closed,
+bounded schema with an allowlisted operation and constant error code. The supplied
+Error is deliberately never inspected, including message, stack and cause.
+
+Migrated preparation/checking of the closed deposit, genesis and issuance flows,
+finalized-burn submission/evidence, phase reconciliation, readiness and preflight.
+Added a static checker that requires the safe diagnostic sink for all eleven entry
+points and rejects direct observable exception interpolation. The checker exercises
+nine hostile sentinels spanning raw transaction, witness, rho, RPC secret and both
+sides of the deposit/redemption identity boundary.
+
+Validation
+==========
+Pinned Node 24.19.0 focused suites: 8/8 passed.
+Safe-diagnostics static/self-test: 11 entry points, 9 sentinels, passed.
+Node syntax checks for all migrated entry points passed.
+git diff --check passed.
+
+The publication inventory contains both new sources. Its inventory checker could
+not complete because the shared workspace concurrently moved the inventory to v2
+while the checker still expected v1; no weakening or speculative reconciliation
+was made here.
+
+No Cargo, Forge, network, signing, deployment, funds, commit or push was used.

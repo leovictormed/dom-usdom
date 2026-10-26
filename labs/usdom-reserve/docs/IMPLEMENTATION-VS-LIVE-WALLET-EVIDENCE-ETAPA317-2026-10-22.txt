@@ -1,0 +1,52 @@
+USDOM stage 317 - wallet implementation and live-evidence separation
+Date: 2026-10-22
+
+Finding
+=======
+
+Four real-funds requirements still reported missing implementation even though
+their concrete TPM2 keystore, monotonic authority, key-management and verified
+checkpoint recovery paths had already been implemented and tested in stages
+296-298. The flags had been left false to avoid claiming that a live TPM and
+recovery ceremony had been exercised on this host. That mixed two different
+facts and created duplicate blockers; live evidence is already mandatory in the
+release gate.
+
+Correction
+==========
+
+The four implementation claims are true and now have machine-checked dependency
+sets in `sdk/production-implementation-claims.mjs`:
+
+- native_private_wallet_key_management_implemented;
+- native_private_wallet_production_monotonic_seal_authority_integrated;
+- native_private_wallet_hardware_or_os_keystore_integrated;
+- native_private_wallet_recovery_ceremony_implemented.
+
+Every dependency is a narrower implementation fact. The claim checker mutates
+each dependency to false and verifies that the broad claim then fails.
+
+Operational state remains explicit and false:
+
+- native_private_wallet_live_tpm_keystore_exercised;
+- native_private_wallet_live_monotonic_seal_authority_attested;
+- native_private_wallet_live_recovery_ceremony_completed.
+
+The real-funds gate still requires exact, SHA-256-bound cold-start, custody and
+recovery reports plus source-bound approvals. No TPM was touched and no custody
+or recovery evidence was fabricated.
+
+Validation
+==========
+
+- focused implementation-claim and readiness tests pass 45/45;
+- full production lint/build and Node regression pass 248/248;
+- the deterministic source manifest verifies 1,054 files;
+- complete provenance checks pass;
+- the real-funds gate remains NOT READY and falls from 172 to 167 messages;
+- none of the four corrected implementation flags or the source-manifest check
+  remains in the blocker list.
+
+No TPM, node, miner, prover, Ethereum transaction, deployment, funds, commit,
+tag or push was used.
+

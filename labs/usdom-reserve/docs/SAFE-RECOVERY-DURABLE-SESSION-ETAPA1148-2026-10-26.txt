@@ -1,0 +1,22 @@
+USDOM — ETAPA 1148 — SESSÃO DURÁVEL DE RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema
+
+A fase de recuperação publicava transições, plano, provas de posse, assinaturas e transações em arquivos separados. Uma queda entre publicações deixava estado parcial; na execução seguinte, o comando recusava qualquer arquivo existente. Em particular, uma queda após persistir seis assinaturas válidas podia exigir repetir toda a cerimônia Ledger.
+
+Correção
+
+- Depois de validar a posse das três novas chaves, a fase cria primeiro um registro create-once `safe-recovery-session-v2.json` contendo as transições, o plano exato e o bundle de provas.
+- Somente após a sessão durável são expandidos os três arquivos consumidos pelas ferramentas existentes.
+- Na retomada, a sessão é lida por descritor seguro, exige shape/schema exatos e é expandida em `/dev/shm`. Arquivos já existentes precisam ser regulares, owner-only, single-link e byte-idênticos; ausentes são instalados create-once.
+- Plano e provas EIP-712 são revalidados antes de qualquer continuação.
+- Se as assinaturas já existem mas o pacote de transações não, o pacote é montado e validado a partir delas sem nova assinatura. Se ambos existem, são apenas validados. Se nenhum existe, a assinatura interativa recomeça normalmente.
+- Qualquer artefato parcial sem a sessão autenticada falha fechado.
+
+Validação
+
+- Programa gerado passa `bash -n` e ShellCheck warning-level.
+- Testes de gerador, provas, escrita durável e reinício passam 8/8; teste focal final do gerador passa 1/1.
+- Regressões confirmam que a sessão é instalada antes dos arquivos expandidos, que arquivos existentes são comparados byte a byte e que a montagem sem nova assinatura está presente.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

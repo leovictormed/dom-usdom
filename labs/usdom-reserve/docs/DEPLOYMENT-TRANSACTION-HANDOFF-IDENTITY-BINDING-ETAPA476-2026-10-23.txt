@@ -1,0 +1,21 @@
+Stage 476 — deployment transaction handoff identity binding
+Date: 2026-10-23
+
+The per-transaction Ledger handoff now requires the exact deployment identity
+observation path and SHA-256, reads it through the private direct-file boundary,
+and compares its document SHA-256 and observation commitment to the reviewed
+deployment package. It rederives that package from source and rereads the
+observation before returning a versioned handoff containing the package SHA,
+observation SHA, observation commitment and exact unsigned CREATE transaction.
+
+The raw-transaction validator consumes the versioned handoff and journals all
+three commitments with the recovered transaction. The executor requires the
+observation inputs and reruns the handoff at initial, pre-sign, prepublish and
+prereceipt boundaries; its immutable validation journal prevents a later
+observation substitution from resuming publication.
+
+`production_deployment_transaction_handoff_binds_identity_observation` is true.
+No network, signature, deployment, funds, mining, commit or push occurred.
+
+Validation: deployment execution tests 2/2, operator runbook 71/71, direct
+operational inputs 13/13 and readiness 60/60.

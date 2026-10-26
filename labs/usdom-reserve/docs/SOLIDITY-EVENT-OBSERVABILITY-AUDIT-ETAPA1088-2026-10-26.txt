@@ -1,0 +1,48 @@
+ETAPA 1088 — SOLIDITY EVENT / OBSERVABILITY AUDIT
+Date: 2026-10-26
+
+Scope
+-----
+Reviewed whether an indexer pinned to reserve and registry logs can reconstruct
+deposits, checkpoint candidate replacement/finalization, permanent debt
+admission and renewal, payment, pruning, pause/recovery and terminal shutdown.
+No deployment, broadcast, signing, funds, network access, commit or push.
+
+Findings and corrections
+------------------------
+The original reserve events contained the burn statement and basic queue lease,
+but did not explicitly distinguish first debt admission from renewal or attach
+amount and queue generation to discard/payment lifecycle records. State was
+queryable on-chain, yet a log-only reconstruction could not safely distinguish
+an old invalidated lease from the active generation after its storage was
+deleted.
+
+Added additive, versioned events without changing existing consumer topics:
+
+* `WithdrawalLeaseV2`: burn/request identity, amount, queue epoch, statement,
+  ready/expiry timestamps, authenticated finality slot and renewal flag;
+* `WithdrawalDiscardedV2`: burn/request identity, amount and lease epoch on all
+  three cleanup paths; and
+* `ProvedDebtSettled`: paid identity/amount/lease epoch and remaining aggregate
+  permanent debt.
+
+The Registry candidate event omitted issuance totals/closure and the finalized
+event omitted statement identity, context, work and economic state. Added:
+
+* `CheckpointCandidateEconomics`, keyed by statement hash; and
+* `CheckpointFinalizedV2`, keyed by the selected statement and carrying context,
+  work, issued/burned totals, closure and monotonic checkpoint count.
+
+Existing events remain for compatibility. Deposit events already bind ID,
+funder, amount and receiving commitment. Queue invalidation reports new epoch,
+count and amount; pause/resume scheduling and terminal shutdown mutations all
+emit explicit lifecycle events. Graceful Registry shutdown makes candidate
+deletion inferable from the terminal event, while emergency halt intentionally
+retains the read-only candidate.
+
+Validation
+----------
+The pinned Node static observability regression passes 3/3 and focal diff check
+passes. Foundry compilation/execution remains serialized behind the active Cargo
+proof run, so the event ABI and focused Solidity suites remain pending in the
+default non-via-ir pipeline.

@@ -1,0 +1,58 @@
+USD0M — RESUMABLE ECONOMIC SUCCINCT PROVER — STAGE 263 — 2026-10-20
+
+Outcome
+
+An explicit, local-only proving lifecycle now consumes the authenticated stage
+262 economic job plan. The prover is compiled and tested as host code, but the
+expensive proving command was not executed in this stage.
+
+Fail-closed proving boundary
+
+1. The published job index must equal a fresh authenticated rebuild byte for
+   byte before any receipt is reused or generated.
+2. The environment must contain exactly `RISC0_PROVER=local` and
+   `RISC0_DEV_MODE=0`; remote Bonsai and server variables are removed by the
+   fixed wrapper.
+3. Both guest ELFs are rehashed after plan reconstruction and must match their
+   fixed reviewed SHA-256 values.
+4. Existing receipts are resumable only after bounded canonical decoding,
+   succinct-kind enforcement, cryptographic ImageID verification and exact
+   journal equality. Invalid direct files are removed; symlinks are rejected.
+5. Each missing chunk proof receives the exact planned transition, segment-
+   embedded package and bounded witness. Every source hash is rechecked.
+6. Each block proof receives the exact block transition and canonical ordered
+   chunk chain. Every chunk receipt is verified again and supplied as a RISC
+   Zero recursive assumption in exact order.
+7. Each newly produced receipt is immediately checked for succinct kind,
+   ImageID and journal before atomic publication.
+8. The final receipt index binds the exact job-index hash, guest ImageIDs,
+   receipt hashes/sizes, local non-dev mode and all chunk/block records.
+
+Operator separation
+
+Planning remains the cheap non-proving command. The expensive command is
+separate and accepts no arguments, prompts, secrets or field overrides:
+
+  npm run --silent prove:authenticated-economic-receipt-set
+
+This command has not been run. No positive economic receipt, benchmark or
+production approval is claimed by this implementation alone.
+
+Validation
+
+- default host tests: 1/1 passed;
+- prove-feature host tests: 1/1 passed without calling the prover;
+- default and prove-feature locked compilation: passed;
+- strict all-target prove-feature Clippy with warnings denied: passed;
+- focused readiness/operator tests: 48/48 passed;
+- proof-program panic mutation self-test: passed.
+
+Remaining production work
+
+Actual positive chunk/block receipts, proving-cost measurement, production
+approval, complete segment/outer receipts, EVM verification and gas/capacity
+evidence remain fail-closed. External audit absence and an impossible zero-risk
+guarantee are not release blockers.
+
+No proof, public-network action, deployment, transaction, fund movement, public
+mining, commit or push occurred.

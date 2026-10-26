@@ -1,0 +1,19 @@
+ETAPA968 — NODE PRIVATE BUFFER FINAL RECONCILIATION
+Date: 2026-10-23
+
+The final three private-read boundaries were the finalized-burn run snapshot,
+checkpoint run snapshot and durable private writer readback. Snapshot captures
+must remain live until the materializer finishes, so each snapshot now tracks
+every resolved initial/replica Buffer, erases transient TOCTOU rechecks
+immediately, and erases returned status/report Buffers in cleanup. Partial
+Promise failures and setup errors erase the subset already captured. The
+durable writer now erases its post-install readback in its existing finally.
+
+Final reconciliation of the original ETAPA952 inventory:
+- 76 total signals;
+- 41 actual private Buffer reads (4 corrected in ETAPA952 and 37 subsequently
+  classified in ETAPA955), now all covered by immediate or lifecycle cleanup;
+- 35 path/helper/metadata signals that contain no private file bytes.
+
+Aggregate focused test 3/3, Node syntax for the three changed modules and git
+diff --check passed. No proof, build, RPC, signing or external operation ran.

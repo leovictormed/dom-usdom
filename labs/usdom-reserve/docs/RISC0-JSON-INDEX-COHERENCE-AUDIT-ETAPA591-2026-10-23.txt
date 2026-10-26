@@ -1,0 +1,58 @@
+RISC Zero JSON/index output coherence audit — stage 591
+Date: 2026-10-23
+
+Scope
+=====
+
+Audited JSON and typed-index outputs produced or materialized by the RandomX,
+economic, segment, outer-checkpoint and finalized-burn proof pipelines. Checked
+duplicate fields, byte/depth limits, count-before-loop behavior, array/count
+agreement, canonical ordering, positional metadata and total cross-index
+coherence.
+
+Concrete finding
+================
+
+The checkpoint capacity artifact collector bounded receipt counts, required
+exact record fields and verified each receipt file's name, size and SHA-256.
+It did not validate several positional fields carried by those records before
+iterating over the artifact set. Consequently an index with a zero/invalid
+height, negative or oversized segment/block/chunk position, inconsistent
+`previous_height`/`next_height`/`block_count`, duplicate position or
+noncanonical ordering could still be converted into a capacity-report layer.
+The proof hosts produce coherent indices, but the independent collector must
+fail closed if the persisted JSON is corrupted or substituted.
+
+Correction
+==========
+
+- RandomX records now require bounded segment/block indices, nonzero safe
+  heights, canonical statement hashes, strictly increasing heights and
+  lexicographically increasing `(segment, block)` positions.
+- RandomX-aggregate and checkpoint-segment records require positive bounded
+  block counts, `next - previous == block_count`, and contiguous ordered spans.
+- Economic chunk/block records require bounded segment/block/chunk indices,
+  unique positions, canonical tuple ordering and nondecreasing chunk heights;
+  block-receipt heights remain strictly increasing.
+- These checks execute after the bounded count/array agreement check and before
+  any receipt-file loop or capacity commitment construction.
+
+Other verified boundaries
+=========================
+
+- Security JSON parsers reject duplicate decoded keys, trailing content,
+  excessive depth and oversized bytes.
+- Rust indices use typed `deny_unknown_fields`, bounded source counts and
+  canonical re-encoding/rebuilt-plan comparison before allocation-heavy loops.
+- Generated reports require exact field sets, fixed six-layer ordering,
+  bounded counts/totals, one 32-byte journal per receipt, distinct artifact
+  hashes and statement/journal coherence.
+
+Validation
+==========
+
+- Checkpoint collector suite: 4/4 passed, including height, span and negative
+  chunk-index mutations.
+- `git diff --check` passed.
+- Heavy Cargo/Foundry validation remains queued behind the active proof. No
+  proof result or external operation was performed.

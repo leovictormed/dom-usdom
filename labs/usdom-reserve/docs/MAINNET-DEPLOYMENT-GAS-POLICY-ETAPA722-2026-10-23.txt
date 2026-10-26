@@ -1,0 +1,64 @@
+ETAPA 722 — Mainnet deployment gas policy bound to audited constructors
+Date: 2026-10-23
+
+Finding
+-------
+The deployment executor previously trusted the largest multi-provider
+`eth_estimateGas`, added 25%, and accepted any result up to 20 million gas.
+The raw-transaction validator likewise accepted any positive limit below that
+cap. A faulty or compromised estimate could therefore choose a gas limit that
+was far below the audited constructor requirement or inflate it by several
+times without violating the offline package/transaction checks.
+
+Correction
+----------
+The offline deployment gas policy now binds each production name to the largest
+constructor CREATE gas measured in ETAPA717:
+
+* finalized-burn adapter: 478,838;
+* checkpoint adapter: 479,198;
+* checkpoint registry: 2,226,921;
+* reserve: 4,228,726.
+
+For the exact package initcode, the planner conservatively adds 21,000 base
+transaction gas, 4/16 gas for every zero/nonzero calldata byte and two gas for
+every 32-byte EIP-3860 word. It then applies a rounded-up 25% margin. The live
+multi-provider estimate must not exceed that audited pre-margin maximum; a
+higher value stops signing and requires review rather than silently expanding
+the budget. The signed raw transaction must carry the exact offline-derived
+limit, and still remains under the independent 20-million per-transaction cap.
+
+The deployment package also computes all four audited limits and rejects an
+aggregate above 12 million gas. Deployments remain sequential transactions,
+with dependency runtime finalization checked between them; the aggregate is a
+ceremony budget, not an assumption that all four share one block.
+
+The executor now reads each provider's finalized block gasLimit, uses the
+smallest observation and requires the transaction gas limit to consume no more
+than half of it. The same block limit and gas plan must reproduce immediately
+before Ledger signing. This provides live block-headroom evidence without
+letting `eth_estimateGas` define the security policy.
+
+Conservative budget check
+-------------------------
+Using current initcode sizes and pessimistically treating every byte as nonzero
+produces limits of approximately 681,318; 681,788; 3,091,599; and 5,815,578 gas.
+Their total is 10,270,283, below the 12-million sequence cap. Actual exact
+initcode generally contains zero bytes and therefore cannot exceed this
+all-nonzero calldata estimate for the same size.
+
+Validation
+----------
+
+* deployment package/execution/tool-pinning tests: 13/13 pass;
+* tests reject gas one below/above the exact audited limit, an RPC estimate one
+  above the audited pre-margin maximum, and an oversized four-contract budget;
+* Node syntax for planner/checkers and `bash -n` for the executor pass;
+* strict production Solidity lint, Forge formatting and diff checks pass.
+
+A concurrent broader operator-runbook suite had eight pre-existing structural
+expectation failures in unrelated files changed by other active stages; all 13
+tests focused on the deployment package/executor and its pinned tools pass.
+
+No RPC was contacted and no deployment, signature, transmission or funds
+operation occurred. No Rust, Cargo or RISC Zero command was run.

@@ -59,6 +59,9 @@ pub const NONCE_SIZE: usize = 12;
 /// Errors from the key derivation and the file envelope.
 #[derive(Debug, Error)]
 pub enum EnvelopeError {
+    /// The operating system CSPRNG could not provide a fresh salt and nonce.
+    #[error("operating-system randomness unavailable")]
+    RandomnessUnavailable,
     /// Key derivation (Argon2id / HKDF) failed.
     #[error("key derivation failed: {0}")]
     Kdf(String),
@@ -219,6 +222,378 @@ pub fn save_envelope_bytes_noclobber(
     save_envelope_bytes_with_policy(path, magic, version, plaintext, password, true)
 }
 
+/// Durably create one owner-only file from exact caller bytes without ever
+/// replacing an existing directory entry.
+///
+/// On Unix, both the temporary and final names are resolved below the retained
+/// owner-only parent descriptor. This is suitable for short-lived secrets and
+/// authenticated evidence that must not escape through a swapped parent path.
+pub fn save_private_bytes_noclobber(path: &Path, bytes: &[u8]) -> Result<(), EnvelopeError> {
+    atomic_write(path, bytes, true)
+}
+
+/// Durably replace one owner-only file with exact caller bytes.
+///
+/// On Unix, temporary creation, replacement and parent synchronization remain
+/// anchored to one retained owner-only parent descriptor. This is intended for
+/// monotonic state companions whose prior generation must be replaced.
+pub fn save_private_bytes(path: &Path, bytes: &[u8]) -> Result<(), EnvelopeError> {
+    atomic_write(path, bytes, false)
+}
+
+/// Open or create one owner-only lock file below a retained owner-only parent.
+///
+/// On Unix the file name is resolved with `openat` and `O_NOFOLLOW` against the
+/// retained directory descriptor. Both the descriptor-relative name and the
+/// caller's original path are authenticated before the handle is returned.
+pub fn open_private_lock_file(path: &Path) -> Result<std::fs::File, EnvelopeError> {
+    let parent = atomic_parent(path)?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| EnvelopeError::Io("lock path has no file name".to_owned()))?;
+    #[cfg(unix)]
+    {
+        use rustix::fs::{fchmod, fsync, openat, Mode, OFlags};
+        use std::os::fd::{AsFd, AsRawFd};
+
+        let authority = open_parent_authority(parent)?;
+        let flags = OFlags::RDWR | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+        let (file, created) = match openat(
+            authority.as_fd(),
+            name,
+            flags | OFlags::CREATE | OFlags::EXCL,
+            Mode::from_raw_mode(0o600),
+        ) {
+            Ok(descriptor) => (std::fs::File::from(descriptor), true),
+            Err(rustix::io::Errno::EXIST) => (
+                std::fs::File::from(
+                    openat(authority.as_fd(), name, flags, Mode::empty()).map_err(|error| {
+                        EnvelopeError::Io(format!("failed to open private lock: {error}"))
+                    })?,
+                ),
+                false,
+            ),
+            Err(error) => {
+                return Err(EnvelopeError::Io(format!(
+                    "failed to create private lock: {error}"
+                )))
+            }
+        };
+        if created {
+            fchmod(file.as_fd(), Mode::from_raw_mode(0o600)).map_err(|error| {
+                EnvelopeError::Io(format!("failed to set private lock mode: {error}"))
+            })?;
+            fsync(authority.as_fd()).map_err(|error| {
+                EnvelopeError::Io(format!("failed to fsync private lock parent: {error}"))
+            })?;
+        }
+        let anchored = std::path::PathBuf::from(format!(
+            "/proc/self/fd/{}/{}",
+            authority.as_raw_fd(),
+            name.to_string_lossy()
+        ));
+        audit_named_file(&file, &anchored)?;
+        audit_named_file(&file, path)?;
+        audit_parent_authority(&authority, parent)?;
+        return Ok(file);
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(path)
+            .map_err(|error| EnvelopeError::Io(format!("failed to open private lock: {error}")))
+    }
+}
+
+/// Validate one existing private directory as the current user's exact,
+/// direct mode-0700 authority.
+pub fn validate_private_directory(path: &Path) -> Result<(), EnvelopeError> {
+    #[cfg(unix)]
+    {
+        let authority = open_parent_authority(path)?;
+        audit_parent_authority(&authority, path)
+    }
+    #[cfg(not(unix))]
+    {
+        let metadata = fs::symlink_metadata(path).map_err(|error| {
+            EnvelopeError::Io(format!("failed to inspect private dir: {error}"))
+        })?;
+        if metadata.file_type().is_symlink() || !metadata.file_type().is_dir() {
+            return Err(EnvelopeError::Io(
+                "invalid private directory authority".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Capture one nonempty owner-only file through a retained private parent.
+///
+/// The returned buffer is zeroized on drop. Unix callers get the same parent,
+/// child, ownership, mode, link-count and no-follow guarantees as private lock
+/// creation, with a strict caller-provided allocation bound.
+pub fn read_private_bytes(
+    path: &Path,
+    maximum_bytes: usize,
+) -> Result<Zeroizing<Vec<u8>>, EnvelopeError> {
+    read_private_bytes_with_policy(path, maximum_bytes, false)
+}
+
+/// Capture one owner-only file while permitting an empty payload.
+///
+/// This narrow variant supports TPM owner authorization, where an empty value
+/// is a valid explicit configuration. All filesystem authority checks remain
+/// identical to [`read_private_bytes`].
+pub fn read_private_bytes_allow_empty(
+    path: &Path,
+    maximum_bytes: usize,
+) -> Result<Zeroizing<Vec<u8>>, EnvelopeError> {
+    read_private_bytes_with_policy(path, maximum_bytes, true)
+}
+
+/// Capture one nonempty current-user regular file through its retained parent.
+///
+/// Unlike [`read_private_bytes`], this accepts ordinary public artifact modes.
+/// It still rejects indirect parents, symbolic links, hard links, non-owner
+/// files, replacement during capture and payloads beyond the caller's bound.
+pub fn read_captured_bytes(path: &Path, maximum_bytes: usize) -> Result<Vec<u8>, EnvelopeError> {
+    read_captured_bytes_with_policy(path, maximum_bytes, false)
+}
+
+/// Capture a current-user regular artifact while permitting an empty payload.
+///
+/// Filesystem identity and bound checks are identical to
+/// [`read_captured_bytes`]. This variant is reserved for formats where empty is
+/// a deliberate canonical value.
+pub fn read_captured_bytes_allow_empty(
+    path: &Path,
+    maximum_bytes: usize,
+) -> Result<Vec<u8>, EnvelopeError> {
+    read_captured_bytes_with_policy(path, maximum_bytes, true)
+}
+
+fn read_captured_bytes_with_policy(
+    path: &Path,
+    maximum_bytes: usize,
+    allow_empty: bool,
+) -> Result<Vec<u8>, EnvelopeError> {
+    if maximum_bytes == 0 {
+        return Err(EnvelopeError::PayloadTooLarge);
+    }
+    let parent = atomic_parent(path)?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| EnvelopeError::Io("captured path has no file name".to_owned()))?;
+    #[cfg(unix)]
+    {
+        use rustix::fs::{openat, Mode, OFlags};
+        use std::os::{fd::AsFd, fd::AsRawFd, unix::fs::MetadataExt};
+
+        let named_parent = fs::symlink_metadata(parent)
+            .map_err(|error| EnvelopeError::Io(format!("failed to inspect parent dir: {error}")))?;
+        let authority = std::fs::File::open(parent)
+            .map_err(|error| EnvelopeError::Io(format!("failed to open parent dir: {error}")))?;
+        let retained_parent = authority
+            .metadata()
+            .map_err(|error| EnvelopeError::Io(format!("failed to inspect parent dir: {error}")))?;
+        let expected_parent = std::path::absolute(parent).map_err(|error| {
+            EnvelopeError::Io(format!("failed to normalize parent dir: {error}"))
+        })?;
+        let retained_parent_path =
+            fs::canonicalize(format!("/proc/self/fd/{}", authority.as_raw_fd())).map_err(
+                |error| EnvelopeError::Io(format!("failed to resolve parent dir: {error}")),
+            )?;
+        let owner = rustix::process::geteuid().as_raw();
+        if !named_parent.file_type().is_dir()
+            || named_parent.file_type().is_symlink()
+            || !retained_parent.file_type().is_dir()
+            || named_parent.uid() != owner
+            || retained_parent.uid() != owner
+            || named_parent.mode() & 0o022 != 0
+            || retained_parent.mode() & 0o022 != 0
+            || named_parent.nlink() == 0
+            || retained_parent.nlink() == 0
+            || named_parent.dev() != retained_parent.dev()
+            || named_parent.ino() != retained_parent.ino()
+            || retained_parent_path != expected_parent
+        {
+            return Err(EnvelopeError::Io(
+                "invalid captured parent directory authority".to_owned(),
+            ));
+        }
+        let mut file = std::fs::File::from(
+            openat(
+                authority.as_fd(),
+                name,
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|error| EnvelopeError::Io(format!("failed to open captured file: {error}")))?,
+        );
+        let anchored = Path::new(&format!("/proc/self/fd/{}", authority.as_raw_fd())).join(name);
+        let audit = |file: &std::fs::File| -> Result<usize, EnvelopeError> {
+            let retained = file.metadata().map_err(|error| {
+                EnvelopeError::Io(format!("failed to inspect captured file: {error}"))
+            })?;
+            let anchored_metadata = fs::symlink_metadata(&anchored).map_err(|error| {
+                EnvelopeError::Io(format!("failed to inspect anchored file: {error}"))
+            })?;
+            let named = fs::symlink_metadata(path).map_err(|error| {
+                EnvelopeError::Io(format!("failed to inspect named file: {error}"))
+            })?;
+            let current_parent = fs::symlink_metadata(parent).map_err(|error| {
+                EnvelopeError::Io(format!("failed to reinspect parent dir: {error}"))
+            })?;
+            if !retained.file_type().is_file()
+                || !anchored_metadata.file_type().is_file()
+                || !named.file_type().is_file()
+                || named.file_type().is_symlink()
+                || retained.uid() != owner
+                || anchored_metadata.uid() != owner
+                || named.uid() != owner
+                || retained.mode() & 0o022 != 0
+                || anchored_metadata.mode() & 0o022 != 0
+                || named.mode() & 0o022 != 0
+                || retained.nlink() != 1
+                || anchored_metadata.nlink() != 1
+                || named.nlink() != 1
+                || retained.dev() != anchored_metadata.dev()
+                || retained.ino() != anchored_metadata.ino()
+                || retained.dev() != named.dev()
+                || retained.ino() != named.ino()
+                || retained.len() != anchored_metadata.len()
+                || retained.len() != named.len()
+                || !current_parent.file_type().is_dir()
+                || current_parent.file_type().is_symlink()
+                || current_parent.dev() != retained_parent.dev()
+                || current_parent.ino() != retained_parent.ino()
+                || current_parent.uid() != owner
+                || current_parent.mode() & 0o022 != 0
+            {
+                return Err(EnvelopeError::Io(
+                    "captured file or parent identity changed".to_owned(),
+                ));
+            }
+            usize::try_from(retained.len()).map_err(|_| EnvelopeError::PayloadTooLarge)
+        };
+        let declared = audit(&file)?;
+        if (!allow_empty && declared == 0) || declared > maximum_bytes {
+            return Err(EnvelopeError::PayloadTooLarge);
+        }
+        let mut bytes = Vec::with_capacity(declared);
+        (&mut file)
+            .take(
+                u64::try_from(maximum_bytes)
+                    .unwrap_or(u64::MAX)
+                    .saturating_add(1),
+            )
+            .read_to_end(&mut bytes)
+            .map_err(|error| EnvelopeError::Io(format!("failed to read captured file: {error}")))?;
+        if bytes.len() != declared || bytes.len() > maximum_bytes || audit(&file)? != declared {
+            return Err(EnvelopeError::PayloadTooLarge);
+        }
+        return Ok(bytes);
+    }
+    #[cfg(not(unix))]
+    {
+        let named = fs::symlink_metadata(path).map_err(|error| {
+            EnvelopeError::Io(format!("failed to inspect captured file: {error}"))
+        })?;
+        if !named.file_type().is_file()
+            || named.file_type().is_symlink()
+            || (!allow_empty && named.len() == 0)
+            || named.len() > maximum_bytes as u64
+        {
+            return Err(EnvelopeError::PayloadTooLarge);
+        }
+        let mut file = std::fs::File::open(path)
+            .map_err(|error| EnvelopeError::Io(format!("failed to open captured file: {error}")))?;
+        let declared = usize::try_from(named.len()).map_err(|_| EnvelopeError::PayloadTooLarge)?;
+        let mut bytes = Vec::with_capacity(declared);
+        (&mut file)
+            .take(
+                u64::try_from(maximum_bytes)
+                    .unwrap_or(u64::MAX)
+                    .saturating_add(1),
+            )
+            .read_to_end(&mut bytes)
+            .map_err(|error| EnvelopeError::Io(format!("failed to read captured file: {error}")))?;
+        if bytes.len() != declared || bytes.len() > maximum_bytes {
+            return Err(EnvelopeError::PayloadTooLarge);
+        }
+        Ok(bytes)
+    }
+}
+
+fn read_private_bytes_with_policy(
+    path: &Path,
+    maximum_bytes: usize,
+    allow_empty: bool,
+) -> Result<Zeroizing<Vec<u8>>, EnvelopeError> {
+    if maximum_bytes == 0 {
+        return Err(EnvelopeError::PayloadTooLarge);
+    }
+    let parent = atomic_parent(path)?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| EnvelopeError::Io("private path has no file name".to_owned()))?;
+    #[cfg(unix)]
+    let (mut file, authority, anchored) = {
+        use rustix::fs::{openat, Mode, OFlags};
+        use std::os::fd::{AsFd, AsRawFd};
+
+        let authority = open_parent_authority(parent)?;
+        let file = std::fs::File::from(
+            openat(
+                authority.as_fd(),
+                name,
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|error| EnvelopeError::Io(format!("failed to open private file: {error}")))?,
+        );
+        let anchored =
+            std::path::PathBuf::from(format!("/proc/self/fd/{}", authority.as_raw_fd())).join(name);
+        audit_named_file(&file, &anchored)?;
+        audit_named_file(&file, path)?;
+        audit_parent_authority(&authority, parent)?;
+        (file, authority, anchored)
+    };
+    #[cfg(not(unix))]
+    let mut file = std::fs::File::open(path)
+        .map_err(|error| EnvelopeError::Io(format!("failed to open private file: {error}")))?;
+
+    let metadata = file
+        .metadata()
+        .map_err(|error| EnvelopeError::Io(format!("failed to inspect private file: {error}")))?;
+    let declared = usize::try_from(metadata.len()).map_err(|_| EnvelopeError::PayloadTooLarge)?;
+    if (!allow_empty && declared == 0) || declared > maximum_bytes {
+        return Err(EnvelopeError::PayloadTooLarge);
+    }
+    let mut bytes = Zeroizing::new(Vec::with_capacity(declared));
+    (&mut file)
+        .take(
+            u64::try_from(maximum_bytes)
+                .unwrap_or(u64::MAX)
+                .saturating_add(1),
+        )
+        .read_to_end(&mut bytes)
+        .map_err(|error| EnvelopeError::Io(format!("failed to read private file: {error}")))?;
+    if bytes.len() != declared || bytes.len() > maximum_bytes {
+        return Err(EnvelopeError::PayloadTooLarge);
+    }
+    #[cfg(unix)]
+    {
+        audit_named_file(&file, &anchored)?;
+        audit_named_file(&file, path)?;
+        audit_parent_authority(&authority, parent)?;
+    }
+    Ok(bytes)
+}
+
 fn save_envelope_bytes_with_policy(
     path: &Path,
     magic: &[u8; MAGIC_LEN],
@@ -229,9 +604,14 @@ fn save_envelope_bytes_with_policy(
 ) -> Result<(), EnvelopeError> {
     // Fresh salt + nonce for this save.
     let mut salt = [0u8; SALT_SIZE];
-    rand::thread_rng().fill_bytes(&mut salt);
+    let mut os_rng = rand::rngs::OsRng;
+    os_rng
+        .try_fill_bytes(&mut salt)
+        .map_err(|_| EnvelopeError::RandomnessUnavailable)?;
     let mut nonce_bytes = [0u8; NONCE_SIZE];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    os_rng
+        .try_fill_bytes(&mut nonce_bytes)
+        .map_err(|_| EnvelopeError::RandomnessUnavailable)?;
 
     let key = derive_wallet_key(password, &salt, &KdfParams::OWASP_V1)?;
 
@@ -319,6 +699,35 @@ pub fn load_envelope_bytes(
         audit_parent_authority(&parent_authority, parent)?;
     }
 
+    decrypt_envelope_bytes(
+        &data,
+        expected_magic,
+        expected_version,
+        maximum_plaintext_bytes,
+        password,
+    )
+}
+
+/// Authenticate and decrypt one exact in-memory envelope under an explicit
+/// plaintext bound.
+///
+/// This is the snapshot-bound counterpart of [`load_envelope_bytes`]. It lets
+/// callers hash, bind and decrypt the same bytes without reopening a pathname
+/// between those operations.
+pub fn decrypt_envelope_bytes(
+    data: &[u8],
+    expected_magic: &[u8; MAGIC_LEN],
+    expected_version: u16,
+    maximum_plaintext_bytes: usize,
+    password: &str,
+) -> Result<Zeroizing<Vec<u8>>, EnvelopeError> {
+    let maximum_file_bytes = HEADER_SIZE
+        .checked_add(maximum_plaintext_bytes)
+        .and_then(|value| value.checked_add(16))
+        .ok_or(EnvelopeError::PayloadTooLarge)?;
+    if data.len() > maximum_file_bytes {
+        return Err(EnvelopeError::PayloadTooLarge);
+    }
     if data.len() < HEADER_SIZE {
         return Err(EnvelopeError::FileTooShort);
     }
@@ -360,10 +769,21 @@ fn atomic_write(path: &Path, bytes: &[u8], no_clobber: bool) -> Result<(), Envel
     let parent = atomic_parent(path)?;
     #[cfg(unix)]
     let parent_authority = open_parent_authority(parent)?;
+    #[cfg(unix)]
+    let write_parent = {
+        use std::os::fd::AsRawFd;
+        std::path::PathBuf::from(format!("/proc/self/fd/{}", parent_authority.as_raw_fd()))
+    };
+    #[cfg(not(unix))]
+    let write_parent = parent.to_path_buf();
+    let persisted_path = write_parent.join(
+        path.file_name()
+            .ok_or_else(|| EnvelopeError::Io("wallet path has no file name".to_owned()))?,
+    );
     let mut temporary = tempfile::Builder::new()
         .prefix(".dom-wallet-save-")
         .suffix(".tmp")
-        .tempfile_in(parent)
+        .tempfile_in(&write_parent)
         .map_err(|error| {
             EnvelopeError::Io(format!("failed to create exclusive temp file: {error}"))
         })?;
@@ -383,9 +803,9 @@ fn atomic_write(path: &Path, bytes: &[u8], no_clobber: bool) -> Result<(), Envel
     // mode bits to audit, so the handle is deliberately unused there.
     #[cfg_attr(not(unix), allow(unused_variables))]
     let persisted = if no_clobber {
-        temporary.persist_noclobber(path)
+        temporary.persist_noclobber(&persisted_path)
     } else {
-        temporary.persist(path)
+        temporary.persist(&persisted_path)
     }
     .map_err(|error| {
         if no_clobber && error.error.kind() == std::io::ErrorKind::AlreadyExists {
@@ -399,6 +819,7 @@ fn atomic_write(path: &Path, bytes: &[u8], no_clobber: bool) -> Result<(), Envel
     })?;
     #[cfg(unix)]
     {
+        audit_named_file(&persisted, &persisted_path)?;
         audit_named_file(&persisted, path)?;
         audit_parent_authority(&parent_authority, parent)?;
         parent_authority
@@ -429,7 +850,7 @@ fn open_parent_authority(parent: &Path) -> Result<std::fs::File, EnvelopeError> 
 
 #[cfg(unix)]
 fn audit_parent_authority(authority: &std::fs::File, parent: &Path) -> Result<(), EnvelopeError> {
-    use std::os::unix::fs::MetadataExt;
+    use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
 
     let retained = authority
         .metadata()
@@ -437,6 +858,10 @@ fn audit_parent_authority(authority: &std::fs::File, parent: &Path) -> Result<()
     let named = fs::symlink_metadata(parent)
         .map_err(|error| EnvelopeError::Io(format!("failed to audit named parent dir: {error}")))?;
     let owner = rustix::process::geteuid().as_raw();
+    let expected = std::path::absolute(parent)
+        .map_err(|error| EnvelopeError::Io(format!("failed to normalize parent dir: {error}")))?;
+    let retained_path = fs::canonicalize(format!("/proc/self/fd/{}", authority.as_raw_fd()))
+        .map_err(|error| EnvelopeError::Io(format!("failed to resolve parent dir: {error}")))?;
     if !retained.file_type().is_dir()
         || !named.file_type().is_dir()
         || named.file_type().is_symlink()
@@ -448,6 +873,7 @@ fn audit_parent_authority(authority: &std::fs::File, parent: &Path) -> Result<()
         || named.nlink() == 0
         || retained.dev() != named.dev()
         || retained.ino() != named.ino()
+        || retained_path != expected
     {
         return Err(EnvelopeError::Io(
             "invalid owner-only parent directory authority".to_owned(),
@@ -679,6 +1105,15 @@ mod tests {
             *load_envelope_bytes(&path, TEST_MAGIC, 1, 32, "pw").unwrap(),
             *secret
         );
+        let captured = std::fs::read(&path).unwrap();
+        assert_eq!(
+            *decrypt_envelope_bytes(&captured, TEST_MAGIC, 1, 32, "pw").unwrap(),
+            *secret
+        );
+        assert!(matches!(
+            decrypt_envelope_bytes(&captured, TEST_MAGIC, 1, 32, "wrong"),
+            Err(EnvelopeError::Decryption)
+        ));
         assert!(matches!(
             load_envelope_bytes(&path, TEST_MAGIC, 1, 31, "pw"),
             Err(EnvelopeError::PayloadTooLarge)
@@ -710,6 +1145,163 @@ mod tests {
         );
     }
 
+    #[test]
+    fn private_byte_writer_supports_exact_replace_and_create_only_publication() {
+        let dir = owner_only_tempdir();
+        let replace = dir.path().join("state.seal");
+        let create_only = dir.path().join("receipt.json");
+
+        save_private_bytes(&replace, b"generation-one").unwrap();
+        save_private_bytes(&replace, b"generation-two").unwrap();
+        assert_eq!(std::fs::read(&replace).unwrap(), b"generation-two");
+
+        save_private_bytes_noclobber(&create_only, b"first").unwrap();
+        assert!(matches!(
+            save_private_bytes_noclobber(&create_only, b"second"),
+            Err(EnvelopeError::DestinationExists)
+        ));
+        assert_eq!(std::fs::read(&create_only).unwrap(), b"first");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_lock_is_descriptor_anchored_and_rejects_symlinks() {
+        use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
+
+        let root = owner_only_tempdir();
+        let lock_path = root.path().join("wallet.lock");
+        let first = open_private_lock_file(&lock_path).unwrap();
+        let second = open_private_lock_file(&lock_path).unwrap();
+        let first_metadata = first.metadata().unwrap();
+        let second_metadata = second.metadata().unwrap();
+        assert_eq!(first_metadata.ino(), second_metadata.ino());
+        assert_eq!(first_metadata.mode() & 0o7777, 0o600);
+        drop((first, second));
+
+        let target = root.path().join("target.lock");
+        std::fs::write(&target, b"unchanged").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::remove_file(&lock_path).unwrap();
+        symlink(&target, &lock_path).unwrap();
+        assert!(matches!(
+            open_private_lock_file(&lock_path),
+            Err(EnvelopeError::Io(_))
+        ));
+        assert_eq!(std::fs::read(&target).unwrap(), b"unchanged");
+
+        let real = root.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let linked = root.path().join("linked");
+        symlink(&real, &linked).unwrap();
+        assert!(matches!(
+            open_private_lock_file(&linked.join("authority.lock")),
+            Err(EnvelopeError::Io(_))
+        ));
+        assert!(!real.join("authority.lock").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_reader_captures_bounded_single_link_bytes() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let root = owner_only_tempdir();
+        let source = root.path().join("token");
+        std::fs::write(&source, b"secret-token").unwrap();
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(&*read_private_bytes(&source, 12).unwrap(), b"secret-token");
+        assert!(matches!(
+            read_private_bytes(&source, 11),
+            Err(EnvelopeError::PayloadTooLarge)
+        ));
+
+        let hardlink = root.path().join("token-copy");
+        std::fs::hard_link(&source, &hardlink).unwrap();
+        assert!(matches!(
+            read_private_bytes(&source, 12),
+            Err(EnvelopeError::Io(_))
+        ));
+        std::fs::remove_file(&hardlink).unwrap();
+
+        let indirect = root.path().join("token-link");
+        symlink(&source, &indirect).unwrap();
+        assert!(matches!(
+            read_private_bytes(&indirect, 12),
+            Err(EnvelopeError::Io(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn captured_reader_accepts_public_mode_and_rejects_indirection() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let root = owner_only_tempdir();
+        let source = root.path().join("artifact.bin");
+        std::fs::write(&source, b"public-artifact").unwrap();
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            read_captured_bytes(&source, 15).unwrap(),
+            b"public-artifact"
+        );
+        assert!(matches!(
+            read_captured_bytes(&source, 14),
+            Err(EnvelopeError::PayloadTooLarge)
+        ));
+
+        let empty = root.path().join("empty-artifact.bin");
+        std::fs::write(&empty, []).unwrap();
+        assert!(matches!(
+            read_captured_bytes(&empty, 1),
+            Err(EnvelopeError::PayloadTooLarge)
+        ));
+        assert!(read_captured_bytes_allow_empty(&empty, 1)
+            .unwrap()
+            .is_empty());
+
+        let hardlink = root.path().join("artifact-copy.bin");
+        std::fs::hard_link(&source, &hardlink).unwrap();
+        assert!(matches!(
+            read_captured_bytes(&source, 15),
+            Err(EnvelopeError::Io(_))
+        ));
+        std::fs::remove_file(&hardlink).unwrap();
+
+        let indirect_file = root.path().join("artifact-link.bin");
+        symlink(&source, &indirect_file).unwrap();
+        assert!(matches!(
+            read_captured_bytes(&indirect_file, 15),
+            Err(EnvelopeError::Io(_))
+        ));
+
+        let indirect_parent = root.path().join("linked-parent");
+        symlink(root.path(), &indirect_parent).unwrap();
+        assert!(matches!(
+            read_captured_bytes(&indirect_parent.join("artifact.bin"), 15),
+            Err(EnvelopeError::Io(_))
+        ));
+
+        let writable_file = root.path().join("group-writable-artifact.bin");
+        std::fs::write(&writable_file, b"public-artifact").unwrap();
+        std::fs::set_permissions(&writable_file, std::fs::Permissions::from_mode(0o664)).unwrap();
+        assert!(matches!(
+            read_captured_bytes(&writable_file, 15),
+            Err(EnvelopeError::Io(_))
+        ));
+
+        let writable_parent = root.path().join("group-writable-parent");
+        std::fs::create_dir(&writable_parent).unwrap();
+        std::fs::set_permissions(&writable_parent, std::fs::Permissions::from_mode(0o770)).unwrap();
+        let nested = writable_parent.join("artifact.bin");
+        std::fs::write(&nested, b"public-artifact").unwrap();
+        std::fs::set_permissions(&nested, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            read_captured_bytes(&nested, 15),
+            Err(EnvelopeError::Io(_))
+        ));
+    }
+
     #[cfg(unix)]
     #[test]
     fn create_only_binary_envelope_does_not_follow_an_existing_symlink() {
@@ -727,5 +1319,24 @@ mod tests {
             Err(EnvelopeError::DestinationExists)
         ));
         assert_eq!(std::fs::read(&target).unwrap(), b"do not replace");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn encrypted_writer_rejects_a_symlinked_parent_without_writing_through_it() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let root = owner_only_tempdir();
+        let real = root.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let linked = root.path().join("linked");
+        symlink(&real, &linked).unwrap();
+        let path = linked.join("credential.usdom");
+        assert!(matches!(
+            save_envelope_bytes_noclobber(&path, TEST_MAGIC, 1, &[0x33; 32], "pw"),
+            Err(EnvelopeError::Io(_))
+        ));
+        assert!(!real.join("credential.usdom").exists());
     }
 }

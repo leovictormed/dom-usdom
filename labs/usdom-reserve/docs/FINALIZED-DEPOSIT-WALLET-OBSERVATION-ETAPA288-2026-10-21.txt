@@ -1,0 +1,25 @@
+ETAPA 288 - OBSERVACAO AUTENTICADA DO DEPOSITO NA CARTEIRA
+Data: 2026-10-21
+
+Resultado
+
+Foi adicionado o handoff que parte do snapshot criptografado com a emissao
+esperada, consulta apenas o RPC loopback autenticado e verifica o unico bloco
+mainnet fechado. A carteira autentica identidade de rede, genesis, tip,
+cabecalho, lote USDOM, transicao e continuidade das raizes de estado antes de
+marcar a nota exata de 1 USDT como canonica.
+
+O estado observado e salvo como geracao dois, ligado ao selo externo da
+geracao um. Snapshot, selo e recibo sao publicados juntos por rename de um
+diretorio sincronizado; o snapshot registrado original permanece intacto. O
+comando usa senha oculta em arquivo 0600 temporario de /dev/shm, nao submete,
+nao transmite e nao minera.
+
+Validacao
+
+- check release do binario feature-enabled: passou.
+- testes focados de comando, politica e readiness: 76/76 passaram.
+- suite Node completa depois da integracao: 178/178 passou.
+
+O comando de observacao nao foi executado porque ainda nao existe o vetor real
+de deposito/bloco. Nenhum segredo foi solicitado ou armazenado no repositorio.

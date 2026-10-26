@@ -1,0 +1,57 @@
+ETAPA 1090 — REBUILD ORCHESTRATOR V3 INDEPENDENT AUDIT
+Date: 2026-10-26
+
+Scope
+-----
+Independent review of the interleaved RISC Zero rebuild chain:
+segment -> pin-segment -> outer -> pin-outer -> finalized-burn ->
+pin-finalized-burn -> receipts -> gate. Reviewed generation separation,
+TOCTOU, overwrite, source mutation, and receipt/ImageID responsibility. No
+Cargo, Forge, guest compilation, proof generation, deploy, commit or push.
+
+Concrete findings and corrections
+-------------------------------
+1. Control-file hash/parse TOCTOU. The manifest, offline-cache manifest and
+   handoff recipe were hashed through one open and parsed through a later open.
+   A same-path replacement between those operations could make the executed
+   in-memory plan differ from the operator-pinned digest. They now use one
+   O_NOFOLLOW descriptor, require a bounded regular single-link file, capture
+   strict bytes once, verify stable descriptor identity/timestamps and SHA-256,
+   then strict-UTF-8 decode and parse those exact bytes.
+
+2. Source-mutation checker was pointed at the archive snapshot as if it
+   contained a `.git` directory. `git archive` deliberately has none, so the
+   first successful stage reached `git status` and failed with “not a git
+   repository”; the orchestrator could not complete its advertised atomic
+   rebuild. It now uses the authenticated source repository's absolute Git
+   directory with the isolated archive as `--work-tree`. This compares every
+   stage result to the pinned index while retaining ignore rules and detects
+   undeclared tracked or untracked changes without adding `.git` to publication.
+
+3. Pinned tools were authenticated only before the stage loop. Every stage now
+   reauthenticates the complete tool set immediately before and after command
+   execution. This detects replacement or in-place mutation during a long
+   interleaved build before any downstream stage or publication can rely on it.
+
+Dependency and receipt conclusions
+----------------------------------
+The V3 schema enforces the exact eight-stage order, exact ordered consumption of
+all immediate-predecessor outputs, and single-writer output paths. Inputs are
+hashed immediately before each command, exported as a canonical digest map and
+rechecked afterward. All earlier outputs are also rechecked after every later
+stage. Build stages must replace stale preexisting artifacts. Final publication
+uses RENAME_NOREPLACE after a complete read-only seal and fsync.
+
+The orchestrator intentionally establishes artifact custody, while the three
+pin commands establish ProgramBinary/ImageID semantics and the final pinned gate
+must verify receipt journal/ImageID agreement. A future production manifest must
+therefore keep those semantic commands pinned; mere file adjacency is not
+treated as receipt validity.
+
+Validation
+----------
+`python3 -m py_compile` passes. The disposable V3 Node suite passes 13/13,
+including full success/publication, rollback, stale output, dirty source,
+manifest substitution, direct single-link control identity, lock and output
+races, offline-cache substitution, dependency-edge substitution, predecessor
+mutation, undeclared output and handoff inconsistency. Diff checking passes.

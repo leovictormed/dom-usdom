@@ -4,6 +4,8 @@ import {validateRiscZeroMainnetReference} from './risc0-verifier-reference.mjs';
 const hashPattern=/^0x[0-9a-fA-F]{64}$/;
 const canonicalUintPattern=/^(0|[1-9][0-9]*)$/;
 const zeroHash='0x'+'00'.repeat(32);
+const ethereumMainnetGenesis=
+  '0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3';
 const add=(blockers,code,detail)=>blockers.push({code,detail});
 const sameHash=(left,right)=>hashPattern.test(left??'') && hashPattern.test(right??'')
   && left.toLowerCase()===right.toLowerCase();
@@ -27,7 +29,7 @@ export function assessRiscZeroMainnetHealth({reference,observation,standalone=tr
   if(standalone!==true && standalone!==false) {
     add(blockers,'risc0_observation_scope_invalid','health observation scope must be explicit');
   } else if(standalone && !exactKeys(observation,
-    ['chainId','finalizedBlockNumber','finalizedBlockHash','snapshotBlockHashAfter',
+    ['chainId','genesisBlockHash','finalizedBlockNumber','finalizedBlockHash','snapshotBlockHashAfter',
       'riscZeroVerifier','riscZeroEmergencyStop'])) {
     add(blockers,'risc0_observation_schema_invalid','health observation must match the exact collector schema');
   }
@@ -41,6 +43,9 @@ export function assessRiscZeroMainnetHealth({reference,observation,standalone=tr
   }
   if(observation?.chainId!=='1') {
     add(blockers,'risc0_wrong_chain','health observation is not Ethereum mainnet');
+  }
+  if(String(observation?.genesisBlockHash??'').toLowerCase()!==ethereumMainnetGenesis) {
+    add(blockers,'risc0_wrong_genesis','health observation is not canonical Ethereum mainnet');
   }
   if(typeof observation?.finalizedBlockNumber!=='string'
       || !canonicalUintPattern.test(observation.finalizedBlockNumber)) {
@@ -77,7 +82,9 @@ export function assessRiscZeroMainnetHealth({reference,observation,standalone=tr
   if(!sameAddress(stop?.verifier,trusted.verifier_address)) {
     add(blockers,'risc0_estop_verifier_mismatch','emergency-stop wrapper does not reference the pinned direct verifier');
   }
-  if(stop?.paused!==false) {
+  if(stop?.paused!==true && stop?.paused!==false) {
+    add(blockers,'risc0_estop_state_invalid','emergency-stop state is unavailable or is not boolean');
+  } else if(stop.paused) {
     add(blockers,'risc0_estop_active','RISC Zero emergency-stop wrapper is paused or its state is unavailable');
   }
   return {healthy:blockers.length===0,blockerCount:blockers.length,blockers,

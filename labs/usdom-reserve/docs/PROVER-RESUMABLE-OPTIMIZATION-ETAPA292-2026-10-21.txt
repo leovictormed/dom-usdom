@@ -1,0 +1,53 @@
+USDOM — otimização retomável do provador de queima finalizada (etapa 292)
+Data: 2026-10-21
+
+Objetivo
+
+Reduzir o tempo do ensaio local de capacidade RISC Zero no computador atual e
+evitar perder toda a evolução quando o processo for interrompido depois da
+prova composta.
+
+Implementação
+
+1. O host produz primeiro um Receipt composto com o programa e a entrada
+   autenticados e com segment_limit_po2=18.
+2. Antes da compressão sucinta, o host verifica criptograficamente o Receipt,
+   exige InnerReceipt::Composite, o ImageID fixado e o journal exato de 32
+   bytes, limita a serialização a 512 MiB e publica o checkpoint atomicamente.
+3. Uma nova execução reutiliza o checkpoint somente depois de repetir todas
+   essas verificações. Checkpoint malformado é removido e nunca é aceito como
+   progresso válido.
+4. A compressão sucinta é uma segunda fase. O checkpoint só é removido depois
+   de o Receipt sucinto e o índice final terem sido verificados e publicados.
+5. O wrapper copia um checkpoint interrompido para armazenamento privado e
+   durável abaixo de ~/.local/share/dom-usdom/prover-capacity/finalized-burn.
+   A próxima execução o restaura no diretório temporário; o host continua sendo
+   a autoridade que o autentica.
+6. O ensaio passa de um para dois workers Rayon, mantém po2=18, limita arenas do
+   alocador e exige imediatamente antes da prova pelo menos dois CPUs online e
+   4 GiB de MemAvailable. A configuração evita os quatro workers que seriam
+   agressivos para os 7,7 GiB de RAM deste computador.
+
+Validação sem prova cara
+
+- cargo check --release --locked do host com --features prove: passou.
+- testes unitários release do host com --features prove: 5/5 passaram.
+- teste dirigido confirmou que checkpoint composto malformado é removido.
+- suíte do runbook do operador: 37/37 passou; inclui retenção privada de
+  diagnóstico, rejeição de symlink e preservação do checkpoint em falha antes
+  da prova.
+- bash -n, cargo fmt --check e git diff --check: passaram.
+- inventário de 40 fontes de prova e manifesto completo foram verificados após
+  a atualização dos hashes.
+
+Limites do resultado
+
+Esta etapa valida compilação, controle de artefato, autenticação e retomada. Ela
+não mede o novo tempo total e não estabelece capacidade de prova. Para isso é
+necessário executar novamente o ensaio sucinto explicitamente autorizado. A
+estimativa de 4 a 6 horas com dois workers é operacional, não uma garantia.
+
+Estado operacional
+
+Nenhuma prova, mineração, implantação, transação de rede ou movimentação de
+fundos foi iniciada nesta etapa.

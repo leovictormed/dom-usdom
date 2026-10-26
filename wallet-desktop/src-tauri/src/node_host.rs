@@ -23,6 +23,7 @@ use anyhow::{anyhow, Context as _, Result};
 use dom_node::node::DomNode;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use zeroize::Zeroizing;
 
 use crate::settings::NodeSettings;
 
@@ -41,7 +42,7 @@ pub struct NodeHost {
     inner: Mutex<HostInner>,
     /// Bearer token for the local RPC. Generated once per process; reused on
     /// restart so the wallet's RPC client keeps working.
-    rpc_token: String,
+    rpc_token: Zeroizing<String>,
 }
 
 struct HostInner {
@@ -64,12 +65,12 @@ impl NodeHost {
                 task: None,
                 last_settings: None,
             }),
-            rpc_token: token,
+            rpc_token: Zeroizing::new(token),
         })
     }
 
     pub fn rpc_token(&self) -> &str {
-        &self.rpc_token
+        self.rpc_token.as_str()
     }
 
     /// The running embedded node, if one is started. Used by the wallet rescan
@@ -220,8 +221,8 @@ impl NodeHost {
 /// Uses the OS CSPRNG via `getrandom`. Returns an error instead of panicking
 /// if the OS RNG is unavailable, so the UI can surface it gracefully.
 fn generate_token() -> Result<String> {
-    let mut bytes = [0u8; 32];
-    getrandom::getrandom(&mut bytes)
+    let mut bytes = Zeroizing::new([0u8; 32]);
+    getrandom::getrandom(&mut *bytes)
         .map_err(|e| anyhow!("OS RNG unavailable, cannot generate RPC token: {e}"))?;
-    Ok(hex::encode(bytes))
+    Ok(hex::encode(&*bytes))
 }

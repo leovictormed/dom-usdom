@@ -28,11 +28,7 @@ impl PublicKey {
         let bytes = self.inner.inner.to_vec();
         let bytes = bytes.as_slice().try_into()?;
         let point_opt = G1Affine::from_compressed(bytes);
-        if point_opt.is_some().into() {
-            Ok(point_opt.unwrap())
-        } else {
-            Err(eyre!("invalid point"))
-        }
+        Option::<G1Affine>::from(point_opt).ok_or_else(|| eyre!("invalid point"))
     }
 }
 
@@ -56,11 +52,7 @@ impl Signature {
         let bytes = self.inner.inner.to_vec();
         let bytes = bytes.as_slice().try_into()?;
         let point_opt = G2Affine::from_compressed(bytes);
-        if point_opt.is_some().into() {
-            Ok(point_opt.unwrap())
-        } else {
-            Err(eyre!("invalid point"))
-        }
+        Option::<G2Affine>::from(point_opt).ok_or_else(|| eyre!("invalid point"))
     }
 }
 
@@ -87,7 +79,9 @@ fn verify_with_aggregate_pk(
 /// Verifies a G2 point is in subgroup `r`.
 fn subgroup_check_g2(point: &G2Affine) -> bool {
     const CURVE_ORDER: &str = "73EDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF00000001";
-    let r = hex_to_scalar(CURVE_ORDER).unwrap();
+    let Some(r) = hex_to_scalar(CURVE_ORDER) else {
+        return false;
+    };
     let check = point * r;
     check.is_identity().into()
 }
@@ -134,4 +128,24 @@ fn hex_to_scalar(hex: &str) -> Option<Scalar> {
     }
 
     Some(Scalar::from_raw(raw))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_compressed_points_fail_closed() {
+        assert!(PublicKey::default().point().is_err());
+        assert!(Signature::default().point().is_err());
+    }
+
+    #[test]
+    fn malformed_curve_order_fails_closed() {
+        assert!(hex_to_scalar("").is_none());
+        assert!(
+            hex_to_scalar("ZZEDA753299D7D483339D80809A1D80553BDA402FFFE5BFEFFFFFFFF00000001")
+                .is_none()
+        );
+    }
 }

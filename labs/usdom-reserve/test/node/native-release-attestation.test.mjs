@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {AbiCoder,Interface,keccak256} from 'ethers';
 import {
- EIP1271_MAGIC_VALUE,collectNativeAttestationApprovals,nativeReleaseAttestationDigest,
- validNativeAttestationSignature,
+ EIP1271_MAGIC_VALUE,buildNativeReleaseAttestation,collectNativeAttestationApprovals,
+ nativeReleaseAttestationDigest,nativeReleaseAttestationTypedData,validNativeAttestationSignature,
 } from '../../sdk/native-release-attestation.mjs';
+import {collectNativeAttestationApprovalConsensus} from '../../sdk/release-authorization-rpc.mjs';
 
 const address=byte=>'0x'+byte.repeat(20);
 const hash=byte=>'0x'+byte.repeat(32);
-const releaseConfig={ethereumChainId:'1',governance:address('11'),governanceCodeHash:hash('22')};
+const releaseConfig={ethereumChainId:'1',governance:address('11'),governanceCodeHash:hash('22'),
+ reserveConfigHash:hash('44'),checkpointRegistryConfigHash:hash('33')};
 const attestation={approvedBy:releaseConfig.governance,checkpointRegistryConfigHash:hash('33'),
  completedAt:'1792492800',kind:'native-privacy-trusted-setup',releaseId:'release-1',
  reserveConfigHash:hash('44'),schema:1,signature:'0x1234',sourceCommit:'a'.repeat(40),
@@ -16,6 +18,8 @@ const attestation={approvedBy:releaseConfig.governance,checkpointRegistryConfigH
 const blockHash=hash('66');
 const code='0x60016000';
 const validReturn=AbiCoder.defaultAbiCoder().encode(['bytes4'],[EIP1271_MAGIC_VALUE]);
+const sources=[{sourceId:'operator-a',originKeccak256:hash('81')},
+ {sourceId:'operator-b',originKeccak256:hash('82')}];
 
 function provider({result=validReturn,endingHash=blockHash,callError=false}={}) {
  const calls=[];
@@ -38,7 +42,7 @@ function provider({result=validReturn,endingHash=blockHash,callError=false}={}) 
 
 test('native attestation EIP-712 digest binds every release and ceremony field',()=>{
  const baseline=nativeReleaseAttestationDigest(attestation,releaseConfig);
- assert.equal(baseline,'0xe577484526cff3fba4a457cbb48cdc14875d55e443cc0a9b25cb537573289e86');
+ assert.equal(baseline,'0x91b04fcdbe134586333bc4be67ce25bcb5e8e78f44a9b56fdaf9faa23f8186f6');
  const mutations=[
   [{...attestation,kind:'native-wallet-custody'},releaseConfig],
   [{...attestation,releaseId:'release-2'},releaseConfig],
@@ -54,6 +58,22 @@ test('native attestation EIP-712 digest binds every release and ceremony field',
   assert.notEqual(nativeReleaseAttestationDigest(changed,config),baseline);
  }
  assert.equal(nativeReleaseAttestationDigest({...attestation,signature:'0xabcd'},releaseConfig),baseline);
+});
+
+test('native attestation builder derives the exact release-bound signing request',()=>{
+ const releaseEvidence={releaseId:attestation.releaseId,sourceCommit:attestation.sourceCommit};
+ const built=buildNativeReleaseAttestation({kind:attestation.kind,releaseEvidence,releaseConfig,
+  completedAt:attestation.completedAt,subjectCommitment:attestation.subjectCommitment});
+ assert.deepEqual(built.attestation,{...attestation,signature:null});
+ assert.equal(built.digest,nativeReleaseAttestationDigest(built.attestation,releaseConfig));
+ const typed=nativeReleaseAttestationTypedData(built.attestation,releaseConfig);
+ assert.equal(typed.domain.verifyingContract,releaseConfig.governance);
+ const signed=buildNativeReleaseAttestation({kind:attestation.kind,releaseEvidence,releaseConfig,
+  completedAt:attestation.completedAt,subjectCommitment:attestation.subjectCommitment,
+  signature:attestation.signature});
+ assert.equal(signed.digest,built.digest);
+ assert.throws(()=>buildNativeReleaseAttestation({kind:'unsupported',releaseEvidence,releaseConfig,
+  completedAt:attestation.completedAt,subjectCommitment:attestation.subjectCommitment}),/unsupported/);
 });
 
 test('finalized collector uses exact governance code, fixed block and EIP-1271 result',async()=>{
@@ -95,4 +115,18 @@ test('native attestation signatures are canonical, nonempty and bounded',async()
  assert.equal(validNativeAttestationSignature(oversized),false);
  await assert.rejects(collectNativeAttestationApprovals({provider:provider(),releaseConfig,
   attestations:{nativePrivacyTrustedSetup:{...attestation,signature:'0x'}}}),/signature is malformed/);
+});
+
+test('native attestation consensus rechecks every approval across independent RPCs',async()=>{
+ const config={...releaseConfig,governanceCodeHash:keccak256(code)};
+ const observation=await collectNativeAttestationApprovalConsensus({providers:[provider(),provider()],
+  releaseConfig:config,attestations:{nativePrivacyTrustedSetup:attestation},sources});
+ assert.equal(observation.approvals.nativePrivacyTrustedSetup.valid,true);
+ assert.equal(observation.rpcConsensus.sourceCount,'2');
+ await assert.rejects(()=>collectNativeAttestationApprovalConsensus({providers:[provider(),
+  provider({endingHash:hash('67')})],releaseConfig:config,
+  attestations:{nativePrivacyTrustedSetup:attestation},sources}),/invalid or unstable/);
+ await assert.rejects(()=>collectNativeAttestationApprovalConsensus({providers:[provider(),provider()],
+  releaseConfig:config,attestations:{nativePrivacyTrustedSetup:attestation},sources:[sources[0]]}),
+ /source identities must match/);
 });

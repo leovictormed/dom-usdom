@@ -1,0 +1,30 @@
+ETAPA 826 — private parent-directory authority
+Date: 2026-10-23
+
+Finding
+=======
+The shared durable private-file writer already opened its parent with
+O_DIRECTORY|O_NOFOLLOW, pinned its inode, required current-user ownership,
+rejected unsafe target links and rechecked the named directory after fsync.
+However, it accepted a mode-0755 parent because it rejected only group/world
+writes. Credential, signature and raw-transaction filenames and directory
+inventory could therefore be exposed even while file contents remained 0600.
+
+Correction
+==========
+`writeFileDurable` now has an explicit `privateParent` policy. Both private
+wrappers enable it and require the pinned parent directory to be exactly 0700.
+Public durable writers retain their existing safe non-writable-parent policy,
+so 0644 release evidence may still be installed in an intentional 0755 tree.
+The parent inode, owner and complete mode remain bound through the final
+post-fsync named-directory recheck.
+
+Validation
+==========
+- A mode-0755 parent now rejects `writePrivateFileDurable` before creating the
+  credential, while the public writer remains valid in that same parent.
+- Durable/private/submission/signing/artifact suites: 15/15 pass.
+- Node syntax and git diff checks pass.
+
+No real credential, signature, transaction, RPC, deployment or fund operation
+ran.

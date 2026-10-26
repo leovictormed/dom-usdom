@@ -1,0 +1,27 @@
+ETAPA 831 — mainnet deployment Ledger identity timeout
+Date: 2026-10-23
+
+Finding
+
+The mainnet deployment executor already authenticated Cast and GNU timeout and
+bounded its RPC/derivation children, but the Ledger deployer identity check
+called Cast directly. A stalled device interaction could hold the deployment
+lock, private package and RPC proxy indefinitely immediately before gas planning
+and publication.
+
+Correction
+
+- The Ledger identity read now uses the already authenticated exact timeout
+  binary with foreground semantics, a five-minute deadline, TERM and KILL after
+  five seconds.
+- Cast and timeout identities are checked immediately before and after the call.
+- Timeout/signal failure propagates through the existing status-preserving
+  cleanup, which terminates/waits for the RPC proxy and erases private state.
+
+Validation
+
+- Bash syntax passes.
+- Deployment execution, tool parity/pinning, strict child framing, environment,
+  descriptor, timeout and cleanup suites: 33/33 pass.
+- Diff check passes.
+- No Ledger, RPC, signing, broadcast, deployment, commit, push or funds action ran.

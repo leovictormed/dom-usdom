@@ -1,0 +1,95 @@
+ETAPA1058 — independent completion audit for a closed real-funds mainnet pilot
+
+Authoritative status
+--------------------
+The current release is not ready for either `closed-mainnet` or `real-funds`.
+The aggregate gate stops before producing its detailed blocker array because the
+pinned child exits nonzero. Direct authoritative toolchain inspection identifies the
+first root cause: `Cargo.lock` no longer matches config/mainnet-toolchain-lock.json.
+The source tree is dirty (150 paths), has HEAD d536cf44d04c5c51611ad174f2fa5c8c3ac40f0c
+and no release tag at HEAD. Production requirements and operator intent explicitly
+keep deployment/mainnet/real-funds authorization false; operator intent still lists
+seven undefined production choices. The release config remains unconfigured and
+productionReady/realFundsAuthorized false.
+
+One local RandomX/RISC Zero run is genuinely active (PID 2400602, devMode=false,
+one Rayon worker, two jobs, started 2026-10-23T16:15:07Z). An older finalized-burn
+run status still says running although its recorded PID is absent; it is stale
+operational evidence, not a second active proof. Disk has 215 GiB available.
+
+Root blockers by class
+----------------------
+
+IMPLEMENTATION ABSENT — none established.
+The audited native USDOM, checkpoint binding, reserve/registry contracts, proof
+packaging, deployment, Safe ceremony and closed-pilot deposit/redemption paths are
+implemented. Current failures are configuration/artifact/evidence states. This does
+not claim zero defects; it means no authoritative gate currently identifies a
+missing code feature outside active fronts.
+
+ARTIFACT / BUILD PENDING
+A1. Reconcile the deterministic toolchain lock with the reviewed Cargo.lock; this is
+the first blocker and suppresses the aggregate diagnostic. Do not simply bless an
+unreviewed dependency change.
+A2. Complete and validate the active non-dev RISC Zero proof; replace/remove stale
+`running` evidence only through its authorized materializer.
+A3. Materialize production reserve, registry, both verifier artifacts/config hashes,
+reproducible-build reports and hash-addressed release evidence from one clean commit.
+A4. Produce the native runtime/release manifest and checker-derived commitments from
+that exact release source.
+
+TEST PENDING
+T1. After the proof workload ends and the lock is reconciled, run the pinned full
+Node, Forge and required Rust release suites; the lightweight pilot set is green
+(27/27) but is not the complete release suite.
+T2. Complete the mainnet-fork rehearsal and operations/security review reports bound
+to the release commit/artifacts.
+T3. Validate Safe recovery and cold-start/restart drills against the final addresses
+and native checkpoint floor. Existing test code/runbooks exist; release-bound results
+do not.
+
+PARAMETER / EXTERNAL CEREMONY
+P1. Generate/enroll three genuinely separate hardware owners and deploy/observe the
+three 2-of-3 Safes; one human may operate the ceremony but threshold must remain 2/3.
+P2. Fix final governance, guardian, checkpoint guardian, reserve/verifier/registry
+addresses and all code/config hashes.
+P3. Approve pilot exposure/outflow/delay/domain/finality parameters. Current examples
+are not operator-approved production values.
+P4. Create the clean signed commit, signed annotated release tag, release-evidence
+commit and final authorization/residual-risk attestations. Push remains separately
+authorized and was not performed.
+
+OPERATIONAL EVIDENCE
+O1. Collect independent finalized multi-RPC deployment identity/preflight snapshots
+and Safe policy baselines for the exact release.
+O2. Execute the authorized deployment ceremony and collect finalized receipts/code
+hashes/config getters, then complete delayed resume.
+O3. Execute the 1-USDT deposit path and prove exact balances/accounting/allowance and
+native issuance against the finalized deposit.
+O4. Complete private burn, finalized checkpoint witness, production proof packaging,
+queue delay and exact 1-USDT payout evidence.
+O5. Re-run `closed-mainnet`, then `real-funds`, from an immutable clean release tree;
+only zero blockers in the latter authorizes the private pilot.
+
+Deduplication
+-------------
+Hundreds of possible gate codes are derived consequences, not independent defects.
+For example, one absent release artifact produces path/hash/config/preflight/
+attestation mismatches; one undefined Safe produces owner, codehash, configuration,
+recovery and authorization blockers; one unfinished proof produces receipt, seal,
+verifier, package and release-evidence blockers. The roots above should be completed
+in order A1 -> A2/A3/A4 -> T/P -> O. Counting every derived code would materially
+misstate remaining work.
+
+Distance to pilot
+-----------------
+All known software paths for the closed pilot exist and their focused operational
+suite is green. The project is not one command away from real funds: it still needs a
+clean reproducible release, completed proof/build evidence, final parameters/Safes,
+full release tests and the deployment/deposit/burn/redemption ceremony. No guarantee
+of zero risk is required; the gate requires explicit bounded-risk evidence and
+operator authorization.
+
+No code defect outside active fronts was found in this completion audit, so no
+production implementation was changed. No network, build, proof mutation, signing,
+deployment, push or funds action was performed.

@@ -1,0 +1,78 @@
+Stage 540 — dual/multi-RPC observation static audit
+Date: 2026-10-23
+
+Scope
+
+- sdk/mainnet-preflight-rpc.mjs and sdk/rpc-consensus-evidence.mjs
+- deployment identity, execution and preflight observation paths
+- authenticated checkpoint observation
+- USDT policy/state observation inside mainnet preflight
+- Safe baseline, recovery target, execution and authorization observations
+- release/native EIP-1271 approval consensus
+
+Result
+
+No distinct exploitable false-quorum, stale-finality or partial-comparison defect
+was established. No implementation or readiness fact was changed. This records
+the reviewed trust boundary and negative evidence; it is not a claim that an
+RPC operator or the wider network cannot fail.
+
+Source identity and duplicate resistance
+
+- The immutable public catalog requires two to five sorted, unique operator IDs
+  and unique nonzero hashes of canonical HTTPS origins.
+- Runtime endpoints are parsed as URLs, reject credentials and fragments, and
+  must reproduce the cataloged origin hash for the named operator. Runtime
+  operator IDs are unique. Consequently, changing only a secret path/query does
+  not create another operator, and assigning two operator labels to the same
+  canonical origin is rejected when the catalog is built or validated.
+- Consensus evidence repeats the unique operator/origin checks and commits the
+  ordered source set. Consumers validate that commitment instead of trusting a
+  caller-provided source count.
+- Distinct DNS origins operated by the same hidden infrastructure cannot be
+  detected cryptographically by a client. Independence therefore remains an
+  explicit catalog-governance assertion, as intended by this design.
+
+Finality, stale responses and comparison coverage
+
+- Mainnet deployment preflight reads one finalized block number per source,
+  performs contract, USDT, Safe and deployment queries at that exact tag, then
+  rereads the same numbered block and binds its hash. Complete observations,
+  including finalized number/hash and the post-query hash, must be JSON-equal
+  across every cataloged source.
+- Authenticated checkpoint observation follows the same numbered-finalized-tag
+  pattern, includes the post-query canonical hash, and requires complete
+  observation equality before writing its create-once report.
+- Deployment identity rejects disagreement in finalized anchors or nonce,
+  checks finalized and pending nonces, and rechecks the snapshot and all planned
+  addresses. Deployment execution re-resolves the catalog around human prompts,
+  checks all sources and re-establishes receipt ancestry and runtime code after
+  its potentially long finalization wait.
+- Safe collectors pin finalized block identity during each observation and
+  reconcile complete role snapshots across sources. Recovery publication now
+  refreshes the complete target Safe state immediately before publish.
+- Release/native authorization collectors require exact finalized-anchor and
+  EIP-1271 observation agreement across all cataloged sources, perform a second
+  collection per source, and refresh finalized approval immediately before
+  immutable publication.
+
+Adversarial cases traced to existing focused coverage
+
+- duplicate operator IDs and duplicate origin hashes;
+- runtime origin substitution under an authenticated operator ID;
+- catalog/source-set omission and source-count or commitment substitution;
+- disagreement between finalized anchors and changes during a per-source read;
+- malformed JSON-RPC envelopes, duplicate JSON keys, wrong request IDs,
+  oversized bodies and redirects;
+- Safe snapshot/recovery changes between repeated observations.
+
+Validation
+
+The focused Node RPC tests passed, including source substitution and malformed
+response cases. Lightweight source assertions confirmed the deploy, checkpoint,
+USDT and Safe collectors retain pinned finalized tags, canonical hash rereads,
+full-source equality and source-set commitments. Shell syntax and diff whitespace
+checks passed for the relevant recently hardened executors.
+
+No full readiness suite, Cargo, Foundry, Anvil, proof, network, signing, funds,
+deployment, push or publication operation was run.

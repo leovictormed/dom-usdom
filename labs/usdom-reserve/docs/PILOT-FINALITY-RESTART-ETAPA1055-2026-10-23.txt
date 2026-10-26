@@ -1,0 +1,21 @@
+ETAPA1055 — authenticated finality markers on restart
+
+Concrete gap
+------------
+When a finality marker already existed, restart compared its gas-cost fields but did
+not authenticate its schema, transaction hash, block number/hash or finalized RPC
+count before continuing. The later DAG would reject corruption, but the executor
+itself could advance through terminal reconciliation first.
+
+Correction
+----------
+Both executors now require an existing marker to be a regular non-symlink, single-link
+mode-0600 file and validate schema, transaction hash, block number, block hash,
+finalizedRpcCount=2, gasUsed, effectiveGasPrice, actualCost and maximumCost against
+the freshly revalidated receipt/cost. Every mismatch fails immediately.
+
+Validation
+----------
+Pinned Node 24.19.0 full generated-command and pilot operational set passed 27/27,
+zero failures. Bash syntax and focused diff check passed. No heavy build or external
+action occurred.

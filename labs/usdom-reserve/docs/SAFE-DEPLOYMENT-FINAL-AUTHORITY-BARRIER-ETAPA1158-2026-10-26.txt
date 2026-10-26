@@ -1,0 +1,18 @@
+USDOM — ETAPA 1158 — BARREIRA FINAL DE AUTORIDADE SAFE
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+A mensagem final de sucesso verificava os três endereços usando o snapshot privado, mas não recomparava pacote, identidades e provas autoritativas imediatamente antes e depois dessa última observação. Uma alteração tardia, especialmente no último papel já implantado permissionlessly, podia deixar a cerimônia reportar sucesso para entradas que já não eram as entradas publicadas pelo operador.
+
+Implementação
+
+- Pacote, identidades e provas são refotografados e comparados antes da varredura final dos três Safes.
+- O pacote determinístico é reconstruído novamente das identidades autenticadas antes dessa varredura.
+- As mesmas duas barreiras são repetidas depois das observações e antes da única mensagem de sucesso, fechando mutação durante chamadas RPC.
+
+Validação
+
+- Sintaxe Bash e seleção ampla Safe/recibo/CREATE2/runbook: 91/91.
+- Diff-check direcionado aprovado.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

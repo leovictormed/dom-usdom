@@ -1,0 +1,59 @@
+USDOM — private RPC catalog deep audit — stage 582
+Date: 2026-10-23
+
+Scope
+=====
+Deep review of the stage-574 owner-only runtime JSON loader, ephemeral RPC proxy,
+all 23 JavaScript catalog consumers and nine shell wrappers. This review covered
+file identity and permissions, UTF-8/JSON parsing, environment and argv exposure,
+proxy admission, method and response identity, error redaction, lifecycle cleanup
+and the deployment/Safe operator regressions.
+
+Findings corrected
+==================
+1. The loader and proxy used Buffer.toString('utf8'), which silently substitutes
+   malformed byte sequences. Both boundaries now use fatal UTF-8 decoding and
+   fail before parsing or forwarding malformed bytes. A regression injects an
+   invalid byte into an otherwise valid JSON document.
+2. The random localhost capability prevented guessing but did not independently
+   bound use if observed transiently from a local process command line. The proxy
+   now permits at most eight concurrent requests and 512 admitted requests per
+   configured source during one ceremony. The cap accommodates bounded receipt
+   polling and the 30-minute deployment-finalization loop while limiting provider
+   abuse and cost. Exhaustion fails closed with HTTP 429 before upstream access.
+3. Response validation now requires exact JSON-RPC version and request ID, exactly
+   one of result/error, no extraneous envelope keys, and a structured integer-code
+   error. Requests remain single-object, method-allowlisted and batch-free.
+4. Two operator-runbook assertions checked for a literal `_FILE` spelling inside
+   JavaScript consumers even though the shared loader derives it deliberately.
+   The tests now assert the actual shared-loader call. The shell executor test
+   continues to require the explicit `_FILE` boundary.
+
+Confirmed properties
+====================
+- Legacy literal catalog environment variables fail closed.
+- Paths are absolute and canonical; parent directories are current-user and
+  owner-only; files are current-user regular 0600 single-link bounded objects.
+- O_NOFOLLOW/O_CLOEXEC, opened-inode identity, metadata stability and two
+  positional reads protect capture. Temporary byte buffers are cleared.
+- Real provider URLs stay out of shell variables and cast argv. Only random,
+  process-lifetime loopback capability URLs enter cast argv.
+- Proxy upstream redirects are denied; request/response/deadline bounds and a
+  narrow Ethereum method allowlist remain enforced. Provider details do not
+  enter downstream errors or logs.
+- Both executors check the proxy PID after every operator pause and before final
+  durable output. Cleanup terminates the proxy and removes the mode-0700 tmpfs
+  workspace.
+
+Validation
+==========
+Runtime: /usr/lib/chatgpt/resources/cua_node/bin/node v24.19.0.
+- Node syntax checks for loader/proxy: pass.
+- `bash -n labs/usdom-reserve/scripts/*.sh`: pass.
+- Nine affected Node suites: 162 tests, 162 pass, 0 fail.
+- Invalid UTF-8, unsafe modes/parents, hardlinks, symlinks, oversized input,
+  legacy literal environment and static proxy-boundary regressions pass.
+- `git diff --check` over the stage surface: pass.
+
+The active RandomX proof was not interrupted. No Cargo/Foundry workload, commit,
+push, deploy, signature, broadcast or real-fund action was performed.

@@ -1,0 +1,76 @@
+{
+  "schema": "usdom-local-operational-gas-measurement/v1",
+  "network": "anvil-local-chain-31337",
+  "runs": 2,
+  "node": {
+    "path": "/usr/lib/chatgpt/resources/cua_node/bin/node",
+    "sha256": "bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12",
+    "version": "v24.19.0"
+  },
+  "anvil": {
+    "path": "/home/leonardov/.foundry/bin/anvil",
+    "sha256": "00f97668e1ae0fcca118fd7d2d1b6d25c0496447a523ca6bc2dfd10958c99604"
+  },
+  "artifacts": {
+    "reserve": {
+      "artifactPath": "out/USDOMProofReserve.sol/USDOMProofReserve.json",
+      "artifactSha256": "fc09f786231a82fc6830172ecba5a7737ce53a8387d9784268e8cb137780352b"
+    },
+    "verifier": {
+      "artifactPath": "out/USDOMProofReserve.t.sol/MockFinalizedBurnVerifier.json",
+      "artifactSha256": "ab56c2dec385b4a1596f1e0a9bf4829a942778219fcfdc748388931d6e7242aa"
+    },
+    "token": {
+      "artifactPath": "out/Mocks.sol/HostileToken.json",
+      "artifactSha256": "7c6bd6b7f92a0693d9e768aff34a45e8d7a9fff8f363fb2549a89873234c346d"
+    },
+    "governance": {
+      "artifactPath": "out/Mocks.sol/MockGovernance.json",
+      "artifactSha256": "76ca5be187f6e52775057264bb949cb02dfdfe125a6d916bdd5eb41a1102a0ef"
+    },
+    "registry": {
+      "artifactPath": "out/Mocks.sol/MockGracefulShutdownRegistry.json",
+      "artifactSha256": "768a376114339ea4f70974dc7000a897826f243158db419be34994f561c0758f"
+    }
+  },
+  "safeFixture": {
+    "path": "test/fixtures/safe-1.4.1-mainnet.json",
+    "sha256": "20db960999248a07a1444504166e88d2f60d502e2eb0038fbc6af822db13a1cf",
+    "singletonRuntimeCodeHash": "0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4"
+  },
+  "scenarios": {
+    "queueWithdrawal": {
+      "gasUsed": "343546",
+      "proofBytes": 260,
+      "queueDepthBefore": 1,
+      "events": 3
+    },
+    "pruneExpired256": {
+      "gasUsed": "7636276",
+      "inputCount": 256,
+      "removed": 256,
+      "queueDepthBefore": 256
+    },
+    "pruneDiscardable256": {
+      "gasUsed": "7482345",
+      "inputCount": 256,
+      "removed": 256,
+      "invalidatedByEmergency": true
+    },
+    "safeAdminOverhead": {
+      "gasUsed": "99496",
+      "safeVersion": "1.4.1",
+      "owners": 3,
+      "threshold": 2,
+      "approvals": 2,
+      "action": "swapOwner",
+      "innerCalldataBytes": 100,
+      "outerCalldataBytes": 676
+    }
+  },
+  "productionRequirementsRemainFalse": true,
+  "limitations": [
+    "local chain 31337 and deterministic test doubles are not production release evidence",
+    "production measurements must be repeated after exact release pins and mainnet Safe identities are materialized"
+  ]
+}

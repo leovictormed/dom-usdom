@@ -1,0 +1,52 @@
+USD DOM — authenticated finalized-burn proof job (stage 272)
+Date: 2026-10-20
+Status: planner revalidated with UDFINL03; no proof or compression run
+
+Outcome
+
+One canonical UDFINL03 finalized-burn input now has a dedicated deterministic
+proof-planning boundary. The host fully decodes and canonically re-encodes the
+bounded input, reexecutes the complete pure Rust finalized-burn relation and
+requires its exact nonzero 32-byte public statement hash.
+
+The planner pins the current reproduced RISC Zero 3.0.6 ProgramBinary SHA-256
+600c9480bd7028c56a0ee5d729810668eeaaf7f171fe1c71fbd4175a6d470389
+and ImageID
+7a7e94b31f59aa6d41437b84f47da92680f757bd8c4f289bf9a072828ae3a449.
+It accepts only direct regular files within fixed bounds, rejects symlinked
+inputs and outputs, invalidates stale outputs before validation, and atomically
+publishes each private canonical input copy and deterministic job index. A
+failure during either publication invalidates the complete output pair.
+
+Operator boundary
+
+The complete fixed command is:
+
+  npm run --silent plan:authenticated-finalized-burn
+
+It accepts no arguments or placeholders and reads only the fixed canonical
+source path. The command contains no secret prompt, signer, network access,
+prover selection, mining or transaction broadcast. The planner calls neither a
+zkVM executor nor a prover; only the already-reviewed portable relation runs.
+
+Verification
+
+- locked host tests pass 4/4;
+- strict all-target Clippy passes;
+- targeted formatting passes;
+- direct-file, size-bound and symlink mutation tests pass;
+- shell syntax and fixed-command policy tests pass;
+- the complete ready fixture includes the new fail-closed prerequisite.
+
+Remaining boundary
+
+Stage 275 now provides the fixed production canonical source exporter that
+combines the exact audited DOM burn-state witness with the raw finalized
+Ethereum checkpoint witness. Its real Mainnet input files do not yet exist. A
+succinct receipt, local Groth16 compression, exact EVM seal, unsigned reserve
+calldata and finalized-state observer remain to be implemented. The existing
+positive synthetic vector has executed the guest but is not a production source
+and no receipt has been generated.
+
+This stage performed no proof, compression, deployment, public RPC, funds,
+mining, commit or push.

@@ -1,0 +1,45 @@
+USDOM stage 402 — on-chain control health parity
+Date: 2026-10-22
+
+Finding
+=======
+
+The finalized preflight independently reconstructed the control-plane checks,
+but the deployed contracts did not expose their own evaluation. Operational
+monitoring could therefore verify equivalent inputs without directly proving
+that the deployed runtime evaluated its internal predicate as healthy.
+
+Correction
+==========
+
+USDOMProofReserve now exposes controlPlaneHealthy(); DOMCheckpointRegistry
+exposes guardianControlHealthy(). Each view delegates to the exact private
+predicate already used by reserve value/resume paths or irreversible checkpoint
+halt. No weaker duplicate policy implementation was introduced.
+
+The post-deployment preflight reads both getters at its fixed finalized block
+and requires true in addition to independently checking proxy/singleton code,
+threshold, owners, modules and terminal cursor. A contract/policy discrepancy
+therefore fails the cold-start gate even if the external reconstruction appears
+valid.
+
+Evidence
+========
+
+- Focused policy/getter and preflight tests pass.
+- Complete Solidity suite: 145/145 pass, including invariant campaigns.
+- Complete Node suite: 304/304 pass.
+- Current deployed runtime sizes are 16,141 bytes for the reserve and 7,262
+  bytes for the checkpoint registry, below the 24,576-byte EIP-170 limit.
+- Production lint/forced build, imported provenance and whitespace checks pass.
+
+No live RPC, signature, transaction, deployment, funds, mining, project commit,
+tag or push occurred. The detached finalized-burn capacity proof remained
+active and was not restarted or modified.
+
+Next action
+===========
+
+Inspect hostile Safe-return behavior and gas ceilings for the new public health
+views, then continue the next locally correctable boundary while the capacity
+proof runs.

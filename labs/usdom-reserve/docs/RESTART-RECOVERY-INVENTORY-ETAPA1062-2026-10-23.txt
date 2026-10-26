@@ -1,0 +1,41 @@
+ETAPA1062 — RESTART / RECOVERY / COLD-START INVENTORY
+Date: 2026-10-23
+
+Completed local boundaries
+==========================
+- Pilot finality restart authenticates complete marker identity and filesystem
+  metadata before advancing.
+- Nonce recovery publishes only at the exact nonce and recovers only the exact
+  known successor transaction.
+- Safe recovery invalidates stale derived observations under lock before RPC.
+- Pre-activation/release materialization has an explicit Registry-before-reserve
+  dependency and rejects partial or stale pins.
+- Credential workflows authenticate Node, Cargo, generated executables and their
+  canonical parent directories before secrets and immediately before each use.
+- Recovery cleanup and signal behavior are regression tested.
+
+Remaining boundaries and dependencies
+=====================================
+1. Descriptor-bound executable launch. Shell pathname checks necessarily leave a
+   very small check-to-exec interval. Eliminating it requires a reviewed native
+   launcher using openat2 constraints plus fexecve/execveat, followed by Cargo build
+   and platform tests. This was not approximated with another pathname check.
+2. Actual cold-start attestation. The schemas and local recomputation are tested,
+   but production evidence requires finalized Ethereum observations and the real
+   deployed bytecode. This depends on network/deployment authorization.
+3. Physical recovery ceremony. Local envelope, transaction and stale-output logic
+   are tested; real Safe/Ledger/TPM recovery evidence requires operator devices,
+   owners and secrets.
+4. Reorg rehearsal evidence. Local fail-closed semantics are covered, while the
+   production report requires isolated live/fork RPC observations and finalized
+   receipts.
+5. RISC Zero artifact completion. Release materialization remains blocked until
+   the active proof/build run produces the reviewed artifacts and hashes.
+
+Verification baseline
+=====================
+- Restart/recovery focused suites from ETAPA1059–1061: green.
+- Broad mainnet readiness: 62/62 green at the end of ETAPA1061.
+
+No network, build, deployment, signing, push, device access, secrets or funds were
+used for this inventory.

@@ -1,0 +1,48 @@
+RISC ZERO DIRECT VERIFIER AUTHORITY — ETAPA991
+Date: 2026-10-23
+
+Finding
+-------
+The release materialization/readiness/preflight chain correctly required the
+reviewed RISC Zero v3.0.1 direct verifier address, runtime code hash, SELECTOR
+and VERSION. The two on-chain adapters, however, accepted any constructor
+target with nonempty code, the expected SELECTOR and a captured code hash.
+A proxy/router can keep that exterior code hash and SELECTOR unchanged while a
+storage-controlled implementation changes. Thus a separately deployed adapter
+could satisfy its on-chain identity while delegating proof authority to mutable
+code. The signed production manifests excluded the known router, but the core
+contract invariant depended on off-chain release discipline.
+
+Fix
+---
+Both adapters now enforce on Ethereum mainnet the reviewed direct v3.0.1
+address `0x2a098988600d87650Fb061FfAff08B97149Fa84D` and runtime code hash
+`0xfe03c66078969d097f867351171b4639d726c8376c35022675ed44cbbcbaa720`.
+This check executes in the constructor before proof authority is captured.
+Non-mainnet isolated tests retain injectable verifier targets. Runtime proof
+calls continue to recheck code hash and SELECTOR, and reserve/registry continue
+to bind adapter runtime/config hashes.
+
+End-to-end authority after the fix
+----------------------------------
+* repository reference: exact schema pins release/commit/source/deployment,
+  direct address, runtime hash, selector and version, with router and emergency
+  wrapper explicitly distinct;
+* materializers: finalized-burn and checkpoint manifests must agree and bind
+  direct address/runtime/selector into adapter config and initcode;
+* adapters: mainnet constructor independently rejects every other address or
+  runtime, including the published router and emergency-stop wrapper;
+* preflight/health: finalized observations recheck direct runtime, SELECTOR and
+  VERSION 3.0.0, plus wrapper identity/state;
+* reserve/registry: immutable adapter address, code hash, config hash and
+  capability are checked again for each proof-bearing operation.
+
+Validation
+----------
+`python3 scripts/check-risc0-direct-verifier-authority.py`: PASS. The gate derives
+its expected pins through the strict repository reference validator and proves
+both adapters contain the same mainnet-only direct address/runtime rejection.
+Solidity formatting and whitespace diff checks passed. Forge was not run while
+the long RISC0 proof occupied the machine.
+
+No network, push, deploy, signing, broadcast, mining or funds action occurred.

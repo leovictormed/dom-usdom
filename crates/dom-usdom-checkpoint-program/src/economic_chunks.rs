@@ -382,6 +382,160 @@ pub struct EconomicChunkExecution {
     pub total_effects: u32,
 }
 
+/// Canonical private/public source for one bounded economic chunk proof.
+#[cfg(feature = "host-reference")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EconomicChunkProofSource {
+    transition: [u8; ECONOMIC_CHUNK_TRANSITION_BYTES],
+    witness: Vec<u8>,
+}
+
+#[cfg(feature = "host-reference")]
+impl EconomicChunkProofSource {
+    /// Exact public `UDECTN01` bytes committed by the chunk receipt.
+    pub fn transition_bytes(&self) -> &[u8; ECONOMIC_CHUNK_TRANSITION_BYTES] {
+        &self.transition
+    }
+
+    /// Exact private `UDECCW01` witness bytes consumed by the chunk guest.
+    pub fn witness_bytes(&self) -> &[u8] {
+        &self.witness
+    }
+}
+
+/// Canonical chunk-recursive proof source for one complete economic block.
+#[cfg(feature = "host-reference")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EconomicBlockProofSource {
+    transition: [u8; ECONOMIC_BLOCK_TRANSITION_BYTES],
+    chunks: Vec<EconomicChunkProofSource>,
+}
+
+#[cfg(feature = "host-reference")]
+impl EconomicBlockProofSource {
+    /// Exact public `UDECBT01` bytes committed by the block receipt.
+    pub fn transition_bytes(&self) -> &[u8; ECONOMIC_BLOCK_TRANSITION_BYTES] {
+        &self.transition
+    }
+
+    /// Ordered canonical chunk proof sources covering every block effect.
+    pub fn chunks(&self) -> &[EconomicChunkProofSource] {
+        &self.chunks
+    }
+}
+
+/// Build every bounded economic chunk source and the exact complete-block claim.
+#[cfg(feature = "host-reference")]
+pub fn build_economic_block_proof_source(
+    state: &EconomicState,
+    block: &Block,
+    package_bytes: &[u8],
+    network_magic: u32,
+    coinbase_maturity: u64,
+) -> Result<EconomicBlockProofSource, EconomicStateError> {
+    let mut expected_final = state.clone();
+    expected_final.apply_block(block, coinbase_maturity)?;
+    let previous_roots = EconomicRoots {
+        utxo_root: state.utxo_set_root()?,
+        kernel_root: state.kernel_set_root()?,
+    };
+    let (effects, kernels) = economic_block_effects(block)?;
+    let total = effects
+        .len()
+        .checked_add(kernels.len())
+        .ok_or(EconomicStateError::InvalidProof)?;
+    let total = u32::try_from(total).map_err(|_| EconomicStateError::InvalidProof)?;
+    if total == 0 {
+        return Err(EconomicStateError::InvalidProof);
+    }
+
+    let mut proving_state = state.clone();
+    let mut roots = previous_roots;
+    let mut cursor = 0u32;
+    let mut chunks = Vec::new();
+    while cursor < total {
+        let witness = EconomicChunkWitness::from_state(&proving_state, block, cursor)?;
+        let transition =
+            execute_economic_chunk_portable(package_bytes, &witness, network_magic, roots)
+                .map_err(|_| EconomicStateError::InvalidProof)?;
+        let start = usize::try_from(cursor).map_err(|_| EconomicStateError::InvalidProof)?;
+        let end = usize::try_from(transition.next_cursor)
+            .map_err(|_| EconomicStateError::InvalidProof)?;
+        if start < effects.len() {
+            let end = end.min(effects.len());
+            for (key, effect) in effects
+                .get(start..end)
+                .ok_or(EconomicStateError::InvalidProof)?
+            {
+                if effect.spent {
+                    proving_state
+                        .utxos
+                        .remove(key)
+                        .ok_or(EconomicStateError::MissingInput)?;
+                } else if proving_state
+                    .utxos
+                    .insert(
+                        *key,
+                        super::EconomicUtxo {
+                            created_height: block.header.height.0,
+                            is_coinbase: effect.coinbase,
+                        },
+                    )
+                    .is_some()
+                {
+                    return Err(EconomicStateError::DuplicateOutput);
+                }
+            }
+        } else {
+            let kernel_start = start
+                .checked_sub(effects.len())
+                .ok_or(EconomicStateError::InvalidProof)?;
+            let kernel_end = end
+                .checked_sub(effects.len())
+                .ok_or(EconomicStateError::InvalidProof)?;
+            for kernel in kernels
+                .get(kernel_start..kernel_end)
+                .ok_or(EconomicStateError::InvalidProof)?
+            {
+                if !proving_state.kernels.insert(*kernel) {
+                    return Err(EconomicStateError::DuplicateKernel);
+                }
+            }
+        }
+        let transition_bytes = transition
+            .to_bytes()
+            .map_err(|_| EconomicStateError::InvalidProof)?;
+        let witness_bytes = witness.to_bytes()?;
+        chunks.push(EconomicChunkProofSource {
+            transition: transition_bytes,
+            witness: witness_bytes,
+        });
+        cursor = transition.next_cursor;
+        roots = transition.next_roots;
+    }
+    if proving_state != expected_final {
+        return Err(EconomicStateError::InvalidProof);
+    }
+    let block_transition = EconomicBlockTransition {
+        network_magic,
+        package_commitment: economic_chunk_package_commitment(package_bytes),
+        block_hash: *dom_core::blake2b_256(
+            &DomSerialize::to_bytes(&block.header).map_err(|_| EconomicStateError::InvalidProof)?,
+        )
+        .as_bytes(),
+        block_height: block.header.height.0,
+        utxo_effects: u32::try_from(effects.len()).map_err(|_| EconomicStateError::InvalidProof)?,
+        kernel_effects: u32::try_from(kernels.len())
+            .map_err(|_| EconomicStateError::InvalidProof)?,
+        previous_roots,
+        next_roots: roots,
+    };
+    let transition = block_transition
+        .to_bytes()
+        .map_err(|_| EconomicStateError::InvalidProof)?;
+    Ok(EconomicBlockProofSource { transition, chunks })
+}
+
 impl EconomicChunkWitness {
     /// Build the next deterministic chunk from a complete host snapshot.
     #[cfg(feature = "host-reference")]
@@ -593,6 +747,12 @@ impl EconomicChunkWitness {
                 .get(HEADER_BYTES..proof_end)
                 .ok_or(EconomicStateError::InvalidProof)?,
         )?;
+        let minimum = proof_end
+            .checked_add(old_count)
+            .ok_or(EconomicStateError::InvalidProof)?;
+        if bytes.len() < minimum {
+            return Err(EconomicStateError::InvalidProof);
+        }
         let mut old_utxos = Vec::with_capacity(old_count);
         let mut position = proof_end;
         for _ in 0..old_count {

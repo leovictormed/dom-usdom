@@ -1,0 +1,45 @@
+USD + DOM — catálogo de fontes RISC Zero vinculado à release
+Etapa 314 — 2026-10-22
+
+Achado
+
+A etapa 313 passou a exigir identidades aprovadas, mas o catálogo ainda
+entrava no SDK como um argumento de confiança. Faltava um formato canônico e
+uma ligação obrigatória à evidência imutável da release. Sem essa ligação, um
+executor mal configurado poderia fornecer outro catálogo ao mesmo código.
+
+Correção
+
+`sdk/risc0-health-source-catalog.mjs` implementa o formato
+`usdom-risc0-health-source-catalog/v1`. Ele exige:
+
+- Ethereum chain ID textual igual a 1;
+- duas a quatro fontes ordenadas por `sourceId`;
+- IDs de fonte e de operador canônicos e distintos;
+- hashes de endpoint não nulos e distintos;
+- `catalogHash` Keccak-256 sobre a serialização canônica completa.
+
+O plano de incidente v3 recebe o catálogo validado e inclui seu hash no
+`planHash`. A evidência de release ganhou o documento obrigatório
+`riscZeroHealthSourceCatalog`, com SHA-256 exato. O gate lê o conteúdo por um
+caminho regular dentro do projeto, valida o hash documental e revalida a
+semântica e o hash interno do catálogo.
+
+O arquivo `config/risc0-health-sources.unconfigured.json` é deliberadamente
+fail-closed. Ele não será considerado evidência até conter fontes reais e ser
+materializado pela cerimônia de release.
+
+Validação final
+
+- comando fixo com rebuild e contratos Anvil: 9/9 aprovado;
+- saúde, resposta, readiness e claims focados: 56/56 aprovados;
+- mutações de operador, catálogo e hash documental são rejeitadas.
+- lint de produção e rebuild completo: aprovados;
+- regressão Node completa: 242/242 aprovada;
+- proveniência: 1.045 fontes completas e verificadas;
+- `git diff --check`: aprovado;
+- gates esperadamente fechados: 160 mainnet fechada e 171 fundos reais. O
+  bloqueio adicional é precisamente o catálogo real ainda não materializado.
+
+Nenhuma mainnet, chave, assinatura, fundo, deploy, prova longa, commit, tag ou
+push foi utilizado.

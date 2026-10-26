@@ -1,0 +1,21 @@
+ETAPA 817 — ProgramBinary/ImageID preflight em todos os provadores futuros
+Data: 2026-10-23
+
+PROBLEMA
+A ETAPA808 fornecia decode real dos sete ProgramBinary, mas os launchers futuros ainda dependiam apenas de SHA/framing do host. Assim, a validação completa podia não ocorrer até o início do processo Cargo/provador caro.
+
+CORREÇÃO
+- Novo helper source-only `require-risc0-program-binary.sh` chama o packager fixado no workspace em modo `--verify`, com Cargo já pinado/rechecado pelo launcher.
+- Os seis launchers autenticados chamam o helper sobre suas cópias privadas no snapshot antes do planner e antes de qualquer `--features prove`.
+- Cobertura: RandomX, aggregate, economic chunk+block, checkpoint segment, checkpoint outer (segment+outer) e finalized-burn: 8 preflights para 7 ProgramBinary distintos.
+- O runner RandomX original agora valida explicitamente `usdom-randomx.bin`, fechando a lacuna citada.
+- Mainnet readiness executa também o inventário agregado `check-risc0-proof-program-binary.py`; ausência do decoder, framing inválido, SHA ou ImageID divergente mantém readiness fechada.
+
+VALIDAÇÃO
+- `bash -n` nos seis launchers e helper: passou.
+- `risc0-program-binary-prover-binding.test.mjs`: 4/4; exige todos os 8 preflights antes de `--features prove`.
+- `mainnet-readiness.test.mjs`: 61/61; novo campo falha fechado de forma independente.
+- Mutação do magic RandomX: rejeitada por `ProgramBinary::decode` antes de prova.
+- `git diff --check`: passou.
+
+Nenhuma prova, RPC, assinatura, transmissão, deploy, push ou fundo foi usado. A compilação pesada RandomX concorrente não foi tocada.

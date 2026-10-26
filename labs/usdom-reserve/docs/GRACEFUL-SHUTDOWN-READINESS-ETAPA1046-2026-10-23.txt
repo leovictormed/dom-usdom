@@ -1,0 +1,23 @@
+ETAPA1046 — OBSERVAÇÃO OPERACIONAL DO ENCERRAMENTO GRACIOSO
+Data: 2026-10-23
+
+Lacuna encontrada
+
+Após a ETAPA1045, os contratos separavam corretamente o halt emergencial do encerramento gracioso, mas o coletor de checkpoint finalizado ainda observava apenas `halted` e não coletava o fechamento autenticado, os totais econômicos ou o bit terminal. Uma automação não conseguiria provar a diferença entre emissão fechada, circulação zerada e interrupção emergencial.
+
+Correção
+
+- O coletor lê no mesmo block tag imutável `halted`, `gracefullyShutdown`, `latestIssuanceClosed`, `latestTotalIssued` e `latestTotalBurned`, além do estado de checkpoint já existente.
+- A segunda leitura TOCTOU inclui os novos campos; qualquer mudança durante a coleta invalida a evidência.
+- A observação e o relatório foram versionados para v2. Documentos v1 não satisfazem a nova schema.
+- O relatório exige booleanos canônicos, `burned <= issued`, halt emergencial falso para checkpoint finalizado e, quando `gracefullyShutdown` é verdadeiro, exige também `latestIssuanceClosed` e igualdade exata dos totais.
+- `halted && gracefullyShutdown` é rejeitado explicitamente, impedindo que o caminho emergencial seja apresentado como conclusão econômica.
+
+Validação
+
+- Gate `check-graceful-shutdown-readiness-stage1046.py`: passou.
+- Regressão adicionada para estado gracioso válido e rejeição de closure ausente, circulação não zero e halt emergencial simultâneo.
+- Fixtures do coletor cobrem as quatro novas chamadas ABI.
+- `py_compile` e `git diff --check`: passaram.
+- Node explícito `/home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node`: 17/17 testes passaram nos suites de collector, report e checkpoint submission.
+- Nenhuma rede, push, deploy, assinatura ou movimentação de fundos ocorreu.

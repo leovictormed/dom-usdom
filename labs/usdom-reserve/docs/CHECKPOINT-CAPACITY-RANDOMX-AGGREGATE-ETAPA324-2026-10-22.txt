@@ -1,0 +1,31 @@
+USD + DOM — vínculo explícito do agregador RandomX na capacidade de checkpoint
+Etapa 324 — 2026-10-22
+
+Achado
+
+A primeira versão do relatório de capacidade enumerava cinco camadas. A cadeia
+real possui seis guests: provas RandomX por bloco são verificadas e agregadas
+por um guest RandomX intermediário antes de serem consumidas pelo guest de
+segmento. O relatório associava o hash do programa RandomX bruto ao ImageID
+configurado para o agregador. Isso não permitiria substituir uma prova, pois o
+guest de segmento ainda verifica o ImageID, mas a evidência de capacidade
+descreveria incorretamente qual programa produziu aquele recibo.
+
+Correção
+
+- A camada `randomx` agora fixa separadamente o programa
+  `0601bf...f59b09` e ImageID `8efa49...1dc24` do guest completo por bloco.
+- A nova camada `randomx-aggregate` fixa o programa
+  `3dad95...d198f` e ImageID `08abf7...02ebf` do agregador.
+- O manifesto do verificador deve fixar exatamente o ImageID do agregador; um
+  ImageID arbitrário ou o ImageID do guest bruto é rejeitado.
+- O relatório exige exatamente seis camadas em ordem canônica, com recibos,
+  journals, tamanhos e custos distintos para cada uma.
+- As mutações cobrem troca do programa agregador, remoção de camada e alteração
+  do ImageID configurado.
+
+Validação
+
+Os testes dedicados do relatório passam 2/2, incluindo todas as substituições
+anteriores e as novas mutações do agregador. Nenhum recibo operacional foi
+declarado como produzido por esta correção.

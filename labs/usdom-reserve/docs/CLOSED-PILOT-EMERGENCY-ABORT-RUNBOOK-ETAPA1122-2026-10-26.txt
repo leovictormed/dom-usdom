@@ -1,0 +1,41 @@
+CLOSED PILOT EMERGENCY ABORT — ETAPA 1122
+Date: 2026-10-26
+
+ORDER OF ACTIONS
+1. Guardian Safe executes pause() or the observed-generation-bound
+   pauseQueueEpoch(queueEpoch). Confirm paused=true and the new empty queue epoch
+   on every catalog RPC.
+2. Guardian Safe executes closeDeposits(). This closure is irreversible. Confirm
+   depositsClosed=true on every RPC before handling allowances.
+3. If interruption occurred after approve(1 USDT) but before deposit, the funder
+   Ledger sends approve(reserve,0). The Safe cannot revoke another account's
+   allowance. Confirm allowance=0 on every RPC.
+4. Do not issue USDOM unless a finalized reserve deposit and its authenticated
+   source already exist. Stop native issuance/burn workflows at their durable
+   phase boundary.
+5. Inventory paid flags, proved debt and queue epoch before recovery.
+
+PHASE MATRIX
+- before approve: pause + close; verify zero allowance and no debt.
+- after approve: pause + close; funder revokes allowance to zero; no issuance.
+- after deposit: pause + close; collateral remains reserved; no refund/sweep.
+- after issuance: pause + close; preserve backing and stop new activity.
+- after burn: pause + close; permanent proved debt is retained. After controlled
+  governance resume, renew only that existing debt lease and pay it.
+- after queue: pause invalidates the lease but not the debt. Resume after delay,
+  renew exact existing debt, wait the withdrawal delay and pay it.
+- after payout: pause + close; verify paidBurns/paidRequests and conservation.
+
+IMPLEMENTED BOUNDARY
+Permanent closure now rejects a first proof that would create a new debt while
+allowing renewal of an already proved debt. Thus closeDeposits stops both new
+collateral and new first-proof queue admission, while existing unpaid burn debt
+remains renewable/payable after a controlled resume.
+
+No collateral sweep or deposit refund exists. Neither is part of recovery.
+Pausing temporarily blocks payout as well as queue/deposit; therefore permanent
+closure plus delayed controlled resume is required to finish existing debts.
+
+VALIDATION
+- Emergency/debt invariant Node suites: 14/14 passed.
+- Solidity compilation/Forge was intentionally not run in this stage.

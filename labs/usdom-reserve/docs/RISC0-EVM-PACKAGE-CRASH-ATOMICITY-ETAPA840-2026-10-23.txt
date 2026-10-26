@@ -1,0 +1,28 @@
+ETAPA 840 — atomicidade de crash dos pacotes EVM RISC Zero
+Data: 2026-10-23
+
+Escopo
+
+Auditoria dos packagers EVM do finalized-burn e checkpoint outer entre receipt Groth16, seal/calldata derivado e completion index, incluindo retomada, ENOENT e queda entre publicacoes.
+
+Achado corrigido
+
+Os dois hosts removiam duravelmente o completion index antes do trabalho, mas mantinham o seal EVM antigo enquanto o novo pacote estava incompleto. Consumidores canonicos exigem e validam o indice, portanto nao havia bypass criptografico; ainda assim, observacao direta podia confundir calldata da geracao anterior com a atual durante uma retomada interrompida.
+
+Correcao
+
+- O completion index continua sendo removido e sincronizado primeiro.
+- Em seguida, o seal derivado antigo e removido por `remove_direct_file`, com rejeicao de symlink/entrada nao regular e fsync do pai.
+- ENOENT permanece idempotente.
+- O receipt Groth16, caro e integralmente reverificado, permanece para retomada e recria deterministicamente o seal.
+- A publicacao final permanece receipt/seal primeiro e completion index por ultimo.
+
+Os scripts de materializacao removem e sincronizam o indice publico antes de substituir artefatos e so instalam o novo indice depois do conjunto completo. Calldata unsigned e derivada por consumidores que exigem o indice e conferem o hash do seal.
+
+Validacao
+
+- teste Node focado: 4/4 aprovados;
+- mutacao estrutural detecta a retirada da limpeza do seal;
+- rustfmt focado e `git diff --check`: aprovados.
+
+Nenhuma prova, build Cargo pesado, RPC, deploy, assinatura, broadcast, commit ou push foi executado.

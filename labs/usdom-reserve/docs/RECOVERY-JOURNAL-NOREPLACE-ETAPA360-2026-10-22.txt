@@ -1,0 +1,50 @@
+USD + DOM — diário de recuperação atômico e sem substituição
+Etapa 360 — 2026-10-22
+
+Problemas corrigidos
+
+O executor da recuperação dos três Safes escrevia o diário anterior ao broadcast
+com `install` e `mv` por caminho. A checagem de inexistência e a publicação não
+eram uma única operação, e as quatro entradas autoritativas eram reabertas ao
+longo de uma execução que pode durar vários blocos Ethereum.
+
+Correções
+
+- o gravador durável ganhou política explícita `replace=false`;
+- nesse modo, grava e sincroniza um temporário no diretório fixado, cria o nome
+  final por `link` atômico que falha se o destino já existir, remove o nome
+  temporário, sincroniza o diretório e relê conteúdo/modo pelo inode instalado;
+- `install-private-file-new-stdin.mjs` expõe essa fronteira limitada para
+  diários que devem ser criados uma única vez;
+- plano, pacote Safe, baseline e transações assinadas são lidos como snapshots
+  0600 por descritor antes de consultas, autorização, Ledger ou broadcast;
+- os programas de validação e toda extração `jq` usam os snapshots;
+- as quatro origens são relidas e comparadas antes de cada construção/publicação
+  de transação;
+- diário bruto e hash de submissão usam criação sem substituição; evidências
+  renováveis usam o gravador durável com substituição;
+- arquivos já persistidos também exigem link único.
+
+Validação inicial
+
+- criação durável única passou e a segunda instalação foi rejeitada sem alterar
+  os bytes originais;
+- sintaxe Bash/JavaScript e ShellCheck: passaram;
+- testes focados do gravador: 3/3 passaram;
+- testes focados do runbook/executor: 3/3 passaram;
+- `git diff --check`: passou.
+
+Validação completa
+
+- lint dos contratos de produção: passou;
+- compilação forçada dos 44 fontes Solidity: passou;
+- regressão Node completa: 300/300 passaram;
+- proveniência completa: 169 importados, 45 fontes de programas de prova e
+  manifesto determinístico com 1.138 fontes passaram;
+- gate de mainnet não configurado: recusou como esperado com `ready=false` e
+  161 condições derivadas ainda abertas;
+- `git diff --check`: passou novamente.
+
+Nenhum Ledger foi acessado, nenhuma transação foi criada ou transmitida e nenhum
+fundo foi usado. Nenhum push, commit, tag, deploy ou mineração ocorreu. O prover
+ativo não foi alterado nem reiniciado.

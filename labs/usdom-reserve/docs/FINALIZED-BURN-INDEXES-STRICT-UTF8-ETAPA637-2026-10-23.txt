@@ -1,0 +1,32 @@
+ETAPA 637 — ÍNDICES DE QUEIMA FINALIZADA COM UTF-8 ESTRITO
+Data: 2026-10-23
+
+Escopo
+
+Foram auditados os três índices JSON que formam a cadeia autenticada do pacote
+de resgate por queima finalizada: fonte, recibo RISC Zero e prova EVM Groth16.
+Eles vinculam a queima e o checkpoint DOM, programa/ImageID, statement/journal,
+recibos, parâmetros do verificador e seal EVM.
+
+Achado e correção
+
+Os três parsers já aplicavam rejeição de chaves duplicadas, campos exatos,
+hashes e vínculos cruzados, mas convertiam bytes com `Buffer.toString`, que
+substitui UTF-8 inválido. Uma função comum agora usa `TextDecoder` com
+`fatal:true` antes de `parseStrictJson`; qualquer sequência inválida falha antes
+de hashing, validação ou construção de calldata.
+
+O produtor já replica entradas em arquivos privados, rechecava as fontes após
+a construção, gravava o pacote com `writePrivateFileDurableNew` e comparava o
+arquivo instalado. Essas defesas contra symlink, substituição e TOCTOU foram
+preservadas.
+
+Validação
+
+- seis ataques novos: byte 0xff e chave `schema` duplicada em cada índice;
+- testes adversariais/substituição passaram 2/2;
+- teste de persistência privada imutável passou 1/1;
+- `node --check` passou no SDK e produtor; `git diff --check` passou.
+
+Nenhuma prova/RPC foi executada e nenhuma assinatura, transmissão, deploy,
+staging, commit, push ou movimentação de fundos ocorreu.

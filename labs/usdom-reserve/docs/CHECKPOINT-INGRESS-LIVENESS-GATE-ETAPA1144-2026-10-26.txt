@@ -1,0 +1,39 @@
+Stage 1144 — checkpoint liveness gate on collateral ingress
+Date: 2026-10-26
+
+Severity
+========
+
+High. USDOMProofReserve verified the immutable checkpoint-registry identity but
+did not read its terminal state before accepting a deposit. After the guardian
+permanently halted checkpointing, or after native consensus finalized issuance
+closure, a user could still transfer USDT into the reserve even though no new
+native issuance/finality path should exist. That collateral could become
+stranded without a corresponding redeemable asset.
+
+Correction
+==========
+
+- Extended the immutable registry interface with its public halted() getter.
+- Every deposit now revalidates registry code/config/domain/activation identity
+  and bounded canonical boolean results for halted, gracefullyShutdown and
+  latestIssuanceClosed before any token movement or deposit-ID consumption.
+- Any terminal state rejects new ingress with CheckpointingUnavailable;
+  malformed registry responses remain RegistryChanged failures.
+- Queue renewal and payout are deliberately unchanged, so a registry emergency
+  cannot suppress payment of already proved irreversible burn debts.
+
+Evidence
+========
+
+- Regressions cover halt, issuance closure, graceful shutdown, unchanged
+  accounting/identifier state after rejection, and successful recovery when a
+  test double returns to an open state, plus successful payout of a debt proved
+  before checkpoint halt: 2/2 passed.
+- Combined new contract regressions pass 3/3.
+- Full USDOMProofReserve unit and invariant contract selection passed with exit
+  status 0 using pinned Forge and solc 0.8.37.
+- Runtime is 20,427 bytes, leaving 4,149 bytes below EIP-170.
+- git diff --check passes.
+
+No Cargo, Rust, network, signing, deployment, funds, commit or push was used.

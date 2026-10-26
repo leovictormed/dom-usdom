@@ -9,11 +9,17 @@ use bls12_381::{
     G1Affine, G1Projective, G2Affine, G2Projective, Scalar,
 };
 use dom_core::{Hash256, NETWORK_MAGIC_REGTEST};
-use dom_usdom_finalized_burn_program::{execute, ActivationSchedule, FinalizedBurnProverInput};
+use dom_usdom_checkpoint_statement::{
+    CHECKPOINT_STATEMENT_V4_BYTES, CHECKPOINT_STATEMENT_V5_BYTES, CHECKPOINT_STATEMENT_V6_BYTES,
+};
+use dom_usdom_finalized_burn_program::{
+    execute, ActivationSchedule, CheckpointStatement, CheckpointStatementV6,
+    FinalizedBurnProverInput,
+};
 use dom_usdom_privacy::privacy_policy_hash;
 use dom_usdom_state::{
     derive_private_burn_id, unsafe_test_only_burn, unsafe_test_only_issuance, BlockContext,
-    BridgeIdentity, BurnRecord, BurnStateWitness, BurnTimingPolicy, EthereumAnchor,
+    BridgeIdentity, BurnRecord, BurnStateWitnessV2, BurnTimingPolicy, EthereumAnchor,
     NativeUsdomState, VerifiedTransition,
 };
 use helios_consensus_core::{
@@ -177,7 +183,7 @@ fn bridge(policy: &StaticCheckpointTrustPolicy) -> BridgeIdentity {
     }
 }
 
-fn burn_witness(policy: &StaticCheckpointTrustPolicy) -> BurnStateWitness {
+fn burn_witness(policy: &StaticCheckpointTrustPolicy) -> BurnStateWitnessV2 {
     let bridge = bridge(policy);
     let timestamp = 1_700_000_120;
     let mut state = NativeUsdomState::new(bridge).unwrap();
@@ -233,7 +239,7 @@ fn burn_witness(policy: &StaticCheckpointTrustPolicy) -> BurnStateWitness {
             ))],
         )
         .unwrap();
-    state.burn_state_witness(&burn_id).unwrap().unwrap()
+    state.burn_state_witness_v2(&burn_id).unwrap().unwrap()
 }
 
 struct ExecutionEvidence {
@@ -391,7 +397,7 @@ fn make_finality_update(
 }
 
 #[test]
-fn raw_ethereum_checkpoint_executes_udfinl02_end_to_end() {
+fn raw_ethereum_checkpoint_executes_udfinl04_end_to_end() {
     let (bootstrap, trusted_checkpoint, secret) = make_bootstrap();
     let forks = forks();
     let runtime = [0x60, 0x00];
@@ -427,9 +433,7 @@ fn raw_ethereum_checkpoint_executes_udfinl02_end_to_end() {
         forks,
     )
     .unwrap();
-    client
-        .accept(&GenericUpdate::from(&update), SIGNATURE_SLOT)
-        .unwrap();
+    client.accept(&GenericUpdate::from(&update)).unwrap();
     let finalized = client.finalized();
     assert_eq!(finalized.beacon_slot, FINALIZED_SLOT);
     assert_eq!(finalized.state_root, execution.state_root);
@@ -467,31 +471,155 @@ fn raw_ethereum_checkpoint_executes_udfinl02_end_to_end() {
     )
     .unwrap();
     assert_eq!(&verified.record()[41..73], burn.state.root().as_bytes());
+    let expected_ethereum_chain_id = bridge(&static_policy).ethereum_chain_id;
+    let mut previous_total_difficulty = [0u8; 32];
+    previous_total_difficulty[31] = 1;
+    let mut total_difficulty = [0u8; 32];
+    total_difficulty[31] = 2;
+    let mut confirmation_total_difficulty = [0u8; 32];
+    confirmation_total_difficulty[31] = 3;
+    let checkpoint_statement = CheckpointStatementV6 {
+        checkpoint: CheckpointStatement {
+            bridge_domain: DOMAIN,
+            dom_network_magic: NETWORK_MAGIC_REGTEST,
+            previous_height: 1,
+            previous_block: [0x51; 32],
+            previous_state_root: [0x52; 32],
+            previous_context_hash: [0x53; 32],
+            previous_total_difficulty,
+            height: 2,
+            block: [0x61; 32],
+            state_root: *burn.state.root().as_bytes(),
+            context_hash: [0x62; 32],
+            total_difficulty,
+            confirmation_height: 3,
+            confirmation_block: [0x63; 32],
+            confirmation_total_difficulty,
+            confirmation_timestamp: EXECUTION_TIMESTAMP,
+            ethereum_chain_id: expected_ethereum_chain_id,
+            registry: REGISTRY,
+            activation_schedule_commitment: *schedule.commitment().as_bytes(),
+            checkpoint_config_hash: CONFIG,
+        },
+        total_issued: burn.state.total_issued,
+        total_burned: burn.state.total_burned,
+        issuance_closed: burn.state.issuance_closure.is_some(),
+    };
+    let schedule_bytes = schedule.to_bytes();
+    let checkpoint_statement_bytes = checkpoint_statement.to_bytes().unwrap();
+    let checkpoint_policy_bytes = static_policy.to_bytes();
+    let burn_witness_bytes = burn.to_bytes().unwrap();
+    // V6 extends the prior fixed-width V4 statement by the two authenticated
+    // u128 economic totals (V5) and the canonical one-byte closure flag (V6).
+    // Keep this relationship explicit so a future format revision cannot be
+    // hidden by blindly refreshing the aggregate fixture length.
+    assert_eq!(
+        CHECKPOINT_STATEMENT_V5_BYTES - CHECKPOINT_STATEMENT_V4_BYTES,
+        2 * std::mem::size_of::<u128>()
+    );
+    assert_eq!(
+        CHECKPOINT_STATEMENT_V6_BYTES - CHECKPOINT_STATEMENT_V5_BYTES,
+        std::mem::size_of::<u8>()
+    );
+    assert_eq!(&checkpoint_statement_bytes[..8], b"UDCPST06");
+    assert_eq!(
+        &checkpoint_statement_bytes
+            [CHECKPOINT_STATEMENT_V4_BYTES..CHECKPOINT_STATEMENT_V4_BYTES + 16],
+        &checkpoint_statement.total_issued.to_be_bytes()
+    );
+    assert_eq!(
+        &checkpoint_statement_bytes
+            [CHECKPOINT_STATEMENT_V4_BYTES + 16..CHECKPOINT_STATEMENT_V5_BYTES],
+        &checkpoint_statement.total_burned.to_be_bytes()
+    );
+    assert_eq!(
+        checkpoint_statement_bytes[CHECKPOINT_STATEMENT_V5_BYTES],
+        u8::from(checkpoint_statement.issuance_closed)
+    );
     let input = FinalizedBurnProverInput::new(
         schedule,
         static_policy,
-        burn.to_bytes().unwrap(),
+        checkpoint_statement,
+        burn_witness_bytes.clone(),
         checkpoint_witness,
     )
     .unwrap();
     let bytes = input.to_bytes().unwrap();
+    let statement = input.public_statement().unwrap();
+    assert_eq!(statement.statement_hash(), input.statement_hash());
+    assert_eq!(statement.burn_id, burn.burn.burn_id);
+    assert_eq!(statement.request_id, burn.burn.request_id);
+    assert_eq!(statement.recipient, burn.burn.recipient);
+    assert_eq!(statement.amount, burn.burn.amount);
+    assert_eq!(statement.dom_domain, DOMAIN);
+    assert_eq!(statement.height, 2);
+    assert_eq!(statement.finality_beacon_slot, FINALIZED_SLOT);
+    assert_eq!(statement.valid_until, burn.burn.valid_until);
+    assert_eq!(statement.ethereum_chain_id, expected_ethereum_chain_id);
+    assert_eq!(statement.reserve, RESERVE);
+    assert_eq!(
+        statement.activation_schedule_commitment,
+        schedule.commitment()
+    );
     assert_eq!(
         execute(&bytes).unwrap().as_bytes(),
         input.statement_hash().as_bytes()
     );
     assert_eq!(checkpoint_witness_len, 62_638);
-    assert_eq!(bytes.len(), 64_070);
+    let fixed_prefix_bytes = 8 + 2 + 32 + 8;
+    let length_words_bytes = 2 * std::mem::size_of::<u32>();
+    let expected_input_len = fixed_prefix_bytes
+        + schedule_bytes.len()
+        + checkpoint_statement_bytes.len()
+        + checkpoint_policy_bytes.len()
+        + length_words_bytes
+        + burn_witness_bytes.len()
+        + checkpoint_witness_len;
+    assert_eq!(bytes.len(), expected_input_len);
+    assert_eq!(&bytes[..8], b"UDFINL04");
+    let schedule_start = fixed_prefix_bytes;
+    let statement_start = schedule_start + schedule_bytes.len();
+    let policy_start = statement_start + checkpoint_statement_bytes.len();
+    let lengths_start = policy_start + checkpoint_policy_bytes.len();
+    let burn_start = lengths_start + length_words_bytes;
+    let checkpoint_start = burn_start + burn_witness_bytes.len();
+    assert_eq!(&bytes[schedule_start..statement_start], &schedule_bytes);
     assert_eq!(
-        hex::encode(Sha256::digest(&bytes)),
-        "975383b1ad8dbf8e7ec471673314e6b26250ca6e325456f8380cbaef3529ff4e"
+        &bytes[statement_start..policy_start],
+        &checkpoint_statement_bytes
+    );
+    assert_eq!(
+        &bytes[policy_start..lengths_start],
+        &checkpoint_policy_bytes
+    );
+    assert_eq!(
+        u32::from_be_bytes(bytes[lengths_start..lengths_start + 4].try_into().unwrap()) as usize,
+        burn_witness_bytes.len()
+    );
+    assert_eq!(
+        u32::from_be_bytes(bytes[lengths_start + 4..burn_start].try_into().unwrap()) as usize,
+        checkpoint_witness_len
+    );
+    assert_eq!(&bytes[burn_start..checkpoint_start], &burn_witness_bytes);
+    assert_eq!(bytes.len() - checkpoint_start, checkpoint_witness_len);
+    assert_eq!(
+        FinalizedBurnProverInput::from_bytes(&bytes)
+            .unwrap()
+            .to_bytes()
+            .unwrap(),
+        bytes
     );
     assert_eq!(
         hex::encode(input.statement_hash().as_bytes()),
-        "881ebff15b6a4ee9939138160651119b4107713397d362b550355aae22fafaf8"
+        "c0461e1c2bcff62d1dfd8e8fed0b094b5d19c2744cf9bad34c8ae3722e7eaef4"
     );
     let mut wrong_replay_ceiling = bytes.clone();
     wrong_replay_ceiling[49] ^= 1;
     assert!(FinalizedBurnProverInput::from_bytes(&wrong_replay_ceiling).is_err());
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(FinalizedBurnProverInput::from_bytes(&trailing).is_err());
+    assert!(FinalizedBurnProverInput::from_bytes(&bytes[..bytes.len() - 1]).is_err());
     if let Some(path) = std::env::var_os("USDOM_RAW_CHECKPOINT_VECTOR_OUT") {
         std::fs::write(path, &bytes).unwrap();
     }

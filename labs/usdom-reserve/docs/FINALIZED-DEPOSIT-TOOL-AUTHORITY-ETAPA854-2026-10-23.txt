@@ -1,0 +1,11 @@
+ETAPA854 — FINALIZED-DEPOSIT TOOL AUTHORITY
+Date: 2026-10-23
+
+Witness building, wallet registration and deposit observation hashed Node/Cargo
+without executable bounds or canonical parent identity. They now require size
+1..512 MiB, pin safe parent dev/inode/owner/mode, and recheck file/hash/parent
+after hashing and before use. All three secret cleanup paths authenticate Node
+immediately before deletion.
+
+Focused boundary/crash/environment/descriptor tests pass 9/9; Bash syntax and
+diff checks pass. No build, RPC, wallet operation, funds, commit or push ran.

@@ -1,0 +1,8 @@
+ETAPA 853 — invalidacao do receipt de submissao de emissao
+Data: 2026-10-23
+
+O submitter mantinha `issuance-submission.json` anterior enquanto lia registration/token secretos e fazia RPC local. Se a nova submissao falhasse, o receipt antigo continuava parecendo atual.
+
+Agora somente o receipt de conclusao e removido duravelmente antes da primeira leitura secreta ou RPC. O intent idempotente permanece como journal anti-replay e deve coincidir byte a byte. O novo receipt segue output-last, depois de binding, intent, identidade DOM e releitura de inputs.
+
+Validacao: suites focadas 17/17, sintaxe Node e diff-check aprovados. Nenhum RPC ou operacao externa foi executado.

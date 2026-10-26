@@ -1,0 +1,23 @@
+ETAPA1051 — pilot receipt multi-RPC consensus
+
+Concrete gap
+------------
+The pilot executors required two RPCs to agree on successful receipt block/hash, but
+actual gas evidence used only the stored primary receipt. A secondary endpoint could
+disagree on gasUsed/effectiveGasPrice while still being counted as confirmation.
+The redemption comparison also omitted transactionHash/from/to on its secondary
+receipt path.
+
+Correction
+----------
+Every deposit and redemption receipt comparison now binds transaction hash, sender,
+target, success status, block number, block hash, gasUsed and effectiveGasPrice to
+the stored authenticated receipt. Finalized-head and canonical block-hash checks
+remain required independently on both endpoints. Actual-cost evidence is therefore
+based on fields agreed by both RPCs rather than a single source.
+
+Validation
+----------
+Pinned Node 24.19.0 full pilot operational set passed 22/22 with zero failures.
+A structural regression inventories both executor comparisons. Bash syntax and
+focused diff check passed. No heavy build or external action occurred.

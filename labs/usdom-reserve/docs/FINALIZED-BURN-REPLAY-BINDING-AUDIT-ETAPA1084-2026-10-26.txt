@@ -1,0 +1,57 @@
+ETAPA 1084 — FINALIZED-BURN / REPLAY-BINDING AUDIT
+Date: 2026-10-26
+
+Scope
+-----
+Static end-to-end review of the native burn record, finalized-burn RISC Zero
+guest statement, immutable EVM adapter and USDOMProofReserve admission and
+execution paths. No deployment, broadcast, signing, funds, network access,
+commit or push was performed.
+
+Result
+------
+No unbound production field or replay path was found. The verified statement
+commits burnId, requestId, recipient, amount, DOM domain, DOM height, DOM block,
+native state root, authenticated Ethereum-finality slot, expiry, target EVM
+chain ID, exact reserve address and activation-schedule commitment. The Rust
+guest derives those values from the consensus-authenticated burn/state and raw
+checkpoint relation before exposing only the statement hash.
+
+The earlier native BurnIntent deliberately contains only fields available when
+the burn is created: burn/request identifiers, recipient, amount, domain,
+expiry, target chain and reserve. The finalized guest verifies that exact
+obligation commitment and subsequently adds block, state, finality and schedule
+identity. A different deployment is rejected by the reserve-address binding;
+a different chain by chainId; a different activation release by the finalized
+statement and verifier configuration.
+
+Verifier boundary
+-----------------
+The reserve pins the verifier address, runtime code hash, configuration hash
+and acceptance capability and checks them again around proof admission. The
+adapter pins its upstream verifier address/code hash, selector, ImageID,
+journal schema/config and deployment chain, and accepts only the SHA-256 journal
+of the exact 32-byte statement hash. Runtime code hash alone cannot establish
+arbitrary contract storage immutability; the explicit config reads and the
+mainnet official-verifier address/code-hash allowlist are therefore required
+parts of the boundary.
+
+Regression strengthened
+-----------------------
+`testProofBindsEveryPublicFieldChainAndReserve` now mutates each of the ten
+FinalizedBurn calldata fields independently. Previously it directly exercised
+only recipient, amount, state root and finality slot, while the remaining fields
+were covered indirectly by other tests. Cross-chain, cross-reserve,
+cross-domain and cross-activation replay checks remain explicit.
+
+Validation
+----------
+Pinned default pipeline, without via-ir:
+
+  forge test --offline --match-path test/solidity/USDOMProofReserve.t.sol \
+    --match-test testProofBindsEveryPublicFieldChainAndReserve -vv
+
+Result: 1/1 passed with solc 0.8.37. Warnings were limited to the vendored
+OpenZeppelin future-keyword notice. The parent deliberately limited this step
+to the focused regression; the previously completed default suite remains
+189/189.

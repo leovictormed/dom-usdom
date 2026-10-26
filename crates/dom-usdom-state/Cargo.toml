@@ -8,6 +8,7 @@ license.workspace = true
 publish = false
 
 [features]
+default = []
 # Deliberately unavailable in optimized builds; production transitions must
 # come from reviewed proof verifiers rather than fixture capabilities.
 unsafe-test-oracle = []

@@ -1,0 +1,16 @@
+ETAPA1063 — DESCRIPTOR-BOUND EXECUTION
+Date: 2026-10-23
+
+Added a minimal Linux launcher using openat2 with RESOLVE_BENEATH,
+RESOLVE_NO_SYMLINKS, RESOLVE_NO_MAGICLINKS and RESOLVE_NO_XDEV. It validates a
+regular executable's owner, mode and link count, hashes the already-open descriptor
+with SHA-256, then invokes that same descriptor with execveat(AT_EMPTY_PATH) and a
+small explicit environment. Unsupported kernels fail closed.
+
+Both credential-bearing wallet workflows compile the launcher in their private
+tmpfs directory with an identity-pinned cc and route receiving, TPM-keystore and
+checkpoint-recovery execution through it. The local C fixture passes authenticated
+execution and rejects wrong hash, symlink and hardlink substitution. No Cargo,
+network, deployment, signing, push, secrets or funds were used.
+
+Gate and shell syntax checks passed; broad mainnet readiness remained green 62/62.

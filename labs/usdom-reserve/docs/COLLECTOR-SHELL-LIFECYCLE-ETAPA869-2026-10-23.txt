@@ -1,0 +1,31 @@
+ETAPA 869 — CHECKPOINT, DEPOSIT AND LEDGER CHILD LIFECYCLE
+Date: 2026-10-23
+
+Scope
+-----
+The audit used only the requested explicit paths. Three shell files exist:
+checkpoint consensus collection, finalized-deposit source collection and
+closed-mainnet deposit preparation. `prepare-mainnet-deployment.sh` does not
+exist; the current implementation is the previously audited MJS deployment
+preparer and transaction derivation pair.
+
+Finding and correction
+----------------------
+- Checkpoint directory preparation had no deadline, its RPC collector had no
+  outer deadline, and its signal trap could remove the temporary file then
+  resume. Python is now bounded to 30 seconds, collection to five minutes with
+  five-second TERM-to-KILL escalation, and signal cleanup exits 129/130/143.
+- Finalized-deposit source collection now has a five-minute outer bound and
+  five-second kill escalation in addition to its internal HTTP bounds.
+- Both Ledger address reads now have five-minute interaction bounds and kill
+  escalation. The local deposit preparer replaces the shell under a two-minute
+  bound.
+
+Validation
+----------
+- Bash syntax passed for all three existing scoped scripts.
+- Lifecycle, checkpoint consensus and durable private-file suites passed 22/22.
+- Regression also requires the obsolete shell deployment preparer to remain
+  absent while both current MJS implementations exist.
+- Diff whitespace validation passed.
+- No RPC, Ledger, signing, build, deployment or fund operation ran.

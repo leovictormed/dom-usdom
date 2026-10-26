@@ -1,0 +1,20 @@
+ETAPA978 — NATIVE USDOM RUST BUILD ENVIRONMENT
+Date: 2026-10-23
+
+Cargo sources were frozen in ETAPA976, but the production ceremony still
+inherited compiler authority from the operator shell: RUSTFLAGS/encoded flags,
+rustc wrappers, target/linker variables, RUSTUP_TOOLCHAIN, CC/CFLAGS/LDFLAGS,
+CARGO_HOME config and hierarchical .cargo/config files could alter codegen or
+replace sources without changing Cargo.lock.
+
+The closed-mainnet build now pins/rechecks the Cargo executable, rejects
+config/config.toml in every .cargo directory from repository root to filesystem
+root (including the fixed ~/.cargo), and launches Cargo via env -i. The child
+receives only fixed HOME/user identity, minimal system PATH, C locale, explicit
+CARGO_HOME/target directory, incremental=0 and disabled backtraces. The checked
+in rust-toolchain.toml remains the toolchain authority; ambient wrappers,
+flags, target CPU/linker and toolchain overrides are absent.
+
+This preserves supported offline caches under ~/.cargo while preventing their
+configuration from changing resolution/codegen. Gate 2/2, bash syntax and
+diff-check passed. No Cargo build or external operation ran.

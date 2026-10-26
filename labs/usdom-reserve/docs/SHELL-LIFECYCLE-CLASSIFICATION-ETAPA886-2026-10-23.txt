@@ -1,0 +1,31 @@
+ETAPA 886 — classificação final do inventário lifecycle shell
+Data: 2026-10-23
+
+Universo preservado da ETAPA881
+- 91 scripts shell.
+- 357 linhas candidatas, classificadas uma vez pela função efetiva do comando e não apenas pelo nome textual da ferramenta.
+
+Classificação antes desta correção (soma exata: 357)
+- Serviço contínuo intencional: 3.
+- Chamada já limitada por deadline/process-group runner: 91.
+- Check local instantâneo ou transformação de arquivo pequeno: 150.
+- Build/test não operacional: 21.
+- Chamada operacional ainda sem deadline: 92.
+
+Família corrigida
+- Oito execuções finitas `cargo run` de planejamento/exportação de provas não tinham deadline.
+- Cada uma agora recebe TERM após 3600 s e KILL 30 s depois.
+- Scripts: economic receipt set, RandomX receipt set, finalized burn, canonical finalized-burn source, RandomX statement individual/conjunto e checkpoint outer/segment set.
+
+Classificação após a correção (soma exata: 357)
+- Serviço contínuo intencional: 3.
+- Chamada já limitada: 99.
+- Check local instantâneo: 150.
+- Build/test não operacional: 21.
+- Chamada operacional ainda sem deadline: 84.
+
+Os 84 itens pendentes são sites de chamada, não 84 defeitos independentes; vários pertencem às mesmas famílias de wrappers Node/JQ e podem ser corrigidos em lote.
+
+Validação
+- `bash -n` nos oito scripts.
+- Teste estrutural garante exatamente um `cargo run` por script e o deadline TERM/KILL.

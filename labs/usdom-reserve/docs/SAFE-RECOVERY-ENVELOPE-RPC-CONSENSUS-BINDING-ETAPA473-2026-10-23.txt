@@ -1,0 +1,23 @@
+Stage 473 — Safe recovery envelope RPC-consensus binding
+Date: 2026-10-23
+
+The Safe recovery envelope planner received catalog-matched RPC sources but
+reduced their identities to rpc1/rpc2 labels in the durable envelope. The
+planner now accepts the matched source objects, validates their exact canonical
+operator/origin set and stores domain-separated RPC-consensus evidence inside
+the envelope hash.
+
+Envelope validation recomputes that evidence and requires its source count to
+equal the number of persisted observations. Source substitution, omission,
+duplication and commitment changes therefore fail closed even when an attacker
+recomputes the outer envelope hash. The caller still rereads the catalog and
+plan inputs before publishing the envelope.
+
+`production_safe_recovery_envelope_binds_rpc_consensus` is structural. No live
+recovery, network, signature, deployment, funds, mining, commit or push is
+claimed.
+
+All legacy Safe-control fixtures were migrated to the durable RPC-consensus
+binding used by production collectors. Validation: Safe-control module 15/15,
+direct-input dependents 13/13, complete operator runbook 71/71 with the explicit
+operational PATH, and readiness 60/60.

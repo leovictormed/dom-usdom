@@ -1,0 +1,109 @@
+USDOM stage 275 — canonical finalized-burn source export
+Date: 2026-10-20
+Status: exporter implemented and locally verified; production source absent
+
+Outcome
+
+One fixed offline command now combines an authenticated candidate-v2 DOM state,
+one raw authenticated Ethereum checkpoint witness and one exact native burn ID
+into the canonical UDFINL03 finalized-burn prover input:
+
+  npm run --silent export:canonical-finalized-burn-source
+
+The command accepts no arguments or placeholders. It starts no miner, disables
+the node wallet, performs no proof generation, opens no public RPC connection,
+signs nothing and broadcasts no transaction. It is an exclusive offline read of
+an already synchronized DOM Mainnet data directory.
+
+Fixed public inputs
+
+All paths below are relative to labs/usdom-reserve. None contains a private key,
+seed phrase, wallet password or signer credential.
+
+1. evidence/native-runtime/native-usdom-v2.json
+
+   The finalized hash-pinned native runtime manifest. It fixes the DOM network,
+   activation schedules, bridge identity, candidate-v2 activation height,
+   Ethereum checkpoint/deposit policies and spend-verifying key. The exporter
+   requires Mainnet and candidate v2. A draft or unconfigured manifest is not a
+   valid substitute.
+
+2. evidence/native-runtime/native-usdom-v2.manifest.sha256
+
+   Exactly one lowercase 64-character SHA-256 digest followed by one newline.
+   It must equal SHA-256(native-usdom-v2.json). Missing, symlinked, malformed or
+   mismatched manifest inputs fail before the node database is opened.
+
+3. evidence/native-mainnet-node/
+
+   The non-symlink DOM Mainnet data directory synchronized under the exact
+   manifest. Its canonical candidate-v2 state must contain the checkpointed DOM
+   block, the fixed burn archive record and every retained authenticated object
+   needed to reconstruct the burn witness. The exporter does not accept a block,
+   height, root or state override from the operator.
+
+4. evidence/finalized-burn-source/checkpoint-witness.bin
+
+   The complete raw public Ethereum checkpoint witness, bounded by
+   MAX_CHECKPOINT_WITNESS_BYTES. It must independently pass the repository's
+   Beacon finality, ancestry, execution receipt, registry code and configuration
+   verification under the manifest policy. The authenticated checkpoint record
+   itself selects the DOM checkpoint block. A JSON-RPC assertion, transaction
+   hash, event log alone or synthetic fixture is not accepted.
+
+5. evidence/finalized-burn-source/burn-id.hex
+
+   Exactly the public 32-byte native burn ID as 64 lowercase hexadecimal
+   characters followed by one newline. It identifies an existing canonical
+   candidate-v2 burn archive entry. It is not a secret and does not authorize a
+   payout by itself. The exporter derives and verifies the burn record, request
+   ID, state witnesses and checkpoint relationship from authenticated state.
+
+The checkpoint witness and burn ID are operator-selected public facts. Their
+canonical production bytes cannot be generated before the corresponding real
+DOM burn and finalized Ethereum checkpoint exist. No command should fabricate
+them or replace them with development fixtures for a real-funds run.
+
+Authenticated processing
+
+The binary authenticates the raw Ethereum witness before using its asserted DOM
+block. It initializes the exact candidate-v2 node with mining and wallet support
+disabled, holds the chain/runtime locks during reconstruction, loads the fixed
+burn archive entry and rebuilds the sparse burn/request witnesses against the
+checkpoint state. It then constructs UDFINL03, decodes it again, reexecutes its
+canonical relations and requires byte-identical re-encoding and an unchanged
+statement hash.
+
+Output behavior
+
+The existing output files are invalidated before source construction:
+
+  evidence/finalized-burn-source/finalized-burn-input.bin
+  evidence/finalized-burn-source/finalized-burn-source-index.json
+
+The two input selectors in the same directory, checkpoint-witness.bin and
+burn-id.hex, are never removed. Successful publication uses mode-0600 temporary
+files, file flush, atomic rename and directory flush. Any publication failure
+invalidates the output pair, so stale output cannot be mistaken for a fresh
+export. The JSON index binds the network, manifest, burn ID, DOM/Ethereum
+checkpoint identities, checkpoint-witness hash, statement hash, input hash and
+input length.
+
+Verification completed
+
+- exporter parser/publication unit tests: 5/5 passed;
+- stale-output invalidation and failed-publication behavior passed;
+- feature-enabled binary check and strict Clippy passed;
+- wrapper Bash syntax and fixed package command passed;
+- safe checked-cursor hardening passed all focused canonical-decoder tests.
+
+Current production boundary
+
+The repository does not currently contain the five production inputs above.
+The fixed command therefore fails closed and does not create an output. A real
+source requires a finalized release manifest, a synchronized activated DOM
+Mainnet database, an actual canonical candidate-v2 burn and a fresh raw Ethereum
+checkpoint witness that authenticates a checkpoint at or after that burn.
+
+This stage authorizes no proving, deployment, public transaction, fund movement,
+push or real-funds test. It only defines and validates the source-export boundary.

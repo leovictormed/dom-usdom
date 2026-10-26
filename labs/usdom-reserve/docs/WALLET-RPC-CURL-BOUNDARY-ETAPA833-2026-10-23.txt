@@ -1,0 +1,27 @@
+ETAPA 833 — wallet identity RPC curl boundary
+Date: 2026-10-23
+
+Finding
+
+Finalized-deposit registration and observation used bare `curl` for the two
+loopback `/chain/identity` reads that bind wallet state to the native mainnet
+node. Although both calls already had protocol, time and response-size limits,
+PATH could resolve a different executable between the first and second read and
+there was no executable identity check.
+
+Correction
+
+- Both flows resolve Curl once and require an executable regular non-symlink,
+  single link, safe owner/mode and safely owned non-writable directory.
+- Curl stat identity and SHA-256 are captured.
+- Each RPC call uses only the exact resolved path and is surrounded by identity
+  rechecks; the existing 10-second, 65,536-byte and HTTP-only bounds remain.
+- The two response files are still byte-compared and strictly validated by the
+  pinned Node identity checker before any credential use.
+
+Validation
+
+- Both shell scripts pass `bash -n`.
+- Curl boundary plus credential environment/witness cleanup tests: 5/5 pass.
+- Diff check passes.
+- No RPC, wallet, TPM, registration, observation, commit, push or funds action ran.

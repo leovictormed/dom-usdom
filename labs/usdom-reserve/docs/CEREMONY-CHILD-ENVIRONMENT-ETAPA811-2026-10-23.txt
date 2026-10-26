@@ -1,0 +1,23 @@
+ETAPA811 — CEREMONY CHILD ENVIRONMENT
+Date: 2026-10-23
+
+Finding and correction
+----------------------
+Deployment, Safe recovery and three Ledger/Cast signing ceremonies inherited
+ambient loader, Node, Rust, Foundry, Cast and proxy controls. `LD_PRELOAD` or
+`NODE_OPTIONS` could inject code into credential-bearing children; Foundry/Cast
+variables could change wallet/RPC behavior; debug/proxy variables could expose
+or redirect sensitive traffic.
+
+All five flows now sanitize those classes before resolving or invoking tools.
+They remove loader and dynamic-library hooks, Node injection/debug, TLS key logs,
+Rust logging/wrappers/flags, all upper/lowercase proxy variables, and every
+`FOUNDRY_*`/`CAST_*` variable. `HOME` remains available for Ledger integration,
+and the flows continue to export only their explicitly validated USDOM inputs.
+
+Validation
+----------
+A structural inventory covers all five flows. A local hostile-environment
+harness proves every listed and prefix variable is absent after sanitization.
+Focused pinning/environment tests pass 8/8; five scripts pass `bash -n`; `git
+diff --check` passes. No Ledger, Cast, RPC, signing or deployment ran.

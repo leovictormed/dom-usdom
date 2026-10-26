@@ -1,0 +1,49 @@
+Stage 268 - Authenticated outer checkpoint Groth16 EVM package
+Date: 2026-10-20
+
+Outcome
+
+An explicitly invoked local lifecycle now verifies the succinct outer checkpoint
+receipt, compresses it to RISC Zero Groth16 and publishes the exact proof bytes
+accepted by the immutable Ethereum adapter. The lifecycle was compiled and
+tested but was not executed.
+
+Fail-closed boundary
+
+The packager rebuilds and byte-compares the complete outer job, statement and
+chain, then validates the receipt-set index and cryptographically verifies the
+succinct receipt under the pinned outer ImageID and statement-hash journal.
+Compression requires the local prover and non-development Groth16 options. The
+result must be a cryptographically valid Groth16 receipt with the exact complete
+verifier-parameter digest
+73c457ba541936f0d907daf0c7253a39a9c5c427c225ba7709e44702d3c6eedc.
+
+The EVM seal is the exact four-byte verifier selector 0x73c457ba followed by the
+Groth16 seal. It is bounded to the adapter's 64 KiB limit. The atomic package
+index binds the upstream receipt index, ImageID, statement hash, SHA-256 journal
+digest, parameter digest, receipt and seal hashes/sizes and non-development
+claims. Existing compressed receipts resume only after full Groth16, ImageID,
+journal and parameter verification.
+
+Operator command
+
+  npm run --silent package:authenticated-checkpoint-outer-evm-proof
+
+It accepts no arguments or secrets, removes remote prover configuration and
+fixes local non-development compression. It is expensive and was not run.
+
+Verification
+
+- locked prove-feature all-target compilation: passed;
+- locked prove-feature unit test: 1/1 passed;
+- strict all-target prove-feature Clippy: passed;
+- focused readiness/operator tests: 53/53 passed;
+- no proof, compression, r0vm, RPC, deployment, signing, funds, mining, commit
+  or push occurred.
+
+Remaining boundary
+
+Positive proof execution, measured cost and EVM gas remain false until an
+explicitly authorized run produces the complete evidence. Release identities,
+ratification and custody ceremonies remain objective blockers. External audit
+availability and an impossible zero-risk guarantee are not blockers.

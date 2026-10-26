@@ -1,0 +1,19 @@
+USDOM — ETAPA 1157 — RETOMADA FINALIZADA COM EVIDÊNCIA AUTENTICADA
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+Quando o endereço Safe já aparecia implantado com configuração exata, o executor avançava imediatamente. Se existissem journal, raw, validação ou recibo duráveis, eles não passavam novamente pelos validadores criptográficos e pelo quórum de recibo; corrupção local podia ser ignorada por causa do estado on-chain correto.
+
+Implementação
+
+- Journal recuperado é expandido e o raw/validation é revalidado contra pacote, remetente, nonce, calldata, chain, gas e taxas antes da classificação do endereço.
+- Um Safe finalizado que possui transação durável sempre percorre novamente o recibo em todos os RPCs, bloco canônico e barreira `finalized`.
+- Implantação permissionless pré-existente continua aceita somente quando não há qualquer raw, validation ou receipt local alegando uma transação desta cerimônia.
+- Estados fora de `vacant|deployed` e recibo órfão sem raw falham fechados.
+
+Validação
+
+- Sintaxe Bash e seleção ampla Safe/recibo/CREATE2/runbook: 91/91.
+- Diff-check direcionado aprovado.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

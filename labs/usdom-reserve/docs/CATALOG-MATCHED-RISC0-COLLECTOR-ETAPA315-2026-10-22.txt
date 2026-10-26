@@ -1,0 +1,45 @@
+USD + DOM — coletor multifuente RISC Zero ligado ao catálogo
+Etapa 315 — 2026-10-22
+
+Problema
+
+O plano de resposta já validava observações e o catálogo da release, mas a
+produção dessas observações ainda dependia de objetos montados externamente.
+Isso permitia erro operacional entre a URL consultada e o hash de endpoint
+aprovado.
+
+Correção
+
+`sdk/risc0-health-observer.mjs` agora:
+
+- aceita somente URLs HTTPS limitadas;
+- deriva o Keccak-256 dos bytes exatos da URL;
+- exige correspondência com o hash do endpoint no catálogo;
+- valida todas as identidades e URLs antes de abrir qualquer conexão;
+- consulta cada RPC com provider separado;
+- fixa um bloco Ethereum `finalized`, lê bytecodes e estados nesse bloco e
+  relê seu hash após as chamadas;
+- destrói todos os providers inclusive em falha;
+- nunca devolve, grava ou imprime as URLs;
+- remove URLs de mensagens de erro antes de propagá-las.
+
+O comando `npm run observe:risc0-upstream-sources` usa o catálogo de evidência
+fixo e associa as variáveis de ambiente numeradas à ordem canônica das fontes.
+Ele rejeita URL ausente ou excedente e produz somente identidades públicas e
+observações. Com a release ainda não configurada, o comando falha antes de
+qualquer acesso de rede.
+
+Validação final
+
+- coletor e assessor: 6/6 testes aprovados;
+- substituição de endpoint rejeitada antes de criar qualquer provider;
+- duplicidade, ausência, HTTP e vazamento em erro rejeitados;
+- comando real fail-closed por ausência esperada do catálogo materializado.
+- lint de produção e rebuild completo: aprovados;
+- regressão Node completa: 246/246 aprovada;
+- proveniência: 1.049 fontes completas e verificadas;
+- gates esperadamente fechados: 160 mainnet fechada e 171 fundos reais;
+- `git diff --check`: aprovado.
+
+Nenhuma RPC real, mainnet, chave, assinatura, fundo, deploy, prova longa,
+commit, tag ou push foi utilizado.

@@ -1,0 +1,45 @@
+[package]
+name = "dom-usdom-economic-proof-host"
+description = "Fail-closed planning for recursive DOM economic chunk and block receipts"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = []
+prove = ["dep:bincode", "dep:risc0-zkvm", "risc0-zkvm/client", "risc0-zkvm/prove"]
+
+[[bin]]
+name = "dom-usdom-plan-economic-receipt-set"
+path = "src/bin/plan.rs"
+
+[[bin]]
+name = "dom-usdom-prove-economic-receipt-set"
+path = "src/bin/prove.rs"
+required-features = ["prove"]
+
+[dependencies]
+zeroize.workspace = true
+dom-wallet-crypto.workspace = true
+dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", features = ["economic-chunks"] }
+dom-usdom-economic-block-program = { path = "../dom-usdom-economic-block-program" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+bincode = { workspace = true, optional = true }
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std", "disable-dev-mode"], optional = true }
+
+[dev-dependencies]
+dom-chain = { workspace = true, features = ["native-usdom-v4-poc"] }
+dom-consensus.workspace = true
+dom-core.workspace = true
+dom-crypto.workspace = true
+dom-pow.workspace = true
+dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", features = ["host-reference"] }
+primitive-types.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

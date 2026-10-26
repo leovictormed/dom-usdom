@@ -1,0 +1,83 @@
+DOM / USDOM MONETARY SEPARATION AUDIT — ETAPA 1031
+Date: 2026-10-23
+
+Conclusion
+==========
+
+DOM mining cannot create USDOM. DOM subsidy and transaction fees remain in the
+ordinary Mimblewimble ledger and are validated as DOM `noms`. Native USDOM is a
+separate authenticated state machine. Its `total_issued` can increase only from
+an opaque issuance capability produced by verification of one finalized USDT
+reserve deposit; the deposit identifier is consumed once.
+
+Audited paths
+=============
+
+1. Coinbase and fees
+
+- The miner computes `total_tx_fees` exclusively from ordinary DOM
+  `selected_txs` before requesting a native USDOM template.
+- Both wallet and regtest coinbase constructors receive only DOM block height,
+  DOM fees and DOM chain identity.
+- `CoinbaseKernel::validate_explicit_value` requires exactly
+  `dom_core::block_reward(height).noms() + total_tx_fees`.
+- Native V4 validation delegates to the same complete block validator, including
+  DOM fee, coinbase signature, range proof, PMMR and aggregate balance checks.
+- The USDOM template contributes only a domain-separated batch commitment bound
+  into the header rangeproof root. It supplies no coinbase amount, output,
+  kernel, fee or reward field.
+
+2. USDOM issuance authority
+
+- An issuance envelope is accepted only after `verify_deposit_witness` validates
+  the Ethereum light-client proof, reserve/token/policy identity, receipt/log,
+  finalized execution and time window.
+- `ethereum_deposit_transition` derives the amount, deposit ID, receiver-bound
+  note commitment and Ethereum anchor from that verified occurrence.
+- `VerifiedIssuance` fields are private. Production callers cannot construct the
+  capability directly. Fixture constructors require `unsafe-test-oracle`, and
+  that feature produces a compile error in non-debug builds.
+- State insertion rejects zero identities and an existing deposit ID before it
+  adds the exact amount to `total_issued`.
+- A second representation of the same deposit still resolves to the same
+  deposit ID and fails `DepositAlreadyConsumed`; duplicates within one batch are
+  evaluated against the cloned candidate state atomically.
+
+3. Transfer, burn, reorg and persistence
+
+- Private transfers conserve value in the Groth16 statement and cannot change
+  either monetary counter.
+- Burns alone increase `total_burned`, cannot exceed `total_issued`, and create
+  no miner reward.
+- Reorg undo removes the exact inserted issuance/deposit record and restores the
+  prior counters. A deposit becomes eligible again only if its issuing block is
+  no longer canonical, which is the correct canonical-chain behavior.
+- Persisted restore recomputes issued supply from every consumed issuance and
+  burned supply from every burn record, rejecting disagreement with stored
+  totals and the committed state root.
+
+Hardening added
+===============
+
+`expected_monetary_totals` now derives the only permitted counter delta from the
+sealed transition class. Both full-state V1 and stateless V2 application compare
+their candidate totals to this independent classification before committing:
+
+- Issue: `issued += finalized_deposit.amount`, burned unchanged.
+- Burn: issued unchanged, `burned += proven_burn.amount`.
+- Transfer/checkpoint: both totals unchanged.
+
+Any present or future implementation drift fails with
+`MonetarySeparationInvariant`. A focused regression exercises all four classes.
+
+Evidence
+========
+
+- `python3 labs/usdom-reserve/scripts/check-dom-usdom-monetary-separation-stage1031.py`
+  PASS.
+- `rustfmt --edition 2021 --check crates/dom-usdom-state/src/lib.rs` PASS.
+- Targeted `git diff --check` PASS.
+
+Full Cargo execution remains deferred while the independent real RISC0 proof is
+active on the resource-constrained host. No network, push, deployment, signing
+or funds were used.

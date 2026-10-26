@@ -1,0 +1,21 @@
+USDOM — ETAPA 1149 — RUNBOOK CANÔNICO DA RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema corrigido
+
+O runbook ainda mostrava o fluxo manual anterior à recuperação v2. Ele criava `recovery-transitions.json` manualmente, usava nomes antigos de plano/transações, não coletava provas de posse das substituições, não usava a sessão durável e configurava campos de owner incompatíveis com o schema atual na execução. Seguir esse texto contornaria as proteções recentes ou falharia antes do ensaio.
+
+Correção
+
+- A preparação do ensaio agora usa exclusivamente a fase gerada `prepare-safe-recovery-secret`, que inclui seleção dos três dispositivos novos, provas EIP-712, sessão durável, dois signers sobreviventes por Safe e retomada.
+- Adicionada fase completa `execute-safe-recovery-secret`. Ela fixa todos os caminhos v2, valida plano e pacote de transações antes de chamar o executor e exige os dois artefatos finalizados ao terminar.
+- O runbook chama somente essas fases completas e removeu variáveis, campos e caminhos manuais obsoletos.
+- A separação permanece explícita: preparação não transmite; execução é o primeiro bloco capaz de assinar envelope de relayer e publicar, e o executor mantém seu prompt literal de autorização mainnet.
+
+Validação
+
+- As duas saídas geradas passam `bash -n`.
+- Teste de todas as fases do gerador passa 1/1.
+- Regressão específica do runbook, sem marcadores/substituições manuais, passa 1/1.
+- A suíte ampla do runbook executou 85 casos: 82 passaram; as outras duas falhas além da expectativa atualizada pertencem ao configurador de chave de release concorrente (mock PATH sem Node) e não foram alteradas aqui.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

@@ -1,0 +1,38 @@
+USDⓄM RESERVE — EXPECTED BLOCKER DIAGNOSTIC (STAGE 422)
+Date: 2026-10-22
+
+Finding
+
+The early closed-mainnet diagnostic runs under `set -euo pipefail`, while its
+correct result before adapter deployment is exit status 1 with a nonempty
+blocker list. The previous pipeline therefore could terminate the shell before
+displaying the blockers. It was also the final predictable `/tmp` pathname in
+the mainnet runbook.
+
+The release-signing identity pipeline could likewise consume a partial producer
+stream and was not idempotent even though revalidation should return the exact
+same public identity.
+
+Correction
+
+- The diagnostic now writes to a fresh 0600 temporary file, explicitly requires
+  exit status 1, validates `ready == false` with a positive blocker count,
+  displays the blockers and removes the file.
+- Any unexpected status, including premature success or internal error, fails
+  the phase.
+- Release-signing identity output is staged only after a successful command and
+  installed through the immutable/idempotent private writer. Different bytes
+  are rejected; exact revalidation succeeds.
+- The runbook now contains no predictable `/tmp` path.
+
+Validation
+
+- all 37 runbook Bash blocks parse;
+- operator/runbook suite: 65/65 passed.
+- complete Node regression: 307/307 passed.
+- source-integrity manifest: 1,206/1,206 files passed;
+- imported provenance: 169 files, including 16 explicit modifications, passed;
+- repository whitespace checks passed.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

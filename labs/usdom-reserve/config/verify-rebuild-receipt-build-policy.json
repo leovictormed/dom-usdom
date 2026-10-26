@@ -1,0 +1,51 @@
+{
+  "schema": "usdom-verify-rebuild-receipt-build-policy-v1",
+  "package": "dom-usdom-checkpoint-proof-host",
+  "binary": "dom-usdom-verify-rebuild-receipt",
+  "target": "x86_64-unknown-linux-gnu",
+  "cargoVersion": "1.98.0",
+  "cargoCommit": "797e8a9bca276c1c9f9f738d2a20f484fa4eea9d",
+  "cargoSha256": "ff3022fcbd13b08434ea7afde9a0ef9d5b3f5c17b5fc7a40031be3ee000a6a24",
+  "rustcVersion": "1.98.0",
+  "rustcCommit": "88d9e12ae178fab0fb5cc050a94da85685d449ea",
+  "rustcSha256": "3690cc576ede140504698405d5d8fa3826aaadbe71699c6c4ed0a565d6f493e2",
+  "argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "--offline",
+    "--release",
+    "--no-default-features",
+    "--features",
+    "verify",
+    "--bin",
+    "dom-usdom-verify-rebuild-receipt",
+    "--package",
+    "dom-usdom-checkpoint-proof-host",
+    "--target",
+    "x86_64-unknown-linux-gnu"
+  ],
+  "requiredEnvironment": {
+    "CARGO_HOME": "/home/leonardov/.local/usdom-verify-build/cargo-home",
+    "CARGO_NET_OFFLINE": "true",
+    "HOME": "/home/leonardov",
+    "LC_ALL": "C",
+    "PATH": "/usr/bin:/bin",
+    "RISC0_DEV_MODE": "0",
+    "RUSTC": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc",
+    "SOURCE_DATE_EPOCH": "0",
+    "TZ": "UTC"
+  },
+  "forbiddenEnvironment": [
+    "CARGO_BUILD_RUSTC",
+    "CARGO_BUILD_RUSTC_WRAPPER",
+    "CARGO_ENCODED_RUSTFLAGS",
+    "RUSTC_WORKSPACE_WRAPPER",
+    "RUSTC_WRAPPER",
+    "RUSTDOCFLAGS",
+    "RUSTFLAGS"
+  ],
+  "cargoPath": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+  "rustcPath": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc",
+  "sourceClosureSha256": "668612cf0a899485baae49b2cf2bcf0e61a1615d0d24ddec55a2deb212831682"
+}

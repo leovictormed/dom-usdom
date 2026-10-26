@@ -1,0 +1,25 @@
+Stage 1145 — prototype USDT legacy-upgrade state gate
+Date: 2026-10-26
+
+Finding and correction
+======================
+
+The quorum prototype rejected USDT pause, deprecation, fees and blacklist state,
+but unlike the proof reserve it did not independently require upgradedAddress to
+be zero. It therefore accepted the inconsistent legacy migration state
+deprecated=false/upgradedAddress!=0. The shared token-policy boundary now checks
+both migration fields and fails closed with UnsafeTokenState before construction
+or any value-path state mutation.
+
+Evidence
+========
+
+- A regression sets only upgradedAddress, leaves deprecated false, and proves
+  both deployment and deposit reject without consuming the deposit ID or credit.
+- Focused regression passes 1/1; complete USDTPolicyTest exits 0 with pinned
+  Forge and solc 0.8.37.
+- Prototype runtime is 14,522 bytes, leaving 10,054 bytes below EIP-170.
+- The only compiler messages are the known OpenZeppelin 5.6.1 future-keyword
+  warnings. git diff --check passes for the changed source/test.
+
+No Cargo, Rust, network, signing, deployment, funds, commit or push was used.

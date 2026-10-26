@@ -1,0 +1,24 @@
+ETAPA 969 — autoridade de arquivos de startup USDOM nativo
+Data: 2026-10-23
+
+Escopo
+- crates/dom-node/src/native_usdom_config.rs
+- Manifesto hash-pinned, chave verificadora Groth16 e witness de restart.
+
+Achado corrigido
+O loader verificava symlink_metadata antes de File::open. Embora comparasse device/inode depois do open e todos os conteúdos fossem hash-pinned, File::open seguia um symlink que substituísse o leaf entre as duas operações. Isso deixava a propriedade "não aceitar symlink" dependente de uma verificação sujeita a TOCTOU.
+
+Correção
+- A abertura agora usa rustix::fs::open com RDONLY|NOFOLLOW|CLOEXEC.
+- Permanecem obrigatórios: arquivo regular não vazio, limite fixo, identidade device/inode igual à previamente inspecionada e nlink=1.
+- A leitura continua limitada a limit+1 e cada artefato continua ligado ao SHA-256 ratificado.
+- Regressão Rust cobre manifesto via symlink, VK via symlink e VK com hard link.
+
+Verificação executada
+- rustfmt do arquivo: PASS
+- git diff --check focado: PASS
+- native-usdom-startup-file-authority-stage969.test.mjs: 2/2 PASS
+- teste unitário Rust adicionado; sua execução Cargo permanece reservada à suíte agregada após a prova RISC0 longa liberar I/O.
+
+Operações externas
+Nenhum commit, push, deploy, assinatura, broadcast, RPC de rede ou fundo foi usado.

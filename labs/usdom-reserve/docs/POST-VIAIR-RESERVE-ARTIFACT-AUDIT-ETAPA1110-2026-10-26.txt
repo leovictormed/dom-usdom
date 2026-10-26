@@ -1,0 +1,42 @@
+POST-VIA-IR RESERVE ARTIFACT AUDIT — ETAPA 1110
+Date: 2026-10-26
+Scope: USDOMProofReserve canonical Foundry artifact only. No deployment, signing, funds, commit, push, or functional Solidity change.
+
+RESULT
+PASS for the inspected canonical artifact. A new fail-closed gate pins and validates the post-via-IR artifact before it may be treated as the release artifact.
+
+CONTROLS ADDED
+- sdk/reserve-artifact-safety.mjs validates the exact solc version (0.8.37+commit.f401782d), Cancun EVM target, optimizer enabled with one run, viaIR=true, and metadata bytecodeHash=none.
+- Parsed and raw compiler metadata must agree for compiler, language, settings, sources, and metadata version. Every metadata source keccak is reproduced from the checked-out source file.
+- The complete ABI is pinned independently for 104 functions, 15 events, and 30 custom errors. Method identifiers are reproduced from canonical signatures. Duplicate signatures, function selector collisions, error selector collisions, event topic collisions, and cross function/error selector collisions fail closed.
+- Creation and deployed bytecode permit no unresolved library link references.
+- All immutable AST declarations must have an exact artifact reference key. Every reference must be a 32-byte in-range, non-overlapping runtime range. The canonical artifact contains 68 immutable patch sites.
+- The executable runtime is decoded while skipping PUSH data and stopping at the via-IR INVALID data delimiter. CREATE, CREATE2, CALLCODE, DELEGATECALL, SELFDESTRUCT, and undefined opcode ranges fail closed. The canonical executable prefix is 19,759 bytes; runtime is 20,060 bytes.
+- Runtime and creation sizes and keccak256 identities are pinned. Structural opcode checks execute before the identity check so forbidden-opcode diagnostics cannot be masked by the expected hash mismatch.
+- The same audit now runs inside both mainnet readiness artifact collection and deployment package preparation. Those paths pass their already stable, bounded source snapshots into the audit, avoiding a second-read TOCTOU window.
+
+CANONICAL IDENTITIES
+- Runtime: 20,060 bytes; keccak256 0x658866bfa314d69ccb8f1a67f5a52fc5e2ec54af405ac170e9a4d7678b82838a.
+- Creation: 26,106 bytes; keccak256 0xe50e24c8b201e42cfcd829cc38ce82a4f16d1568743095e18d1330af25bb87fb.
+- ABI normalized JSON SHA256: fd4087152851a3645aa2bfe0f0799e6c82189eb2b4229b8fb344cd22d4eebfce.
+- Raw metadata SHA256: 91bacee82b41854fe402f0de76bf89b34aab2b79136a1244a1a5e91000b4f698.
+
+REPRODUCIBILITY
+Two sequential clean isolated offline Forge builds used independent output/cache directories. Both exited zero and produced byte-for-byte identical contract artifacts:
+467834705c734d3736693149979a2ff855dc23cfe3efe2e405bb883b492b2c7d  USDOMProofReserve.json
+The isolated artifacts also reproduce the canonical ABI, raw metadata, creation bytecode, and runtime bytecode hashes. The whole broad-build JSON has a different file hash because solc AST numeric IDs and source indices depend on the wider compilation source set; these compiler-internal diagnostics do not affect ABI, metadata, creation bytecode, runtime bytecode, or immutable locations. Reproducibility therefore requires the same declared build target/source set, which the isolated pair proves.
+
+VALIDATION
+- Focused Node artifact suite with the pinned Node 24.19.0 binary: 3/3 passed, including the specific forbidden-opcode diagnostic regression.
+- Node syntax checks for the readiness and deployment integration: passed.
+- Two clean offline Forge builds: passed and byte-identical.
+- Python independent comparison: ABI, raw metadata, creation bytecode, and runtime bytecode match across canonical and both isolated builds.
+- git diff --check for the gate, CLI, and tests: passed.
+- Pinned Node binary identity: SHA256 bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12 (`node-v24.19.0-linux-x64/bin/node`).
+
+FILES
+- sdk/reserve-artifact-safety.mjs
+- scripts/check-reserve-artifact-safety.mjs
+- scripts/check-mainnet-readiness.mjs
+- scripts/prepare-mainnet-deployment.mjs
+- test/node/reserve-artifact-safety.test.mjs

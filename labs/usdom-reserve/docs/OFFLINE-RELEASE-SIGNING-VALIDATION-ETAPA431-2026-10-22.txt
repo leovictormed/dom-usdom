@@ -1,0 +1,41 @@
+USD/DOM stage 431 — offline release-signing request validation
+Date: 2026-10-22
+
+Finding
+=======
+
+The production signing command read the digest stored in the private release
+request and verified each Ledger signature over that digest. It did not
+independently rebuild the EIP-712 payload and digest or reconcile the request
+with the current release configuration, release evidence and complete Safe
+evidence bundle at the final signing boundary. A locally modified request could
+therefore reach the hardware confirmation path before a later materialization
+step rejected it.
+
+Correction
+==========
+
+`check-release-authorization-signing-request.mjs` now reads four direct,
+owner-only snapshots and validates the exact request schema, complete
+recoverable Safe evidence, release governance and ordered owners, finalized
+governance identity, release provenance, residual-risk report, both release
+configuration hashes, canonical EIP-712 payload and recomputed digest.
+
+The Ledger command snapshots the current public release and release-evidence
+files alongside the private request and Safe bundle. It runs the independent
+validator before signing, snapshots every input again after the two hardware
+interactions, proves that no byte changed, and repeats the validation before it
+installs the combined two-owner signature. The helper has no network or signing
+capability.
+
+Validation
+==========
+
+- Focused authorization/readiness/operator tests: 115/115 pass.
+- Complete Node regression: 310/310 pass.
+- Production Solidity lint and forced 44-file build pass.
+- Shell syntax and helper fail-closed usage checks pass.
+- Source manifest and complete provenance are refreshed after this report.
+
+No signing, public RPC write, transaction, deployment, funds, mining, commit,
+tag or push occurred.

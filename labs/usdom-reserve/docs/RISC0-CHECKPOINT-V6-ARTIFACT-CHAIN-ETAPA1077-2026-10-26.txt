@@ -1,0 +1,75 @@
+RISC Zero checkpoint V6 artifact-chain audit — Stage 1077
+Date: 2026-10-26
+
+Scope
+=====
+
+Audited the active producer/consumer chain from the checkpoint outer proof host
+through planning, proving, Groth16 packaging, capacity collection, checkpoint
+submission, finalized-burn source export and finalized-burn proving. The audit
+used source inspection and light Node/Python/shell checks; it did not rebuild or
+prove an artifact.
+
+Concrete defects corrected
+===========================
+
+1. The Rust outer proof host already constructs and validates the 551-byte
+   `UDCPST06` statement, but published it under `checkpoint-statement-v5.bin`.
+   Most shell launchers and downstream consumers retained that old path, while
+   the current submission SDK and observer used `checkpoint-statement-v6.bin`.
+   A freshly produced proof could therefore not traverse the current pipeline.
+   All active producers, snapshots, job consumers, packagers, exporters,
+   finalized-burn inputs and submission readers now use the V6 path.
+
+2. The capacity collector read the old V5 path, admitted at most 550 bytes and
+   later hard-coded exactly 550 bytes. It would reject the canonical 551-byte
+   closure-aware statement and accept the legacy length at that boundary. It now
+   reads only the V6 path with an exact 551-byte bound and rechecks that length.
+   A negative regression supplies a legacy 550-byte file at the V6 path and
+   proves rejection.
+
+3. `privateArtifact` accepted a `minimum` option but discarded it and always
+   passed minimum 1 to the descriptor-bound reader. The new exact statement
+   bound exposed this latent API error. It now propagates both caller-supplied
+   minimum and maximum bounds.
+
+4. The capacity E2E executor imported `parseCheckpointStatementV5`, which is not
+   exported by the current submission SDK. It now uses the V6 parser. The EVM
+   integration fixture also uses V6 and supplies the authenticated economic
+   totals and issuance-closure flag.
+
+5. Two structural evidence gates still looked for `CheckpointStatementV4` even
+   though current production source is V6. They now require V6 and the outer
+   boundary checker requires `validate_checkpoint_outer_chain_v6`. Historical
+   V4/V5 decoders and tests remain only where explicitly needed to prove version
+   separation and replay rejection.
+
+Authoritative artifact status
+=============================
+
+The current source boundary checker passes for the outer guest source and pinned
+binary interface. The cross-artifact Stage-1040 audit remains correctly
+fail-closed because checked-in provenance has not yet been rebuilt for V6/V4:
+segment provenance is not UDCSTN04, outer provenance is not UDCPST06, and the
+finalized-burn provenance does not bind the rebuilt V6 outer ImageID. No ledger
+flag was changed to hide this. The next technical step remains the authenticated
+current-source recursive rebuild followed by positive receipt and local EVM
+verification evidence.
+
+Validation
+==========
+
+- Focused Node tests: 18/18 pass (collector, V6 path graph, submission, durable
+  publication order).
+- Focused operator-script assertions: 5/5 pass.
+- Outer source/artifact boundary checker: pass.
+- Stage-1040 cross-artifact audit: expected `ready:false`, exposing the precise
+  stale-provenance rebuild boundary.
+- Node syntax, Python bytecode validation, shell syntax, Rust formatting and
+  `git diff --check`: pass.
+- Global active-surface search finds no `checkpoint-statement-v5.bin`,
+  `parseCheckpointStatementV5` or `encodeCheckpointStatementV5`. Historical V5
+  types and the authenticated historical RandomX-v5 handoff remain deliberately.
+
+No commit, push, deploy, signature, broadcast, mining, proof generation or funds
+operation occurred.

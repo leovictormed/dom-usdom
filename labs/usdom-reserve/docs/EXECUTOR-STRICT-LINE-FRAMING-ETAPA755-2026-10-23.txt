@@ -1,0 +1,22 @@
+ETAPA 755 — strict executor authority line framing
+Date: 2026-10-23
+
+Finding
+=======
+Deploy and Safe-recovery executors used `tr -d '\r\n'` on Ledger raw transactions, persisted
+transaction hashes and publish responses. This silently accepted CRLF, concatenated lines and
+extra line breaks as if they were canonical authority values.
+
+Correction
+==========
+RPC/Ledger stdout is now redirected to private files and parsed as exactly one LF-terminated line.
+Missing LF, CR, blank/additional lines and concatenated values fail closed. Persisted hash files use
+the same parser. Existing exact hex/address/hash regexes then validate the line's semantics.
+
+Validation
+==========
+Adversarial tests cover canonical LF, missing LF, CRLF, blank/data extra lines, concatenation and
+leading whitespace. Executor structural and durable-writer suites pass 10/10. Both scripts pass
+`bash -n`; Node syntax and diff checks pass. No executor, RPC or Ledger command ran.
+
+No signing, deploy, transmission, commit, push or funds were used.

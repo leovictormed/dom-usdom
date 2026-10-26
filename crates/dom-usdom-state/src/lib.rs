@@ -38,6 +38,8 @@ use thiserror::Error;
 #[cfg(feature = "ethereum-finality")]
 use usdom_ethereum_finality_experiment::checkpoints::VerifiedCheckpoint;
 #[cfg(feature = "ethereum-finality")]
+use usdom_ethereum_finality_experiment::closures::VerifiedIssuanceClosure;
+#[cfg(feature = "ethereum-finality")]
 use usdom_ethereum_finality_experiment::deposits::VerifiedDeposit;
 
 const TAG_STATE: &str = "DOM:usdom-state:v1";
@@ -58,6 +60,9 @@ const TAG_BATCH_COMMITMENT_V2_STATE: &str = "DOM:usdom-batch-commitment:v3";
 const BATCH_UNDO_MAGIC: &[u8; 8] = b"USDBAT03";
 const TRANSITION_PROJECTION_MAGIC: &[u8; 8] = b"UDPRJ001";
 const BURN_WITNESS_MAGIC: &[u8; 8] = b"USDBRN03";
+const BURN_WITNESS_CLOSURE_MAGIC: &[u8; 8] = b"USDBRN04";
+const BURN_WITNESS_SHUTDOWN_MAGIC: &[u8; 8] = b"USDBRN05";
+const BURN_WITNESS_V2_MAGIC: &[u8; 8] = b"USDBR204";
 const PRIVATE_TRANSFER_MAGIC: &[u8; 8] = b"UDSPTR01";
 const PRIVATE_BURN_MAGIC: &[u8; 8] = b"UDSPBR01";
 const SPARSE_NOTE_SET: u8 = 1;
@@ -72,8 +77,11 @@ const ACCUMULATOR_WITNESS_HEADER_BYTES: usize = 8 + 2 + 2 + 2;
 const SET_TRANSITION_WITNESS_MAGIC: &[u8; 8] = b"UDNSET01";
 const NATIVE_TRANSITION_WITNESS_MAGIC: &[u8; 8] = b"UDNVW001";
 const STATE_COMMITMENT_V2_MAGIC: &[u8; 8] = b"UDSTV002";
-const STATE_COMMITMENT_V2_VERSION: u16 = 2;
+const STATE_COMMITMENT_V2_VERSION: u16 = 4;
+const CLOSURE_STATE_COMMITMENT_V2_VERSION: u16 = 3;
+const HISTORICAL_STATE_COMMITMENT_V2_VERSION: u16 = 2;
 const STATE_COMMITMENT_V2_BASE_BYTES: usize = 727;
+const ISSUANCE_CLOSE_RECORD_BYTES: usize = 252;
 const MAX_SET_EFFECTS_PER_TRANSITION: usize = 6;
 const GROTH16_PROOF_BYTES: usize = 128;
 const PRIVATE_PAYLOAD_HEADER_BYTES: usize = 8 + 32 + 8 + 1 + 1 + 2;
@@ -129,7 +137,7 @@ pub const TRANSITION_COMMITMENT_VERSION: u16 = 2;
 /// transition version 2 so receipts cannot mislabel memo-bound batches as v1.
 pub const TRANSITION_BATCH_VERSION: u16 = 2;
 /// Candidate batch version that explicitly commits state-root version 2.
-pub const CANDIDATE_V2_TRANSITION_BATCH_VERSION: u16 = 3;
+pub const CANDIDATE_V2_TRANSITION_BATCH_VERSION: u16 = 4;
 /// Maximum persisted exact-undo payload for one transition batch.
 pub const MAX_BATCH_UNDO_BYTES: usize =
     MAX_TRANSITIONS_PER_BATCH * (MAX_UNDO_BYTES + MAX_TRANSITION_PROJECTION_BYTES + 8) + 128;
@@ -139,7 +147,11 @@ pub const MAX_TRANSITION_PROJECTION_BYTES: usize = 512;
 /// possible `u64` leaf count and keeps future witness encodings predictable.
 pub const MAX_BURN_INCLUSION_SIBLINGS: usize = 64;
 /// Maximum canonical byte length of one native burn-state prover witness.
-pub const MAX_BURN_STATE_WITNESS_BYTES: usize = 2_878;
+pub const MAX_BURN_STATE_WITNESS_BYTES: usize = 2_878 + ISSUANCE_CLOSE_RECORD_BYTES + 1;
+/// Maximum canonical byte length of one candidate-v2 sparse burn inclusion
+/// witness, including the complete state commitment and depth-256 path.
+pub const MAX_BURN_STATE_WITNESS_V2_BYTES: usize =
+    8 + 4 + 2 + MAX_STATE_COMMITMENT_V2_BYTES + BURN_RECORD_BYTES + MAX_SPARSE_PROOF_BYTES;
 /// Maximum canonical byte length of the two note frontiers and retained
 /// anchor-history opening used by a stateless transition verifier.
 pub const MAX_ACCUMULATOR_WITNESS_BYTES: usize = ACCUMULATOR_WITNESS_HEADER_BYTES
@@ -155,7 +167,11 @@ pub const MAX_NATIVE_TRANSITION_WITNESS_BYTES: usize =
     8 + 4 + 4 + MAX_ACCUMULATOR_WITNESS_BYTES + MAX_SET_TRANSITION_WITNESS_BYTES;
 /// Maximum canonical byte length of one persisted candidate-v2 state
 /// commitment, including its optional authenticated Ethereum anchor.
-pub const MAX_STATE_COMMITMENT_V2_BYTES: usize = STATE_COMMITMENT_V2_BASE_BYTES + 120;
+const HISTORICAL_MAX_STATE_COMMITMENT_V2_BYTES: usize = STATE_COMMITMENT_V2_BASE_BYTES + 120;
+/// Maximum canonical byte length of the current candidate-v2 state
+/// commitment, including issuance-closure and graceful-shutdown state.
+pub const MAX_STATE_COMMITMENT_V2_BYTES: usize =
+    HISTORICAL_MAX_STATE_COMMITMENT_V2_BYTES + 1 + ISSUANCE_CLOSE_RECORD_BYTES + 1;
 /// Must equal `USDOMProofReserve.MIN_EXECUTION_WINDOW` for protocol v1.
 pub const RESERVE_MIN_EXECUTION_WINDOW_SECS: u64 = 60 * 60;
 /// Must equal `USDOMProofReserve.MAX_CERTIFICATE_LIFETIME` for protocol v1.
@@ -213,6 +229,19 @@ pub enum UsdomStateError {
     /// A monetary counter overflowed.
     #[error("USDOM monetary counter overflow")]
     MonetaryOverflow,
+    /// A transition changed a monetary counter outside its authorized class.
+    #[error("USDOM monetary separation invariant violated")]
+    MonetarySeparationInvariant,
+    /// Deposit-backed issuance has been permanently closed.
+    #[error("USDOM issuance is permanently closed")]
+    IssuanceClosed,
+    /// A closure was already committed or conflicts with the issued total.
+    #[error("invalid USDOM issuance closure")]
+    InvalidIssuanceClosure,
+    /// An orderly terminal transition was requested before all collateralized
+    /// USDOM was burned, before issuance closed, or after shutdown.
+    #[error("invalid USDOM graceful shutdown")]
+    InvalidGracefulShutdown,
     /// A burn would exceed all issued, unburned USDOM.
     #[error("USDOM burn exceeds outstanding supply")]
     BurnExceedsSupply,
@@ -236,6 +265,9 @@ pub enum UsdomStateError {
     /// noncanonical, or internally inconsistent.
     #[error("malformed USDOM burn-state witness")]
     MalformedBurnWitness,
+    /// A standalone fixed-width public burn record is malformed.
+    #[error("malformed USDOM burn record")]
+    MalformedBurnRecord,
     /// A transported PMMR/Poseidon/anchor-history opening was malformed.
     #[error("malformed USDOM accumulator witness")]
     MalformedAccumulatorWitness,
@@ -328,7 +360,7 @@ pub struct BurnTimingPolicy {
     /// Time reserved for finality proof generation and Ethereum admission.
     pub relay_safety_margin_secs: u64,
     /// Maximum age of the latest authenticated Ethereum execution timestamp
-    /// relative to the DOM block admitting a burn.
+    /// relative to a DOM block admitting issuance, checkpoint, or burn state.
     pub max_ethereum_anchor_age_secs: u64,
     /// Maximum permitted lead of the DOM block timestamp over Ethereum time.
     pub max_dom_clock_lead_secs: u64,
@@ -440,6 +472,28 @@ pub struct BurnRecord {
 }
 
 impl BurnRecord {
+    /// Fixed-width canonical encoding used by authenticated archive indexes.
+    pub fn to_bytes(self) -> [u8; BURN_RECORD_BYTES] {
+        let mut encoded = Vec::with_capacity(BURN_RECORD_BYTES);
+        encode_burn_record(&mut encoded, self);
+        let mut fixed = [0; BURN_RECORD_BYTES];
+        fixed.copy_from_slice(&encoded);
+        fixed
+    }
+
+    /// Decode one exact fixed-width canonical burn record.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, UsdomStateError> {
+        if bytes.len() != BURN_RECORD_BYTES {
+            return Err(UsdomStateError::MalformedBurnRecord);
+        }
+        let mut reader = WitnessReader::new(bytes);
+        let record = decode_burn_record(&mut reader)?;
+        if !reader.is_empty() {
+            return Err(UsdomStateError::MalformedBurnRecord);
+        }
+        Ok(record)
+    }
+
     /// Compute `keccak256(abi.encode(BURN_INTENT_TYPEHASH, ...))` exactly as the
     /// immutable Ethereum reserve does. DOM block/finality identity is added by
     /// the separate finalized-burn statement after this native intent exists.
@@ -610,6 +664,10 @@ pub struct StateCommitment {
     pub total_issued: u128,
     /// Total USDOM removed through native burns.
     pub total_burned: u128,
+    /// Terminal issuance boundary, absent for historical/open states.
+    pub issuance_closure: Option<IssuanceClosureRecord>,
+    /// True only after orderly closure and complete burn of issued supply.
+    pub gracefully_shutdown: bool,
     /// Latest authenticated Ethereum finality anchor, when initialized.
     pub ethereum_anchor: Option<EthereumAnchor>,
 }
@@ -688,6 +746,10 @@ pub struct StateCommitmentV2 {
     pub total_issued: u128,
     /// Total native burns.
     pub total_burned: u128,
+    /// Terminal issuance boundary, absent for historical/open states.
+    pub issuance_closure: Option<IssuanceClosureRecord>,
+    /// True only after orderly closure and complete burn of issued supply.
+    pub gracefully_shutdown: bool,
     /// Latest authenticated Ethereum anchor.
     pub ethereum_anchor: Option<EthereumAnchor>,
 }
@@ -705,10 +767,7 @@ impl StateCommitmentV2 {
         let mut bytes = Vec::with_capacity(MAX_STATE_COMMITMENT_V2_BYTES);
         bytes.extend_from_slice(STATE_COMMITMENT_V2_MAGIC);
         encode_state_commitment_v2_body(&mut bytes, self);
-        debug_assert!(matches!(
-            bytes.len(),
-            STATE_COMMITMENT_V2_BASE_BYTES | MAX_STATE_COMMITMENT_V2_BYTES
-        ));
+        debug_assert!(bytes.len() <= MAX_STATE_COMMITMENT_V2_BYTES);
         Ok(bytes)
     }
 
@@ -716,16 +775,21 @@ impl StateCommitmentV2 {
     /// commitment. Truncation, trailing bytes and invalid state invariants are
     /// rejected before the value can become a trusted chain tip.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, UsdomStateError> {
-        if !matches!(
-            bytes.len(),
-            STATE_COMMITMENT_V2_BASE_BYTES | MAX_STATE_COMMITMENT_V2_BYTES
-        ) || bytes.get(..8) != Some(STATE_COMMITMENT_V2_MAGIC.as_slice())
+        if bytes.len() < STATE_COMMITMENT_V2_BASE_BYTES
+            || bytes.len() > MAX_STATE_COMMITMENT_V2_BYTES
+            || bytes.get(..8) != Some(STATE_COMMITMENT_V2_MAGIC.as_slice())
         {
             return Err(UsdomStateError::InvalidV2Commitment);
         }
         let decoded = (|| {
             let mut reader = UndoReader::new(&bytes[8..]);
-            if u16::from_be_bytes(reader.array()?) != STATE_COMMITMENT_V2_VERSION {
+            let version = u16::from_be_bytes(reader.array()?);
+            if !matches!(
+                version,
+                HISTORICAL_STATE_COMMITMENT_V2_VERSION
+                    | CLOSURE_STATE_COMMITMENT_V2_VERSION
+                    | STATE_COMMITMENT_V2_VERSION
+            ) {
                 return Err(UsdomStateError::InvalidV2Commitment);
             }
             let state = Self {
@@ -766,12 +830,26 @@ impl StateCommitmentV2 {
                 anchor_count: u64::from_be_bytes(reader.array()?),
                 total_issued: u128::from_be_bytes(reader.array()?),
                 total_burned: u128::from_be_bytes(reader.array()?),
+                issuance_closure: None,
+                gracefully_shutdown: false,
                 ethereum_anchor: match reader.byte()? {
                     0 => None,
                     1 => Some(decode_ethereum_anchor(&mut reader)?),
                     _ => return Err(UsdomStateError::InvalidV2Commitment),
                 },
             };
+            let mut state = state;
+            if version >= CLOSURE_STATE_COMMITMENT_V2_VERSION {
+                state.issuance_closure = decode_optional_issuance_closure(&mut reader)
+                    .map_err(|_| UsdomStateError::InvalidV2Commitment)?;
+            }
+            if version == STATE_COMMITMENT_V2_VERSION {
+                state.gracefully_shutdown = match reader.byte()? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(UsdomStateError::InvalidV2Commitment),
+                };
+            }
             if !reader.is_empty() {
                 return Err(UsdomStateError::InvalidV2Commitment);
             }
@@ -941,14 +1019,15 @@ impl NativeSetTransitionWitness {
 
     /// Decode and canonically re-encode one `UDNSET01` witness.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, UsdomStateError> {
-        if bytes.len() < 10
-            || bytes.len() > MAX_SET_TRANSITION_WITNESS_BYTES
-            || &bytes[..8] != SET_TRANSITION_WITNESS_MAGIC
-        {
+        if bytes.len() < 10 || bytes.len() > MAX_SET_TRANSITION_WITNESS_BYTES {
             return Err(UsdomStateError::MalformedSetWitness);
         }
-        let count = usize::from(bytes[8]);
-        let existing_flags = bytes[9];
+        let mut reader = SetWitnessReader::new(bytes);
+        if reader.take(8)? != SET_TRANSITION_WITNESS_MAGIC {
+            return Err(UsdomStateError::MalformedSetWitness);
+        }
+        let count = usize::from(reader.byte()?);
+        let existing_flags = reader.byte()?;
         if count > MAX_SET_EFFECTS_PER_TRANSITION {
             return Err(UsdomStateError::MalformedSetWitness);
         }
@@ -956,34 +1035,19 @@ impl NativeSetTransitionWitness {
         if existing_flags & !permitted_flags != 0 {
             return Err(UsdomStateError::MalformedSetWitness);
         }
-        let mut cursor = 10usize;
         let mut proofs = Vec::with_capacity(count);
         let mut existing = Vec::with_capacity(count);
         for _ in 0..count {
-            let length = usize::from(u16::from_be_bytes(
-                bytes
-                    .get(cursor..cursor + 2)
-                    .ok_or(UsdomStateError::MalformedSetWitness)?
-                    .try_into()
-                    .map_err(|_| UsdomStateError::MalformedSetWitness)?,
-            ));
-            cursor = cursor
-                .checked_add(2)
-                .ok_or(UsdomStateError::MalformedSetWitness)?;
-            let end = cursor
-                .checked_add(length)
-                .ok_or(UsdomStateError::MalformedSetWitness)?;
-            let proof = SparseMerkleProof::from_bytes(
-                bytes
-                    .get(cursor..end)
-                    .ok_or(UsdomStateError::MalformedSetWitness)?,
-            )
-            .map_err(|_| UsdomStateError::MalformedSetWitness)?;
+            let length = usize::from(reader.u16()?);
+            if length == 0 || length > MAX_SPARSE_PROOF_BYTES {
+                return Err(UsdomStateError::MalformedSetWitness);
+            }
+            let proof = SparseMerkleProof::from_bytes(reader.take(length)?)
+                .map_err(|_| UsdomStateError::MalformedSetWitness)?;
             proofs.push(proof);
             existing.push(existing_flags & (1 << existing.len()) != 0);
-            cursor = end;
         }
-        if cursor != bytes.len() {
+        if !reader.is_empty() {
             return Err(UsdomStateError::MalformedSetWitness);
         }
         let witness = Self { proofs, existing };
@@ -991,6 +1055,48 @@ impl NativeSetTransitionWitness {
             return Err(UsdomStateError::MalformedSetWitness);
         }
         Ok(witness)
+    }
+}
+
+/// Bounded cursor for attacker-controlled `UDNSET01` framing. Every cursor
+/// advance is checked before the input is sliced.
+struct SetWitnessReader<'a> {
+    bytes: &'a [u8],
+    cursor: usize,
+}
+
+impl<'a> SetWitnessReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, cursor: 0 }
+    }
+
+    fn take(&mut self, length: usize) -> Result<&'a [u8], UsdomStateError> {
+        let end = self
+            .cursor
+            .checked_add(length)
+            .ok_or(UsdomStateError::MalformedSetWitness)?;
+        let value = self
+            .bytes
+            .get(self.cursor..end)
+            .ok_or(UsdomStateError::MalformedSetWitness)?;
+        self.cursor = end;
+        Ok(value)
+    }
+
+    fn byte(&mut self) -> Result<u8, UsdomStateError> {
+        Ok(self.take(1)?[0])
+    }
+
+    fn u16(&mut self) -> Result<u16, UsdomStateError> {
+        Ok(u16::from_be_bytes(
+            self.take(2)?
+                .try_into()
+                .map_err(|_| UsdomStateError::MalformedSetWitness)?,
+        ))
+    }
+
+    fn is_empty(&self) -> bool {
+        self.cursor == self.bytes.len()
     }
 }
 
@@ -1014,10 +1120,16 @@ impl NativeTransitionWitness {
         if !self.accumulators.verify_v2(&previous) {
             return Err(UsdomStateError::MalformedAccumulatorWitness);
         }
+        if previous.gracefully_shutdown {
+            return Err(UsdomStateError::InvalidGracefulShutdown);
+        }
         let mut candidate = self.sets.apply_sets(previous, transition)?;
         let mut accumulators = self.accumulators.clone();
         match transition {
             VerifiedTransition::Issue(value) => {
+                if previous.issuance_closure.is_some() {
+                    return Err(UsdomStateError::IssuanceClosed);
+                }
                 value.ethereum_anchor.validate()?;
                 if value.ethereum_anchor.genesis_validators_root
                     != previous.ethereum_genesis_validators_root
@@ -1037,6 +1149,30 @@ impl NativeTransitionWitness {
                 candidate.ethereum_anchor =
                     merge_ethereum_anchor(previous.ethereum_anchor, Some(value.ethereum_anchor))?;
                 accumulators.append_transition(previous.domain, &[value.note_commitment])?;
+            }
+            VerifiedTransition::IssuanceClose(value) => {
+                if previous.issuance_closure.is_some() {
+                    return Err(UsdomStateError::InvalidIssuanceClosure);
+                }
+                let record = IssuanceClosureRecord::from(value);
+                validate_issuance_closure_record(&record, previous.domain, previous.total_issued)?;
+                if record.reserve != previous.reserve {
+                    return Err(UsdomStateError::BridgeIdentityMismatch);
+                }
+                candidate.issuance_closure = Some(record);
+                candidate.ethereum_anchor =
+                    merge_ethereum_anchor(previous.ethereum_anchor, Some(record.ethereum_anchor))?;
+                accumulators.append_transition(previous.domain, &[])?;
+            }
+            VerifiedTransition::GracefulShutdown(value) => {
+                if value.domain != previous.domain
+                    || previous.issuance_closure.is_none()
+                    || previous.total_burned != previous.total_issued
+                {
+                    return Err(UsdomStateError::InvalidGracefulShutdown);
+                }
+                candidate.gracefully_shutdown = true;
+                accumulators.append_transition(previous.domain, &[])?;
             }
             VerifiedTransition::Transfer(value) => {
                 validate_shape(&value.nullifiers, &value.output_notes, false)?;
@@ -1069,6 +1205,11 @@ impl NativeTransitionWitness {
                 candidate.ethereum_anchor = next;
                 accumulators.append_transition(previous.domain, &[])?;
             }
+        }
+        let expected =
+            expected_monetary_totals(previous.total_issued, previous.total_burned, transition)?;
+        if (candidate.total_issued, candidate.total_burned) != expected {
+            return Err(UsdomStateError::MonetarySeparationInvariant);
         }
         candidate = accumulators.update_v2(candidate)?;
         validate_v2_commitment(&candidate)?;
@@ -1200,15 +1341,26 @@ pub fn apply_v2_transition_batch_with_receipt(
         .len()
         .try_into()
         .map_err(|_| UsdomStateError::BatchTooLarge)?;
-    let mut bytes = Vec::with_capacity(144);
+    let mut bytes = Vec::with_capacity(208);
     bytes.extend_from_slice(&CANDIDATE_V2_TRANSITION_BATCH_VERSION.to_be_bytes());
-    bytes.extend_from_slice(&2u16.to_be_bytes());
+    let state_version = if next.gracefully_shutdown {
+        STATE_COMMITMENT_V2_VERSION
+    } else if next.issuance_closure.is_some() {
+        CLOSURE_STATE_COMMITMENT_V2_VERSION
+    } else {
+        HISTORICAL_STATE_COMMITMENT_V2_VERSION
+    };
+    bytes.extend_from_slice(&state_version.to_be_bytes());
     bytes.extend_from_slice(&previous.domain);
     bytes.extend_from_slice(&transition_count.to_be_bytes());
     bytes.extend_from_slice(&context.timestamp.to_be_bytes());
     bytes.extend_from_slice(transitions_root.as_bytes());
     bytes.extend_from_slice(expected_previous_root.as_bytes());
     bytes.extend_from_slice(next.root().as_bytes());
+    bytes.extend_from_slice(&previous.total_issued.to_be_bytes());
+    bytes.extend_from_slice(&previous.total_burned.to_be_bytes());
+    bytes.extend_from_slice(&next.total_issued.to_be_bytes());
+    bytes.extend_from_slice(&next.total_burned.to_be_bytes());
     let receipt = TransitionBatchReceipt {
         version: CANDIDATE_V2_TRANSITION_BATCH_VERSION,
         transition_count,
@@ -1216,6 +1368,10 @@ pub fn apply_v2_transition_batch_with_receipt(
         transitions_root,
         previous_state_root: expected_previous_root,
         new_state_root: next.root(),
+        previous_total_issued: previous.total_issued,
+        previous_total_burned: previous.total_burned,
+        new_total_issued: next.total_issued,
+        new_total_burned: next.total_burned,
         header_commitment: blake2b_256_tagged(TAG_BATCH_COMMITMENT_V2_STATE, &bytes),
     };
     Ok((next, receipt))
@@ -1519,8 +1675,20 @@ impl BurnStateWitness {
             .try_into()
             .map_err(|_| UsdomStateError::MalformedBurnWitness)?;
         let mut bytes = Vec::with_capacity(MAX_BURN_STATE_WITNESS_BYTES);
-        bytes.extend_from_slice(BURN_WITNESS_MAGIC);
+        bytes.extend_from_slice(if self.state.gracefully_shutdown {
+            BURN_WITNESS_SHUTDOWN_MAGIC
+        } else if self.state.issuance_closure.is_some() {
+            BURN_WITNESS_CLOSURE_MAGIC
+        } else {
+            BURN_WITNESS_MAGIC
+        });
         encode_state_commitment(&mut bytes, &self.state);
+        if let Some(closure) = self.state.issuance_closure {
+            encode_issuance_closure_record(&mut bytes, closure);
+        }
+        if self.state.gracefully_shutdown {
+            bytes.push(1);
+        }
         encode_burn_record(&mut bytes, self.burn.record);
         bytes.extend_from_slice(&self.burn.leaf_index.to_be_bytes());
         bytes.extend_from_slice(&self.burn.leaf_count.to_be_bytes());
@@ -1537,6 +1705,212 @@ impl BurnStateWitness {
     /// Decode and canonically revalidate one `USDBRN03` prover witness.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, UsdomStateError> {
         decode_burn_state_witness(bytes)
+    }
+}
+
+/// Read-only prover input binding one burn record to the candidate-v2 sparse
+/// burn set and complete state commitment published by checkpoint consensus.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BurnStateWitnessV2 {
+    /// Complete candidate-v2 state commitment whose root is checkpointed.
+    pub state: StateCommitmentV2,
+    /// Exact public reserve obligation committed by the sparse burn leaf.
+    pub burn: BurnRecord,
+    /// Canonical depth-256 membership path under `state.burn_root`.
+    pub proof: SparseMerkleProof,
+}
+
+impl BurnStateWitnessV2 {
+    /// Construct and fully validate one candidate-v2 burn inclusion witness.
+    pub fn new(
+        state: StateCommitmentV2,
+        burn: BurnRecord,
+        proof: SparseMerkleProof,
+    ) -> Result<Self, UsdomStateError> {
+        let witness = Self { state, burn, proof };
+        if !witness.verify(witness.state.root()) {
+            return Err(UsdomStateError::MalformedBurnWitness);
+        }
+        Ok(witness)
+    }
+
+    /// Reconstruct the complete insert-only burn and request sparse sets from
+    /// authenticated public burn records, then open one burn under `state`.
+    ///
+    /// This is intended for offline exporters that retain an authenticated
+    /// history rather than a materialized [`NativeUsdomState`]. Every record,
+    /// root, count and the aggregate burned amount must match the supplied
+    /// checkpoint commitment before a membership path is returned.
+    pub fn from_burn_records(
+        state: StateCommitmentV2,
+        target_burn_id: [u8; 32],
+        records: &[BurnRecord],
+    ) -> Result<Option<Self>, UsdomStateError> {
+        validate_v2_commitment(&state)?;
+        if target_burn_id == [0; 32] {
+            return Err(UsdomStateError::MalformedBurnWitness);
+        }
+        let mut burns = SparseMerkleTree::new(SPARSE_BURN_SET).map_err(map_sparse_state_error)?;
+        let mut requests =
+            SparseMerkleTree::new(SPARSE_BURN_REQUEST_SET).map_err(map_sparse_state_error)?;
+        let mut burn_ids = BTreeSet::new();
+        let mut request_ids = BTreeSet::new();
+        let mut target = None;
+        let mut total_burned = 0u128;
+        for record in records.iter().copied() {
+            if !valid_burn_record(&record)
+                || record.ethereum_chain_id != state.ethereum_chain_id
+                || record.reserve != state.reserve
+                || record.expected_obligation_commitment(state.domain)
+                    != record.obligation_commitment
+            {
+                return Err(UsdomStateError::MalformedBurnWitness);
+            }
+            if !burn_ids.insert(record.burn_id) {
+                return Err(UsdomStateError::BurnAlreadyExists);
+            }
+            if !request_ids.insert(record.request_id) {
+                return Err(UsdomStateError::BurnRequestAlreadyExists);
+            }
+            burns
+                .insert(record.burn_id, burn_leaf_hash(record))
+                .map_err(map_sparse_state_error)?;
+            requests
+                .insert(
+                    record.request_id,
+                    sparse_fixed_leaf(SPARSE_BURN_REQUEST_SET, record.request_id),
+                )
+                .map_err(map_sparse_state_error)?;
+            total_burned = total_burned
+                .checked_add(u128::from(record.amount))
+                .ok_or(UsdomStateError::MonetaryOverflow)?;
+            if record.burn_id == target_burn_id {
+                target = Some(record);
+            }
+        }
+        if burns.root() != state.burn_root
+            || burns.leaf_count() != state.burn_count
+            || requests.root() != state.burn_request_root
+            || requests.leaf_count() != state.burn_request_count
+            || total_burned != state.total_burned
+        {
+            return Err(UsdomStateError::MalformedBurnWitness);
+        }
+        let Some(burn) = target else {
+            return Ok(None);
+        };
+        let proof = burns
+            .prove(target_burn_id)
+            .map_err(map_sparse_state_error)?;
+        Ok(Some(Self::new(state, burn, proof)?))
+    }
+
+    /// Verify the state preimage, bridge obligation and sparse membership path.
+    pub fn verify(&self, expected_state_root: Hash256) -> bool {
+        validate_v2_commitment(&self.state).is_ok()
+            && valid_burn_record(&self.burn)
+            && self.state.root() == expected_state_root
+            && self.state.burn_count != 0
+            && self.state.burn_count == self.state.burn_request_count
+            && self.state.total_burned <= self.state.total_issued
+            && u128::from(self.burn.amount) <= self.state.total_burned
+            && self.burn.ethereum_chain_id == self.state.ethereum_chain_id
+            && self.burn.reserve == self.state.reserve
+            && self.burn.expected_obligation_commitment(self.state.domain)
+                == self.burn.obligation_commitment
+            && self.proof.kind() == SPARSE_BURN_SET
+            && self.proof.key() == self.burn.burn_id
+            && self
+                .proof
+                .root(Some(burn_leaf_hash(self.burn)))
+                .is_ok_and(|root| root == self.state.burn_root)
+    }
+
+    /// Encode the unique bounded `USDBR204` witness.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, UsdomStateError> {
+        if !self.verify(self.state.root()) {
+            return Err(UsdomStateError::MalformedBurnWitness);
+        }
+        let state = self
+            .state
+            .to_bytes()
+            .map_err(|_| UsdomStateError::MalformedBurnWitness)?;
+        let proof = self
+            .proof
+            .to_bytes()
+            .map_err(|_| UsdomStateError::MalformedBurnWitness)?;
+        let state_len: u32 = state
+            .len()
+            .try_into()
+            .map_err(|_| UsdomStateError::MalformedBurnWitness)?;
+        let proof_len: u16 = proof
+            .len()
+            .try_into()
+            .map_err(|_| UsdomStateError::MalformedBurnWitness)?;
+        let mut bytes =
+            Vec::with_capacity(8 + 4 + 2 + state.len() + BURN_RECORD_BYTES + proof.len());
+        bytes.extend_from_slice(BURN_WITNESS_V2_MAGIC);
+        bytes.extend_from_slice(&state_len.to_be_bytes());
+        bytes.extend_from_slice(&proof_len.to_be_bytes());
+        bytes.extend_from_slice(&state);
+        encode_burn_record(&mut bytes, self.burn);
+        bytes.extend_from_slice(&proof);
+        if bytes.len() > MAX_BURN_STATE_WITNESS_V2_BYTES {
+            return Err(UsdomStateError::MalformedBurnWitness);
+        }
+        Ok(bytes)
+    }
+
+    /// Decode, canonically re-encode and fully verify one `USDBR204` witness.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, UsdomStateError> {
+        if bytes.len() < 8 + 4 + 2 + BURN_RECORD_BYTES
+            || bytes.len() > MAX_BURN_STATE_WITNESS_V2_BYTES
+            || bytes.get(..8) != Some(BURN_WITNESS_V2_MAGIC.as_slice())
+        {
+            return Err(UsdomStateError::MalformedBurnWitness);
+        }
+        let state_len = usize::try_from(u32::from_be_bytes(
+            bytes[8..12]
+                .try_into()
+                .map_err(|_| UsdomStateError::MalformedBurnWitness)?,
+        ))
+        .map_err(|_| UsdomStateError::MalformedBurnWitness)?;
+        let proof_len = usize::from(u16::from_be_bytes(
+            bytes[12..14]
+                .try_into()
+                .map_err(|_| UsdomStateError::MalformedBurnWitness)?,
+        ));
+        let state_end = 14usize
+            .checked_add(state_len)
+            .ok_or(UsdomStateError::MalformedBurnWitness)?;
+        let record_end = state_end
+            .checked_add(BURN_RECORD_BYTES)
+            .ok_or(UsdomStateError::MalformedBurnWitness)?;
+        let proof_end = record_end
+            .checked_add(proof_len)
+            .ok_or(UsdomStateError::MalformedBurnWitness)?;
+        if state_len == 0
+            || state_len > MAX_STATE_COMMITMENT_V2_BYTES
+            || proof_len == 0
+            || proof_len > MAX_SPARSE_PROOF_BYTES
+            || proof_end != bytes.len()
+        {
+            return Err(UsdomStateError::MalformedBurnWitness);
+        }
+        let state = StateCommitmentV2::from_bytes(&bytes[14..state_end])
+            .map_err(|_| UsdomStateError::MalformedBurnWitness)?;
+        let mut record_reader = WitnessReader::new(&bytes[state_end..record_end]);
+        let burn = decode_burn_record(&mut record_reader)?;
+        if !record_reader.is_empty() {
+            return Err(UsdomStateError::MalformedBurnWitness);
+        }
+        let proof = SparseMerkleProof::from_bytes(&bytes[record_end..proof_end])
+            .map_err(|_| UsdomStateError::MalformedBurnWitness)?;
+        let witness = Self::new(state, burn, proof)?;
+        if witness.to_bytes()?.as_slice() != bytes {
+            return Err(UsdomStateError::MalformedBurnWitness);
+        }
+        Ok(witness)
     }
 }
 
@@ -1652,6 +2026,149 @@ pub struct VerifiedIssuance {
     note_commitment: [u8; 32],
     amount: u64,
     ethereum_anchor: EthereumAnchor,
+}
+
+/// Proof-authenticated terminal boundary for deposit-backed issuance.
+///
+/// Fields are private so only the Ethereum-finality adapter can create this
+/// capability. Applying it to consensus state is deliberately separate from
+/// verifying the Ethereum witness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerifiedIssuanceClose {
+    domain: [u8; 32],
+    reserve: [u8; 20],
+    total_deposited: u128,
+    reserve_config_hash: [u8; 32],
+    activation_schedule_commitment: [u8; 32],
+    ethereum_anchor: EthereumAnchor,
+    closure_policy_hash: [u8; 32],
+}
+
+/// Public, deterministic authorization for the terminal graceful-shutdown
+/// transition. This is deliberately unrelated to an emergency operational
+/// halt: emergency controls stop processing outside consensus, while this
+/// irreversible consensus marker is valid only after issuance is closed and
+/// every issued base unit has been burned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerifiedGracefulShutdown {
+    domain: [u8; 32],
+}
+
+/// Construct a graceful-shutdown request for one native USDOM domain.
+///
+/// This grants no emergency authority. The state machine independently checks
+/// the authenticated issuance closure and zero outstanding supply.
+pub fn graceful_shutdown_transition(
+    domain: [u8; 32],
+) -> Result<VerifiedGracefulShutdown, UsdomStateError> {
+    if domain == [0; 32] {
+        return Err(UsdomStateError::ZeroIdentity);
+    }
+    Ok(VerifiedGracefulShutdown { domain })
+}
+
+impl VerifiedIssuanceClose {
+    /// Native bridge domain whose issuance becomes terminal.
+    pub const fn domain(&self) -> [u8; 32] {
+        self.domain
+    }
+    /// Ethereum reserve whose deposit intake was closed.
+    pub const fn reserve(&self) -> [u8; 20] {
+        self.reserve
+    }
+    /// Exact cumulative collateral admitted before closure.
+    pub const fn total_deposited(&self) -> u128 {
+        self.total_deposited
+    }
+    /// Immutable reserve configuration authenticated by the closure event.
+    pub const fn reserve_config_hash(&self) -> [u8; 32] {
+        self.reserve_config_hash
+    }
+    /// Activation schedule authenticated by the closure event.
+    pub const fn activation_schedule_commitment(&self) -> [u8; 32] {
+        self.activation_schedule_commitment
+    }
+    /// Finalized Ethereum anchor authenticating the closure.
+    pub const fn ethereum_anchor(&self) -> EthereumAnchor {
+        self.ethereum_anchor
+    }
+    /// Immutable closure-verifier policy commitment.
+    pub const fn closure_policy_hash(&self) -> [u8; 32] {
+        self.closure_policy_hash
+    }
+}
+
+/// Public consensus record proving the terminal deposit-backed issuance total.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IssuanceClosureRecord {
+    /// Reserve authenticated by the finalized closure witness.
+    pub reserve: [u8; 20],
+    /// Exact cumulative deposits, equal to native `total_issued` at closure.
+    pub total_deposited: u128,
+    /// Immutable reserve configuration hash.
+    pub reserve_config_hash: [u8; 32],
+    /// Native activation schedule committed by Ethereum.
+    pub activation_schedule_commitment: [u8; 32],
+    /// Finalized Ethereum identity that authenticated closure.
+    pub ethereum_anchor: EthereumAnchor,
+    /// Immutable closure-verifier policy commitment.
+    pub closure_policy_hash: [u8; 32],
+}
+
+impl From<&VerifiedIssuanceClose> for IssuanceClosureRecord {
+    fn from(value: &VerifiedIssuanceClose) -> Self {
+        Self {
+            reserve: value.reserve,
+            total_deposited: value.total_deposited,
+            reserve_config_hash: value.reserve_config_hash,
+            activation_schedule_commitment: value.activation_schedule_commitment,
+            ethereum_anchor: value.ethereum_anchor,
+            closure_policy_hash: value.closure_policy_hash,
+        }
+    }
+}
+
+/// Convert an opaque, fully verified Ethereum closure capability into the
+/// native capability consumed by the state-transition layer.
+#[cfg(feature = "ethereum-finality")]
+pub fn ethereum_issuance_closure_transition(
+    bridge: BridgeIdentity,
+    closure: &VerifiedIssuanceClosure,
+) -> Result<VerifiedIssuanceClose, UsdomStateError> {
+    bridge.validate()?;
+    let finalized = closure.finalized_execution();
+    let mut reserve = [0u8; 20];
+    reserve.copy_from_slice(closure.reserve().as_slice());
+    if closure.bridge_domain().as_slice() != bridge.dom_domain
+        || reserve != bridge.reserve
+        || closure.locator().genesis_validators_root.as_slice()
+            != bridge.ethereum_genesis_validators_root
+        || finalized.beacon_root.as_slice() == [0; 32]
+    {
+        return Err(UsdomStateError::BridgeIdentityMismatch);
+    }
+    let total_deposited: u128 = closure
+        .total_deposited()
+        .try_into()
+        .map_err(|_| UsdomStateError::MonetaryOverflow)?;
+    let ethereum_anchor = EthereumAnchor {
+        genesis_validators_root: bridge.ethereum_genesis_validators_root,
+        execution_block_number: finalized.block_number,
+        execution_block_hash: finalized.block_hash.into(),
+        execution_block_timestamp: finalized.timestamp,
+        beacon_slot: finalized.beacon_slot,
+        beacon_root: finalized.beacon_root.into(),
+    };
+    ethereum_anchor.validate()?;
+    Ok(VerifiedIssuanceClose {
+        domain: bridge.dom_domain,
+        reserve,
+        total_deposited,
+        reserve_config_hash: closure.reserve_config_hash().into(),
+        activation_schedule_commitment: closure.activation_schedule_commitment().into(),
+        ethereum_anchor,
+        closure_policy_hash: closure.trust_policy_hash().into(),
+    })
 }
 
 /// Opaque capability proving ownership, membership, range and conservation for
@@ -2190,12 +2707,44 @@ fn encode_private_payload(
 pub enum VerifiedTransition {
     /// Mint exactly one note from one finalized, unconsumed deposit.
     Issue(VerifiedIssuance),
+    /// Permanently close deposit-backed issuance at the authenticated total.
+    IssuanceClose(VerifiedIssuanceClose),
+    /// Permanently terminate native USDOM after closure and complete burn.
+    GracefulShutdown(VerifiedGracefulShutdown),
     /// Privately spend notes into new private notes.
     Transfer(VerifiedTransfer),
     /// Privately spend notes while removing a public amount from circulation.
     Burn(VerifiedBurn),
     /// Advance the Ethereum finality/time anchor without issuing USDOM.
     EthereumCheckpoint(VerifiedEthereumCheckpoint),
+}
+
+/// Derive the only monetary-counter delta authorized by one proof-verified
+/// transition. DOM coinbase rewards and transaction fees have no representation
+/// in this type and therefore cannot enter native USDOM supply accounting.
+fn expected_monetary_totals(
+    previous_issued: u128,
+    previous_burned: u128,
+    transition: &VerifiedTransition,
+) -> Result<(u128, u128), UsdomStateError> {
+    match transition {
+        VerifiedTransition::Issue(value) => Ok((
+            previous_issued
+                .checked_add(u128::from(value.amount))
+                .ok_or(UsdomStateError::MonetaryOverflow)?,
+            previous_burned,
+        )),
+        VerifiedTransition::Burn(value) => Ok((
+            previous_issued,
+            previous_burned
+                .checked_add(u128::from(value.record.amount))
+                .ok_or(UsdomStateError::MonetaryOverflow)?,
+        )),
+        VerifiedTransition::IssuanceClose(_)
+        | VerifiedTransition::GracefulShutdown(_)
+        | VerifiedTransition::Transfer(_)
+        | VerifiedTransition::EthereumCheckpoint(_) => Ok((previous_issued, previous_burned)),
+    }
 }
 
 /// Public, non-authoritative preimage of one versioned transition commitment.
@@ -2212,6 +2761,18 @@ pub enum TransitionCommitmentProjection {
         domain: [u8; 32],
         /// Exact finalized deposit, note and Ethereum anchor.
         record: IssuanceRecord,
+    },
+    /// Public terminal issuance boundary authenticated by Ethereum finality.
+    IssuanceClose {
+        /// Immutable native USDOM domain.
+        domain: [u8; 32],
+        /// Exact authenticated terminal record.
+        record: IssuanceClosureRecord,
+    },
+    /// Terminal marker proving orderly completion with no outstanding supply.
+    GracefulShutdown {
+        /// Immutable native USDOM domain.
+        domain: [u8; 32],
     },
     /// Public fields authenticated by one private-transfer proof.
     Transfer {
@@ -2316,6 +2877,8 @@ impl TransitionCommitmentProjection {
     pub fn domain(&self) -> [u8; 32] {
         match self {
             Self::Issue { domain, .. }
+            | Self::IssuanceClose { domain, .. }
+            | Self::GracefulShutdown { domain }
             | Self::Transfer { domain, .. }
             | Self::Burn { domain, .. }
             | Self::EthereumCheckpoint { domain, .. } => *domain,
@@ -2349,6 +2912,17 @@ impl TransitionCommitmentProjection {
                 bytes.extend_from_slice(&record.note_commitment);
                 bytes.extend_from_slice(&record.amount.to_be_bytes());
                 encode_ethereum_anchor(&mut bytes, record.ethereum_anchor);
+            }
+            Self::IssuanceClose { domain, record } => {
+                require_projection_domain(*domain)?;
+                validate_issuance_closure_record(record, *domain, record.total_deposited)?;
+                bytes.push(TransitionKind::IssuanceClose.discriminator());
+                bytes.extend_from_slice(domain);
+                encode_issuance_closure_record(&mut bytes, *record);
+            }
+            Self::GracefulShutdown { domain } => {
+                bytes.push(TransitionKind::GracefulShutdown.discriminator());
+                bytes.extend_from_slice(domain);
             }
             Self::Transfer {
                 domain,
@@ -2423,6 +2997,18 @@ impl TransitionCommitmentProjection {
                 note_commitments: vec![record.note_commitment],
                 memo_commitment: None,
             },
+            Self::IssuanceClose { .. } => TransitionPublicEffects {
+                kind: TransitionKind::IssuanceClose,
+                nullifiers: Vec::new(),
+                note_commitments: Vec::new(),
+                memo_commitment: None,
+            },
+            Self::GracefulShutdown { .. } => TransitionPublicEffects {
+                kind: TransitionKind::GracefulShutdown,
+                nullifiers: Vec::new(),
+                note_commitments: Vec::new(),
+                memo_commitment: None,
+            },
             Self::Transfer {
                 nullifiers,
                 output_notes,
@@ -2467,6 +3053,15 @@ impl TransitionCommitmentProjection {
                 bytes.extend_from_slice(&record.note_commitment);
                 bytes.extend_from_slice(&record.amount.to_be_bytes());
                 encode_ethereum_anchor(&mut bytes, record.ethereum_anchor);
+            }
+            Self::IssuanceClose { domain, record } => {
+                bytes.push(TransitionKind::IssuanceClose.discriminator());
+                bytes.extend_from_slice(domain);
+                encode_issuance_closure_record(&mut bytes, *record);
+            }
+            Self::GracefulShutdown { domain } => {
+                bytes.push(TransitionKind::GracefulShutdown.discriminator());
+                bytes.extend_from_slice(domain);
             }
             Self::Transfer {
                 domain,
@@ -2533,6 +3128,11 @@ impl TransitionCommitmentProjection {
                     ethereum_anchor: decode_ethereum_anchor(&mut reader)?,
                 },
             },
+            TransitionKind::IssuanceClose => Self::IssuanceClose {
+                domain,
+                record: decode_issuance_closure_record(&mut reader)?,
+            },
+            TransitionKind::GracefulShutdown => Self::GracefulShutdown { domain },
             TransitionKind::Transfer => Self::Transfer {
                 domain,
                 anchor: decode_projection_note_anchor(&mut reader)?,
@@ -2586,6 +3186,13 @@ impl VerifiedTransition {
                     ethereum_anchor: value.ethereum_anchor,
                 },
             },
+            Self::IssuanceClose(value) => TransitionCommitmentProjection::IssuanceClose {
+                domain: value.domain,
+                record: value.into(),
+            },
+            Self::GracefulShutdown(value) => TransitionCommitmentProjection::GracefulShutdown {
+                domain: value.domain,
+            },
             Self::Transfer(value) => TransitionCommitmentProjection::Transfer {
                 domain: value.domain,
                 anchor: value.anchor,
@@ -2617,6 +3224,18 @@ impl VerifiedTransition {
                 kind: TransitionKind::Issue,
                 nullifiers: Vec::new(),
                 note_commitments: vec![value.note_commitment],
+                memo_commitment: None,
+            },
+            Self::IssuanceClose(_) => TransitionPublicEffects {
+                kind: TransitionKind::IssuanceClose,
+                nullifiers: Vec::new(),
+                note_commitments: Vec::new(),
+                memo_commitment: None,
+            },
+            Self::GracefulShutdown(_) => TransitionPublicEffects {
+                kind: TransitionKind::GracefulShutdown,
+                nullifiers: Vec::new(),
+                note_commitments: Vec::new(),
                 memo_commitment: None,
             },
             Self::Transfer(value) => TransitionPublicEffects {
@@ -2661,6 +3280,10 @@ pub struct TransitionPublicEffects {
 pub enum TransitionKind {
     /// Deposit-backed issuance.
     Issue,
+    /// Terminal deposit-backed issuance boundary.
+    IssuanceClose,
+    /// Orderly terminal state with issuance closed and zero outstanding supply.
+    GracefulShutdown,
     /// Private value-conserving transfer.
     Transfer,
     /// Private spend with public burn obligation.
@@ -2676,6 +3299,8 @@ impl TransitionKind {
             Self::Transfer => 2,
             Self::Burn => 3,
             Self::EthereumCheckpoint => 4,
+            Self::IssuanceClose => 5,
+            Self::GracefulShutdown => 6,
         }
     }
 
@@ -2685,6 +3310,8 @@ impl TransitionKind {
             2 => Ok(Self::Transfer),
             3 => Ok(Self::Burn),
             4 => Ok(Self::EthereumCheckpoint),
+            5 => Ok(Self::IssuanceClose),
+            6 => Ok(Self::GracefulShutdown),
             _ => Err(UsdomStateError::MalformedUndo),
         }
     }
@@ -2707,6 +3334,14 @@ pub struct TransitionBatchReceipt {
     pub previous_state_root: Hash256,
     /// Native USDOM state root after the block batch.
     pub new_state_root: Hash256,
+    /// Deposit-backed issuance before this batch.
+    pub previous_total_issued: u128,
+    /// Native burns before this batch.
+    pub previous_total_burned: u128,
+    /// Deposit-backed issuance after this batch.
+    pub new_total_issued: u128,
+    /// Native burns after this batch.
+    pub new_total_burned: u128,
     /// Single domain-separated value intended for a future DOM block header.
     pub header_commitment: Hash256,
 }
@@ -2741,6 +3376,7 @@ pub struct CanonicalStateUpdate {
 /// callers cannot fabricate a rollback target.
 #[derive(Debug, Clone)]
 pub struct StateUndo {
+    legacy_encoding: bool,
     before_root: Hash256,
     after_root: Hash256,
     prior_note_count: u64,
@@ -2750,6 +3386,8 @@ pub struct StateUndo {
     inserted_burn: Option<[u8; 32]>,
     prior_total_issued: u128,
     prior_total_burned: u128,
+    prior_issuance_closure: Option<IssuanceClosureRecord>,
+    prior_gracefully_shutdown: bool,
     prior_ethereum_anchor: Option<EthereumAnchor>,
     prior_note_anchors: VecDeque<NoteAnchor>,
 }
@@ -2813,6 +3451,8 @@ pub struct NativeUsdomState {
     note_anchors: VecDeque<NoteAnchor>,
     total_issued: u128,
     total_burned: u128,
+    issuance_closure: Option<IssuanceClosureRecord>,
+    gracefully_shutdown: bool,
     ethereum_anchor: Option<EthereumAnchor>,
     state_root: Hash256,
 }
@@ -2864,6 +3504,8 @@ impl NativeUsdomState {
             note_anchors: VecDeque::from([empty_anchor]),
             total_issued: 0,
             total_burned: 0,
+            issuance_closure: None,
+            gracefully_shutdown: false,
             ethereum_anchor: None,
             state_root: Hash256::ZERO,
         };
@@ -2932,6 +3574,8 @@ impl NativeUsdomState {
             anchor_count: v1.anchor_count,
             total_issued: v1.total_issued,
             total_burned: v1.total_burned,
+            issuance_closure: v1.issuance_closure,
+            gracefully_shutdown: v1.gracefully_shutdown,
             ethereum_anchor: v1.ethereum_anchor,
         })
     }
@@ -3075,6 +3719,16 @@ impl NativeUsdomState {
         self.total_burned
     }
 
+    /// Committed terminal issuance boundary, if issuance is permanently closed.
+    pub const fn issuance_closure(&self) -> Option<IssuanceClosureRecord> {
+        self.issuance_closure
+    }
+
+    /// Whether the irreversible orderly terminal transition was committed.
+    pub const fn is_gracefully_shutdown(&self) -> bool {
+        self.gracefully_shutdown
+    }
+
     /// Issued supply that has not been burned.
     pub fn outstanding(&self) -> u128 {
         self.total_issued - self.total_burned
@@ -3137,6 +3791,8 @@ impl NativeUsdomState {
             anchor_count: self.note_anchors.len() as u64,
             total_issued: self.total_issued,
             total_burned: self.total_burned,
+            issuance_closure: self.issuance_closure,
+            gracefully_shutdown: self.gracefully_shutdown,
             ethereum_anchor: self.ethereum_anchor,
         })
     }
@@ -3192,6 +3848,33 @@ impl NativeUsdomState {
         }))
     }
 
+    /// Export a candidate-v2 sparse membership witness for one committed burn.
+    /// The returned state root is the exact root used after V2 activation.
+    pub fn burn_state_witness_v2(
+        &self,
+        burn_id: &[u8; 32],
+    ) -> Result<Option<BurnStateWitnessV2>, UsdomStateError> {
+        let Some(burn) = self.burns.get(burn_id).copied() else {
+            return Ok(None);
+        };
+        let proof = self
+            .sparse_burn_set
+            .prove(*burn_id)
+            .map_err(map_sparse_state_error)?;
+        Ok(Some(BurnStateWitnessV2::new(
+            self.state_commitment_v2()?,
+            burn,
+            proof,
+        )?))
+    }
+
+    /// Return all public burn obligations in canonical burn-identifier order.
+    /// These records reveal only the already-public reserve payout fields and
+    /// contain no note openings, ownership keys or encrypted memo plaintext.
+    pub fn burn_records(&self) -> Vec<BurnRecord> {
+        self.burns.values().copied().collect()
+    }
+
     /// Whether a reserve request identifier has already been committed by a
     /// native burn, including a burn that has already been redeemed.
     pub fn has_burn_request(&self, request_id: &[u8; 32]) -> bool {
@@ -3225,6 +3908,14 @@ impl NativeUsdomState {
             let mut encoded = Vec::with_capacity(120);
             encode_ethereum_anchor(&mut encoded, anchor);
             entries.insert(state_key(b"meta/ethereum"), encoded);
+        }
+        if let Some(closure) = self.issuance_closure {
+            let mut encoded = Vec::with_capacity(ISSUANCE_CLOSE_RECORD_BYTES);
+            encode_issuance_closure_record(&mut encoded, closure);
+            entries.insert(state_key(b"meta/issuance-close"), encoded);
+        }
+        if self.gracefully_shutdown {
+            entries.insert(state_key(b"meta/graceful-shutdown"), vec![1]);
         }
         for (index, note) in self.note_order.iter().enumerate() {
             let mut key = state_key(b"note/");
@@ -3317,6 +4008,8 @@ impl NativeUsdomState {
         let mut burns = BTreeMap::new();
         let mut burn_request_ids = BTreeSet::new();
         let mut stored_anchors = BTreeMap::new();
+        let mut issuance_closure = None;
+        let mut gracefully_shutdown = false;
         let mut seen_keys = BTreeSet::new();
         for (key, value) in entries {
             if !key.starts_with(b"usdom/v3/") || !seen_keys.insert(key.as_slice()) {
@@ -3333,6 +4026,25 @@ impl NativeUsdomState {
                 if value.len() != 120 {
                     return Err(UsdomStateError::MalformedPersistedState);
                 }
+                continue;
+            }
+            if suffix == b"meta/issuance-close" {
+                if value.len() != ISSUANCE_CLOSE_RECORD_BYTES || issuance_closure.is_some() {
+                    return Err(UsdomStateError::MalformedPersistedState);
+                }
+                let mut reader = UndoReader::new(value);
+                let record = decode_issuance_closure_record(&mut reader)?;
+                if !reader.is_empty() {
+                    return Err(UsdomStateError::MalformedPersistedState);
+                }
+                issuance_closure = Some(record);
+                continue;
+            }
+            if suffix == b"meta/graceful-shutdown" {
+                if value.as_slice() != [1] || gracefully_shutdown {
+                    return Err(UsdomStateError::MalformedPersistedState);
+                }
+                gracefully_shutdown = true;
                 continue;
             }
             if let Some(raw_index) = suffix.strip_prefix(b"note/") {
@@ -3553,6 +4265,19 @@ impl NativeUsdomState {
         }
         state.total_issued = total_issued;
         state.total_burned = total_burned;
+        if let Some(closure) = issuance_closure {
+            validate_issuance_closure_record(&closure, state.domain, total_issued)
+                .map_err(|_| UsdomStateError::MalformedPersistedState)?;
+            if closure.reserve != state.reserve {
+                return Err(UsdomStateError::MalformedPersistedState);
+            }
+            state.issuance_closure = Some(closure);
+        }
+        if gracefully_shutdown && (state.issuance_closure.is_none() || total_burned != total_issued)
+        {
+            return Err(UsdomStateError::MalformedPersistedState);
+        }
+        state.gracefully_shutdown = gracefully_shutdown;
         let issuance_high_water = derive_ethereum_high_water(&state.consumed_deposits)?;
         let stored_ethereum = entries.get(state_key(b"meta/ethereum").as_slice());
         state.ethereum_anchor = match stored_ethereum {
@@ -3572,6 +4297,13 @@ impl NativeUsdomState {
             }
             _ => return Err(UsdomStateError::MalformedPersistedState),
         };
+        if let Some(closure) = state.issuance_closure {
+            if merge_ethereum_anchor(state.ethereum_anchor, Some(closure.ethereum_anchor))?
+                != state.ethereum_anchor
+            {
+                return Err(UsdomStateError::MalformedPersistedState);
+            }
+        }
         state.state_root = state.compute_state_root()?;
         if state.state_root != committed_root {
             return Err(UsdomStateError::PersistedStateRootMismatch);
@@ -3616,12 +4348,23 @@ impl NativeUsdomState {
         if context.timestamp == 0 {
             return Err(UsdomStateError::InvalidBlockContext);
         }
+        if self.gracefully_shutdown {
+            return Err(UsdomStateError::InvalidGracefulShutdown);
+        }
         let previous = self.clone();
         let mut candidate = self.clone();
         let kind = match transition {
             VerifiedTransition::Issue(value) => {
                 candidate.apply_issuance(value)?;
                 TransitionKind::Issue
+            }
+            VerifiedTransition::IssuanceClose(value) => {
+                candidate.apply_issuance_close(value)?;
+                TransitionKind::IssuanceClose
+            }
+            VerifiedTransition::GracefulShutdown(value) => {
+                candidate.apply_graceful_shutdown(value)?;
+                TransitionKind::GracefulShutdown
             }
             VerifiedTransition::Transfer(value) => {
                 candidate.apply_transfer(value)?;
@@ -3636,6 +4379,11 @@ impl NativeUsdomState {
                 TransitionKind::EthereumCheckpoint
             }
         };
+        let expected =
+            expected_monetary_totals(previous.total_issued, previous.total_burned, transition)?;
+        if (candidate.total_issued, candidate.total_burned) != expected {
+            return Err(UsdomStateError::MonetarySeparationInvariant);
+        }
         candidate.refresh_note_anchor()?;
         candidate.state_root = candidate.compute_state_root()?;
         let undo = StateUndo::between(&previous, &candidate);
@@ -3701,6 +4449,10 @@ impl NativeUsdomState {
             transitions_root,
             previous_state_root,
             new_state_root: candidate.state_root,
+            previous_total_issued: self.total_issued,
+            previous_total_burned: self.total_burned,
+            new_total_issued: candidate.total_issued,
+            new_total_burned: candidate.total_burned,
             header_commitment,
         };
         let undo = BatchUndo {
@@ -3844,6 +4596,8 @@ impl NativeUsdomState {
         }
         candidate.total_issued = undo.prior_total_issued;
         candidate.total_burned = undo.prior_total_burned;
+        candidate.issuance_closure = undo.prior_issuance_closure;
+        candidate.gracefully_shutdown = undo.prior_gracefully_shutdown;
         candidate.ethereum_anchor = undo.prior_ethereum_anchor;
         candidate.note_anchors = undo.prior_note_anchors.clone();
         candidate.state_root = candidate.compute_state_root()?;
@@ -3855,6 +4609,9 @@ impl NativeUsdomState {
     }
 
     fn apply_issuance(&mut self, value: &VerifiedIssuance) -> Result<(), UsdomStateError> {
+        if self.issuance_closure.is_some() {
+            return Err(UsdomStateError::IssuanceClosed);
+        }
         self.require_domain(value.domain)?;
         value.ethereum_anchor.validate()?;
         if value.ethereum_anchor.genesis_validators_root != self.ethereum_genesis_validators_root {
@@ -3888,6 +4645,40 @@ impl NativeUsdomState {
         // not treated as a one-to-one sequence.
         let issuance_high_water = derive_ethereum_high_water(&self.consumed_deposits)?;
         self.ethereum_anchor = merge_ethereum_anchor(self.ethereum_anchor, issuance_high_water)?;
+        Ok(())
+    }
+
+    fn apply_graceful_shutdown(
+        &mut self,
+        value: &VerifiedGracefulShutdown,
+    ) -> Result<(), UsdomStateError> {
+        self.require_domain(value.domain)?;
+        if self.gracefully_shutdown
+            || self.issuance_closure.is_none()
+            || self.total_burned != self.total_issued
+        {
+            return Err(UsdomStateError::InvalidGracefulShutdown);
+        }
+        self.gracefully_shutdown = true;
+        Ok(())
+    }
+
+    fn apply_issuance_close(
+        &mut self,
+        value: &VerifiedIssuanceClose,
+    ) -> Result<(), UsdomStateError> {
+        self.require_domain(value.domain)?;
+        if self.issuance_closure.is_some() {
+            return Err(UsdomStateError::InvalidIssuanceClosure);
+        }
+        let record = IssuanceClosureRecord::from(value);
+        validate_issuance_closure_record(&record, self.domain, self.total_issued)?;
+        if record.reserve != self.reserve {
+            return Err(UsdomStateError::BridgeIdentityMismatch);
+        }
+        self.ethereum_anchor =
+            merge_ethereum_anchor(self.ethereum_anchor, Some(record.ethereum_anchor))?;
+        self.issuance_closure = Some(record);
         Ok(())
     }
 
@@ -4511,6 +5302,7 @@ impl BatchUndo {
 impl StateUndo {
     fn between(before: &NativeUsdomState, after: &NativeUsdomState) -> Self {
         Self {
+            legacy_encoding: false,
             before_root: before.state_root,
             after_root: after.state_root,
             prior_note_count: before.notes.leaf_count(),
@@ -4536,6 +5328,8 @@ impl StateUndo {
                 .copied(),
             prior_total_issued: before.total_issued,
             prior_total_burned: before.total_burned,
+            prior_issuance_closure: before.issuance_closure,
+            prior_gracefully_shutdown: before.gracefully_shutdown,
             prior_ethereum_anchor: before.ethereum_anchor,
             prior_note_anchors: before.note_anchors.clone(),
         }
@@ -4566,7 +5360,18 @@ impl StateUndo {
             return Err(UsdomStateError::MalformedUndo);
         }
         let mut bytes = Vec::with_capacity(256 + self.prior_note_anchors.len() * 40);
-        bytes.extend_from_slice(b"UDOMUN01");
+        if self.legacy_encoding
+            && (self.prior_issuance_closure.is_some() || self.prior_gracefully_shutdown)
+        {
+            return Err(UsdomStateError::MalformedUndo);
+        }
+        bytes.extend_from_slice(if self.legacy_encoding {
+            b"UDOMUN01"
+        } else if self.prior_gracefully_shutdown {
+            b"UDOMUN03"
+        } else {
+            b"UDOMUN02"
+        });
         bytes.extend_from_slice(self.before_root.as_bytes());
         bytes.extend_from_slice(self.after_root.as_bytes());
         bytes.extend_from_slice(&self.prior_note_count.to_be_bytes());
@@ -4599,6 +5404,12 @@ impl StateUndo {
         for nullifier in &self.inserted_nullifiers {
             bytes.extend_from_slice(nullifier);
         }
+        if !self.legacy_encoding {
+            encode_optional_issuance_closure(&mut bytes, self.prior_issuance_closure);
+        }
+        if self.prior_gracefully_shutdown {
+            bytes.push(1);
+        }
         if bytes.len() > MAX_UNDO_BYTES {
             return Err(UsdomStateError::MalformedUndo);
         }
@@ -4612,7 +5423,8 @@ impl StateUndo {
             return Err(UsdomStateError::MalformedUndo);
         }
         let mut reader = UndoReader::new(bytes);
-        if reader.take(8)? != b"UDOMUN01" {
+        let magic = reader.take(8)?;
+        if !matches!(magic, b"UDOMUN01" | b"UDOMUN02" | b"UDOMUN03") {
             return Err(UsdomStateError::MalformedUndo);
         }
         let before_root = Hash256::from_bytes(reader.array()?);
@@ -4666,6 +5478,16 @@ impl StateUndo {
         for _ in 0..nullifier_count {
             inserted_nullifiers.push(reader.array()?);
         }
+        let prior_issuance_closure = if matches!(magic, b"UDOMUN02" | b"UDOMUN03") {
+            decode_optional_issuance_closure(&mut reader)?
+        } else {
+            None
+        };
+        let prior_gracefully_shutdown = if magic == b"UDOMUN03" {
+            reader.byte()? == 1
+        } else {
+            false
+        };
         if !reader.is_empty()
             || before_root == Hash256::ZERO
             || after_root == Hash256::ZERO
@@ -4677,6 +5499,7 @@ impl StateUndo {
             return Err(UsdomStateError::MalformedUndo);
         }
         let undo = Self {
+            legacy_encoding: magic == b"UDOMUN01",
             before_root,
             after_root,
             prior_note_count,
@@ -4686,6 +5509,8 @@ impl StateUndo {
             inserted_burn,
             prior_total_issued,
             prior_total_burned,
+            prior_issuance_closure,
+            prior_gracefully_shutdown,
             prior_ethereum_anchor,
             prior_note_anchors,
         };
@@ -4806,6 +5631,8 @@ fn validate_v2_commitment(state: &StateCommitmentV2) -> Result<(), UsdomStateErr
     if state.note_count != state.note_set_count
         || state.burn_count != state.burn_request_count
         || state.total_burned > state.total_issued
+        || (state.gracefully_shutdown
+            && (state.issuance_closure.is_none() || state.total_burned != state.total_issued))
         || state.anchor_count == 0
         || state.anchor_count > NOTE_ANCHOR_HISTORY as u64
         || state.execution_anchor_count > state.deposit_count
@@ -4834,6 +5661,15 @@ fn validate_v2_commitment(state: &StateCommitmentV2) -> Result<(), UsdomStateErr
         anchor.validate()?;
         if anchor.genesis_validators_root != state.ethereum_genesis_validators_root {
             return Err(UsdomStateError::BridgeIdentityMismatch);
+        }
+    }
+    if let Some(closure) = state.issuance_closure {
+        validate_issuance_closure_record(&closure, state.domain, state.total_issued)?;
+        if closure.reserve != state.reserve
+            || merge_ethereum_anchor(state.ethereum_anchor, Some(closure.ethereum_anchor))?
+                != state.ethereum_anchor
+        {
+            return Err(UsdomStateError::InvalidV2Commitment);
         }
     }
     Ok(())
@@ -5281,6 +6117,8 @@ fn map_sparse_state_error(error: SparseProofError) -> UsdomStateError {
 fn transition_domain(transition: &VerifiedTransition) -> [u8; 32] {
     match transition {
         VerifiedTransition::Issue(value) => value.domain,
+        VerifiedTransition::IssuanceClose(value) => value.domain,
+        VerifiedTransition::GracefulShutdown(value) => value.domain,
         VerifiedTransition::Transfer(value) => value.domain,
         VerifiedTransition::Burn(value) => value.domain,
         VerifiedTransition::EthereumCheckpoint(value) => value.domain,
@@ -5322,6 +6160,7 @@ fn native_set_effects(transition: &VerifiedTransition) -> Vec<NativeSetEffect> {
                 allow_existing: true,
             });
         }
+        VerifiedTransition::IssuanceClose(_) | VerifiedTransition::GracefulShutdown(_) => {}
         VerifiedTransition::Transfer(value) => {
             for nullifier in &value.nullifiers {
                 effects.push(NativeSetEffect {
@@ -5536,6 +6375,14 @@ fn valid_state_commitment(value: &StateCommitment) -> bool {
             anchor.validate().is_ok()
                 && anchor.genesis_validators_root == value.ethereum_genesis_validators_root
         })
+        && value.issuance_closure.is_none_or(|closure| {
+            validate_issuance_closure_record(&closure, value.domain, value.total_issued).is_ok()
+                && closure.reserve == value.reserve
+                && merge_ethereum_anchor(value.ethereum_anchor, Some(closure.ethereum_anchor))
+                    == Ok(value.ethereum_anchor)
+        })
+        && (!value.gracefully_shutdown
+            || (value.issuance_closure.is_some() && value.total_burned == value.total_issued))
 }
 
 fn state_commitment_root(value: &StateCommitment) -> Hash256 {
@@ -5571,6 +6418,13 @@ fn state_commitment_root(value: &StateCommitment) -> Hash256 {
         }
         None => bytes.push(0),
     }
+    if let Some(closure) = value.issuance_closure {
+        bytes.push(1);
+        encode_issuance_closure_record(&mut bytes, closure);
+    }
+    if value.gracefully_shutdown {
+        bytes.push(1);
+    }
     blake2b_256_tagged(TAG_STATE, &bytes)
 }
 
@@ -5581,7 +6435,14 @@ fn state_commitment_v2_root(value: &StateCommitmentV2) -> Hash256 {
 }
 
 fn encode_state_commitment_v2_body(bytes: &mut Vec<u8>, value: &StateCommitmentV2) {
-    bytes.extend_from_slice(&STATE_COMMITMENT_V2_VERSION.to_be_bytes());
+    let version = if value.gracefully_shutdown {
+        STATE_COMMITMENT_V2_VERSION
+    } else if value.issuance_closure.is_some() {
+        CLOSURE_STATE_COMMITMENT_V2_VERSION
+    } else {
+        HISTORICAL_STATE_COMMITMENT_V2_VERSION
+    };
+    bytes.extend_from_slice(&version.to_be_bytes());
     bytes.extend_from_slice(&value.domain);
     bytes.extend_from_slice(&value.ethereum_genesis_validators_root);
     bytes.extend_from_slice(&value.ethereum_chain_id);
@@ -5616,6 +6477,12 @@ fn encode_state_commitment_v2_body(bytes: &mut Vec<u8>, value: &StateCommitmentV
         }
         None => bytes.push(0),
     }
+    if version >= CLOSURE_STATE_COMMITMENT_V2_VERSION {
+        encode_optional_issuance_closure(bytes, value.issuance_closure);
+    }
+    if version == STATE_COMMITMENT_V2_VERSION {
+        bytes.push(u8::from(value.gracefully_shutdown));
+    }
 }
 
 fn anchor_history_root(anchors: &VecDeque<NoteAnchor>) -> Hash256 {
@@ -5641,6 +6508,78 @@ fn encode_ethereum_anchor(bytes: &mut Vec<u8>, anchor: EthereumAnchor) {
     bytes.extend_from_slice(&anchor.execution_block_timestamp.to_be_bytes());
     bytes.extend_from_slice(&anchor.beacon_slot.to_be_bytes());
     bytes.extend_from_slice(&anchor.beacon_root);
+}
+
+fn encode_optional_issuance_closure(bytes: &mut Vec<u8>, closure: Option<IssuanceClosureRecord>) {
+    match closure {
+        None => bytes.push(0),
+        Some(record) => {
+            bytes.push(1);
+            bytes.extend_from_slice(&record.reserve);
+            bytes.extend_from_slice(&record.total_deposited.to_be_bytes());
+            bytes.extend_from_slice(&record.reserve_config_hash);
+            bytes.extend_from_slice(&record.activation_schedule_commitment);
+            encode_ethereum_anchor(bytes, record.ethereum_anchor);
+            bytes.extend_from_slice(&record.closure_policy_hash);
+        }
+    }
+}
+
+fn encode_issuance_closure_record(bytes: &mut Vec<u8>, record: IssuanceClosureRecord) {
+    bytes.extend_from_slice(&record.reserve);
+    bytes.extend_from_slice(&record.total_deposited.to_be_bytes());
+    bytes.extend_from_slice(&record.reserve_config_hash);
+    bytes.extend_from_slice(&record.activation_schedule_commitment);
+    encode_ethereum_anchor(bytes, record.ethereum_anchor);
+    bytes.extend_from_slice(&record.closure_policy_hash);
+}
+
+fn decode_issuance_closure_record(
+    reader: &mut UndoReader<'_>,
+) -> Result<IssuanceClosureRecord, UsdomStateError> {
+    Ok(IssuanceClosureRecord {
+        reserve: reader.array()?,
+        total_deposited: u128::from_be_bytes(reader.array()?),
+        reserve_config_hash: reader.array()?,
+        activation_schedule_commitment: reader.array()?,
+        ethereum_anchor: decode_ethereum_anchor(reader)?,
+        closure_policy_hash: reader.array()?,
+    })
+}
+
+fn validate_issuance_closure_record(
+    record: &IssuanceClosureRecord,
+    domain: [u8; 32],
+    total_issued: u128,
+) -> Result<(), UsdomStateError> {
+    record.ethereum_anchor.validate()?;
+    if domain == [0; 32]
+        || record.reserve == [0; 20]
+        || record.total_deposited != total_issued
+        || record.reserve_config_hash == [0; 32]
+        || record.activation_schedule_commitment == [0; 32]
+        || record.closure_policy_hash == [0; 32]
+    {
+        return Err(UsdomStateError::InvalidIssuanceClosure);
+    }
+    Ok(())
+}
+
+fn decode_optional_issuance_closure(
+    reader: &mut UndoReader<'_>,
+) -> Result<Option<IssuanceClosureRecord>, UsdomStateError> {
+    match reader.byte()? {
+        0 => Ok(None),
+        1 => Ok(Some(IssuanceClosureRecord {
+            reserve: reader.array()?,
+            total_deposited: u128::from_be_bytes(reader.array()?),
+            reserve_config_hash: reader.array()?,
+            activation_schedule_commitment: reader.array()?,
+            ethereum_anchor: decode_ethereum_anchor(reader)?,
+            closure_policy_hash: reader.array()?,
+        })),
+        _ => Err(UsdomStateError::MalformedUndo),
+    }
 }
 
 fn encode_note_anchor(bytes: &mut Vec<u8>, anchor: NoteAnchor) {
@@ -5788,6 +6727,8 @@ fn decode_state_commitment(
         anchor_count,
         total_issued,
         total_burned,
+        issuance_closure: None,
+        gracefully_shutdown: false,
         ethereum_anchor,
     })
 }
@@ -5797,10 +6738,37 @@ fn decode_burn_state_witness(bytes: &[u8]) -> Result<BurnStateWitness, UsdomStat
         return Err(UsdomStateError::MalformedBurnWitness);
     }
     let mut reader = WitnessReader::new(bytes);
-    if reader.take(BURN_WITNESS_MAGIC.len())? != BURN_WITNESS_MAGIC {
+    let magic = reader.take(BURN_WITNESS_MAGIC.len())?;
+    let is_legacy = magic == BURN_WITNESS_MAGIC.as_slice();
+    let is_closure = magic == BURN_WITNESS_CLOSURE_MAGIC.as_slice();
+    let is_shutdown = magic == BURN_WITNESS_SHUTDOWN_MAGIC.as_slice();
+    if !(is_legacy || is_closure || is_shutdown) {
         return Err(UsdomStateError::MalformedBurnWitness);
     }
-    let state = decode_state_commitment(&mut reader)?;
+    let mut state = decode_state_commitment(&mut reader)?;
+    if is_closure || is_shutdown {
+        state.issuance_closure = Some(IssuanceClosureRecord {
+            reserve: reader.array()?,
+            total_deposited: u128::from_be_bytes(reader.array()?),
+            reserve_config_hash: reader.array()?,
+            activation_schedule_commitment: reader.array()?,
+            ethereum_anchor: EthereumAnchor {
+                genesis_validators_root: reader.array()?,
+                execution_block_number: u64::from_be_bytes(reader.array()?),
+                execution_block_hash: reader.array()?,
+                execution_block_timestamp: u64::from_be_bytes(reader.array()?),
+                beacon_slot: u64::from_be_bytes(reader.array()?),
+                beacon_root: reader.array()?,
+            },
+            closure_policy_hash: reader.array()?,
+        });
+    }
+    if is_shutdown {
+        if reader.byte()? != 1 {
+            return Err(UsdomStateError::MalformedBurnWitness);
+        }
+        state.gracefully_shutdown = true;
+    }
     let record = decode_burn_record(&mut reader)?;
     let leaf_index = u64::from_be_bytes(reader.array()?);
     let leaf_count = u64::from_be_bytes(reader.array()?);
@@ -6003,6 +6971,28 @@ pub fn unsafe_test_only_issuance(
         note_commitment,
         amount,
         ethereum_anchor,
+    }
+}
+
+#[cfg(feature = "unsafe-test-oracle")]
+/// Build a fixture issuance-closure capability. Debug/test builds only.
+pub fn unsafe_test_only_issuance_close(
+    domain: [u8; 32],
+    reserve: [u8; 20],
+    total_deposited: u128,
+    reserve_config_hash: [u8; 32],
+    activation_schedule_commitment: [u8; 32],
+    ethereum_anchor: EthereumAnchor,
+    closure_policy_hash: [u8; 32],
+) -> VerifiedIssuanceClose {
+    VerifiedIssuanceClose {
+        domain,
+        reserve,
+        total_deposited,
+        reserve_config_hash,
+        activation_schedule_commitment,
+        ethereum_anchor,
+        closure_policy_hash,
     }
 }
 
@@ -6394,6 +7384,13 @@ mod tests {
             hex::encode(Keccak256::digest(&bytes)),
             "ca28e857bc63a31044b7f9b86302f4bdaa72d9c45ef97c718e33517664c0ba93"
         );
+        for end in 0..bytes.len() {
+            assert_eq!(
+                NativeSetTransitionWitness::from_bytes(&bytes[..end]),
+                Err(UsdomStateError::MalformedSetWitness),
+                "accepted UDNSET01 truncation at {end}"
+            );
+        }
         let set_next = set_witness
             .apply_sets(previous, &burn)
             .expect("apply burn sets");
@@ -6437,6 +7434,12 @@ mod tests {
         noncanonical_flags[9] |= 1 << 7;
         assert_eq!(
             NativeSetTransitionWitness::from_bytes(&noncanonical_flags),
+            Err(UsdomStateError::MalformedSetWitness)
+        );
+        let mut oversized_first_proof = bytes.clone();
+        oversized_first_proof[10..12].copy_from_slice(&u16::MAX.to_be_bytes());
+        assert_eq!(
+            NativeSetTransitionWitness::from_bytes(&oversized_first_proof),
             Err(UsdomStateError::MalformedSetWitness)
         );
         let restored = NativeUsdomState::restore_entries(bridge(DOMAIN), &state.export_entries())
@@ -6761,6 +7764,39 @@ mod tests {
     }
 
     #[test]
+    fn monetary_separation_authorizes_only_deposit_issuance_and_private_burn() {
+        let mut state = NativeUsdomState::new(bridge(DOMAIN)).unwrap();
+        let issuance = issue(1, 2, 1_000, 100);
+        assert_eq!(
+            expected_monetary_totals(7, 3, &issuance).unwrap(),
+            (1_007, 3)
+        );
+        state.apply(context(), &issuance).unwrap();
+
+        let checkpoint = checkpoint(eth(101));
+        assert_eq!(
+            expected_monetary_totals(1_000, 0, &checkpoint).unwrap(),
+            (1_000, 0)
+        );
+        state.apply(context(), &checkpoint).unwrap();
+
+        let transfer = transfer(&state, &[3], &[4]);
+        assert_eq!(
+            expected_monetary_totals(1_000, 0, &transfer).unwrap(),
+            (1_000, 0)
+        );
+        state.apply(context(), &transfer).unwrap();
+
+        let burn = burn(&state, 5, &[6], 7, 8, 250);
+        assert_eq!(
+            expected_monetary_totals(1_000, 0, &burn).unwrap(),
+            (1_000, 250)
+        );
+        state.apply(context(), &burn).unwrap();
+        assert_eq!((state.total_issued(), state.total_burned()), (1_000, 250));
+    }
+
+    #[test]
     fn burn_state_witness_binds_every_ordered_set_shape_and_state_component() {
         for burn_count in 1u8..=17 {
             let mut state = NativeUsdomState::new(bridge(DOMAIN)).unwrap();
@@ -6837,6 +7873,101 @@ mod tests {
                         UsdomStateError::MalformedBurnWitness
                     );
                 }
+
+                let witness_v2 = state.burn_state_witness_v2(&burn_id).unwrap().unwrap();
+                let state_root_v2 = state.state_commitment_v2().unwrap().root();
+                assert!(witness_v2.verify(state_root_v2));
+                let encoded_v2 = witness_v2.to_bytes().unwrap();
+                assert!(encoded_v2.len() <= MAX_BURN_STATE_WITNESS_V2_BYTES);
+                assert_eq!(
+                    BurnStateWitnessV2::from_bytes(&encoded_v2).unwrap(),
+                    witness_v2
+                );
+
+                let mut wrong_v2_record = witness_v2.clone();
+                wrong_v2_record.burn.amount += 1;
+                assert!(!wrong_v2_record.verify(state_root_v2));
+
+                let mut wrong_v2_state = witness_v2.clone();
+                wrong_v2_state.state.total_burned += 1;
+                assert!(!wrong_v2_state.verify(state_root_v2));
+
+                let mut wrong_v2_proof = encoded_v2.clone();
+                let last = wrong_v2_proof.len() - 1;
+                wrong_v2_proof[last] ^= 1;
+                assert!(BurnStateWitnessV2::from_bytes(&wrong_v2_proof).is_err());
+            }
+
+            let records = state.burn_records();
+            let target_id = records.last().unwrap().burn_id;
+            assert_eq!(
+                BurnStateWitnessV2::from_burn_records(
+                    state.state_commitment_v2().unwrap(),
+                    target_id,
+                    &records,
+                )
+                .unwrap()
+                .unwrap(),
+                state.burn_state_witness_v2(&target_id).unwrap().unwrap()
+            );
+            if burn_count == 17 {
+                assert_eq!(
+                    BurnStateWitnessV2::from_burn_records(
+                        state.state_commitment_v2().unwrap(),
+                        [0xfe; 32],
+                        &records,
+                    )
+                    .unwrap(),
+                    None
+                );
+
+                let mut missing = records.clone();
+                missing.pop();
+                assert_eq!(
+                    BurnStateWitnessV2::from_burn_records(
+                        state.state_commitment_v2().unwrap(),
+                        target_id,
+                        &missing,
+                    )
+                    .unwrap_err(),
+                    UsdomStateError::MalformedBurnWitness
+                );
+
+                let mut duplicate_burn = records.clone();
+                duplicate_burn.push(records[0]);
+                assert_eq!(
+                    BurnStateWitnessV2::from_burn_records(
+                        state.state_commitment_v2().unwrap(),
+                        target_id,
+                        &duplicate_burn,
+                    )
+                    .unwrap_err(),
+                    UsdomStateError::BurnAlreadyExists
+                );
+
+                let mut duplicate_request = records.clone();
+                let mut replacement = records[0];
+                replacement.burn_id = [0xfd; 32];
+                replacement.obligation_commitment =
+                    replacement.expected_obligation_commitment(state.domain());
+                duplicate_request.push(replacement);
+                assert_eq!(
+                    BurnStateWitnessV2::from_burn_records(
+                        state.state_commitment_v2().unwrap(),
+                        target_id,
+                        &duplicate_request,
+                    )
+                    .unwrap_err(),
+                    UsdomStateError::BurnRequestAlreadyExists
+                );
+
+                let mut wrong_total = state.state_commitment_v2().unwrap();
+                wrong_total.total_burned += 1;
+                assert_eq!(
+                    BurnStateWitnessV2::from_burn_records(wrong_total, target_id, &records)
+                        .unwrap_err(),
+                    UsdomStateError::MalformedBurnWitness
+                );
             }
 
             let restored =
@@ -6845,6 +7976,10 @@ mod tests {
             assert_eq!(
                 restored.burn_state_witness(&[burn_count; 32]).unwrap(),
                 state.burn_state_witness(&[burn_count; 32]).unwrap()
+            );
+            assert_eq!(
+                restored.burn_state_witness_v2(&[burn_count; 32]).unwrap(),
+                state.burn_state_witness_v2(&[burn_count; 32]).unwrap()
             );
         }
     }
@@ -8231,5 +9366,119 @@ mod tests {
             noncanonical.to_bytes().unwrap_err(),
             UsdomStateError::MalformedUndo
         );
+    }
+
+    #[test]
+    fn issuance_closure_is_terminal_persisted_and_exactly_reversible() {
+        let mut state = NativeUsdomState::new(bridge(DOMAIN)).unwrap();
+        state.apply(context(), &issue(1, 2, 100, 100)).unwrap();
+        let before_close = state.state_root();
+        let close = VerifiedTransition::IssuanceClose(VerifiedIssuanceClose {
+            domain: DOMAIN,
+            reserve: bridge(DOMAIN).reserve,
+            total_deposited: 100,
+            reserve_config_hash: [0x71; 32],
+            activation_schedule_commitment: [0x72; 32],
+            ethereum_anchor: eth(101),
+            closure_policy_hash: [0x73; 32],
+        });
+        assert_projection_roundtrip(&close);
+        let (_, undo) = state.apply(context(), &close).unwrap();
+        assert_eq!(state.issuance_closure().unwrap().total_deposited, 100);
+        assert_eq!(
+            state.apply(context(), &issue(3, 4, 1, 102)).unwrap_err(),
+            UsdomStateError::IssuanceClosed
+        );
+
+        let encoded_v2 = state.state_commitment_v2().unwrap().to_bytes().unwrap();
+        assert_eq!(
+            StateCommitmentV2::from_bytes(&encoded_v2).unwrap(),
+            state.state_commitment_v2().unwrap()
+        );
+        let entries = state.export_entries();
+        let restored = NativeUsdomState::restore_entries(bridge(DOMAIN), &entries).unwrap();
+        assert_eq!(restored.state_root(), state.state_root());
+        assert_eq!(restored.issuance_closure(), state.issuance_closure());
+
+        state.revert(&undo).unwrap();
+        assert_eq!(state.state_root(), before_close);
+        assert_eq!(state.issuance_closure(), None);
+        state.apply(context(), &issue(3, 4, 1, 102)).unwrap();
+    }
+
+    #[test]
+    fn issuance_closure_rejects_a_total_other_than_issued_collateral() {
+        let mut state = NativeUsdomState::new(bridge(DOMAIN)).unwrap();
+        state.apply(context(), &issue(1, 2, 100, 100)).unwrap();
+        let close = VerifiedTransition::IssuanceClose(VerifiedIssuanceClose {
+            domain: DOMAIN,
+            reserve: bridge(DOMAIN).reserve,
+            total_deposited: 99,
+            reserve_config_hash: [0x71; 32],
+            activation_schedule_commitment: [0x72; 32],
+            ethereum_anchor: eth(101),
+            closure_policy_hash: [0x73; 32],
+        });
+        assert_eq!(
+            state.apply(context(), &close).unwrap_err(),
+            UsdomStateError::InvalidIssuanceClosure
+        );
+    }
+
+    #[test]
+    fn graceful_shutdown_requires_closure_and_complete_burn_and_is_reversible() {
+        let mut state = NativeUsdomState::new(bridge(DOMAIN)).unwrap();
+        let shutdown =
+            VerifiedTransition::GracefulShutdown(graceful_shutdown_transition(DOMAIN).unwrap());
+        assert_projection_roundtrip(&shutdown);
+        assert_eq!(
+            state.apply(context(), &shutdown).unwrap_err(),
+            UsdomStateError::InvalidGracefulShutdown
+        );
+
+        state.apply(context(), &issue(1, 2, 100, 100)).unwrap();
+        let close = VerifiedTransition::IssuanceClose(VerifiedIssuanceClose {
+            domain: DOMAIN,
+            reserve: bridge(DOMAIN).reserve,
+            total_deposited: 100,
+            reserve_config_hash: [0x71; 32],
+            activation_schedule_commitment: [0x72; 32],
+            ethereum_anchor: eth(101),
+            closure_policy_hash: [0x73; 32],
+        });
+        state.apply(context(), &close).unwrap();
+        assert_eq!(
+            state.apply(context(), &shutdown).unwrap_err(),
+            UsdomStateError::InvalidGracefulShutdown
+        );
+        let final_burn = burn(&state, 3, &[], 4, 5, 100);
+        state.apply(context(), &final_burn).unwrap();
+        let before_shutdown = state.state_root();
+        let (_, undo) = state.apply(context(), &shutdown).unwrap();
+        assert!(state.is_gracefully_shutdown());
+        assert_eq!(state.outstanding(), 0);
+
+        let entries = state.export_entries();
+        let restored = NativeUsdomState::restore_entries(bridge(DOMAIN), &entries).unwrap();
+        assert!(restored.is_gracefully_shutdown());
+        assert_eq!(restored.state_root(), state.state_root());
+        let burn_id = match final_burn {
+            VerifiedTransition::Burn(ref value) => value.record.burn_id,
+            _ => unreachable!(),
+        };
+        let witness = state.burn_state_witness(&burn_id).unwrap().unwrap();
+        let witness_bytes = witness.to_bytes().unwrap();
+        assert_eq!(
+            BurnStateWitness::from_bytes(&witness_bytes).unwrap(),
+            witness
+        );
+        assert_eq!(
+            state.apply(context(), &shutdown).unwrap_err(),
+            UsdomStateError::InvalidGracefulShutdown
+        );
+
+        state.revert(&undo).unwrap();
+        assert!(!state.is_gracefully_shutdown());
+        assert_eq!(state.state_root(), before_shutdown);
     }
 }

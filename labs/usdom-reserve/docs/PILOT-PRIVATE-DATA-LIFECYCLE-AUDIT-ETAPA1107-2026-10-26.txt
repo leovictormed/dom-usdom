@@ -1,0 +1,42 @@
+USDOM — auditoria do ciclo de vida de dados privados do piloto (Etapa 1107)
+Data: 2026-10-26
+
+Escopo
+- Executores fechados de depósito e resgate em Ethereum mainnet.
+- Transações assinadas brutas, saídas Ledger, credenciais RPC e artefatos temporários.
+- Revisão estática de rotinas existentes de carteira, testemunha de burn e recuperação.
+
+Achados corrigidos
+1. As transações assinadas eram copiadas para variável shell, variável de ambiente e
+   argumento de `cast publish`, ficando observáveis em /proc e herdáveis por filhos.
+2. Arquivos transitórios dos executores eram criados no /tmp persistente e a limpeza
+   cobria somente EXIT, sem tratamento explícito de HUP/INT/TERM.
+3. A leitura por caminho fazia validação anterior à abertura, deixando uma janela
+   de troca do inode.
+4. O raw persistia após confirmação finalizada, embora hash, recibo e finalidade
+   sejam suficientes para a evidência operacional.
+
+Controles implementados
+- Raw trafega somente por arquivo 0600, uid atual, arquivo regular, nlink=1 e tamanho
+  limitado, aberto com O_NOFOLLOW e validado por fstat no descritor aberto.
+- O valor do raw não entra em argv, ambiente, log ou evidência. O publicador recebe
+  apenas o caminho privado e uma URL HTTPS sem credenciais; envia o raw apenas no
+  corpo JSON-RPC e imprime somente o hash público da transação.
+- Saída Ledger e todos os candidatos transitórios ficam em diretório 0700 no tmpfs
+  /dev/shm. Traps EXIT/HUP/INT/TERM removem o diretório e limpam a variável de caminho.
+- O raw durável existe somente para retomada entre assinatura e finalidade; após
+  confirmação finalizada coerente em duas RPCs ele é apagado. Permanecem hashes,
+  recibos, endereços e deltas públicos necessários.
+- URLs RPC com usuário/senha ou protocolo diferente de HTTPS são rejeitadas.
+
+Verificação
+- Node pinado: 11/11 testes focais passaram.
+- `bash -n` dos dois executores e do publicador: passou.
+- `git diff --check`: passou.
+- Uma rodada ampla encontrou três falhas preexistentes/não relacionadas em asserts
+  textuais antigos e no coletor de burn; nenhuma foi mascarada ou alterada neste
+  escopo.
+
+Restrições observadas
+- Nenhuma rede, assinatura, geração/leitura de segredo, Cargo, Forge, deploy, commit
+  ou push foi executado.

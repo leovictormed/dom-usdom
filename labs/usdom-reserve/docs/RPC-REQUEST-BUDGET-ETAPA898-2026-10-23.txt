@@ -1,0 +1,19 @@
+ETAPA 898 — reconciliação recovery e orçamento de requests RPC
+Data: 2026-10-23
+
+Reconciliação das regressões
+- O validador do raw journal já validava integralmente o envelope assinado, mas encaminhava sua projeção raw ao schema distinto de receipt finalizado. Removido esse cruzamento inválido; as validações de chain, sender, Safe, value, calldata, nonce, gas e fees permanecem.
+- O teste de publicação esperava `cmp` literal; o script atual usa o binário autenticado `$cmp_bin`. O teste foi alinhado à forma mais forte atual.
+- Suíte combinada recovery/RPC: 24/24.
+
+Orçamento dos 22 providers
+- Todos os 22 usam o transporte compartilhado bounded ou wrappers que o possuem.
+- Novo teto por instância: 256 requests; configuração aceita somente inteiro 1..1024.
+- O 257º request falha antes de chamar o transporte.
+- O provider não faz retry automático: uma invocação produz no máximo um fetch.
+- Catálogos/quóruns mainnet continuam limitados a 2..5 fontes distintas; batch JSON-RPC permanece desativado.
+- Timeout, resposta máxima, destroy e agora request count formam limites independentes.
+
+Regressão
+- maxRequests 0, 1025 e NaN são rejeitados.
+- Com teto 2, duas chamadas alcançam o fetch e a terceira falha; contador confirma ausência de retry.

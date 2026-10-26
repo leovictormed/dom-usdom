@@ -1,0 +1,51 @@
+USD + DOM — evidência semântica de capacidade da prova de checkpoint
+Etapa 323 — 2026-10-22
+
+Problema corrigido
+
+O gate exigia recibos positivos e medições de custo para RandomX, economia por
+chunk, economia por bloco, segmento, composição externa e verificação EVM. Os
+booleans permaneciam corretamente falsos, porém ainda não existia um documento
+de release com esquema estrito que permitisse provar esses resultados sem
+depender apenas de hashes de arquivos ou de alterações manuais no ledger.
+
+Implementação
+
+- `sdk/checkpoint-proof-capacity-report.mjs` define e valida o esquema exato
+  `usdom-checkpoint-proof-capacity-report-v1`.
+- O relatório vincula `releaseId`, commit-fonte, Ethereum mainnet, registry,
+  adaptador, runtime e config hash do adaptador e o verificador RISC Zero
+  publicado e fixado para mainnet.
+- As seis camadas aparecem uma única vez e em ordem canônica: RandomX por
+  bloco, agregador RandomX, economic-chunk, economic-block, segment e outer. Cada camada exige programa,
+  ImageID, entrada, journal, recibo succinct verificado, contagem positiva,
+  tamanho, tempo, memória e limite de segmento.
+- O recibo externo também exige compressão Groth16, seal EVM, chamada aceita
+  pelo adaptador e consumo de gas positivo limitado a 5.000.000.
+- O relatório exige prover local RISC Zero 3.0.6, um worker, modo não-dev,
+  nenhuma mineração, nenhuma autorização de broadcast e hashes distintos para
+  todos os artefatos registrados.
+- Alturas, span e profundidade de confirmação são reconciliados com o manifesto
+  do verificador; identidade do programa externo, ImageIDs e config hash são
+  recomputados ou comparados com fontes fixadas.
+- `checkpointProofCapacityReport` agora é um documento obrigatório da release.
+  Um arquivo ausente, com hash incorreto, JSON inválido ou conteúdo semanticamente
+  divergente mantém o gate fechado com erro estável.
+- `production_checkpoint_capacity_report_semantically_validated` é uma
+  dependência concreta de `consensus_proof_implemented`.
+
+Validação
+
+- testes dedicados do relatório: 2/2;
+- testes dedicados mais readiness: 46/46;
+- verificações de sintaxe Node e claims de implementação: aprovadas;
+- mutações cobrem esquema, release, commit, rede, contratos, hashes, alturas,
+  todas as camadas, recibos, custos, gas, modo dev, workers, mineração e
+  broadcast.
+
+Limite honesto
+
+Esta etapa implementa o formato fail-closed e sua integração ao gate. Ela não
+afirma que os recibos ou medições operacionais já existem. Os fatos de recibo,
+capacidade e gas continuam falsos até a execução criptográfica real terminar e
+o relatório correspondente ser materializado e validado.

@@ -1,0 +1,17 @@
+USD0M stage 445 - authenticated Ethereum checkpoint consensus input
+
+The pre-activation flow now derives its Ethereum mainnet checkpoint from three
+catalogued, distinct HTTPS Beacon API origins. Each source must agree on the
+stable finalized checkpoint and expose a light-client bootstrap whose Beacon
+header, SyncCommittee SSZ root and Merkle branch verify locally. Genesis,
+fork, optimism, canonicality, freshness, response size and duplicate-key
+checks fail closed.
+
+The public catalog stores only operator identifiers and Keccak commitments to
+origins. It is create-once and is bound into the consensus result. URLs and
+credentials are never written to evidence. This proves consistency between
+the configured sources; organizational independence still requires operator
+review when the catalog is materialized.
+
+No live RPC request, signature, deployment, transaction or funds were used
+while implementing and testing this stage.

@@ -1,0 +1,17 @@
+VERIFY-ONLY BUILD ATTESTATION REPLAY AUDIT — STAGE 1120 (2026-10-26)
+
+Scope
+- Audited build-attestation substitution and replay without touching Rust, Cargo manifests/lock, rust-toolchain or running Cargo.
+
+Finding and correction
+- Attestation v1 separately repeated command/tool/source claims but lacked one canonical commitment over the complete build input and did not bind binary length. This complicated independent replay-equivalence checks and allowed older schema documents to reach field validation.
+- Attestation v2 adds `buildInputCommitment`, the SHA-256 of a canonical closed object containing policy hash, source-closure hash, Cargo/rustc hashes, target, package, binary, exact argv and exact sanitized environment.
+- It also binds `binarySize` alongside `binarySha256`. Installer validation occurs after one stable descriptor capture of the source binary; materializer reuses the size from its authenticated capture rather than rereading the path.
+- V1, stale closure, altered input commitment, changed size, feature/tool/environment changes and duplicate JSON keys fail closed. Duplicate-key rejection removes parser ambiguity before any claim is interpreted.
+- An old attestation can be replayed only when policy bytes/hash, entire source closure, compiler hashes, target, command/environment and output bytes/size are identical. Such a replay is build-equivalent; additionally both installer and materializer require the operator-supplied exact attestation-file SHA-256.
+
+Validation
+- Pinned Node installer/materializer suite: 8/8 PASS.
+- Python compilation and scoped diff integrity: PASS.
+
+Final repository closure pins were deliberately not refreshed while the coordinator's Cargo workspace run and Rust corrections were active. Those pins and the final publication checker remain pending a stable post-run snapshot. No Rust/Cargo/toolchain edit, Cargo, Forge, network, MANIFEST regeneration, deploy, signing, funds, commit or push occurred in this stage.

@@ -1,0 +1,21 @@
+ETAPA934 — PROOF-HOST PRIVATE BUFFER LIFECYCLE
+Date: 2026-10-23
+
+Classification
+- Public: program ELF/image IDs, statements, journals, receipts and proof seals.
+- Private plaintext: 10 source-read buffers — 2 checkpoint private inputs, 4
+  economic private inputs/chunk witnesses, 1 RandomX aggregate private input,
+  and 3 finalized-burn prover inputs.
+- Private source files are intentional owner-only staged inputs. No production
+  tempfile or mmap is used in these reads; public receipts remain durable.
+
+Correction and limits
+- All 10 private read buffers now enter Zeroizing<Vec<u8>> immediately and erase
+  capacity on success and every error return. The four host crates explicitly
+  depend on workspace zeroize. Public artifacts are not unnecessarily erased.
+- Zeroization limits heap lifetime but cannot guarantee exclusion from swap or
+  a privileged memory/core capture; launcher core/dump controls remain the
+  corresponding process boundary.
+
+Validation
+- Structural test 1/1, rustfmt and diff-check pass. No build or proof executed.

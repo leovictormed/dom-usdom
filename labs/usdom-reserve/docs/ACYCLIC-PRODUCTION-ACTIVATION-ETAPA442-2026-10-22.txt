@@ -1,0 +1,56 @@
+USD + DOM — identidade de produção pré-ativação acíclica
+Etapa 442 — 2026-10-22
+
+Problema corrigido
+------------------
+O estado vazio USDOM precisa autenticar os runtimes Ethereum e o hash de
+configuração do checkpoint. Esses runtimes e esse hash incorporavam a própria
+raiz vazia e o compromisso da agenda de ativação. Como a agenda também deriva
+da raiz vazia, a configuração exigia um ponto fixo de Keccak impraticável. A
+release jamais poderia ser materializada honestamente.
+
+Correção
+--------
+- `USDOMProofReserve` mantém `reserveConfigHash` e
+  `activationScheduleCommitment` como estado somente gravado no construtor.
+  Um novo `PRODUCTION_RESERVE_PREACTIVATION_CONFIG_HASH` compila e verifica
+  todos os campos de identidade e política que já existem antes da ativação.
+- `DOMCheckpointRegistry` mantém `checkpointConfigHash` no slot zero e grava o
+  compromisso de ativação e a raiz vazia nos slots um e dois. Seu hash de
+  configuração pré-ativação exclui apenas esses dois valores dependentes; o
+  bootstrap também não reintroduz a raiz por `initialStateRoot`.
+- O construtor continua exigindo `initialStateRoot == activationEmptyStateRoot`.
+  A raiz inicial entra no estado canônico e no evento bootstrap. Cada statement
+  de checkpoint autentica o compromisso de ativação, o predecessor state root
+  e o `checkpointConfigHash`. Cada statement de burn continua autenticando o
+  compromisso de ativação.
+- Os pins de código/configuração dos dois adapters e os dois hashes
+  pré-ativação continuam obrigatórios e não zero na chain ID 1.
+
+Ordem de derivação agora possível
+---------------------------------
+1. derivar endereços CREATE, adapters, parâmetros e políticas independentes;
+2. materializar os seis pins pré-ativação e compilar os runtimes finais;
+3. construir o estado vazio nativo que autentica esses runtimes/configuração;
+4. derivar a agenda e seu compromisso a partir da raiz vazia;
+5. gerar initcodes com raiz/agenda no construtor e verificar todo o release;
+6. somente após evidência e autorização separada, produzir transações.
+
+Propriedades verificadas
+------------------------
+- mudar agenda ou raiz vazia não altera nenhum runtime pré-ativação;
+- mudar qualquer outro campo coberto altera o runtime/configuração esperado;
+- mudar agenda ou raiz muda o statement correspondente;
+- o hash completo da reserva continua mudando com a agenda;
+- `checkpointConfigHash` permanece exatamente no slot zero;
+- agenda e raiz são imutáveis na prática: não existe função que grave seus
+  slots depois do construtor e não existe upgrade/delegatecall.
+
+Validação
+---------
+- 64/64 testes Node focados passam;
+- 146/146 testes Solidity, fuzz e invariantes passam;
+- compilação Solidity 0.8.37 passa; somente o warning 6335 documentado da
+  dependência OpenZeppelin aparece;
+- nenhum deploy, assinatura, transação, fundo, mineração, commit ou push foi
+  realizado.

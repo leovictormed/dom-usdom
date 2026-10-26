@@ -1,0 +1,27 @@
+DOM/USDOM hardening stage 394 — complete guest artifact inventory
+
+Date: 2026-10-22
+
+The critical proof manifest now authenticates the executable entrypoint,
+crate manifest, pinned lockfile and every committed ELF, ProgramBinary and
+ImageID artifact available for all seven RISC Zero guest builds. It also binds
+the workspace Cargo manifest/lock, central packager manifest and the seven
+reproducible-build scripts.
+
+The inventory deliberately distinguishes host sources from guest executables.
+The 48 host/program-library sources remain subject to the no-production-panic
+rule. Guest entrypoints are hash-authenticated executable artifacts because an
+invalid private witness must abort zkVM execution; applying the host rule to
+their fail-closed `expect`/`panic` paths would be semantically wrong.
+
+Validation completed:
+
+- critical proof inventory: 98/98 exact source/artifact hashes passed;
+- host panic/local-prover/bounded-input/private-output checker: 48/48 passed;
+- checker mutation self-test: passed;
+- all seven guest build scripts parse and retain executable mode: 7/7 passed;
+- repository whitespace validation: passed.
+
+This stage did not rebuild the large guests while the one-worker finalized-
+burn capacity proof was running. Their build scripts remain responsible for
+reproducing and comparing the fixed ELF, ProgramBinary and ImageID values.

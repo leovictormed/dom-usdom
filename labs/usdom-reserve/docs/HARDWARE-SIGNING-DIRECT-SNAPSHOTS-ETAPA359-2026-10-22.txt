@@ -1,0 +1,42 @@
+USD + DOM — assinaturas de hardware vinculadas a snapshots diretos
+Etapa 359 — 2026-10-22
+
+Problema corrigido
+
+Os comandos de assinatura do Safe validavam metadados dos arquivos e depois os
+reabriam diversas vezes por caminho com `jq`. Uma substituição durante a sessão
+do Ledger poderia fazer o operador assinar um conteúdo diferente do inicialmente
+validado. Os bundles finais eram instalados por caminho.
+
+Correção
+
+- `read-private-file-stdout.mjs` lê exatamente um inode regular, proprietário,
+  0600, de link único, com `O_NOFOLLOW`, limites de tamanho e detecção de
+  mutação;
+- o assinador de autorização de release/atestações e o assinador da recuperação
+  Safe copiam plano, pacote, baseline, pedido e bundle para snapshots privados
+  em `/dev/shm` antes de qualquer confirmação ou acesso ao Ledger;
+- todas as validações e dados tipados assinados usam exclusivamente esses
+  snapshots;
+- imediatamente antes da publicação, cada origem é relida pela mesma fronteira
+  e precisa ser byte a byte idêntica ao snapshot assinado;
+- assinaturas e pacotes finais são publicados pelo instalador durável com
+  diretório fixado e modo 0600, em vez de `install` por caminho.
+
+Validação inicial
+
+- sintaxe Bash/JavaScript e ShellCheck: passaram;
+- leitor direto retornou bytes exatos e rejeitou symlink e hardlink;
+- testes estruturais dos dois fluxos de Ledger confirmam snapshot, releitura,
+  comparação e publicação durável;
+- testes focados: 3/3 passaram;
+- lint e compilação forçada dos 44 fontes Solidity de produção: passaram;
+- regressão Node completa: 300/300 testes passaram;
+- proveniência completa: 169 importações, 45 fontes de prova e 1.136 fontes
+  do manifesto foram verificadas;
+- gate não configurado: permaneceu nos 161 fatos derivados esperados;
+- `git diff --check`: passou.
+
+Nenhum dispositivo Ledger foi acessado e nenhuma assinatura real foi produzida.
+Nenhum push, commit, tag, deploy, broadcast, mineração ou uso de fundos ocorreu.
+O prover ativo não foi alterado nem reiniciado.

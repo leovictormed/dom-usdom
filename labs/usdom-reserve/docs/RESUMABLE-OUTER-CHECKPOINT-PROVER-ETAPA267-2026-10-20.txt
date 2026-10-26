@@ -1,0 +1,59 @@
+Stage 267 - Resumable local succinct outer checkpoint prover
+Date: 2026-10-20
+
+Outcome
+
+A separate explicitly invoked lifecycle can now consume the authenticated stage
+266 outer job and generate its final succinct RISC Zero receipt locally. This
+stage compiled and tested the path; it did not invoke proving or create a proof.
+
+Fail-closed lifecycle
+
+1. Proving requires exact RISC0_PROVER=local and RISC0_DEV_MODE=0, a local
+   prover identity and succinct options with development mode disabled.
+2. The host rebuilds the full authenticated outer plan without publishing it,
+   then requires byte equality with the published job index, UDCPST04 statement
+   and UDCOUT01 chain. This repeats every source, artifact and segment-receipt
+   validation immediately before expensive work.
+3. The outer ELF is reread and rehashed. Every complete-segment receipt has
+   already been decoded without trailing bytes, required to be succinct,
+   cryptographically verified under the pinned segment ImageID and matched to
+   its exact transition journal before becoming a guest assumption.
+4. Guest input ordering exactly matches the reviewed outer guest: fixed-width
+   statement, length-prefixed policy, length-prefixed previous-state opening
+   and length-prefixed chain.
+5. An existing outer receipt is resumed only after succinct-kind, outer ImageID
+   and exact statement-hash journal verification. Invalid regular receipts are
+   removed and recomputed; symlinks fail closed. New receipts are verified
+   immediately before atomic publication.
+6. The final receipt-set index is atomically published only after verification
+   and binds the job hash, outer ImageID, statement hash, receipt hash/size,
+   RISC Zero version and explicit non-development proof claims.
+
+Operator boundary
+
+The fixed command is:
+
+  npm run --silent prove:authenticated-checkpoint-outer
+
+It accepts no arguments, fields, secrets or remote prover credentials and
+removes remote prover variables. Running it is expensive and remains subject
+to explicit operator authorization; it was not run in this stage.
+
+Verification
+
+- locked prove-feature all-target compilation: passed;
+- locked prove-feature unit test: 1/1 passed;
+- strict all-target prove-feature Clippy with warnings denied: passed;
+- focused readiness/operator mutation tests: 52/52 passed;
+- no proof, r0vm execution, mining, RPC, deployment, signing, fund movement,
+  commit or push occurred.
+
+Remaining boundary
+
+Positive segment and outer receipt execution and measured proof cost remain
+false until explicitly authorized proving runs produce evidence. Receipt
+compression, EVM verification/gas measurement, release ratification, exact
+mainnet identities and custody ceremonies remain objective release blockers.
+External audit availability and an impossible zero-risk guarantee are not
+blockers.

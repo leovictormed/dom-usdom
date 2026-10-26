@@ -1,0 +1,19 @@
+VERIFY-ONLY BUILD POLICY AUDIT — STAGE 1119 (2026-10-26)
+
+Scope
+- Pinned the exact toolchain, target, command, feature graph and environment required to build the verify-only receipt executable. No Cargo build was run.
+
+Finding and correction
+- Source/binary hashes alone did not prove the binary was built with only `verify`; Cargo feature unification, `prove`, dev mode, wrappers, RUSTFLAGS, ambient Cargo config or a different target/toolchain could produce a behaviorally different executable.
+- Added a closed-schema build policy fixing Cargo/rustc 1.98.0 commits and executable hashes, x86_64-unknown-linux-gnu, resolver v2 and the exact command: `cargo build --locked --offline --release --no-default-features --features verify --bin dom-usdom-verify-rebuild-receipt --package dom-usdom-checkpoint-proof-host --target x86_64-unknown-linux-gnu`.
+- The environment is an exact whitelist with offline mode, `RISC0_DEV_MODE=0`, direct pinned rustc, deterministic locale/time/epoch and an isolated config-free CARGO_HOME. Wrapper/RUSTFLAGS variables are explicitly forbidden.
+- `rust-toolchain.toml` now selects 1.98.0 instead of mutable `stable`; its hash is in the 269-file repository closure.
+- The checker independently requires empty default features, exact `verify` and separate `prove` features, verify-only bin required-features, risc0 3.0.6 with `default-features=false`, `std` plus `disable-dev-mode`, optional bincode, resolver v2, tool executable hashes, no repository/CARGO_HOME config override, and an exact source-closure commitment.
+- Installer and V3 materializer now require hash-pinned policy plus build attestation binding command, exact environment, tool hashes, target, source closure and output binary hash. A binary without matching build evidence cannot be installed or materialized.
+
+Validation
+- Installer/materializer focused pinned-Node suites: 7/7 PASS. Negative cases cover `prove` substitution, RUSTFLAGS injection, Cargo hash substitution, binary hash substitution and unsafe source mode.
+- Publication checker adversarial/live validation: PASS, 240 lab sources and 269 repository inputs.
+- Python compilation and diff integrity: PASS.
+
+An authenticated build attestation has not been produced; installation/materialization remains fail closed until the exact policy build runs in the isolated environment. No Cargo, Forge, network, MANIFEST regeneration, deploy, signing, funds, commit or push occurred.

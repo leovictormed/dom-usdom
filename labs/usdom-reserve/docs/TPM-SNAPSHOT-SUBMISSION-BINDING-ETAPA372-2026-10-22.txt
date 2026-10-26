@@ -1,0 +1,30 @@
+USDOM stage 372 — captured snapshot and TPM submission publication boundary
+
+The wallet library now restores an encrypted snapshot directly from one exact
+captured envelope. The TPM authority bootstrap uses this API, so filesystem
+identity validation, decryption, rollback-seal validation and decoded wallet
+state all refer to the same bytes without a pathname reopen.
+
+The private-burn submitter now reads the encrypted TPM credential once. The
+bootstrap evidence hash and TPM authorization restoration consume that same
+buffer. This removes the substitution window between credential evidence
+validation and use.
+
+The submitter's monotonic wallet seal and create-only acknowledgement receipt
+now use the shared writer anchored to a retained owner-only parent descriptor.
+The seal keeps atomic replacement semantics; the receipt keeps no-clobber
+semantics. Both are reread and checked after publication. The node declares
+the writer as a direct optional operator dependency, and Cargo.lock was
+updated offline before locked verification.
+
+Validation completed without a live TPM, secret or network submission:
+
+- captured encrypted snapshot round-trip and tamper rejection: pass
+- exact replace/create-only private-byte writer test: pass
+- cargo check --locked -j1 -p dom-node --features usdom-wallet-operator --bins: pass
+- focused operator regression: 62/62 pass
+- cargo fmt --check and repository whitespace validation: pass
+
+No signing, transaction, deployment, funds, mining, commit, tag or push was
+performed. The detached finalized-burn proof remained active and was not
+restarted.

@@ -1,0 +1,18 @@
+ETAPA 891 — inventário focado de lifecycle RPC em MJS
+Data: 2026-10-23
+
+Escopo exato
+- 214 arquivos `scripts/*.mjs` e `sdk/*.mjs` enumerados por `rg --files` restrito.
+- 138 linhas candidatas em 22 arquivos após busca por fetch/provider/JSON-RPC/HTTP.
+- 7 sites `fetch`: todos já têm AbortSignal timeout e leitura de corpo limitada.
+- 22 construções explícitas de JsonRpcProvider/BoundedMainnetPreflightProvider.
+- 16 sites explícitos de `destroy()` após a correção; seis construções ainda exigem análise semântica porque parte da destruição ocorre em wrappers chamadores.
+
+Achado corrigido
+- `prepareSafeControlDeploymentsForPolicy` criava um JsonRpcProvider sem deadline/body bound e nunca o destruía, inclusive em falhas de chain ID, código ou identidade Safe.
+- O default agora é `BoundedMainnetPreflightProvider`, que limita timeout e resposta no transporte compartilhado.
+- Um `finally` destrói o provider em sucesso e em qualquer erro. Factories injetadas em testes preservam compatibilidade.
+
+Validação
+- Regressão positiva e negativa comprova exatamente um `destroy()` em sucesso e falha.
+- Suíte focada Safe deployment: 6/6.

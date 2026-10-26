@@ -1,0 +1,21 @@
+USD0M stage 450 - reproducible dependency builds and live ratification collector
+
+All three reserve dependencies now have source-derived reproducible-build
+reports. The finalized-burn adapter, checkpoint adapter and checkpoint registry
+each require two sequential Forge builds with isolated output/cache paths,
+byte-identical artifacts, pinned compiler/source sets and SDK-derived runtime
+and initcode hashes equal to the immutable release. The adapter reports also
+recompute their exact verifier config; the registry report recomputes its full
+checkpoint config. Inputs are reread after both builds.
+
+The checkpoint-bootstrap ratification now has a live fail-closed collector. It
+uses a create-once catalog of two to five operator IDs and origin commitments,
+keeps URLs and the signature only in runtime environment, derives the exact
+ratification digest, and requires every Ethereum mainnet RPC to agree on one
+stable finalized snapshot, governance codehash and successful EIP-1271 result.
+Strict bounded JSON-RPC rejects redirects, duplicate keys, oversized responses,
+ID mismatches and snapshot drift.
+
+Focused modules and integrated gate tests pass 19/19 for these paths. The real
+isolated builds and live RPC ceremony remain release-time evidence and were not
+executed. No commit, push, deployment, transaction, signature or funds occurred.

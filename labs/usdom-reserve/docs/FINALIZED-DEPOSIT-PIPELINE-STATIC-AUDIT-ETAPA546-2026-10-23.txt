@@ -1,0 +1,86 @@
+Stage 546 — Ethereum-to-DOM finalized deposit pipeline static audit
+Date: 2026-10-23
+
+Scope
+
+- closed deposit preparation and Ethereum transaction binding
+- finalized source collection across execution and Beacon RPCs
+- witness construction and native registration
+- issuance submission and issuance-block production
+- sdk validation for source, registration and issuance documents
+
+Result
+
+No distinct exploitable replay, amount, event ambiguity, finality/state-root,
+reserve/domain or TOCTOU defect was established. No implementation or readiness
+fact was changed. This is negative review evidence, not a completeness claim.
+
+Ethereum event and amount binding
+
+- Deposit preparation fixes Ethereum chain 1, configured USDT and reserve, one
+  1,000,000-base-unit amount, funder, salt and wallet receiving commitment. The
+  deposit ID is recomputed from chain, reserve, funder and salt, and calldata is
+  decoded and compared against the canonical three-transaction plan.
+- Collection requires the named transaction to succeed at the exact configured
+  reserve. Its receipt must contain exactly one `Deposited` log emitted by that
+  reserve, with exactly three topics and exactly two ABI data words.
+- Indexed funder padding is canonical. Amount is decoded as the complete first
+  word and must equal 1,000,000; the second word is a nonzero-compatible BN254
+  scalar commitment. The exact receipt log index and transaction index are
+  retained. Six-decimal policy is fixed in the release/reserve construction and
+  the native pipeline accepts only the fixed base-unit amount.
+
+Finality and state proof binding
+
+- The collector obtains the complete ordered receipt set for the deposit block,
+  encodes typed receipts canonically and requires identity/order agreement with
+  the block transaction list. The witness verifies the receipt inclusion root.
+- Execution headers form a contiguous parent-linked sequence from the deposit
+  block through the execution block named by the Beacon-finality update. The
+  finalized execution hash must equal the last header, and cataloged execution
+  and Beacon sources must reproduce the complete observation twice.
+- The reserve account proof and runtime bytecode are collected at the deposit
+  block. The account address is the exact reserve and runtime Keccak must equal
+  the account proof code hash; the native witness verifies the account proof
+  against that header's state root and release-bound runtime policy.
+- Release configuration SHA-256, native manifest SHA-256, source catalog and
+  source-set commitment accompany the witness inputs. Source inputs are reread
+  before durable create-once publication.
+
+Replay, registration and issuance
+
+- The verified witness index binds deposit ID, amount, receiving commitment,
+  exact witness bytes/hash and native manifest. Encrypted wallet registration
+  repeats those values plus note commitment and create-once snapshot metadata.
+- Wallet state registration refuses replacement of an existing state directory
+  and rechecks every fixed input and executable hash around TPM unlock and
+  registration. DOM identity is captured twice before registration.
+- Issuance persists a create-once intent keyed by the same deposit/witness/note
+  binding before POST. It rereads every input before submission and again after
+  admission, checks DOM chain/genesis identity across the call, and durably
+  records the queued candidate. Native consensus owns the ultimate duplicate
+  deposit rejection, so crash retry is idempotent by deposit ID rather than a
+  second issuance authority.
+- Block production rechecks the canonical DOM identity and all submission inputs
+  before and after production, and records the exact candidate and deposit IDs.
+
+Adversarial coverage traced
+
+- wrong reserve, failed transaction, multiple matching logs, malformed ABI,
+  wrong amount or out-of-field commitment;
+- incomplete/reordered receipts, discontinuous ancestry, mismatched Beacon
+  finalized execution hash and changed cataloged observations;
+- substituted witness, manifest, registration, deposit ID, commitment, note or
+  amount; changed DOM chain identity and changed files across submission;
+- pre-existing wallet state, issuance intent mismatch and duplicate/replayed
+  native deposit admission.
+
+Validation
+
+Focused Node source, issuance and closed-deposit tests passed. Lightweight
+structural assertions confirmed the exact event cardinality/encoding, full
+receipt ordering, finalized ancestry, account/runtime binding and input rereads.
+Diff whitespace checks passed.
+
+No full readiness suite, Cargo, Foundry, Anvil, proof, network, signing, funds,
+deployment, push or publication operation was run.

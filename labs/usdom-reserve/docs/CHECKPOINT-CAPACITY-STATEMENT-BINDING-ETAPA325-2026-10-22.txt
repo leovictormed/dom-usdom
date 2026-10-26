@@ -1,0 +1,29 @@
+USD + DOM — vínculo do relatório de capacidade ao checkpoint exato
+Etapa 325 — 2026-10-22
+
+Achado
+
+O relatório de capacidade vinculava um `statementHash`, as alturas e o hash do
+pacote-fonte, mas não continha todos os campos do checkpoint nem recomputava o
+hash aceito pela registry. Um relatório semanticamente bem formado poderia,
+portanto, declarar custos de uma execução e associá-los a alturas ou raízes não
+demonstradas pelo hash informado.
+
+Correção
+
+- O esquema agora contém o checkpoint completo: âncora anterior, bloco e raízes
+  finais, contextos, dificuldades acumuladas, sufixo de confirmação e timestamp.
+- A configuração exata da registry é reconstruída do manifesto da release e
+  seu `checkpointRegistryConfigHash` é recomputado.
+- `checkpointStatementHash` valida intervalo, profundidade, trabalho crescente
+  e identidades da release, e recomputa o hash que o contrato verificará.
+- As alturas resumidas do relatório devem coincidir com o checkpoint completo.
+- Todos os seis journals são fixados em 32 bytes. O journal da prova externa
+  deve ter SHA-256 exatamente igual ao digest dos 32 bytes do statement hash,
+  igual ao pacote Groth16 consumido pelo adaptador.
+
+Validação
+
+Os testes dedicados passam 2/2 e o readiness passa 44/44. Mutações de bloco,
+statement, journal externo, configuração, intervalo e profundidade são
+rejeitadas. Nenhum resultado operacional foi promovido por esta etapa.

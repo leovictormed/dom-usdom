@@ -1,0 +1,77 @@
+USDOM — pacote recuperável do plano de controle (etapa 299)
+Data: 2026-10-21
+Escopo: construção unsigned; nenhum deploy, assinatura ou broadcast executado
+
+ACHADO
+
+O pacote anterior criava três Safes distintos, mas cada Safe possuía uma única
+chave e threshold 1. Isso é aceitável somente para protótipo sem fundos: perda,
+falha ou destruição do único dispositivo torna governança e guardiões
+irrecuperáveis. Como os endereços de controle são imutáveis nos contratos, não
+é possível implantar com 1-de-1 e acrescentar recuperação depois sem manter a
+mesma Safe; a própria Safe precisaria ainda estar controlável para adicionar a
+nova chave.
+
+CORREÇÃO
+
+Foi adicionado um pacote de produção separado com estas regras fixas:
+
+- três Safe 1.4.1 distintas: governança, guardião da reserva e guardião do
+  checkpoint;
+- cada Safe contém exatamente três EOAs de hardware distintos;
+- threshold exatamente 2-de-3;
+- owners ordenados canonicamente antes do ABI, impedindo que a ordem de entrada
+  altere endereços CREATE2;
+- nenhum owner pode ter bytecode no bloco Ethereum finalizado;
+- factory, singleton, fallback handler, respectivos code hashes e proxy
+  creation code permanecem fixados à identidade Mainnet revisada;
+- initializer sem delegatecall, module, pagamento ou receiver de pagamento;
+- pacote apenas unsigned, sem capacidade de assinatura ou transmissão.
+
+O operador pode continuar sendo a única pessoa responsável: usa três
+dispositivos/seeds independentes e fornece duas assinaturas. A independência
+das seeds é uma propriedade física/operacional e precisa ser atestada na
+cerimônia; endereços distintos, sozinhos, não conseguem prová-la.
+
+ARQUIVOS
+
+- sdk/safe-control-deployment.mjs
+- scripts/prepare-recoverable-safe-controls.mjs
+- test/node/safe-control-deployment.test.mjs
+- docs/CLOSED-MAINNET-LINUX-RUNBOOK.md
+- comando: npm run --silent prepare:recoverable-safe-controls
+
+Nota histórica: a etapa 417 removeu completamente o antigo construtor SDK
+1-de-1. Nesta etapa ele ainda era preservado para regressão, enquanto o runbook
+o proibia no caminho destinado a fundos reais. O runbook contém
+comandos completos para ler e confirmar as três identidades diretamente de
+dispositivos conectados um por vez, comparar dois RPCs, reproduzir o pacote e,
+em etapa separada sujeita a autorização explícita, implantar e conferir owners
+e threshold no bloco finalizado.
+
+VALIDAÇÃO
+
+- 7/7 testes do gerador Safe passaram, incluindo 2-de-3 determinístico,
+  reordenação, owners ausentes/duplicados, owner contrato, rede errada e
+  identidade Safe adulterada;
+- 89/89 testes focados de readiness, runbook e Safe passaram;
+- o gate trata implementação, regra 2-de-3 e independência física requerida
+  como três limites separados que falham individualmente.
+- a regressão Node completa passou 189/189 testes, incluindo execução EVM local;
+- proveniência passou 169 arquivos importados/16 modificações declaradas, 45
+  fontes de programas de prova, 7 fontes da carteira e 971 arquivos-fonte do
+  laboratório autenticados pelo manifesto completo;
+- os gates permanecem intencionalmente fechados com 161 bloqueios para o teste
+  Mainnet fechado e 172 para fundos reais. Nenhum deles exige auditoria externa
+  ou garantia de risco zero. Os bloqueios com `zero` referem-se a hashes e
+  checkpoints de produção ainda não configurados; os de risco exigem aceitação
+  explícita do risco residual vinculada à versão exata.
+
+LIMITES E PRÓXIMA EVIDÊNCIA
+
+Nenhuma Safe foi implantada. O gate `production_control_plane_recovery_drill_passed`
+continua falso. Antes de fundos reais, o operador ainda deve fornecer três
+dispositivos com seeds realmente independentes, implantar o pacote exato após
+autorização, verificar estado finalizado e executar um ensaio de recuperação
+release-bound. Auditoria externa e garantia de risco zero não são exigidas.
+Nenhum push foi realizado.

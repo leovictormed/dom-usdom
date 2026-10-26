@@ -1,0 +1,34 @@
+USD + DOM — núcleo automático da configuração de produção
+Etapa 441 — 2026-10-22
+
+Problema corrigido
+------------------
+Domínio, ativação, identidade da rede, checkpoint inicial, identidades dos dois
+verificadores e hashes completos dos contratos ainda apareciam como dezenas de
+campos independentes. Preenchê-los manualmente permitiria combinar um adaptador,
+checkpoint ou conjunto de regras de releases diferentes.
+
+Implementação
+-------------
+O novo materializador fixo consome somente três fontes estruturadas: fatos
+nativos exportados pela DOM, manifesto da prova de queima e manifesto da prova
+de checkpoint. Ele valida os manifestos completos, recompõe os runtimes dos
+adaptadores a partir de artifacts e fontes, exige igualdade de rede, ativação,
+regras de consenso, identidade RISC Zero e transcript de trusted setup, e
+recalcula `reserveConfigHash` e `checkpointRegistryConfigHash` com os mesmos
+encoders dos contratos.
+
+O registro nativo possui esquema exato e um único predecessor de ativação. A
+altura inicial deve preceder `firstV4Height` por exatamente um bloco e seu state
+root deve ser a raiz vazia de ativação. Valores existentes diferentes, campos
+extras, zero, números não canônicos ou qualquer autorização são rejeitados.
+O comando não assina, transmite, implanta nem libera fundos.
+
+Validação
+---------
+- o núcleo puro cobre sucesso, idempotência, drift, autorização, esquema extra
+  e predecessor de ativação inconsistente;
+- o comando real recusa os arquivos ainda incompletos antes de gravar a release;
+- regressão focada passa 72/72 e regressão Node completa passa 330/330.
+- proveniência completa passa para 169 imports, todas as fronteiras críticas e
+  1.249 arquivos fonte.

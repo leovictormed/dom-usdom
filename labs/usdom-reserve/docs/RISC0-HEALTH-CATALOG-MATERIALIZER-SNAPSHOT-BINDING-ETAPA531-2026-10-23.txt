@@ -1,0 +1,27 @@
+Etapa 531 — snapshot do materializador do catálogo de saúde RISC Zero
+
+Constatação
+
+O materializador mantinha buffers do catálogo configurado e da evidência de
+release e comparava suas origens em dois pontos. Não existia uma réplica privada
+única que definisse o par exato usado para validar e construir os dois outputs.
+
+Correção
+
+O novo boundary aceita exatamente dois caminhos absolutos: catálogo e evidência.
+Cada origem tem limite explícito e é capturada numa única réplica 0700, cujos
+arquivos são instalados duravelmente em modo 0600. A validação e a construção
+usam apenas bytes relidos dessa réplica. As duas origens são comparadas byte a
+byte antes do catálogo imutável e novamente antes da atualização de metadados,
+que permanece como publicação final. A réplica é removida em bloco finally.
+
+Teste
+
+O teste adversarial altera a evidência de origem depois da captura e exige
+rejeição. Um teste adicional rejeita catálogo de caminhos incompleto. Sintaxe,
+JSON, integridade do diff e testes Node focados são adequados enquanto o prove
+RandomX está ativo; readiness completo, Cargo e Foundry aguardam liberação.
+
+Fato de prontidão
+
+production_risc0_health_catalog_materializer_inputs_snapshotted_and_origins_rechecked=true.

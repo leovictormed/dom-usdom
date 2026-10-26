@@ -1,0 +1,40 @@
+RELEASE EVIDENCE PATH POLICY UNIFICATION — STAGE 1147
+Date: 2026-10-26
+
+Finding
+
+Three security-critical consumers independently defined a "canonical evidence
+path": mainnet readiness, the EIP-712 release-evidence commitment, and release-
+evidence materializers. Before this stage they accepted different languages.
+In particular, a source/configuration path, arbitrary `out/` path or ambiguous
+Unicode/control spelling could be hashed into an operator authorization or
+walked by a materializer even though readiness rejected it.
+
+Correction
+
+`release-evidence-document-paths.mjs` now owns and exports the single path
+policy. All three consumers call it:
+
+- readiness document validation;
+- canonical JSON used by `releaseEvidenceCommitment` before signing;
+- recursive document enumeration used by evidence materializers.
+
+The shared policy allows only portable-ASCII descendants of `evidence/` and the
+four exact canonical Foundry artifacts. It also retains the 4096-byte path
+bound. Negative tests cover project source/configuration paths, arbitrary
+`out/`, traversal, controls and Unicode confusables at both commitment and
+materializer boundaries.
+
+While running the combined suite, an unrelated stale structural assertion was
+exposed: it expected release-authorization domain v3 although stage 1090 changed
+the signed message to v4 to bind three independent owner hashes. Only that stale
+test expectation was reconciled; production remains v4.
+
+Validation
+
+- Syntax checks for all three consumers: PASS.
+- Authorization, signed commitment, materializer traversal, readiness path,
+  direct-file and diagnostics suites: PASS, 27/27.
+
+No production fact changed. No Cargo, Rust, Forge, network, signing, deployment,
+funds, commit or push ran.

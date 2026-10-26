@@ -1,0 +1,47 @@
+ETAPA 608 — selecao de mineracao fail-closed no startup
+Data: 2026-10-23
+
+Escopo
+------
+Auditoria dos controles operacionais de consenso/rede/RPC restantes, com foco
+na configuracao aplicada antes da inicializacao do no. Nenhum script ou SDK
+RISC Zero, arquivo de release/publicacao, segredo, deploy, assinatura, fundo ou
+estado externo foi tocado.
+
+Achado concreto
+---------------
+DOM_MINE aceitava qualquer texto UTF-8. Somente false/0/no/off desligavam;
+todo o restante, inclusive typo, vazio e "true" com espacos, definia mine=true.
+Como regtest e testnet iniciam com mineracao desligada, uma configuracao
+invalida podia ativar CPU de mineracao e comportamento de consenso sem uma
+autorizacao booleana inequivoca. A implementacao tambem contradizia seu
+comentario, que prometia preservar o default para entradas desconhecidas.
+
+Correcao
+--------
+- DOM_MINE usa o parser booleano fail-closed ja empregado pelas capabilities
+  de DNS e teste Mainnet: somente os textos exatos `true` e `false` existem.
+- OsStr nao UTF-8 e qualquer outro texto retornam erro antes de storage,
+  listeners, peers ou mineracao serem iniciados.
+- A alteracao da configuracao ocorre somente depois do parsing completo; erro
+  preserva o valor anterior.
+- Regressao inicia no default regtest false, prova que sete entradas invalidas
+  retornam erro sem mutacao e cobre explicitamente true seguido de false.
+
+Verificacao
+-----------
+- rustfmt direto de crates/dom-node/src/main.rs: passou.
+- git diff --check do arquivo: passou.
+- checks estruturais confirmam um unico ponto DOM_MINE, chamada do helper
+  antes de DomNode::init e ausencia da antiga negacao permissiva.
+- Teste Cargo focado pendente: o processo externo PID 2296629 executa
+  dom-interopd em /home/leonardov/dom-legs-codex e ainda detem o cache global.
+  Ele foi preservado. Apos sua saida, executar:
+  cargo test -p dom-node --bin dom-node --locked mining_override_never_silently_enables_mining
+- Permanecem igualmente pendentes pelo mesmo lock os focos das etapas 600 e
+  605; nenhum processo externo foi interrompido.
+
+Conclusao
+---------
+Uma entrada operacional invalida nao pode mais ativar mineracao. O no falha
+antes de efeitos persistentes ou de rede e exige autorizacao textual exata.

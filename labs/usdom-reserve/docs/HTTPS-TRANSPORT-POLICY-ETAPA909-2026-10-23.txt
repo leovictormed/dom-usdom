@@ -1,0 +1,24 @@
+ETAPA 909 — política efetiva do transporte HTTPS
+Data: 2026-10-23
+
+Cobertura dos 22 consumers/providers
+- 22/22 usam `BoundedMainnetPreflightProvider` ou wrapper proprietário dele.
+- Redirect continua `error`; nenhum agent/dispatcher/custom CA é passado pelo código operacional.
+- TLS usa a verificação padrão do runtime contra o hostname canônico solicitado.
+
+Gaps corrigidos
+- Variáveis de proxy podiam fazer runtimes com env-proxy encaminharem path/query secretos a intermediários.
+- Custom CA e `NODE_TLS_REJECT_UNAUTHORIZED=0` podiam alterar/desativar a autoridade TLS fora do código revisado.
+- Falha de fetch podia propagar mensagem contendo URL/query do endpoint.
+- O provider agora falha fechado para HTTP(S)/ALL proxy (maiúsculo/minúsculo), NODE_EXTRA_CA_CERTS,
+  SSL_CERT_FILE/DIR, TLS reject=0 e `--use-env-proxy` em NODE_OPTIONS.
+- Exceções de transporte são substituídas por mensagem constante sem URL.
+
+Limites externos
+- DNS resolution e propriedade administrativa permanecem fatos operacionais externos. TLS liga a conexão ao hostname e redirects são proibidos, mas o código offline não prova quem opera DNS/IP.
+- `fetchImpl` injetável existe para testes unitários; callers de produção não expõem essa opção a input operacional.
+- `NO_PROXY` não cria encaminhamento e, portanto, não é rejeitado.
+
+Validação
+- Vetores para proxy upper/lowercase, ALL_PROXY, custom CA, TLS disabled, NODE_OPTIONS e erro contendo segredo.
+- Suíte focada: 11/11.

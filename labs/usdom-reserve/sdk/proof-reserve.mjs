@@ -13,17 +13,30 @@ export const BURN_STATEMENT_TYPEHASH = id(BURN_STATEMENT_TYPE);
 export const BURN_INTENT_TYPE =
   'BurnIntent(bytes32 burnId,bytes32 requestId,address recipient,uint64 amount,bytes32 domDomain,uint64 validUntil,uint256 ethereumChainId,address reserve)';
 export const BURN_INTENT_TYPEHASH = id(BURN_INTENT_TYPE);
+export const BURN_DEBT_TYPE =
+  'FinalizedBurnDebt(bytes32 burnId,bytes32 requestId,address recipient,uint64 amount,bytes32 domDomain,uint64 height,bytes32 blockHash,bytes32 stateRoot,uint64 validUntil,uint256 ethereumChainId,address reserve,bytes32 activationScheduleCommitment)';
+export const BURN_DEBT_TYPEHASH = id(BURN_DEBT_TYPE);
 export const PRIVATE_BURN_ID_TYPE =
   'PrivateBurnId(bytes32 domDomain,bytes32 privacyPolicyHash,bytes32 verifierConfigHash,uint256 ethereumChainId,address reserve,address recipient,uint64 amount,uint64 validUntil,bytes32 nullifier0,bytes32 nullifier1)';
 export const PRIVATE_BURN_ID_TYPEHASH = id(PRIVATE_BURN_ID_TYPE);
 
 const zero = '0x' + '00'.repeat(32);
+const bn254ScalarField = BigInt(
+  '0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001',
+);
 const coder = AbiCoder.defaultAbiCoder();
 function hash(value) {
   if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(value) || value.toLowerCase() === zero) {
     throw new Error('nonzero bytes32 required');
   }
   return value.toLowerCase();
+}
+function scalar(value) {
+  const canonical = hash(value);
+  if (BigInt(canonical) >= bn254ScalarField) {
+    throw new Error('canonical nonzero BN254 scalar required');
+  }
+  return canonical;
 }
 
 /** Deterministic native burn identity derived from proof-authenticated
@@ -46,7 +59,7 @@ export function derivePrivateBurnId({
       || nullifiers.length < 1 || nullifiers.length > 2) {
     throw new Error('invalid private burn identity input');
   }
-  const canonical = nullifiers.map(hash);
+  const canonical = nullifiers.map(scalar);
   if (canonical.length === 2 && canonical[0] >= canonical[1]) {
     throw new Error('private burn nullifiers must be strictly sorted');
   }
@@ -84,6 +97,24 @@ export function finalizedBurnStatementHash({chainId, reserve, activationSchedule
     ['bytes32', ...finalizedBurnFields.map(field => field.type), 'uint256', 'address','bytes32'],
     [BURN_STATEMENT_TYPEHASH, ...finalizedBurnFields.map(field => normalized[field.name]), idValue,
       reserveAddress,schedule],
+  ));
+}
+
+/** Stable proved-debt identity used for lease renewal. It binds every public
+ * finalized-burn field except the Ethereum finality slot that a fresh proof
+ * is specifically allowed to advance. */
+export function finalizedBurnDebtHash({chainId, reserve, activationScheduleCommitment, burn}) {
+  const idValue = uint(chainId, 256);
+  if (idValue === 0n) throw new Error('zero chain id');
+  const reserveAddress = getAddress(reserve);
+  if (BigInt(reserveAddress) === 0n) throw new Error('zero reserve');
+  const schedule = hash(activationScheduleCommitment);
+  const normalized = normalizeFinalizedBurn(burn);
+  return keccak256(coder.encode(
+    ['bytes32','bytes32','bytes32','address','uint64','bytes32','uint64','bytes32','bytes32','uint64','uint256','address','bytes32'],
+    [BURN_DEBT_TYPEHASH, normalized.burnId, normalized.requestId, normalized.recipient,
+      normalized.amount, normalized.domDomain, normalized.height, normalized.blockHash,
+      normalized.stateRoot, normalized.validUntil, idValue, reserveAddress, schedule],
   ));
 }
 

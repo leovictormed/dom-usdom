@@ -1,0 +1,16 @@
+ETAPA1064 — FD LAUNCHER SOURCE PIN AND FINAL COVERAGE
+Date: 2026-10-23
+
+Final audit found that the descriptor launcher source path was not itself bound to
+an expected identity. Both credential workflows now copy the source into private
+tmpfs, require the reviewed SHA-256 before and after compilation, pin cc across the
+compile, and clear LD_PRELOAD/LD_LIBRARY_PATH before launching. Focused launcher and
+wallet boundary suites passed 4/4; shell syntax and source-pin checks passed.
+Broad mainnet readiness remained green: 62/62 passed.
+
+The locally implementable restart/recovery/materialization area is now exhausted:
+release dependency ordering, crash restart markers, nonce recovery, stale-output
+invalidation, tool/source/build-output identity, canonical parent paths and
+descriptor-bound execution are covered. Remaining readiness evidence needs the
+active proof artifacts, authorized deployment/RPC observations or physical custody
+ceremonies. No Cargo, network, deployment, signing, push, secrets or funds were used.

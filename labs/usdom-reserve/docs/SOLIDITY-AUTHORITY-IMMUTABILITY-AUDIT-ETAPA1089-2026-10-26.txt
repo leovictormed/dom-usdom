@@ -1,0 +1,53 @@
+ETAPA 1089 — SOLIDITY AUTHORITY / IMMUTABILITY AUDIT
+Date: 2026-10-26
+
+Scope
+-----
+Reviewed governance, reserve guardian, checkpoint guardian, token, registry,
+adapter and verifier authority in all Solidity paths: constructor validation,
+code identity, Safe implementation/owners/threshold/modules/guard/fallback,
+role overlap, pause/recovery, deposit closure and terminal halt. No deployment,
+broadcast, signing, funds, network access, commit or push.
+
+Concrete finding and correction
+-------------------------------
+USDOMProofReserve already rejected governance/guardian overlap with each other,
+the token and verifier, but did not reject either control role being the pinned
+checkpoint Registry. On local/non-production chains the Registry is a valid
+direct contract identity yet has no generic execution method, so such a
+configuration could permanently remove governance or emergency authority.
+
+The constructor now rejects governance or guardian equal to checkpointRegistry.
+A focused Solidity regression covers both overlaps, and the static authority
+gate verifies every infrastructure/control-role inequality.
+
+Reviewed authority model
+------------------------
+* Token, Registry, proof adapter and upstream verifier addresses are immutable.
+  Runtime code hashes and configuration/capability bindings are rechecked on
+  the value-moving or proof-authorizing paths.
+* Mainnet adapters accept only the reviewed direct RISC Zero verifier address
+  and runtime hash, excluding mutable routers/proxies.
+* Mainnet control roles must be Safe proxies. The deployment binds proxy and
+  singleton code hashes plus the canonical sorted three-owner set. Runtime
+  checks enforce 2-of-3 threshold, unchanged owners, no modules, no guard and
+  the reviewed fallback-handler identity/code hash.
+* Governance and guardian must be distinct contracts and cannot overlap token,
+  verifier or checkpoint Registry. The Registry guardian cannot equal its
+  verifier.
+* Guardian or governance may pause as a fail-safe action. Only governance can
+  schedule delayed resume; execution is permissionless only after the delay and
+  revalidates both control identities, verifier and token policy.
+* Guardian/governance deposit closure is irreversible but cannot move funds or
+  block payment of already-proved debts. Checkpoint emergency halt is guardian
+  only. Graceful shutdown is permissionless and requires authenticated closure,
+  full burn and unchanged guardian/verifier identities.
+* Pause intentionally remains available at the exact immutable role address
+  even if its Safe policy has drifted; this grants only fail-safe stoppage.
+  Resume, deposit closure and terminal transitions revalidate full policy.
+
+Validation
+----------
+Pinned Node authority regression passes 3/3 and focal diff checking passes.
+Foundry compilation/execution remains pending behind the serialized Cargo proof
+test in the default non-via-ir pipeline.

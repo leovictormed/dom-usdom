@@ -1,6 +1,9 @@
 #![cfg(feature = "host-reference")]
 
 use std::collections::BTreeMap;
+use std::fs;
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use ark_bn254::Bn254;
 use ark_groth16::{Groth16, ProvingKey};
@@ -21,13 +24,13 @@ use dom_core::{
 use dom_crypto::pedersen::Commitment;
 use dom_crypto::{blake2b_256_tagged, schnorr_sign, BlindingFactor, SecretKey};
 use dom_pow::{
-    fast_pow_hash, hash_meets_target, target_to_compact, target_to_difficulty_for_network_height,
-    CompactTarget,
+    fast_pow_hash, hash_meets_target, randomx_pool::randomx_hash, target_to_compact,
+    target_to_difficulty_for_network_height, CompactTarget,
 };
 use dom_serialization::DomSerialize;
 use dom_usdom_checkpoint_program::{
     economic_chunk_package_commitment, execute_checkpoint_extension_v2_with_witnesses,
-    execute_checkpoint_segment_portable, validate_checkpoint_outer_chain, CheckpointOuterChain,
+    execute_checkpoint_segment_portable, validate_checkpoint_outer_chain_v6, CheckpointOuterChain,
     CheckpointProgramError, CheckpointProgramPolicyV2, CheckpointSegmentBlockInput,
     CheckpointSegmentNativeStateOpening, CheckpointSegmentPolicyInput,
     CheckpointSegmentPrivateInput, CheckpointSegmentState, CheckpointSegmentTransition,
@@ -35,8 +38,8 @@ use dom_usdom_checkpoint_program::{
     MAX_CHECKPOINT_OUTER_CHAIN_BYTES, MAX_CHECKPOINT_OUTER_SEGMENTS,
 };
 use dom_usdom_checkpoint_statement::{
-    checkpoint_economic_state_root, CheckpointContext, CheckpointStatement, CheckpointStatementV4,
-    ContextHeader, SeedAnchor, CHECKPOINT_CONTEXT_HEADER_COUNT,
+    checkpoint_economic_state_root, CheckpointContext, CheckpointStatement, CheckpointStatementV5,
+    CheckpointStatementV6, ContextHeader, SeedAnchor, CHECKPOINT_CONTEXT_HEADER_COUNT,
     CHECKPOINT_CONTEXT_MAX_SEED_ANCHORS,
 };
 use dom_usdom_privacy::{
@@ -58,8 +61,11 @@ use primitive_types::U256;
 use rand::{rngs::StdRng, SeedableRng};
 use usdom_ethereum_finality_experiment::{
     checkpoints::{CheckpointPolicy, CheckpointTrustPolicy, StaticCheckpointTrustPolicy},
+    closures::{
+        IssuanceClosurePolicy, IssuanceClosureTrustPolicy, StaticIssuanceClosureTrustPolicy,
+    },
     deposits::{DepositTrustPolicy, ReserveDepositPolicy, StaticDepositTrustPolicy},
-    EthereumForks,
+    EthereumFork, EthereumForks,
 };
 
 const DOMAIN: [u8; 32] = [0x11; 32];
@@ -67,11 +73,28 @@ const CHECKPOINT_INTERVAL: u32 = 360;
 const CONFIRMATION_DEPTH: u32 = 30;
 const PREVIOUS_HEIGHT: u64 = 10;
 
+fn supported_forks() -> EthereumForks {
+    let fork = |epoch, version| EthereumFork {
+        epoch,
+        fork_version: [version, 0, 0, 0].into(),
+    };
+    EthereumForks {
+        genesis: fork(0, 0),
+        altair: fork(74_240, 1),
+        bellatrix: fork(144_896, 2),
+        capella: fork(194_048, 3),
+        deneb: fork(269_568, 4),
+        electra: fork(364_032, 5),
+        fulu: fork(411_392, 6),
+        gloas: fork(u64::MAX, 7),
+    }
+}
+
 fn checkpoint_policy() -> StaticCheckpointTrustPolicy {
     StaticCheckpointTrustPolicy::from_trust_policy(&CheckpointTrustPolicy {
         trusted_checkpoint: [0x41; 32].into(),
         ethereum_genesis_validators_root: [0x22; 32].into(),
-        forks: EthereumForks::default(),
+        forks: supported_forks(),
         max_current_slot: 1,
         checkpoint: CheckpointPolicy {
             ethereum_chain_id: 1,
@@ -91,7 +114,7 @@ fn deposit_policy() -> StaticDepositTrustPolicy {
     StaticDepositTrustPolicy::from_trust_policy(&DepositTrustPolicy {
         trusted_checkpoint: [0x41; 32].into(),
         ethereum_genesis_validators_root: [0x22; 32].into(),
-        forks: EthereumForks::default(),
+        forks: supported_forks(),
         max_current_slot: 1,
         deposit: ReserveDepositPolicy {
             ethereum_chain_id: 1,
@@ -100,6 +123,27 @@ fn deposit_policy() -> StaticDepositTrustPolicy {
             runtime_code_hash: [0x46; 32].into(),
             bridge_domain: DOMAIN.into(),
             max_amount: 100_000_000_000,
+        },
+    })
+    .unwrap()
+}
+
+fn closure_policy(schedule_commitment: [u8; 32]) -> StaticIssuanceClosureTrustPolicy {
+    StaticIssuanceClosureTrustPolicy::from_trust_policy(&IssuanceClosureTrustPolicy {
+        trusted_checkpoint: [0x41; 32].into(),
+        ethereum_genesis_validators_root: [0x22; 32].into(),
+        forks: supported_forks(),
+        max_current_slot: 1,
+        closure: IssuanceClosurePolicy {
+            ethereum_chain_id: 1,
+            ethereum_genesis_validators_root: [0x22; 32].into(),
+            reserve: [0x33; 20].into(),
+            runtime_code_hash: [0x46; 32].into(),
+            reserve_config_hash: [0x47; 32].into(),
+            activation_schedule_commitment: schedule_commitment.into(),
+            bridge_domain: DOMAIN.into(),
+            deposits_closed_storage_slot: [0x48; 32].into(),
+            total_deposited_storage_slot: [0x49; 32].into(),
         },
     })
     .unwrap()
@@ -402,8 +446,8 @@ fn segment_policy_preimages_are_authenticated_against_recursive_state() {
 }
 
 #[test]
-fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+fn portable_segment_pipeline_executes_real_randomx_and_native_state_relation() {
+    std::env::set_var("DOM_REGTEST_REAL_RANDOMX", "1");
     let checkpoint = checkpoint_policy();
     let deposit = deposit_policy();
     let (_, verifying_key, verifier) = spend_setup();
@@ -424,7 +468,7 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
     .unwrap();
     let previous_difficulty = U256::from(1u64);
     let block_timestamp = 1_700_000_011u64;
-    let (candidate, next_difficulty, next_native) = block(
+    let (mut candidate, next_difficulty, next_native) = block(
         previous_height + 1,
         previous_block,
         block_timestamp,
@@ -435,6 +479,15 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
         &[],
         &[],
     );
+    let target = candidate.header.target.to_target().unwrap();
+    loop {
+        let computed = randomx_hash(genesis.as_bytes(), &candidate.header.pow_preimage()).unwrap();
+        if hash_meets_target(&computed, &target) {
+            candidate.header.pow.randomx_hash = Hash256::from_bytes(computed);
+            break;
+        }
+        candidate.header.pow.nonce = candidate.header.pow.nonce.wrapping_add(1);
+    }
     let header_bytes = DomSerialize::to_bytes(&candidate.header).unwrap();
     let next_block = canonical_header_identifier(NETWORK_MAGIC_REGTEST, &header_bytes).unwrap();
     let package = UsdomV4BlockPackage::new(candidate.clone(), UsdomV4ProofEnvelope::empty())
@@ -561,7 +614,110 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
         executed.randomx_bindings()[0].block_hash(),
         next_block.as_bytes()
     );
+    let binding = &executed.randomx_bindings()[0];
+    let statement = binding.statement();
+    assert_eq!(statement.network_magic, NETWORK_MAGIC_REGTEST);
+    assert_eq!(statement.chain_id, *chain_id.as_bytes());
+    assert_eq!(statement.block_height, candidate.header.height.0);
+    assert_eq!(statement.seed_height, 0);
+    assert_eq!(statement.seed_hash, *genesis.as_bytes());
+    assert_eq!(
+        statement.pow_preimage.as_slice(),
+        candidate.header.pow_preimage()
+    );
+    assert_eq!(
+        statement.randomx_hash,
+        *candidate.header.pow.randomx_hash.as_bytes()
+    );
+    assert_eq!(statement.target, target);
+    let recomputed_randomx = randomx_hash(&statement.seed_hash, &statement.pow_preimage).unwrap();
+    assert_eq!(
+        statement.randomx_hash, recomputed_randomx,
+        "authenticated RandomX statement diverged at randomx_hash before export"
+    );
     assert!(executed.economic_block_bindings().is_empty());
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let export_root = std::env::temp_dir().join(format!(
+        "dom-usdom-randomx-export-{}-{unique}",
+        std::process::id()
+    ));
+    let source = export_root.join("evidence/randomx-source");
+    fs::create_dir_all(&source).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(
+            export_root.join("evidence"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+    }
+    fs::write(
+        source.join("checkpoint-segment-transition.bin"),
+        transition.to_bytes().unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        source.join("checkpoint-segment-private-input.bin"),
+        private_input.to_bytes().unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        source.join("checkpoint-segment-policy-input.bin"),
+        policy_input.to_bytes().unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        source.join("checkpoint-segment-native-state-opening.bin"),
+        opening.to_bytes().unwrap(),
+    )
+    .unwrap();
+    let exporter = env!("CARGO_BIN_EXE_dom-usdom-export-randomx-statement");
+    let exported = Command::new(exporter)
+        .current_dir(&export_root)
+        .output()
+        .unwrap();
+    assert!(
+        exported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&exported.stderr)
+    );
+    assert!(String::from_utf8_lossy(&exported.stdout).contains("\"portableSegmentExecuted\": true"));
+    assert!(String::from_utf8_lossy(&exported.stdout).contains("\"randomxRelationExecuted\": true"));
+    assert_eq!(
+        fs::read(export_root.join("evidence/randomx-canonical-statement.bin")).unwrap(),
+        executed.randomx_bindings()[0]
+            .statement()
+            .to_bytes()
+            .unwrap()
+    );
+    assert!(export_root
+        .join("evidence/randomx-canonical-statement-export.json")
+        .is_file());
+
+    let mut malformed_transition = transition.to_bytes().unwrap();
+    malformed_transition[0] ^= 1;
+    fs::write(
+        source.join("checkpoint-segment-transition.bin"),
+        malformed_transition,
+    )
+    .unwrap();
+    let rejected = Command::new(exporter)
+        .current_dir(&export_root)
+        .output()
+        .unwrap();
+    assert!(!rejected.status.success());
+    assert!(!export_root
+        .join("evidence/randomx-canonical-statement.bin")
+        .exists());
+    assert!(!export_root
+        .join("evidence/randomx-canonical-statement-export.json")
+        .exists());
+    fs::remove_dir_all(export_root).unwrap();
 
     let economic_claim = EconomicBlockTransition {
         network_magic: NETWORK_MAGIC_REGTEST,
@@ -732,13 +888,19 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
     let confirmation_transition = CheckpointSegmentTransition {
         block_count: 1,
         private_input_commitment: [0x55; 32],
+        previous_total_issued: 0,
+        previous_total_burned: 0,
+        new_total_issued: 0,
+        new_total_burned: 0,
+        previous_issuance_closed: false,
+        new_issuance_closed: false,
         previous: next,
         next: confirmation,
     };
     let outer_chain = CheckpointOuterChain::new(vec![transition, confirmation_transition]).unwrap();
     assert_eq!(MAX_CHECKPOINT_OUTER_SEGMENTS, 720);
-    assert_eq!(MAX_CHECKPOINT_OUTER_CHAIN_BYTES, 1_622_892);
-    let statement = CheckpointStatementV4 {
+    assert_eq!(MAX_CHECKPOINT_OUTER_CHAIN_BYTES, 1_670_412);
+    let statement = CheckpointStatementV6 {
         checkpoint: CheckpointStatement {
             bridge_domain: DOMAIN,
             dom_network_magic: NETWORK_MAGIC_REGTEST,
@@ -761,8 +923,11 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
             activation_schedule_commitment: previous.activation_schedule_commitment,
             checkpoint_config_hash: previous.checkpoint_config_hash,
         },
+        total_issued: 0,
+        total_burned: 0,
+        issuance_closed: false,
     };
-    let outer = validate_checkpoint_outer_chain(
+    let outer = validate_checkpoint_outer_chain_v6(
         &statement,
         &outer_chain,
         &policy_input,
@@ -794,7 +959,7 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
 
     let mut wrong_target = statement;
     wrong_target.checkpoint.state_root[0] ^= 1;
-    assert!(validate_checkpoint_outer_chain(
+    assert!(validate_checkpoint_outer_chain_v6(
         &wrong_target,
         &outer_chain,
         &policy_input,
@@ -804,7 +969,7 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
     .is_err());
     let mut wrong_previous = statement;
     wrong_previous.checkpoint.previous_context_hash[0] ^= 1;
-    assert!(validate_checkpoint_outer_chain(
+    assert!(validate_checkpoint_outer_chain_v6(
         &wrong_previous,
         &outer_chain,
         &policy_input,
@@ -814,7 +979,7 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
     .is_err());
     let mut wrong_confirmation = statement;
     wrong_confirmation.checkpoint.confirmation_timestamp += 1;
-    assert!(validate_checkpoint_outer_chain(
+    assert!(validate_checkpoint_outer_chain_v6(
         &wrong_confirmation,
         &outer_chain,
         &policy_input,
@@ -824,7 +989,7 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
     .is_err());
     let mut wrong_registry = statement;
     wrong_registry.checkpoint.registry[0] ^= 1;
-    assert!(validate_checkpoint_outer_chain(
+    assert!(validate_checkpoint_outer_chain_v6(
         &wrong_registry,
         &outer_chain,
         &policy_input,
@@ -834,7 +999,7 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
     .is_err());
     let mut wrong_schedule = statement;
     wrong_schedule.checkpoint.activation_schedule_commitment[0] ^= 1;
-    assert!(validate_checkpoint_outer_chain(
+    assert!(validate_checkpoint_outer_chain_v6(
         &wrong_schedule,
         &outer_chain,
         &policy_input,
@@ -843,7 +1008,7 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
     )
     .is_err());
     let reordered = CheckpointOuterChain::new(vec![confirmation_transition, transition]).unwrap();
-    assert!(validate_checkpoint_outer_chain(
+    assert!(validate_checkpoint_outer_chain_v6(
         &statement,
         &reordered,
         &policy_input,
@@ -851,7 +1016,7 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
         [0x99; 32],
     )
     .is_err());
-    assert!(validate_checkpoint_outer_chain(
+    assert!(validate_checkpoint_outer_chain_v6(
         &statement,
         &outer_chain,
         &policy_input,
@@ -862,11 +1027,17 @@ fn portable_segment_executes_exact_empty_native_batch_and_economic_witness() {
     let crossing_target = CheckpointOuterChain::new(vec![CheckpointSegmentTransition {
         block_count: 2,
         private_input_commitment: [0x66; 32],
+        previous_total_issued: 0,
+        previous_total_burned: 0,
+        new_total_issued: 0,
+        new_total_burned: 0,
+        previous_issuance_closed: false,
+        new_issuance_closed: false,
         previous,
         next: confirmation,
     }])
     .unwrap();
-    assert!(validate_checkpoint_outer_chain(
+    assert!(validate_checkpoint_outer_chain_v6(
         &statement,
         &crossing_target,
         &policy_input,
@@ -1239,7 +1410,7 @@ fn full_360_plus_30_v2_checkpoint_extension_is_recomputed() {
     let (target_block, target_difficulty, target_context_hash, target_state_root) = target.unwrap();
     let (confirmation_block, confirmation_difficulty, confirmation_timestamp) =
         confirmation.unwrap();
-    let statement = CheckpointStatementV4 {
+    let statement = CheckpointStatementV6 {
         checkpoint: CheckpointStatement {
             bridge_domain: DOMAIN,
             dom_network_magic: NETWORK_MAGIC_REGTEST,
@@ -1263,9 +1434,34 @@ fn full_360_plus_30_v2_checkpoint_extension_is_recomputed() {
             activation_schedule_commitment: *schedule.commitment().as_bytes(),
             checkpoint_config_hash: [0x45; 32],
         },
+        total_issued: 10,
+        total_burned: 10,
+        issuance_closed: false,
     };
     let statement_bytes = statement.to_bytes().unwrap();
     let context_bytes = previous_context.to_bytes().unwrap();
+    let legacy_v5 = CheckpointStatementV5 {
+        checkpoint: statement.checkpoint,
+        total_issued: statement.total_issued,
+        total_burned: statement.total_burned,
+    };
+    assert_eq!(
+        execute_checkpoint_extension_v2_with_witnesses(
+            policy,
+            &legacy_v5.to_bytes().unwrap(),
+            &context_bytes,
+            initial_v2,
+            initial_roots,
+            &packages,
+            &native_witnesses,
+            &economic_witnesses,
+            &checkpoint,
+            &deposit,
+            &closure_policy(*schedule.commitment().as_bytes()),
+            &verifier,
+        ),
+        Err(CheckpointProgramError::InvalidStatement)
+    );
     let output = execute_checkpoint_extension_v2_with_witnesses(
         policy,
         &statement_bytes,
@@ -1277,10 +1473,32 @@ fn full_360_plus_30_v2_checkpoint_extension_is_recomputed() {
         &economic_witnesses,
         &checkpoint,
         &deposit,
+        &closure_policy(*schedule.commitment().as_bytes()),
         &verifier,
     )
     .unwrap();
     assert_eq!(output.as_bytes(), &statement.statement_hash().unwrap());
+    let mismatched_closure = CheckpointStatementV6 {
+        issuance_closed: true,
+        ..statement
+    };
+    assert_eq!(
+        execute_checkpoint_extension_v2_with_witnesses(
+            policy,
+            &mismatched_closure.to_bytes().unwrap(),
+            &context_bytes,
+            initial_v2,
+            initial_roots,
+            &packages,
+            &native_witnesses,
+            &economic_witnesses,
+            &checkpoint,
+            &deposit,
+            &closure_policy(*schedule.commitment().as_bytes()),
+            &verifier,
+        ),
+        Err(CheckpointProgramError::PublicMismatch)
+    );
     assert_eq!(
         execute_checkpoint_extension_v2_with_witnesses(
             policy,
@@ -1293,6 +1511,7 @@ fn full_360_plus_30_v2_checkpoint_extension_is_recomputed() {
             &economic_witnesses,
             &checkpoint,
             &deposit,
+            &closure_policy(*schedule.commitment().as_bytes()),
             &verifier,
         ),
         Err(CheckpointProgramError::InvalidExtension)

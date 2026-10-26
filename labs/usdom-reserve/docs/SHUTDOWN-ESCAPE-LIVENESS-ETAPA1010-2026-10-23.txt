@@ -1,0 +1,53 @@
+ETAPA 1010 — SHUTDOWN, ESCAPE E LIVENESS ENTRE REDES
+Data: 2026-10-23
+
+Escopo
+======
+Auditoria de indisponibilidade prolongada da Ethereum, DOM, checkpoint prover e
+finalized-burn prover, sem sweep, refund administrativo ou payout discricionário.
+
+Achado e correção
+=================
+Antes desta etapa, a única maneira de impedir novos depósitos era pause. Pause
+também bloqueia queue/renewal/executeWithdrawal, portanto o operador não podia
+parar de assumir novas obrigações e simultaneamente liquidar burns antigos.
+
+Foi adicionado `closeDeposits()`, fechamento irreversível de ingresso:
+- somente governance ou guardian imutáveis podem chamá-lo;
+- a identidade/policy dos dois control planes é revalidada antes da mudança;
+- `deposit()` passa a falhar com `DepositsClosed`;
+- queue, renovação e payout permanecem permissionless e inalterados;
+- não existe reopen, sweep, refund, admin payout ou apagamento de dívida.
+
+Comportamento em outage
+=======================
+- outage temporário: nenhuma mudança on-chain é necessária; provas históricas
+  podem ser renovadas depois com finalidade Ethereum fresca;
+- perda prevista de emissão/prover: closeDeposits impede novos fundos presos e
+  mantém liquidação de burns prováveis;
+- incidente de integridade: pause invalida leases e cancela resume stale sem
+  alterar deposited/released/proved/paid; após recuperação, dívidas renovam;
+- permanent registry halt preserva checkpoints/eventos existentes e bloqueia
+  submit/finalize sem alterar supply ou collateral.
+
+Limite arquitetural explícito
+=============================
+O halt do registry não é atualmente uma mensagem de consenso DOM que desativa
+novas queimas. Se o registry for encerrado enquanto a DOM continuar aceitando
+burns posteriores ao último checkpoint, essas novas dívidas não terão como
+obter um checkpoint Ethereum posterior e poderão ficar sem prova de payout.
+Assim, halt permanente exige coordenação operacional para cessar burn admission
+na DOM antes do halt. Fechar depósitos resolve ingresso Ethereum, mas não esse
+handoff de consenso. A correção completa requer uma transição nativa autenticada
+de deactivation/freeze; não é seguro inventar um escape administrativo no
+reserve, pois isso quebraria a prova e poderia permitir saque indevido.
+
+Validação leve
+==============
+- shutdown-liveness-stage1010.test.mjs: 4/4;
+- regressão Solidity cobre autorização, irreversibilidade, depósito bloqueado e
+  payout normal após fechamento;
+- git diff --check: aprovado.
+
+Forge/Cargo não foram executados durante a prova longa; a regressão Solidity e
+artefatos compilados aguardam a rodada posterior.

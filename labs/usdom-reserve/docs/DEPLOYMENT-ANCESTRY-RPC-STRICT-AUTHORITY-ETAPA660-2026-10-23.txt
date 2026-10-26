@@ -1,0 +1,34 @@
+ETAPA 660 — AUTORIDADE RPC ESTRITA DE ANCESTRY/FINALITY PÓS-PUBLICAÇÃO
+Data: 2026-10-23
+
+Achado
+O executor já validava receipts por arquivo estrito, mas ainda decodificava blocos
+finalized e blocos canônicos por variável shell ou pipeline direto RPC→jq. Duas
+fontes maliciosas podiam concordar em bytes JSON igualmente ambíguos (UTF-8
+inválido ou chaves duplicadas) antes das comparações de ancestry/finality.
+
+Correção
+As seis fronteiras residuais foram migradas para arquivos privados no tmpfs e
+passam por check-private-strict-json-file.mjs antes de jq: finalized inicial,
+bloco canônico inicial, seus dois rechecks, finalized estável e bloco canônico
+estável. Nenhuma resposta de `rpc block ... --json` no executor segue agora
+por pipeline direto ou here-string de variável para jq.
+
+Propriedades preservadas
+- Receipt precisa estar abaixo/igual ao finalized de cada RPC.
+- Block hash do receipt precisa coincidir com o bloco canônico.
+- Recheck precisa preservar finalized hash e canonical hash.
+- Receipts normalizados continuam idênticos entre fontes.
+- Após a espera, ancestry, finalized bound e runtime code são revalidados.
+- A mudança não relaxa profundidade, timeout, quorum, TOCTOU ou cross-RPC.
+
+Validação
+- Ataques malformed-identical: chave duplicada escapada e UTF-8 inválido
+  continuam rejeitados pelo checker em duas execuções idênticas.
+- Regra estrutural proíbe `rpc block --json | jq` e finalized via here-string,
+  e exige checker nas seis autoridades.
+- 2/2 testes Node focados passaram.
+- bash -n e git diff --check passaram.
+- Busca residual do padrão proibido não retornou ocorrências.
+
+Nenhum RPC, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

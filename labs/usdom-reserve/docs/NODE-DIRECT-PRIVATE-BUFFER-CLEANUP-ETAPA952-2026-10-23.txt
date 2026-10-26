@@ -1,0 +1,13 @@
+ETAPA952 — NODE DIRECT PRIVATE BUFFER CLEANUP
+Date: 2026-10-23
+
+Inventory found 76 private/raw/signature/witness/package read signals across 36
+Node modules outside runtime-secret-json. The largest immediately actionable
+raw-authority family is the recoverable Safe raw checker: three private JSON
+reads plus one signed raw transaction read shared two local reader functions.
+Neither reader erased its captured Buffer on success or parser failure.
+
+Both readers now parse inside try/finally and fill(0) unconditionally. This
+covers all four file captures per validation. Parsed JS strings/objects remain
+for validation and cannot be physically erased reliably. Test 1/1, Node syntax
+and diff-check pass; no signing/RPC/operation.

@@ -1,0 +1,25 @@
+ETAPA 1092 — REBUILD V3 INDEPENDENT STAGE VERIFIERS
+Date: 2026-10-26
+
+The stage producer can no longer generate its own evidence as the sole basis for
+advancement. Every manifest stage now requires a distinct `verificationArgv`.
+The verification executable must be pinned, runs only after output hashes are
+fixed, receives canonical authenticated input/output SHA-256 maps, and is
+followed by tool reauthentication. Its direct report is parsed against exact
+artifact hashes and the closed stage-specific semantic claim set before becoming
+an immutable output protected by all subsequent stages.
+
+The disposable verifier independently reopens every named input/output and
+recomputes each digest. The negative receipt fixture has correct artifact hashes
+and a successful producer, but an independent report with
+`journalDigestsMatched=false`; publication is refused. Python compilation and
+the complete lightweight V3 suite pass 14/14.
+
+No production V3 manifest exists yet. Consequently no real build command can
+currently be claimed to emit these reports. A future reviewed manifest must map
+its verificationArgv entries to the existing concrete ProgramBinary/ImageID,
+checkpoint artifact-chain, receipt-chain/journal and Solidity verifier-config
+checkers. The orchestrator now makes this mapping mandatory and rejects a
+producer command reused verbatim as its verifier, but operational evidence
+remains blocked until that manifest is materialized and reviewed. No Cargo,
+Forge, guest build, proof, deploy, commit or push was used.

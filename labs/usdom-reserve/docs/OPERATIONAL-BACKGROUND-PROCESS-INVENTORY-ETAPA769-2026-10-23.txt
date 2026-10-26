@@ -1,0 +1,33 @@
+ETAPA769 — OPERATIONAL BACKGROUND PROCESS INVENTORY
+Date: 2026-10-23
+
+Scope
+-----
+The mainnet deployment, Safe recovery and three Ledger signing shell ceremonies
+were inventoried for background children, coprocesses, merged stdout/stderr,
+ambiguous wait status and raw replay of child diagnostics. Proof, capacity and
+local E2E harnesses were excluded from this operational boundary.
+
+Result
+------
+No additional unsafe background process was found. The only background child in
+scope is the private RPC catalog proxy in each executor. Both instances use the
+already hardened protocol: pinned Node, distinct private stdout/stderr, bounded
+fatal-UTF-8 validation, strict ready-file validation, captured PID, explicit
+status handling, cleanup wait and fixed redacted failure diagnostics. The three
+signing ceremonies launch no background child.
+
+Preventive control
+------------------
+`operational-background-process-inventory.test.mjs` now fixes that inventory in
+code. It rejects an extra background child, merged channels, coproc, raw proxy
+diagnostic replay, and an ambiguous `wait ... || true` protocol. This makes a
+future expansion of the process surface an explicit reviewed change.
+
+Validation
+----------
+- Focused Node tests: 17/17 pass.
+- The new adversarial inventory tests: 3/3 pass.
+- `bash -n` passes for both executors and all three signing ceremonies.
+- Node syntax and `git diff --check` pass.
+- No proxy, RPC, Ledger, signing, deployment, transmission or funds operation ran.

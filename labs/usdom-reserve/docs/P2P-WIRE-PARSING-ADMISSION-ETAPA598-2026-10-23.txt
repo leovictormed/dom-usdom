@@ -1,0 +1,72 @@
+P2P wire parsing and admission audit — stage 598
+Date: 2026-10-23
+Scope: encrypted framing, allocation order, partial reads/cancellation,
+unknown commands, fragmentation amplification, compression, peer concurrency,
+message rate limiting and replay
+
+Findings corrected
+==================
+1. NoiseCodec applied an idle timeout around each recv invocation, but recv is a
+   tokio::select branch. Ping, PEX and catch-up ticks cancel that future. Every
+   subsequent invocation created a fresh timeout, so periodic local work could
+   keep a completely idle or partially-reading peer alive indefinitely.
+2. The receiver accepted arbitrary sub-CHUNK fragmentation. A peer could split
+   one bounded logical message into millions of tiny authenticated frames,
+   multiplying AEAD operations and refreshing the per-frame idle period without
+   exceeding the logical byte cap.
+3. Unknown commands, wrong magic and disagreement between outer logical length
+   and inner WireMessage length were detected only after the entire declared
+   logical message was reassembled. An invalid command could therefore force
+   block-sized encrypted receive/decrypt/allocation work before rejection.
+
+Corrections
+===========
+* NoiseCodec stores the current frame deadline in codec state. It survives
+  tokio::select cancellation just like partial prefix, frame and reassembly
+  state. A complete transport frame advances the deadline; successful logical
+  completion or any reset clears it. Cancellation alone never buys more time.
+* Receive now enforces the sender's canonical fragmentation: the first fragment
+  must contain the four-byte logical length prefix, each non-final fragment is
+  exactly CHUNK bytes, and the final fragment is exactly the remaining bytes.
+  Tiny-frame CPU amplification fails before accumulation.
+* Once the canonical first fragment supplies the WireMessage header, the codec
+  immediately validates network magic, command byte, global payload ceiling and
+  equality of outer/inner lengths. Unknown or inconsistent block-sized claims
+  fail after one transport frame.
+* Added deterministic regressions for tiny first fragments, first-fragment
+  unknown commands and an idle deadline that expires despite repeated recv
+  cancellation. Existing boundary round-trips cover CHUNK edges, maximum blocks,
+  1,008 headers, sequential nonces and cancel-safe multi-frame progress.
+
+Remaining surface evidence
+==========================
+* Handshake frames reject lengths above NOISE_MAX_MSG before allocation, and the
+  complete Noise handshake has a ten-second outer deadline.
+* Post-handshake frame buffers are capped at NOISE_MAX_MSG; logical reassembly is
+  capped at the compiled protocol ceiling before continued growth. Wire payload
+  parsing validates the global ceiling, exact length and checksum.
+* The protocol implements no compression or decompression, so no compressed-size
+  versus expanded-size bomb surface exists.
+* Unknown commands are fatal malformed input and feed peer-violation handling;
+  there is no extension payload retained for later interpretation.
+* Inbound reservations are taken before handshake tasks and bounded by configured
+  max inbound plus subnet limits. Outbound handshakes have a separate bounded
+  in-flight policy. Per-peer message categories enforce fixed-window quotas;
+  sync overflow is paced and other repeated violations accumulate ban score.
+* Block, transaction, Addr, headers, GetBlockData and native USDOM structures
+  retain their command-specific count/byte/canonical bounds after framing.
+* Exact transaction/block replay suppression and Dandelion suppression are
+  covered by stages 590/594; framing cannot bypass those identity checks.
+
+Light validation
+================
+* rustfmt on the wire codec: PASS
+* git diff whitespace/integrity check: PASS
+* Structural assertions cover persistent timeout state, timeout_at use,
+  canonical-fragment rejection, early command validation and all three new
+  regressions.
+* Cargo execution is queued until the active RandomX proof releases shared
+  compiler and memory resources.
+
+No readiness fact, commit, push, deploy, signature, external RPC, transaction,
+mining or funds action occurred.

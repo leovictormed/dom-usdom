@@ -1,0 +1,26 @@
+ETAPA1060 — WALLET BUILT-BINARY IDENTITY
+Date: 2026-10-23
+
+Finding
+=======
+The recovery workflows authenticated Cargo but then trusted executable paths under
+target/release. A preexisting symlink or concurrent replacement between build and
+execution could redirect a credential-bearing operation to an unauthenticated file.
+
+Correction
+==========
+- Every generated wallet/recovery executable must be a direct regular executable,
+  non-symlink, single-link, owner-controlled and not group/world writable.
+- Device, inode, size, timestamps, owner, mode, link count and SHA-256 are captured
+  before password entry and rechecked immediately before each execution.
+- Receiving-wallet, TPM-keystore and checkpoint-recovery binaries are all covered.
+
+Evidence
+========
+Explicit Node v24.19.0 wallet boundary suites passed 5/5.
+Gate: python3 labs/usdom-reserve/scripts/check-wallet-built-binary-identity-stage1060.py
+Broad mainnet readiness remained green: 62/62 passed.
+
+Scope
+=====
+No Cargo build, network, deployment, signing, push, secrets or funds.

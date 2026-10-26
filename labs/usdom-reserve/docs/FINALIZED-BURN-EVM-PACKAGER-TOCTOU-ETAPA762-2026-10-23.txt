@@ -1,0 +1,6 @@
+ETAPA 762 — Finalized-burn Groth16/EVM packager TOCTOU closure
+Date: 2026-10-23
+
+The future packager pins/rechecks Cargo, Node, JQ and env and consumes one private immutable snapshot of the job/input, verified receipt/index and guest ELF/IID. A final SHA-256 manifest, checked immediately before the pinned RISC Zero package binary, binds the receipt graph and any resumable Groth16 receipt. The Rust packager remains the authority that verifies the receipt image/journal and emits the seal/control metadata. The previous valid EVM metadata index remains during conversion and is removed only after the new private Groth16 receipt, seal and metadata all exist; artifacts publish before metadata/index.
+
+Validation: structural/adversarial/liveness tests 3/3 (including release-test placement regression), bash -n and diff-check pass. No conversion, Cargo, proof, RPC, commit or push.

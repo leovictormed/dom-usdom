@@ -1,0 +1,33 @@
+ETAPA936 — PROOF-HOST PRIVATE INPUT RETENTION
+Date: 2026-10-23
+
+Exact retained classes
+1. checkpoint-source-set/checkpoint-segment-NNNN-private-input.bin (checkpoint and RandomX aggregate consumers)
+2. economic source package private inputs referenced by package_source_file
+3. economic chunk witnesses referenced by witness_file
+4. finalized-burn-source/finalized-burn-input.bin
+
+Boundary audit
+- Creation uses save_private_bytes beneath prevalidated owner-only directories;
+  reads use descriptor-backed bounded regular-file readers and generation indexes
+  bind logical name, length/hash and job identity. Symlinks are rejected.
+- Public job/receipt indexes contain logical paths, sizes and SHA-256 bindings,
+  never private bytes. Receipt/seal publication does not copy source plaintext.
+- No production tempfile, backup copy or automatic source deletion was found.
+
+Retention correction
+- The prior documentation had no explicit safe deletion point. Automatic cleanup
+  after a single proof/package is unsafe because retries, recursive compression
+  and independent verification still consume the same generation.
+- Policy is now explicit: retain the owner-only generation through planning,
+  proving, verification, compression/package and durable receipt-index readback.
+  Only an operator retention ceremony may remove the complete generation after
+  all referenced receipts/packages and their hashes are independently archived.
+  Never delete individual files, and never publish/copy them into release or
+  backup bundles. Crash remnants remain private and are handled as an incomplete
+  generation at the next ceremony, not silently reused across generation hashes.
+
+Validation
+- Structural regression verifies the four classes remain private/hash-bound and
+  that proof success paths do not delete them prematurely. Test 2/2 and
+  diff-check pass; no proof/build/filesystem cleanup executed.

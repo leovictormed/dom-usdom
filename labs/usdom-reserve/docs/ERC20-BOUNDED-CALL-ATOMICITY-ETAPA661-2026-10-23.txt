@@ -1,0 +1,54 @@
+Stage 661 — ERC-20 bounded-call and atomicity audit (2026-10-23)
+
+Scope
+
+Audited proof-reserve interactions with USDT-compatible ERC-20 contracts during
+`balanceOf`, `transferFrom` and `transfer`: revert, false/malformed/oversized
+returndata, gas grief, hidden balance inconsistencies, callbacks/reentrancy,
+recipient restrictions, donations and rollback of debt/bucket/accounting state.
+
+Confirmed defect
+
+Balance reads and SafeERC20 transfers used high-level wrappers that could copy
+attacker-selected returndata. Existing exact-balance postconditions prevented
+false credit and accounting loss, and EVM rollback preserved state on failure,
+but a hostile token could return very large data and force unnecessary memory
+expansion or gas consumption at the reserve boundary.
+
+Correction
+
+- `USDOMProofReserve` now gives token balance and transfer calls a fixed
+  500,000-gas budget and copies at most one 32-byte word.
+- `balanceOf` must succeed with exactly one ABI word.
+- Transfers accept either zero returndata, for historical USDT compatibility,
+  or exactly canonical boolean `true`. Revert, false, malformed, short,
+  trailing and oversized replies become `UnsupportedToken`.
+- The external transfer still occurs inside `nonReentrant`, and the existing
+  exact before/after balance equations remain authoritative. A lying, fee,
+  rebasing-like or callback token cannot create credited deposits or consume a
+  payout without exact movement.
+- All effects written before payout transfer remain transaction-atomic: a token
+  failure restores paid flags, request/burn bindings, pending links/count/amount,
+  released total and rate bucket.
+- Recipient self/reserve/token exclusions and donation accounting remain
+  unchanged. Donations never increment `totalDeposited` and cannot authorize
+  native issuance or payment beyond credited outstanding value.
+
+Material regressions
+
+- A one-megabyte transfer/transferFrom return bomb rolls back a deposit and a
+  queued payout. The failed deposit ID remains unused; debt, bucket and pending
+  amount remain available; normal token behavior permits exact retry.
+- A one-megabyte `balanceOf` return bomb likewise cannot create credit or consume
+  debt, and the original payout succeeds after the read boundary is restored.
+
+Validation
+
+- new hostile-token regressions: 2/2 passed;
+- complete Solidity campaign: 165/165 passed across 14 suites, including all
+  invariant campaigns;
+- post-format hostile-token regressions: 2/2 passed;
+- production lint, formatting and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit,
+push, deployment, signature, transmission or funds operation was performed.

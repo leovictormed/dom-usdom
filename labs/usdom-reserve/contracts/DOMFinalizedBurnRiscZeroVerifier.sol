@@ -11,7 +11,15 @@ import {IRiscZeroVerifierV3} from "./IRiscZeroVerifierV3.sol";
 /// its complete journal; unrelated private witness data is never published here.
 contract DOMFinalizedBurnRiscZeroVerifier is IDOMFinalizedBurnVerifier {
     bytes4 public constant RISC_ZERO_GROTH16_V3_SELECTOR = 0x73c457ba;
-    uint256 public constant MAX_PROOF_BYTES = 64 * 1024;
+    /// @notice Reviewed direct verifier deployed by risc0-ethereum v3.0.1.
+    address public constant MAINNET_RISC_ZERO_VERIFIER = 0x2a098988600d87650Fb061FfAff08B97149Fa84D;
+    bytes32 public constant MAINNET_RISC_ZERO_VERIFIER_CODE_HASH =
+        0xfe03c66078969d097f867351171b4639d726c8376c35022675ed44cbbcbaa720;
+    /// @notice Four-byte selector plus the eight canonical BN254 proof words.
+    uint256 public constant EVM_PROOF_BYTES = 4 + 8 * 32;
+    /// @notice Leaves deterministic gas for exact-return checks and the caller
+    /// after an upstream verifier failure instead of forwarding the full frame.
+    uint256 public constant RISC_ZERO_VERIFIER_GAS_LIMIT = 4_500_000;
     bytes32 public constant PROOF_ACCEPTED = keccak256("USDOM_FINALIZED_BURN_PROOF_V1");
     bytes32 public constant JOURNAL_SCHEMA_HASH = keccak256("raw-statement-hash-32-bytes-v1");
     bytes32 public constant VERIFIER_CONFIG_TYPEHASH = keccak256(
@@ -35,6 +43,13 @@ contract DOMFinalizedBurnRiscZeroVerifier is IDOMFinalizedBurnVerifier {
         if (
             verifierAddress.code.length == 0 || verifierCodeHash == bytes32(0) || imageId_ == bytes32(0)
                 || verifierAddress == address(this)
+        ) revert InvalidConfiguration();
+        // Mainnet proof authority must not be a mutable router/proxy whose own
+        // bytecode remains stable while its delegated implementation changes.
+        if (
+            block.chainid == 1
+                && (verifierAddress != MAINNET_RISC_ZERO_VERIFIER
+                    || verifierCodeHash != MAINNET_RISC_ZERO_VERIFIER_CODE_HASH)
         ) revert InvalidConfiguration();
 
         (bool selectorOk, bytes4 selector) = _readSelector(verifierAddress);
@@ -67,10 +82,9 @@ contract DOMFinalizedBurnRiscZeroVerifier is IDOMFinalizedBurnVerifier {
 
     /// @inheritdoc IDOMFinalizedBurnVerifier
     function verifyFinalizedBurn(bytes32 statementHash, bytes calldata proof) external view returns (bytes32) {
-        if (
-            statementHash == bytes32(0) || proof.length < 4 || proof.length > MAX_PROOF_BYTES
-                || bytes4(proof[:4]) != verifierSelector
-        ) revert InvalidProof();
+        if (statementHash == bytes32(0) || proof.length != EVM_PROOF_BYTES || bytes4(proof[:4]) != verifierSelector) {
+            revert InvalidProof();
+        }
         (bool selectorOk, bytes4 currentSelector) = _readSelector(address(riscZeroVerifier));
         if (
             block.chainid != deploymentChainId || address(riscZeroVerifier).codehash != riscZeroVerifierCodeHash
@@ -90,7 +104,7 @@ contract DOMFinalizedBurnRiscZeroVerifier is IDOMFinalizedBurnVerifier {
         uint256 returnSize;
         address target = address(riscZeroVerifier);
         assembly ("memory-safe") {
-            ok := staticcall(gas(), target, add(callData, 32), mload(callData), 0, 0)
+            ok := staticcall(RISC_ZERO_VERIFIER_GAS_LIMIT, target, add(callData, 32), mload(callData), 0, 0)
             returnSize := returndatasize()
         }
         if (!ok || returnSize != 0) revert InvalidProof();

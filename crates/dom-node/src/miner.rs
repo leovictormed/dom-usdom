@@ -45,6 +45,26 @@ impl Drop for MiningActiveGuard {
     }
 }
 
+/// Ensures cancellation of the async coordinator cannot detach an unbounded
+/// RandomX search. `spawn_blocking` tasks are not cancelled when their join
+/// handle is dropped, so the stop flag must be signalled by an RAII owner that
+/// lives in the awaiting future itself.
+struct MiningCancellationGuard {
+    stop: Arc<AtomicBool>,
+}
+
+impl MiningCancellationGuard {
+    fn new(stop: Arc<AtomicBool>) -> Self {
+        Self { stop }
+    }
+}
+
+impl Drop for MiningCancellationGuard {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct MiningEligibility {
     local_height: u64,
@@ -687,9 +707,15 @@ async fn finalize_mined_native_usdom_v4_block(
     template: dom_chain::NativeUsdomV4MiningTemplate,
 ) -> Result<FinalizedBlock, DomError> {
     use dom_chain::UsdomV4BlockPackage;
+    use dom_serialization::DomSerialize;
     use dom_wire::message::UsdomV4PackagePayload;
 
     let new_height = block.header.height.0;
+    let canonical_block_hash = {
+        let header = block.header.to_bytes()?;
+        let chain = node.chain.lock().await;
+        dom_chain::canonical_header_identifier(chain.network_magic, &header)?
+    };
     let candidate_id = template.candidate_id();
     let package_bytes = UsdomV4BlockPackage::new(block, template.into_envelope())?.to_bytes()?;
     let wire_payload = UsdomV4PackagePayload { package_bytes }.to_bytes()?;
@@ -720,12 +746,16 @@ async fn finalize_mined_native_usdom_v4_block(
         node.metrics.blocks_mined.fetch_add(1, Ordering::Relaxed);
         if let Some(candidate_id) = candidate_id {
             match node
-                .complete_native_usdom_v4_mining_candidate(candidate_id)
+                .complete_native_usdom_v4_mining_candidate(
+                    candidate_id,
+                    new_height,
+                    canonical_block_hash,
+                )
                 .await
             {
                 Ok(true) => {}
-                Ok(false) => tracing::warn!(
-                    "canonical native-v4 mining candidate was absent from the volatile pool"
+                Ok(false) => tracing::debug!(
+                    "native-v4 mining candidate retained or absent because its mined block is no longer canonical"
                 ),
                 Err(error) => {
                     tracing::error!("canonical native-v4 mining candidate cleanup failed: {error}")
@@ -750,9 +780,15 @@ async fn finalize_mined_native_usdom_v2_block(
     template: dom_chain::NativeUsdomV2MiningTemplate,
 ) -> Result<FinalizedBlock, DomError> {
     use dom_chain::UsdomV4BlockPackage;
+    use dom_serialization::DomSerialize;
     use dom_wire::message::UsdomV2PackagePayload;
 
     let new_height = block.header.height.0;
+    let canonical_block_hash = {
+        let header = block.header.to_bytes()?;
+        let chain = node.chain.lock().await;
+        dom_chain::canonical_header_identifier(chain.network_magic, &header)?
+    };
     let candidate_id = template.candidate_id();
     let (envelope, witnesses) = template.into_parts();
     let package_bytes = UsdomV4BlockPackage::new(block, envelope)?.to_bytes()?;
@@ -789,12 +825,16 @@ async fn finalize_mined_native_usdom_v2_block(
         node.metrics.blocks_mined.fetch_add(1, Ordering::Relaxed);
         if let Some(candidate_id) = candidate_id {
             match node
-                .complete_native_usdom_v2_mining_candidate(candidate_id)
+                .complete_native_usdom_v2_mining_candidate(
+                    candidate_id,
+                    new_height,
+                    canonical_block_hash,
+                )
                 .await
             {
                 Ok(true) => {}
-                Ok(false) => tracing::warn!(
-                    "canonical native-V2 mining candidate was absent from the volatile pool"
+                Ok(false) => tracing::debug!(
+                    "native-V2 mining candidate retained or absent because its mined block is no longer canonical"
                 ),
                 Err(error) => {
                     tracing::error!("canonical native-V2 mining candidate cleanup failed: {error}")
@@ -1217,6 +1257,7 @@ async fn mine_one_attempt(
         let pow_mode = mining_mode.pow_mode();
         let threads = node.config.miner_threads.max(1);
         let stop = Arc::new(AtomicBool::new(false));
+        let cancellation_guard = MiningCancellationGuard::new(Arc::clone(&stop));
         let worker_stop = stop.clone();
         let mining_hashes = node.metrics.mining_hashes.clone();
         let mut mining_task = tokio::task::spawn_blocking(move || {
@@ -1283,6 +1324,7 @@ async fn mine_one_attempt(
         };
         // The coordinator has returned only after joining every RandomX worker.
         drop(active_guard);
+        drop(cancellation_guard);
 
         if let Some(interruption) = interruption {
             if matches!(interruption, MiningAttempt::StaleTemplate { .. }) {
@@ -1820,8 +1862,8 @@ mod kernel_offset_tests {
 mod stale_template_ibd_tests {
     use super::{
         best_known_connected_peer_height, classify_template_snapshot, mine_blocking_cancellable,
-        set_paused_for_sync, MinerThrottle, MiningActiveGuard, MiningAttempt, MiningEligibility,
-        MiningWork, ProvisionalCoinbase,
+        set_paused_for_sync, MinerThrottle, MiningActiveGuard, MiningAttempt,
+        MiningCancellationGuard, MiningEligibility, MiningWork, ProvisionalCoinbase,
     };
     use crate::metrics::Metrics;
     use dom_config::MinerThrottleConfig;
@@ -2064,6 +2106,16 @@ mod stale_template_ibd_tests {
             MiningWork::Mined(_, _) => panic!("shutdown worker unexpectedly mined"),
         }
         assert_eq!(metrics.mining_active.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn dropping_async_mining_coordinator_signals_blocking_worker_stop() {
+        let stop = Arc::new(AtomicBool::new(false));
+        {
+            let _guard = MiningCancellationGuard::new(Arc::clone(&stop));
+            assert!(!stop.load(Ordering::Acquire));
+        }
+        assert!(stop.load(Ordering::Acquire));
     }
 
     #[test]

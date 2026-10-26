@@ -1,0 +1,19 @@
+ETAPA1024 — DomStore atomicity/crash consistency
+
+No concrete partial-commit path was found. Direct V4/V2 connects pass canonical
+header/body, height/tip, UTXO/kernel changes and every USDOM consensus update
+(state roots, totals, consumed deposits, nullifiers, burns and checkpoint floor)
+to one LMDB write transaction. Reorganizations likewise combine disconnect and
+connect changes, canonical indexes, undo/sidecar changes and consensus updates
+before one commit. Validation occurs before mutation; in-memory tips/states are
+updated only after commit succeeds.
+
+Canonical snapshot/restart reads use one LMDB read transaction, preventing a
+tip from being paired with consensus bytes from another generation. LMDB's
+atomic commit makes kill/power loss select the complete old or complete new
+generation. External checkpoint-floor evidence remains necessary to detect a
+complete rollback to an older valid database; ETAPA1022 enforces that boundary.
+
+Gate: `labs/usdom-reserve/scripts/check-usdom-store-atomicity.py`. It verifies
+the shared write transaction and atomic chain call sites. Gate, py_compile and
+diff check passed; no heavy build was run.

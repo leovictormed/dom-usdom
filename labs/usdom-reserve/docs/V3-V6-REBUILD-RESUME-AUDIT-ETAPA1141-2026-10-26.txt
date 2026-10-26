@@ -1,0 +1,33 @@
++V3/V6 RECURSIVE REBUILD HANDOFF AND RESUME AUDIT — STAGE 1141
+Date: 2026-10-26
+Scope: checkpoint rebuild orchestrator, V6 chain handoff, verify-only receipt chain and manifest publication.
+The heavy proof was not started. Cargo, Rust source/toolchain, network and publication were untouched.
+
+FINDING CORRECTED
+
+HIGH — every late failure discarded all completed recursive proof work.
+The V3 orchestrator created a random temporary tree and unconditionally removed it in finally. A gate failure or process restart after segment/outer/finalized-burn/receipt production forced every expensive producer to run again. The existing test explicitly required orphaned work never be resumed.
+
+CORRECTION
+
+- Each authenticated generation now uses one deterministic private resume workspace beside the final output.
+- A durable resume marker binds the exact source commit/tree, manifest, handoff, offline cache manifest, tools, ordered stages and destination.
+- Restart refuses a workspace belonging to any other generation.
+- Completed producer outputs are skipped only when the full declared output set and its semantic verification record exist.
+- Skipped producer outputs are never trusted directly: verification-step outputs and the stage verification record are removed and independently regenerated with pinned executables. Receipt verify-only steps therefore rerun cryptographic verification before aggregation.
+- Missing/partial stage output sets are removed and that producer is rerun.
+- Authenticated predecessor hashes, earlier published-output hashes, semantic claims and undeclared git changes are rechecked on every restart.
+- The final tree remains sealed read-only, fsynced and atomically published with RENAME_NOREPLACE. A competing output cannot be overwritten.
+- Failed workspaces remain unpublished and resumable; final output remains absent.
+
+SOURCE AND COMPLETENESS
+
+Actual execution still requires a clean local commit whose HEAD and tree equal the materialized manifest sourceCommit/sourceTree. Therefore the post-Cargo manifest must be generated only after current reviewed changes are locally committed; no push is implied.
+The ordered chain remains segment, pin-segment, outer, pin-outer, finalized-burn, pin-finalized-burn, receipts, gate. Every stage must publish exact outputs plus a semantic verification record. Receipt outputs additionally require independent verify-only records before aggregation.
+
+VALIDATION
+
+- Python bytecode/syntax check passed.
+- Full orchestrator/materializer/installer/V6-path suite passed 32/32 after the durable-resume change. The retry test proves the completed segment producer mtime is unchanged.
+- Heavy proof and Cargo were not started.
+

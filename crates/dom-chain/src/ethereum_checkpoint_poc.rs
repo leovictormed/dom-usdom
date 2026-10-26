@@ -7,6 +7,7 @@
 //! This module owns their shared canonical record and fork-choice enforcement;
 //! it is not itself an Ethereum light client.
 use dom_core::{DomError, Hash256, NETWORK_MAGIC_REGTEST};
+use dom_serialization::Reader;
 use dom_store::DomStore;
 use sha3::{Digest, Keccak256};
 
@@ -68,6 +69,17 @@ fn rejected(message: &str) -> DomError {
     DomError::PolicyRejected(format!("CHECKPOINT_POC: {message}"))
 }
 
+fn persisted_checkpoint_error(context: &str, error: DomError) -> DomError {
+    DomError::Internal(format!("{context}: {error}"))
+}
+
+fn decode_persisted_checkpoint(
+    bytes: &[u8],
+    context: &str,
+) -> Result<TestOracleCheckpoint, DomError> {
+    decode_test_oracle_v2(bytes).map_err(|error| persisted_checkpoint_error(context, error))
+}
+
 /// Reconstruct the Solidity-compatible EIP-712-style struct digest carried by
 /// the authenticated checkpoint log. Receipt verification must separately bind
 /// this digest to the expected event signature, emitter and finalized header.
@@ -89,27 +101,37 @@ pub fn expected_checkpoint_event_digest(checkpoint: TestOracleCheckpoint) -> Has
 
 /// Read bounded, versioned metadata; malformed data fails closed.
 pub fn load(store: &DomStore) -> Result<Option<TestOracleCheckpoint>, DomError> {
-    if store.get_metadata(LEGACY_CHECKPOINT_KEY)?.is_some() {
+    let (metadata, consensus) = store.read_atomic_state_entries(
+        &[LEGACY_CHECKPOINT_KEY, CHECKPOINT_KEY],
+        &[CONSENSUS_CHECKPOINT_KEY],
+    )?;
+    if metadata[0].is_some() {
         return Err(rejected("legacy v1 checkpoint requires explicit migration"));
     }
-    let metadata = store
-        .get_metadata(CHECKPOINT_KEY)?
-        .map(|bytes| decode_test_oracle_v2(&bytes))
+    let metadata = metadata[1]
+        .as_deref()
+        .map(|bytes| decode_persisted_checkpoint(bytes, "persisted checkpoint metadata is corrupt"))
         .transpose()?;
-    let consensus = store
-        .get_consensus_state(CONSENSUS_CHECKPOINT_KEY)?
-        .map(|bytes| decode_test_oracle_v2(&bytes))
+    let consensus = consensus[0]
+        .as_deref()
+        .map(|bytes| {
+            decode_persisted_checkpoint(bytes, "persisted consensus checkpoint is corrupt")
+        })
         .transpose()?;
     match (metadata, consensus) {
         (None, None) => Ok(None),
         (Some(checkpoint), None) | (None, Some(checkpoint)) => Ok(Some(checkpoint)),
         (Some(a), Some(b)) if a == b => Ok(Some(a)),
         (Some(a), Some(b)) if a.height < b.height => {
-            validate_checkpoint_successor(a, b)?;
+            validate_checkpoint_successor(a, b).map_err(|error| {
+                persisted_checkpoint_error("persisted checkpoint generations conflict", error)
+            })?;
             Ok(Some(b))
         }
         (Some(a), Some(b)) if b.height < a.height => {
-            validate_checkpoint_successor(b, a)?;
+            validate_checkpoint_successor(b, a).map_err(|error| {
+                persisted_checkpoint_error("persisted checkpoint generations conflict", error)
+            })?;
             Ok(Some(a))
         }
         (Some(_), Some(_)) => Err(rejected(
@@ -124,7 +146,9 @@ pub fn load(store: &DomStore) -> Result<Option<TestOracleCheckpoint>, DomError> 
 pub fn load_consensus(store: &DomStore) -> Result<Option<TestOracleCheckpoint>, DomError> {
     store
         .get_consensus_state(CONSENSUS_CHECKPOINT_KEY)?
-        .map(|bytes| decode_test_oracle_v2(&bytes))
+        .map(|bytes| {
+            decode_persisted_checkpoint(&bytes, "persisted consensus checkpoint is corrupt")
+        })
         .transpose()
 }
 
@@ -132,51 +156,43 @@ pub fn load_consensus(store: &DomStore) -> Result<Option<TestOracleCheckpoint>, 
 /// Successful decoding proves internal canonicality only; Ethereum finality,
 /// receipt inclusion and registry state must already have been authenticated.
 pub fn decode_test_oracle_v2(bytes: &[u8]) -> Result<TestOracleCheckpoint, DomError> {
-    if bytes.len() != CHECKPOINT_V2_LENGTH || bytes[0] != 2 {
-        return Err(rejected("malformed persisted checkpoint"));
-    }
-    let hash = |start: usize| {
-        let mut value = [0u8; 32];
-        value.copy_from_slice(&bytes[start..start + 32]);
-        Hash256::from_bytes(value)
-    };
-    let mut height = [0u8; 8];
-    height.copy_from_slice(&bytes[1..9]);
-    let mut chain_id = [0u8; 8];
-    chain_id.copy_from_slice(&bytes[77..85]);
-    let mut ethereum_height = [0u8; 8];
-    ethereum_height.copy_from_slice(&bytes[85..93]);
-    let mut dom_network_magic = [0u8; 4];
-    dom_network_magic.copy_from_slice(&bytes[73..77]);
-    let mut transaction_index = [0u8; 4];
-    transaction_index.copy_from_slice(&bytes[261..265]);
-    let mut receipt_log_index = [0u8; 4];
-    receipt_log_index.copy_from_slice(&bytes[265..269]);
-    let mut checkpoint_contract = [0u8; 20];
-    checkpoint_contract.copy_from_slice(&bytes[269..289]);
-    let mut beacon_slot = [0u8; 8];
-    beacon_slot.copy_from_slice(&bytes[189..197]);
-    let checkpoint = TestOracleCheckpoint {
-        height: u64::from_be_bytes(height),
-        dom_block: hash(9),
-        dom_state_root: hash(41),
-        dom_network_magic: u32::from_be_bytes(dom_network_magic),
-        ethereum_chain_id: u64::from_be_bytes(chain_id),
-        ethereum_block_number: u64::from_be_bytes(ethereum_height),
-        ethereum_block: hash(93),
-        ethereum_receipts_root: hash(125),
-        ethereum_state_root: hash(157),
-        ethereum_beacon_slot: u64::from_be_bytes(beacon_slot),
-        ethereum_beacon_root: hash(197),
-        ethereum_genesis_validators_root: hash(229),
-        transaction_index: u32::from_be_bytes(transaction_index),
-        receipt_log_index: u32::from_be_bytes(receipt_log_index),
-        checkpoint_contract,
-        checkpoint_code_hash: hash(289),
-        checkpoint_config_hash: hash(321),
-        bridge_domain: hash(353),
-        checkpoint_event_digest: hash(385),
-    };
+    let checkpoint = (|| -> Result<TestOracleCheckpoint, DomError> {
+        if bytes.len() != CHECKPOINT_V2_LENGTH {
+            return Err(DomError::Malformed(
+                "invalid persisted checkpoint length".into(),
+            ));
+        }
+        let mut reader = Reader::new(bytes);
+        if reader.read_u8()? != 2 {
+            return Err(DomError::Malformed(
+                "invalid persisted checkpoint version".into(),
+            ));
+        }
+        let checkpoint = TestOracleCheckpoint {
+            height: reader.read_u64_be()?,
+            dom_block: Hash256::from_bytes(reader.read_array::<32>()?),
+            dom_state_root: Hash256::from_bytes(reader.read_array::<32>()?),
+            dom_network_magic: reader.read_u32_be()?,
+            ethereum_chain_id: reader.read_u64_be()?,
+            ethereum_block_number: reader.read_u64_be()?,
+            ethereum_block: Hash256::from_bytes(reader.read_array::<32>()?),
+            ethereum_receipts_root: Hash256::from_bytes(reader.read_array::<32>()?),
+            ethereum_state_root: Hash256::from_bytes(reader.read_array::<32>()?),
+            ethereum_beacon_slot: reader.read_u64_be()?,
+            ethereum_beacon_root: Hash256::from_bytes(reader.read_array::<32>()?),
+            ethereum_genesis_validators_root: Hash256::from_bytes(reader.read_array::<32>()?),
+            transaction_index: reader.read_u32_be()?,
+            receipt_log_index: reader.read_u32_be()?,
+            checkpoint_contract: reader.read_array::<20>()?,
+            checkpoint_code_hash: Hash256::from_bytes(reader.read_array::<32>()?),
+            checkpoint_config_hash: Hash256::from_bytes(reader.read_array::<32>()?),
+            bridge_domain: Hash256::from_bytes(reader.read_array::<32>()?),
+            checkpoint_event_digest: Hash256::from_bytes(reader.read_array::<32>()?),
+        };
+        reader.finish()?;
+        Ok(checkpoint)
+    })()
+    .map_err(|_| rejected("malformed persisted checkpoint"))?;
     validate_identity(checkpoint)?;
     Ok(checkpoint)
 }
@@ -312,7 +328,34 @@ pub fn ensure_at_least(
     tip_height: u64,
     floor: Option<TestOracleCheckpoint>,
 ) -> Result<Option<TestOracleCheckpoint>, DomError> {
+    ensure_at_least_inner(store, tip_height, floor, false)
+}
+
+/// Validate checkpoint persistence during startup and require an independently
+/// retained floor whenever this database already contains a checkpoint.
+///
+/// A consensus-state record proves what this database currently says, but it
+/// cannot reveal that an operator restored an older, internally consistent
+/// snapshot. The external floor is therefore mandatory for every restart after
+/// either metadata or consensus checkpoint installation.
+pub fn ensure_restart_floor(
+    store: &DomStore,
+    tip_height: u64,
+    floor: Option<TestOracleCheckpoint>,
+) -> Result<Option<TestOracleCheckpoint>, DomError> {
+    ensure_at_least_inner(store, tip_height, floor, true)
+}
+
+fn ensure_at_least_inner(
+    store: &DomStore,
+    tip_height: u64,
+    floor: Option<TestOracleCheckpoint>,
+    require_external_floor: bool,
+) -> Result<Option<TestOracleCheckpoint>, DomError> {
     let current = load(store)?;
+    if require_external_floor && current.is_some() && floor.is_none() {
+        return Err(rejected("external restart checkpoint floor is required"));
+    }
     if let Some(required) = floor {
         validate_identity(required).map_err(|_| rejected("invalid required checkpoint"))?;
         let checkpoint = current.ok_or_else(|| rejected("required checkpoint is missing"))?;

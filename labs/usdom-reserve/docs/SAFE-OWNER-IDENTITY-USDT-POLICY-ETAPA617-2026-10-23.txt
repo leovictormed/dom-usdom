@@ -1,0 +1,56 @@
+ETAPA 617 — identidade dos Safes e politica USDT da proof reserve
+Data: 2026-10-23
+
+Escopo
+------
+Auditoria Solidity de USDOMProofReserve sobre proxy/singleton Safe, owners,
+threshold, modulos, guard, fallback handler, implementation/codehash e politica
+USDT (paused, deprecated, fee, blacklist), incluindo ABI malformada e caps de
+gas. Nenhum Rust, Cargo, script/SDK RISC Zero, deploy, assinatura ou fundo foi
+tocado.
+
+Defeito concreto
+----------------
+O contrato fixava endereco/codehash do proxy e singleton/codehash, e exigia
+exatamente tres owners EOA distintos com threshold 2. Porem nao memorizava
+quais owners foram aprovados no deploy. Substituir um ou todos por outros EOAs
+distintos mantinha todas as verificacoes verdadeiras; controlPlaneHealthy e os
+caminhos de valor aceitavam a autoridade alterada silenciosamente.
+
+Correcao
+--------
+- A leitura canonica getOwners() agora produz, alem do predicado estrutural,
+  keccak256(abi.encode(owner0, owner1, owner2)). A ordem retornada pelo Safe e
+  parte da identidade, evitando equivalencia ambigua de listas.
+- governanceOwnersCommitment e guardianOwnersCommitment sao immutables
+  definidos no construtor. Controles diretos nao proxy usam compromisso zero.
+- Cada verificacao de control plane compara a lista atual ao compromisso
+  imutavel, alem de proxy, singleton, codehash, threshold, modulos, guard e
+  fallback existentes. Qualquer rotacao bloqueia depositos/resgates/resume.
+- A regressao troca 0x101 por 0x104, preservando tres EOAs distintos e 2/3,
+  prova ControlPlaneChanged e depois prova recuperacao ao restaurar a lista.
+- Corrigida uma fixture preexistente: atribuicao de struct em memoria aliasava
+  o burn original no teste de replay; o dominio agora e restaurado antes da
+  verificacao final, fazendo o teste exercer o tuple original como descrito.
+
+Politica USDT e ABI/gas
+-----------------------
+Nao foi encontrado novo defeito nessa fronteira. O endereco/codehash mainnet
+e fixo; decimals deve ser 6; paused/deprecated ou fees nao zero falham; funder,
+reserva e destinatario passam por blacklist; deltas exatos rejeitam fee/rebase;
+mudanca de codigo falha. Leituras Safe usam staticcall com 50.000 gas e buffers
+fixos/tamanhos ABI exatos, inclusive owners, modulos, guard e fallback.
+
+Validacao
+---------
+- forge fmt: passou.
+- teste focado de drift Safe: 1/1 passou.
+- suite USDOMProofReserve: 42/42 passou, incluindo tres fuzz de 1024 runs.
+- suite Solidity completa: 150/150 passou; invariantes de reserva, proof
+  reserve, recovery e checkpoint executaram 256 x 16.384 chamadas cada.
+- compilacao solc 0.8.37 e git diff --check: passaram.
+
+Conclusao
+---------
+A autoridade nao e mais definida apenas pela forma 2-de-3. O conjunto ordenado
+aprovado no deploy integra o runtime imutavel e qualquer rotacao falha fechada.

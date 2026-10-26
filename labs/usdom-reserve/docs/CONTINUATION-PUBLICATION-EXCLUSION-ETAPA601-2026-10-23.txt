@@ -1,0 +1,31 @@
+USDOM stage 601 — continuation publication exclusion
+Date: 2026-10-23
+
+Finding
+=======
+
+The component continuation document was ignored and excluded from the release
+manifest, but the repository-root `docs/CONTINUATION-STATE.md` remained an
+untracked, non-ignored file. The source ceremony stages repository-wide changes
+because native DOM implementation files live outside the component. A future
+release commit or manual `git add -A` could therefore include the private root
+continuation log contrary to the operator's explicit instruction.
+
+Correction
+==========
+
+The root `.gitignore` now excludes exactly `/docs/CONTINUATION-STATE.md`.
+Both release commit ceremonies require Git to report both continuation paths as
+ignored, and the source ceremony explicitly rejects either path during staged
+index inspection. The component continuation remains excluded from its source
+manifest as before.
+
+Evidence
+========
+
+* `git check-ignore -v` identifies the root and component rules.
+* Both release shell scripts pass `bash -n`.
+* Focused continuation/source/evidence ceremony tests pass 3/3.
+* Repository-wide `git diff --check` passes.
+
+No file was staged, committed or pushed, and no publication occurred.

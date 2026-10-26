@@ -1,0 +1,39 @@
+DOM / USDOM — pacote de deployment mainnet com JSON estrito
+Etapa 627 — 2026-10-23
+
+Fronteira auditada
+==================
+
+O próximo documento prioritário do catálogo foi
+`mainnet-deployment-package.json`. Ele compromete chain ID, identidade e nonce
+do deployer, quatro initcodes, endereços CREATE esperados, hashes de runtime e
+a observação de identidade que o executor revalida antes de Ledger/transmissão.
+
+Achado e correção
+=================
+
+O runbook instalava esse pacote com o writer privado create-once em modo
+byte-oriented e só depois consultava campos via `jq`. Duplicate keys ou UTF-8
+inválido podiam criar interpretação ambígua no artefato que governa quatro
+deployments mainnet.
+
+`install-private-file-new-stdin.mjs` ganhou um modo opcional `--json`, com
+decodificação UTF-8 fatal e `parseStrictJson` antes de qualquer write. O comando
+do pacote mainnet agora exige esse modo. Os usos do mesmo instalador para raw
+transactions, signatures, hashes ou outros bytes permanecem inalterados.
+
+Os controles existentes continuam: caminho absoluto, diretório owner-only,
+arquivo exclusivo, O_NOFOLLOW, target inexistente, owner 0600, single-link,
+fsync de arquivo/diretório e verificação pós-publicação.
+
+Validação
+=========
+
+O teste cria um pacote JSON válido e tenta substituir o alvo create-once por
+(1) `package` duplicado via escape Unicode e (2) byte UTF-8 `0xff`. Ambos são
+recusados e o alvo permanece byte a byte intacto. O runbook fixa `--json` no
+pacote de deployment. Testes focados passaram 2/2; Node syntax e diff integrity
+passaram.
+
+Nenhum Rust/Cargo/Solidity/RISC0, staging, commit, push, deploy, assinatura,
+transmissão ou uso de fundos foi executado.

@@ -1,0 +1,38 @@
+Etapa 539 — boundary da raiz e do próprio MANIFEST
+
+Achados
+
+verify fazia uma checagem de symlink no MANIFEST.sha256 e depois o reabria com
+read_text, criando uma janela de substituição. O gerador --write também usava
+write_text diretamente. Além disso, O_NOFOLLOW protegia apenas o componente
+final dos arquivos enumerados; um diretório intermediário podia ser substituído
+por symlink e conduzir a leitura para fora da raiz.
+
+Correção
+
+open_beneath abre a raiz como diretório com O_NOFOLLOW e percorre cada componente
+com openat/dir_fd, O_DIRECTORY e O_NOFOLLOW, mantendo todos os descritores vivos
+durante a leitura. direct_bytes aplica as verificações de arquivo regular,
+single-link, estabilidade e identidade já adotadas nas etapas anteriores. verify
+lê o próprio MANIFEST por essa fronteira.
+
+write_manifest exige que o alvo seja filho direto da raiz e, se existente, um
+arquivo regular com um único link. O conteúdo é escrito num arquivo novo 0600
+aberto com O_EXCL pelo descritor da raiz, fsyncado, instalado com replace relativo
+ao mesmo dir_fd e seguido de fsync do diretório. Assim não segue symlink no alvo
+nem depende de uma nova resolução textual da raiz durante a publicação.
+
+Testes adversariais
+
+O self-test substitui o próprio MANIFEST por symlink e exige rejeição tanto do
+verificador quanto do gerador. Também tenta hashear um arquivo através de um
+diretório intermediário symlink e exige falha. Os casos anteriores de alteração,
+arquivo extra, traversal, hardlink, rename e substituição continuam ativos.
+
+Exclusões e consumidores
+
+As exclusões permanecem explícitas e limitadas aos artefatos regeneráveis,
+resultados, evidência e três arquivos operacionais mutáveis. O consumidor de
+validação continua exigindo a verificação completa e liga o SHA-256 dos bytes do
+MANIFEST ao relatório. Nenhum fact foi criado e o manifesto real não foi
+regenerado nesta etapa.

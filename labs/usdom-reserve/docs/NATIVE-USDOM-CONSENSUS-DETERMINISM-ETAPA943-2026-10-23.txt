@@ -1,0 +1,33 @@
+ETAPA 943 — determinismo de consenso USDOM nativo
+Data: 2026-10-23
+
+Escopo auditado
+- native_usdom_v4: envelope, verificação paralela e pacote canônico.
+- dom-usdom-state: aplicação, roots, deltas, conjuntos e mapas.
+- chain_state: contexto de altura/timestamp/network e replay de branches.
+
+Resultado
+Nenhum defeito de produção foi confirmado. O paralelismo Rayon produz um Vec indexado e
+os resultados são consumidos posteriormente na ordem canônica do envelope; portanto a
+ordem de término das provas não altera transições, erro selecionado ou state root.
+
+Invariantes confirmados (9)
+1. Estado set-like usa BTreeMap/BTreeSet; não itera HashMap para commitment/persistência.
+2. Transições permanecem na ordem serializada do envelope.
+3. O transitions root vincula a sequência, não apenas o conjunto.
+4. Deltas de storage percorrem união BTreeSet em ordem bytewise única.
+5. Parsing exige re-encoding canônico e rejeita trailing/encoding alternativo.
+6. Contexto usa height e timestamp do header; chain_id deriva de network+genesis.
+7. Schedule e bridge vinculam network/domain/config antes da execução.
+8. Produção não usa float, RNG, relógio do host ou locale na mutação de estado.
+9. Provas privadas paralelas retornam a slots por índice e erros são observados na ordem
+   canônica durante o loop sequencial.
+
+Gate acrescentado
+- native-usdom-consensus-determinism-stage943.test.mjs: 3/3 passou.
+- git diff --check: passou.
+
+Limite
+O `now` local é apenas uma regra de admissão futura do header e pode causar aceitação
+transitória diferente perto da borda, como em protocolos PoW; estado e commitments usam
+o timestamp autenticado no header. Cargo pesado não foi executado.

@@ -1,0 +1,51 @@
++USDOM Stage 1086 — closed-mainnet solo-operator control-plane audit
+Date: 2026-10-26
+Scope: static and lightweight Node/bash review; no network, deployment, Forge or Cargo
+
+Result
+------
+The deployed contracts and release preflight correctly require 2-of-3 Safe
+control. A 1-of-1 Safe cannot satisfy USDOMProofReserve's immutable
+CONTROL_PLANE_THRESHOLD/OWNER_COUNT policy and remains rejected. No EOA may be
+substituted directly because each control address, singleton code identity,
+owner commitment and Safe policy is checked.
+
+The pilot may therefore be operated by one person only by controlling two
+separate owner keys while a third independent recovery key exists. This is
+single-person operational control, not multisig independence, and must remain
+limited to the fixed 1 USDT pilot exposure/capacity and migrate before limits
+increase.
+
+Verified controls
+-----------------
+- governance, reserve guardian and checkpoint guardian are separate Safe roles;
+- release preflight now explicitly rejects reuse of one Safe address across roles;
+- each Safe requires threshold 2, three distinct nonzero code-free EOA owners;
+- Safe singleton/runtime, fallback handler, no modules, no guard and module
+  sentinel are pinned at one finalized dual-RPC snapshot;
+- Safe setup binds chain 1 deployment identity, distinct CREATE2 salt nonces and
+  zero delegatecall/payment fields;
+- signing/recovery code binds EIP-712 chain/domain/verifying Safe, Safe nonce,
+  transaction payload and finalized snapshots;
+- recovery changes one owner through signed Safe transactions and has a path
+  back to independently controlled owners.
+
+Safe v2 closure
+---------------
+The shared owner trio described by the original Stage 1086 review has been
+removed. The production schema now requires three independent owner sets with
+nine globally distinct addresses. Deployment, recovery, evidence,
+materialization, authorization, signing, readiness and preflight reject the v1
+shared-trio format fail-closed. Device and seed independence remains an
+operational fact that must be attested without disclosing secrets.
+
+Checks
+------
+Pinned Node mainnet-preflight: 8/8 pass.
+Focused mainnet-readiness integration: 1/1 pass.
+git diff --check: pass.
+
+
+Superseding implementation record
+---------------------------------
+See SAFE-CONTROL-SCHEMA-V2-NINE-OWNER-MIGRATION-ETAPA1090-2026-10-26.txt.

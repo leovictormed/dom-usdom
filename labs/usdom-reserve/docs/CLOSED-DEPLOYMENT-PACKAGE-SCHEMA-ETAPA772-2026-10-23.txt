@@ -1,0 +1,39 @@
+ETAPA 772 — closed durable deployment package schema
+Date: 2026-10-23
+
+Inventory and finding
+
+The raw validation, receipt projection, submission hash, finalized fee anchor
+and completion evidence already use the closed readers introduced in stages
+750–763. The identity observation is byte-bound into the source-derived package
+and the transaction handoff is ephemeral and repeatedly rederived. The durable
+deployment package remained the highest-authority artifact with an ad hoc
+consumer header check: it checked schema/chain/transaction count and later
+compared producer bytes, but did not expose one shared exact schema validator.
+The executor also read package fields with jq before the first rederivation.
+
+Correction
+
+- Added `validateMainnetDeploymentPackage` next to the canonical builder.
+- It closes the six top-level keys and every nine-key transaction, enforces the
+  four role order, CREATE null/value fields, canonical encodings, one deployer,
+  contiguous uint64 nonces, CREATE addresses, initcode/runtime hashes and the
+  aggregate audited gas policy by rebuilding with the producer itself.
+- The private bounded checker verifies mode 0600, stable direct capture,
+  fatal UTF-8, duplicate keys and the already-bound package SHA-256.
+- The deployment executor runs that checker before any jq extraction. The
+  transaction preparer replaces its ad hoc header check with the same shared
+  validator, while retaining exact source-derived byte comparison and the
+  observation/catalog rereads.
+
+Validation
+
+- Focused package/proxy suite: 11/11 pass, including top/nested extra or
+  missing keys, type/version/role/order/nonce/encoding mutations.
+- Checker/preparer Node syntax, executor shell syntax and diff check pass.
+- A broader deployment-execution test currently has two pre-existing textual
+  regex expectations stale against the concurrent `assert_cmp_unchanged`
+  hardening; both failures inspect the added prefix rather than this package
+  change. Its substantive focused package tests pass.
+
+No RPC, deploy, signature, commit, push or fund action was performed.

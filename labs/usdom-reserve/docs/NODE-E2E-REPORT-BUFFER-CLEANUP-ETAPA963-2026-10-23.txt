@@ -1,0 +1,16 @@
+ETAPA963 — NODE E2E REPORT BUFFER CLEANUP
+Date: 2026-10-23
+
+The 17 remaining actual private reads were classified by whether bytes must be
+retained for TOCTOU comparison, returned to a caller, delivered to a child, or
+used only for an immediate digest. The largest immediately erasable family was
+three private E2E report rereads used solely to calculate the report SHA-256:
+finalized-burn release, checkpoint capacity and finalized-burn capacity.
+
+Each runner now uses a local privateFileSha helper. It reads the owner-only
+report, computes the identical raw SHA-256 and erases the Buffer in finally on
+success or hashing failure. Report and durable status semantics are unchanged.
+
+Exact residual: 49 signals = 14 actual Buffer reads plus 35 path/helper/metadata
+signals. Focused test 1/1, Node syntax for all three runners and git diff
+--check passed. No proof, build, RPC, signing or other operation was executed.

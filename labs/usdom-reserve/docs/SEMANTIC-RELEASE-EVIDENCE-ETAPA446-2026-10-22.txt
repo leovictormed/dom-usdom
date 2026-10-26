@@ -1,0 +1,15 @@
+USD0M stage 446 - semantic release evidence
+
+Security validation and operations review are no longer accepted solely by
+path and SHA-256. Canonical validators bind their contents to the exact
+release, source commit and tag, requirements/source manifest or operator
+runbook, immutable contract identities and the required independent evidence.
+
+The security writer executes the fixed production lint/build, Node, Solidity,
+deep fuzz/invariant, provenance and whitespace checks. The operations review
+binds nine operational evidence classes and exact fail-closed assertions.
+Both writers use private directories, locks, create-once installation, input
+rechecks and durable file/directory synchronization.
+
+These reports provide objective machine evidence. They do not create release
+authorization, custody approval, deployment permission or real-funds consent.

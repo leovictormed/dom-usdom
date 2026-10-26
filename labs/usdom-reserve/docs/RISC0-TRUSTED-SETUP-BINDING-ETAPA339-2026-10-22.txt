@@ -1,0 +1,46 @@
+USD + DOM — vínculo obrigatório da cerimônia Groth16 da RISC Zero
+Etapa 339 — 2026-10-22
+
+Achado
+
+Os manifestos fixavam `risc0-groth16-v3`, o seletor 0x73c457ba, a chave de
+verificação, o ImageID e o bytecode do verificador, mas ainda aceitavam
+`trustedSetupRequired=false` acompanhado de compromisso zero. Essa combinação
+descrevia incorretamente o sistema: a compressão STARK para Groth16 da RISC Zero
+depende da cerimônia pública que protege o circuito STARK Verify.
+
+Uma versão poderia, portanto, satisfazer a estrutura do manifesto enquanto
+omitisse uma premissa criptográfica material. Isso não permitia forjar uma
+prova por si só, porque o adaptador continuava preso ao verificador e à chave,
+mas enfraquecia a integridade e a auditabilidade da configuração de produção.
+
+Correção
+
+- `finalizedBurnVerifierConfigHash` e `checkpointVerifierConfigHash` agora
+  aceitam somente `trustedSetupRequired=true` para `risc0-groth16-v3`;
+- o SHA-256 da evidência da cerimônia precisa ser um bytes32 não nulo;
+- os dois adaptadores precisam apontar para o mesmo documento e o mesmo hash,
+  pois usam a mesma cerimônia upstream;
+- o enumerador usado pelos materializadores permite exatamente essa única
+  referência compartilhada e continua rejeitando qualquer terceiro uso do
+  caminho;
+- documentos independentes ainda não podem reutilizar caminho ou conteúdo.
+
+Base técnica
+
+A documentação da RISC Zero 3.0 declara a cerimônia Groth16 e descreve a
+verificação do circuito, transcript, contribuições e Powers of Tau:
+https://dev.risczero.com/api/trusted-setup-ceremony
+
+O compromisso desta cerimônia é separado da futura cerimônia Groth16 do
+`SpendVerifier` nativo da USDOM. A cerimônia upstream da RISC Zero não produz
+nem substitui a chave de privacidade nativa.
+
+Validação
+
+- 72/72 testes focados passaram;
+- a regressão Node completa passou 286/286, com build Solidity forçado;
+- os testes cobrem configurações falsas/zero, discrepância entre os dois
+  transcripts, reutilização legítima única, terceira reutilização proibida,
+  integração EVM, submissão autenticada e prontidão de mainnet;
+- nenhuma chave, assinatura, deploy, transmissão, mineração ou fundo foi usado.

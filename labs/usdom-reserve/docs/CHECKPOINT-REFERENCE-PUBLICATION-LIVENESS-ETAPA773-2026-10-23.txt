@@ -1,0 +1,18 @@
+ETAPA 773 — unsigned checkpoint submission to finalized-transaction handoff
+Date: 2026-10-23
+
+Finding
+The checkpoint transaction-reference writer published `transaction-reference.json` before its SHA-256 sidecar. A failure during the second immutable install left the completion artifact present but the required hash absent; the create-once precondition then rejected every retry. It also did not byte-compare either installed artifact with the authenticated temporary output.
+
+Correction
+- The SHA-256 sidecar is now installed and verified first; the JSON reference is the completion artifact and is installed last.
+- A prior owner-only regular 0600 sidecar is accepted only if it exactly matches the newly rebuilt hash. This makes interruption after sidecar publication safely retryable; a substituted sidecar fails closed.
+- Both installed files receive direct-file owner/mode/link validation where applicable and exact byte readback through `cmp` before durable directory sync.
+- The upstream preparer still strictly parses release/submission schemas, binds the submission document SHA-256, and rechecks all inputs before emitting output.
+- No RPC, signature, broadcast or proof command was executed.
+
+Validation
+bash -n scripts/write-checkpoint-finalized-transaction-reference.sh
+node --test test/node/checkpoint-finalized-event-collector.test.mjs test/node/checkpoint-submission-writer-hardening.test.mjs test/node/checkpoint-submission.test.mjs
+Result: 11 tests, 11 passed, 0 failed.
+git diff --check: passed.

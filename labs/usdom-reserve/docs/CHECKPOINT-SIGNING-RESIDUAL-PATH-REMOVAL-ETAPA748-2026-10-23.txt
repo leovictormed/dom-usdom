@@ -1,0 +1,21 @@
+ETAPA 748 — checkpoint signing residual PATH authority removal
+Date: 2026-10-23
+
+Finding
+=======
+Checkpoint ratification retained two authority transforms outside its pinned tools: the snapshot
+function invoked `node` through PATH, and final signature concatenation invoked `cut` through PATH.
+Either replacement could change validated inputs or the bundle installed after Ledger signing.
+
+Correction
+==========
+Snapshots now invoke the already pinned Node path. Signature halves are validated first and
+concatenated with Bash's byte-stable ASCII substring operation, removing `cut` entirely. Negative
+structural checks reject raw Node commands and external cut slicing.
+
+Validation
+==========
+Signing and durable-writer suites pass 10/10. Shell syntax and diff checks pass. No ceremony,
+Ledger, RPC or signing ran.
+
+No commit, push, deploy, transmission or funds were used.

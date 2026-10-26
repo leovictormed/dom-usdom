@@ -1,0 +1,45 @@
+ETAPA 696 — aggregate readiness evidence snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+The aggregate mainnet-readiness checker first read each configured evidence file to
+compute evidenceFiles[path], then independently read JSON evidence again for semantic
+validation. A concurrent replacement between those reads could make the readiness
+assessment bind SHA-256 for bytes A while validating object B.
+
+Correction
+==========
+The checker now captures every configured evidence file once in an in-memory byte
+snapshot. Its SHA-256 inventory and all optional evidence JSON, verifier configuration
+manifests, and native attestations consume that same Buffer. Missing snapshots fail
+closed through the existing null/assessment path. Raw fork-rehearsal evidence already
+hashed and parsed the same local Buffer and remains unchanged. The native manifest
+child checker independently receives and enforces the expected SHA-256.
+
+Secondary-boundary audit
+========================
+- The native runtime child stdout is a bounded line protocol parsed with duplicate-field
+  rejection; it is not JSON authority.
+- Runtime RPC secrets are read through runtime-secret-json from an owner-only path with
+  fatal UTF-8/strict JSON; literal secret JSON in the environment remains forbidden.
+- RPC observations remain delegated to the bounded strict provider SDK and consensus
+  collectors.
+- Forge/git stdout and Solidity source text are not parsed as JSON authority. Git binary
+  diff output uses NUL framing; signed-tag output is processed by the dedicated signature
+  fingerprint parser.
+
+Validation
+==========
+PATH=/usr/lib/chatgpt/resources/cua_node/bin:$PATH node --test \
+  labs/usdom-reserve/test/node/mainnet-readiness-byte-strict.test.mjs
+Result: 3/3 pass. The new structural regression requires one-read snapshot hashing and
+cached-byte semantic parsing and forbids direct evidence rereads at those JSON boundaries.
+
+Node syntax checks passed for the checker and its focused test. git diff --check passed
+for the changed implementation and test. The aggregate checker was deliberately not run:
+it invokes builds, RPC-dependent readiness paths and broader operational evidence outside
+this light audit's authorized scope.
+
+No Cargo, Rust, Solidity build, RISC0 proof, RPC, signing, transmission, deployment,
+fund movement, staging, commit or push was performed.

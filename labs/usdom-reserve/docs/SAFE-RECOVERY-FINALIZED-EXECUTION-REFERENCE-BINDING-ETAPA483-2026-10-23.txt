@@ -1,0 +1,22 @@
+Stage 483 — Safe recovery finalized execution reference binding
+Date: 2026-10-23
+
+The final Safe recovery collector accepted three transaction hashes through
+environment variables even though the executor had already produced durable,
+create-once finalized-execution records for governance, reserve guardian and
+checkpoint guardian. A caller could therefore detach collection from those
+reviewed artifacts.
+
+The collector now reads the three fixed finalized-execution records from the
+owner-only control evidence directory, requires the exact schema and role, and
+derives each transaction hash from those records. It rereads all three records
+after the multi-RPC collection along with the package and baseline. The executor
+no longer exports loose transaction-hash variables. Substitution, omission,
+role swapping and mutation during collection fail closed.
+
+`production_safe_recovery_finalized_execution_references_bound` is a structural
+fact. No network access, signature, transaction, funds, mining, commit or push
+occurred while producing this evidence.
+
+Validation: direct operational inputs 13/13; operator runbook 71/71; readiness
+60/60.

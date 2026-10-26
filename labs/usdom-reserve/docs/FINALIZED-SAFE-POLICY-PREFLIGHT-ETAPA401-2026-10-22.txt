@@ -1,0 +1,46 @@
+USDOM stage 401 — finalized Safe policy preflight
+Date: 2026-10-22
+
+Finding
+=======
+
+The contracts introduced continuous Safe policy enforcement in stage 400, but
+the deployment preflight observed only each proxy singleton at its finalized
+snapshot. Threshold, owners and modules were checked in separate Safe evidence,
+so the machine deployment gate did not independently demonstrate that the exact
+snapshot accepted for deployment would also satisfy the constructor.
+
+Correction
+==========
+
+The mainnet preflight collector now reads masterCopy(), getThreshold(),
+getOwners() and getModulesPaginated() for reserve governance, reserve guardian
+and checkpoint guardian at the same explicit finalized block tag. Two pinned
+independent Ethereum RPC sources must return byte-identical observations.
+
+The strict preflight schema carries one policy record per role. Assessment
+requires threshold 2, exactly three distinct nonzero canonical owner addresses,
+an empty first module page and the exact Safe sentinel as its terminal cursor.
+Missing, extra, malformed, duplicate or weakened fields fail closed. These
+checks apply before deployment and again at the paused cold-start checkpoint.
+
+Evidence
+========
+
+- Focused preflight/readiness regression: 50/50 pass.
+- Complete Node suite: 304/304 pass.
+- Imported provenance: 169 files, including 16 recorded modifications, passes.
+- JavaScript syntax, production Solidity lint, forced rebuild and repository
+  whitespace checks pass through the complete test preflight.
+
+No RPC was contacted by the tests, and no signature, transaction, deployment,
+funds, mining, project commit, tag or push occurred. The detached capacity proof
+remained active and was not restarted or modified.
+
+Next action
+===========
+
+Inspect whether the same bounded Safe policy semantics are exposed through
+post-deployment contract getters or require a dedicated release observation,
+then continue auditing locally correctable boundaries while the capacity proof
+runs.

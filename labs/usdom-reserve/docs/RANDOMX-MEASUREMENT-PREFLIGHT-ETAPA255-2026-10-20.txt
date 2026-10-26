@@ -1,0 +1,51 @@
+USDOM complete RandomX measurement preflight — stage 255
+Date: 2026-10-20
+
+Finding
+
+The complete portable RandomX guest is reproducibly compiled, but no positive
+receipt or proving-cost measurement exists. The repository's fixed relation
+vector is deliberately not a canonical UDCRXST1 statement: its compact-target
+field is zero. The canonical statement fixture deliberately carries a synthetic
+hash that does not satisfy the RandomX relation. Passing either to the guest
+would fail before producing valid evidence.
+
+Generating a new accepted header by searching nonces would be mining. That
+action is outside the current authorization and is unnecessary when a real
+canonical v4 DOM header can supply the exact statement.
+
+Resolution
+
+1. `npm run --silent plan:randomx-measurement` is a plan-only preflight. It
+   cannot execute the guest, create a receipt, generate a proof, mine, access a
+   wallet or contact a network.
+2. The planner authenticates the pinned complete guest ELF, ProgramBinary and
+   ImageID before considering measurement readiness.
+3. Input has one fixed path: `evidence/randomx-canonical-statement.bin`. It must
+   be a direct regular 384-byte file; path arguments and alternate inputs are
+   rejected.
+4. An independent parser checks UDCRXST1 magic and versions, nonzero identities,
+   block height, exact seed schedule, v4 preimage version/height, compact-target
+   expansion, target equality and claimed-hash threshold.
+5. It derives the statement SHA-256 and exact Keccak journal committed by the
+   recursive RandomX receipt.
+6. The production gate requires this preflight implementation, while the
+   separate positive-receipt and proving-cost requirements remain false.
+
+Current result
+
+The command exits 1 with exactly
+`canonical_statement_unavailable:ENOENT`. This is the intended fail-closed
+result because no real canonical v4 statement has been supplied. It is not
+evidence of RandomX execution or proving feasibility.
+
+Validation
+
+- canonical parser and negative mutations: passed;
+- missing fixed input fails closed without executing: passed;
+- alternate command-line input is rejected: passed;
+- focused suite: 2 passed, 0 failed.
+
+No RandomX guest execution, proof generation, nonce search, mining, wallet
+access, network request, transaction, deployment, funds, commit or push
+occurred.

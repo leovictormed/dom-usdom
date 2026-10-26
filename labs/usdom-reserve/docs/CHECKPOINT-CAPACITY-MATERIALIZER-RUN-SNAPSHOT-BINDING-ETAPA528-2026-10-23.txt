@@ -1,0 +1,29 @@
+USD0M stage 528 — checkpoint capacity materializer run-snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The checkpoint capacity release-evidence materializer read the succeeded status
+and capacity report directly from the selected run. Although it reread both
+later, parsing and evidence preparation had no owner-only immutable replica and
+the initial concurrent reads could span different filesystem generations.
+
+Correction
+==========
+
+The selected completion pair is now captured into a fresh owner-only temporary
+replica. Both installed files are reread and checked for exact byte and SHA-256
+equality. Parsing and evidence preparation consume only replica bytes. Both
+origins are revalidated by bytes and hashes before immutable report publication
+and again before the release-evidence completion update. Cleanup is mandatory
+on success and failure.
+
+Evidence and scope
+==================
+
+A direct adversarial test mutates the capacity report after capture and proves
+the origin recheck rejects it. Readiness requires
+`production_checkpoint_capacity_materializer_run_pair_snapshotted_and_origins_rechecked=true`.
+No Cargo, proof, Anvil, network, signing, deployment, funds operation, commit or
+push was run.

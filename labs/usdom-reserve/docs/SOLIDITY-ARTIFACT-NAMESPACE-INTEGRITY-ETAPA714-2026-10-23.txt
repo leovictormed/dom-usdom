@@ -1,0 +1,52 @@
+ETAPA 714 — Solidity artifact namespace and structural integrity
+Date: 2026-10-23
+
+Scope
+-----
+Adversarial audit of the canonical Foundry `out/` artifacts that may feed the
+four production release evidence fields. The review covered artifact selection,
+duplicate names, compiler metadata sources, library linking and immutable
+reference layout. No Rust, Cargo or RISC Zero command was run.
+
+Correction
+----------
+The ETAPA710 publication checker validated compiler settings at each canonical
+path but did not independently reject a same-contract artifact elsewhere in
+`out/`, authenticate every metadata source hash, or structurally inspect link
+and immutable tables. A future collector/operator error could therefore select
+an apparently named artifact without this early provenance check diagnosing an
+ambiguous namespace.
+
+`check-solidity-artifact-publication.py` now requires for each production
+contract:
+
+* exactly one JSON whose basename is the production contract name anywhere
+  beneath `out/`, at its sole canonical `out/<source>/<contract>.json` path;
+* a one-entry `compilationTarget` binding the exact source and contract name;
+* the exact closed dependency source set expected for that target;
+* Keccak-256 equality between every metadata source entry and current direct
+  project file bytes;
+* empty metadata, creation-bytecode and runtime-bytecode library links;
+* equality between immutable AST declarations and runtime reference IDs;
+* at least one reference per immutable, exact 32-byte locations, in-bounds
+  offsets and no overlapping runtime ranges; and
+* exact canonical mapping of the four release evidence fields, so no fifth or
+  alternate Solidity artifact can be selected as a production contract.
+
+Other Foundry outputs, interfaces, dependencies and test contracts may coexist
+in `out/`; none can shadow a production name or enter the four release slots.
+The existing compiled-runtime layer continues to derive and authenticate the
+actual runtime/initcode and immutable names/values.
+
+Validation
+----------
+
+* checker self-test passes with mutations for duplicate/shadow artifact, stale
+  source hash, linked library, malformed immutable layout, stale compiler/EVM
+  and legacy evidence path;
+* current four-artifact `out/` inspection passes;
+* Python syntax, strict production Solidity lint, Forge formatting and
+  `git diff --check` pass.
+
+No artifact or vector was rewritten. No commit, push, deployment, signature,
+transmission or funds operation occurred.

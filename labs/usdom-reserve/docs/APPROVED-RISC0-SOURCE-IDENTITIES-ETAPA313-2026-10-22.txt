@@ -1,0 +1,51 @@
+USD + DOM — identidades aprovadas das fontes RISC Zero
+Etapa 313 — 2026-10-22
+
+Achado
+
+O plano v2 exigia dois `sourceId` diferentes antes de autorizar
+`haltPermanently()`. Os identificadores, entretanto, eram fornecidos junto com
+as observações. Um chamador poderia copiar uma observação e atribuir a ela dois
+nomes distintos. O requisito registrado como “duas fontes independentes” era
+mais forte do que a garantia real do código.
+
+Correção
+
+O formato v3 recebe um catálogo de duas a quatro fontes aprovado pela release.
+Cada entrada vincula:
+
+- identificador canônico da fonte;
+- identificador canônico do operador;
+- hash não nulo do endpoint.
+
+O catálogo exige unicidade nos três campos. Toda observação deve corresponder
+exatamente a uma entrada aprovada. O plano compromete o catálogo e as fontes
+observadas no `planHash`; o executor reconstrói o plano a partir das mesmas
+identidades e evidências. Uma fonte inventada, uma segunda etiqueta para o
+mesmo operador ou endpoint, ou qualquer alteração de identidade é rejeitada.
+
+A interrupção permanente exige pelo menos duas fontes aprovadas com operadores
+e endpoints distintos, observações idênticas e válidas e incidente upstream
+confirmado. Qualquer incerteza permite somente a pausa reversível da reserva.
+
+Limite explícito
+
+O hash do endpoint não prova, sozinho, independência empresarial ou física.
+Essa propriedade depende de o catálogo final ser composto por operadores
+realmente independentes e de sua aprovação na release. O código impede que o
+chamador invente essa independência durante o incidente.
+
+Nenhuma mainnet, chave, assinatura, fundo, deploy, prova longa, commit, tag ou
+push foi usado nesta etapa.
+
+Validação final
+
+- ensaio fixo com rebuild e contratos Anvil: 9/9 aprovado;
+- saúde, incidente, readiness e claims de implementação: 55/55 aprovados;
+- fonte desconhecida, operador duplicado, endpoint duplicado e segunda etiqueta
+  para a mesma identidade: todos rejeitados.
+- lint de produção e rebuild completo: aprovados;
+- regressão Node completa: 241/241 aprovada;
+- proveniência: 1.042 fontes completas e verificadas;
+- gates esperadamente fechados: 159 mainnet fechada e 170 fundos reais;
+- `git diff --check`: aprovado.

@@ -1,0 +1,40 @@
+ETAPA838 — EXECUTABLE READER PARENT AUTHORITY
+Date: 2026-10-23
+
+Finding
+=======
+
+The shared stable-executable reader used stat/readFile/stat on an executable
+pathname.  It checked the parent once, but did not hold that directory open,
+did not reopen the basename through a directory descriptor, and imposed no
+size bound before reading.  A concurrent replacement of the directory entry
+or parent could therefore make the bytes hashed differ from the installation
+whose metadata was approved; a hostile sparse/large file could also force an
+unbounded allocation.  This boundary authorizes tools used by release,
+signing, deployment and readiness ceremonies.
+
+Correction
+==========
+
+`sdk/stable-executable.mjs` now:
+
+* opens the canonical parent with O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC;
+* requires a root/current-user, non-group/world-writable direct parent;
+* opens the executable basename through `/proc/self/fd/<dirfd>`;
+* preserves regular-file, owner, mode and single-link checks;
+* rejects empty inputs and executables above 512 MiB before reading;
+* binds the opened descriptor back to the canonical executable pathname;
+* rechecks file and directory metadata and the named directory after hashing;
+* uses the same descriptor-pinned reader for the last-moment unchanged check.
+
+Validation
+==========
+
+* Node syntax check: pass.
+* `stable-executable.test.mjs`: 5/5 pass, including writable-parent,
+  hardlink and oversized sparse-file rejection.
+* Child authority/provenance focused tests: 6/6 pass.
+* `git diff --check`: pass.
+
+The focused total is 11/11.  No executable ceremony, RPC, signature,
+deployment, commit or publication ran.

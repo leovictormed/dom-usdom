@@ -1,0 +1,26 @@
+ETAPA1049 — finalized pilot receipt gas-cost evidence
+
+Concrete gap
+------------
+Pilot transactions bounded worst-case gas before signing/publication, but durable
+finality markers did not prove the actual fee charged by each finalized receipt.
+This left no independently checkable equality between gasUsed, effectiveGasPrice,
+actual cost and the immutable signed maximumCost.
+
+Correction
+----------
+A shared canonical quantity validator computes actualCost = gasUsed *
+effectiveGasPrice, rejects zero/noncanonical quantities and rejects actualCost above
+the signed raw-validation maximumCost. Deposit and redemption apply it to every
+receipt after dual-RPC block finality, persist all four decimal values in the
+output-last finality marker, and byte-for-value validate an existing marker on
+restart. The offline DAG recomputes the cost from receipt plus raw validation rather
+than trusting the marker.
+
+Validation
+----------
+Pinned Node 24.19.0 focused receipt-cost plus redemption suites passed 5/5; Bash and
+Node syntax and focused diff check passed. A wider deposit suite was concurrently
+stale against ETAPA1045 configuration-schema edits (its structural executor test
+passed); no unrelated fixture was edited here. No network, signer, proof, deployment,
+publication, push or funds were used.

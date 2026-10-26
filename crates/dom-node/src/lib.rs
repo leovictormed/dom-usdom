@@ -16,6 +16,7 @@ pub mod orphan_pool;
 pub mod peer_scoring;
 pub mod pex;
 pub(crate) mod portmap;
+pub mod private_staging_directory;
 pub(crate) mod prologue_prefs;
 pub mod relay;
 pub mod replay_snapshot;

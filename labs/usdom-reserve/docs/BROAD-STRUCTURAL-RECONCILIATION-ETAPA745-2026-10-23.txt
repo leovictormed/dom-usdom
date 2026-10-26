@@ -1,0 +1,6 @@
+ETAPA 745 — Broad structural reconciliation
+Date: 2026-10-23
+
+Updated stale assertions to require the current safe forms: bounded canonical_quantity comparisons for receipt/finality, pinned cmp for Safe/release snapshot equality, and JQ-side lowercase sorting of Safe owners before signature ordering. No production logic changed.
+
+Exact requested broad suite: 101 passed, 0 failed. git diff --check passed. No external operation, Cargo, proof, RPC, commit or push.

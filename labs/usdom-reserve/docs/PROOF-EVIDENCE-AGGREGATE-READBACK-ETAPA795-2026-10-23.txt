@@ -1,0 +1,23 @@
+ETAPA 795 — finalized-burn/checkpoint aggregate post-completion readback
+Date: 2026-10-23
+
+Finding
+Finalized-burn and checkpoint-capacity evidence materializers already published their immutable report precursor before the release-evidence aggregate and used durable writers with per-file exact readback. Identical precursor-only crash states were retryable. Like the RISC Zero catalog before ETAPA793, however, neither materializer revalidated all authority inputs and read both installed files after the aggregate completion marker.
+
+Correction
+For both materializers, immediately after the aggregate write:
+- revalidate the Git/source boundary;
+- re-read release and verifier configuration while accepting only the exact newly prepared release-evidence aggregate;
+- revalidate the captured proof/capacity run origins;
+- exact-read the immutable report with fixed length/private-file checks;
+- exact-read the installed release-evidence aggregate;
+- compare both files with the prepared generation and fail closed on any mismatch.
+
+Crash behavior
+A precursor-only crash remains exact-or-reject retryable. A completed call now proves source/run stability and one exact two-file generation after its completion marker. Concurrent substitution or a mixed generation rejects.
+
+Validation
+node --check on both materializers: passed.
+Focused materializer + inventory suites: 7/7 passed.
+git diff --check: passed.
+No signing, Git mutation, RPC, commit, push, broadcast or funds operation ran.

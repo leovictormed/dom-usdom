@@ -1,0 +1,52 @@
+Stage 1077 — independent proved-debt accounting review
+Date: 2026-10-26
+
+Scope
+- Independently reviewed the Stage 1076 totalProvedDebtAmount correction across
+  first proof admission, renewal, queue expiry/discard/pruning, emergency pause,
+  resume, payout, token failure/reentrancy, outflow accounting and graceful
+  shutdown.
+- Reviewed the public ABI/preflight observation boundary and deployment model.
+  USDOMProofReserve is constructor-deployed, has no proxy/upgrade/delegatecall,
+  and therefore has no live storage-layout migration boundary.
+
+Findings
+- The permanent reservation model is sound: first acceptance alone increments
+  debt, lease removal never decrements it, renewal does not double count, and an
+  atomic successful payout alone decrements it.
+- Solidity checked arithmetic and the maxOutstanding uint64 bound make aggregate
+  overflow unreachable through contract operations. The existing invariant
+  independently establishes pending <= proved debt <= outstanding and
+  released + proved debt <= deposited.
+- One defense-in-depth gap remained: executeWithdrawal checked only that the
+  aggregate covered burn.amount immediately before decrement. The queued
+  statement already authenticated the burn, but the payout did not independently
+  revalidate the permanent debt hash, request-to-burn binding and current renewal
+  finality slot at the consumption point.
+- Public accounting subtraction relied on compiler panic if a future maintenance
+  defect violated released <= deposited or proved debt <= outstanding.
+- Independently reviewed the concurrent recipient-blacklist correction. Queue
+  admission calls policy/blacklist view probes with reserve as both endpoints;
+  it does not execute a token self-transfer, so tokens with special self-transfer
+  semantics cannot affect admission. The reserve blacklist, global pause,
+  deprecation and nonzero fee policy remain fail-closed. A recipient freeze may
+  delay only payout and cannot erase an irreversible debt.
+
+Corrections
+- executeWithdrawal now revalidates burnDebtHash, provedRequestBurns and the exact
+  latest proved finality slot immediately before consuming aggregate debt.
+- outstanding and unreservedCollateral now fail with the protocol Insolvent error
+  before subtraction if either accounting relation is ever violated.
+- Added a focused static regression covering these consumption-point checks,
+  lease disposal/pause persistence, shutdown debt exclusion and the non-upgradeable
+  deployment surface. Updated prior static assertions for the hardened arithmetic.
+
+Evidence
+- Focused Node accounting/temporal campaign: 16/16 passed.
+- git diff --check for the changed contract and Node regressions passed.
+- Foundry was deliberately not started because the single-job Cargo workspace
+  test was live; the Solidity runtime campaign remains assigned after that job.
+- Mainnet preflight/readiness, proof-reserve SDK and shutdown compatibility
+  campaign passed 80/80 without starting a compiler.
+
+No commit, push, deploy, signature, broadcast or funds operation occurred.

@@ -1,0 +1,42 @@
+USD + DOM — cobertura segura do parser USDOMBL4
+Etapa 336 — 2026-10-22
+
+Achado
+
+O framing USDOMBL4 já usa dom_serialization::Reader, que faz soma verificada,
+leitura limitada e rejeição de bytes residuais. Os parsers de pacote, registro
+V2 e manifesto de snapshot também recodificam o valor aceito e exigem igualdade
+byte a byte. Portanto, duplicar um BufferReader dentro de native_usdom_v4.rs
+criaria duas implementações da mesma fronteira sem melhorar a segurança.
+
+A lacuna real estava na cobertura. O alvo cargo-fuzz chamava diretamente
+UsdomV4BlockPackage::from_bytes e verificava a recodificação canônica, mas o
+corpus continha somente três entradas inválidas pequenas. O teste determinístico
+do pacote válido exercitava apenas truncamentos dentro dos 18 bytes do cabeçalho
+externo, não cortes dentro do bloco DOM e do envelope de provas.
+
+Correção
+
+- o teste do pacote agora rejeita cada prefixo próprio de uma codificação
+  canônica completa;
+- o mesmo teste pode exportar seus bytes canônicos quando
+  DOM_USDOMBL4_CORPUS_OUT é definido, sem alterar o comportamento normal;
+- fuzz/README.md documenta o alvo, o corpus canônico, o dicionário, o limite de
+  4 MiB e comandos reproduzíveis de geração e campanha;
+- o parser e o formato de consenso não foram alterados.
+
+Validação concluída nesta etapa
+
+- cargo fmt --all --check: aprovado;
+- git diff --check: aprovado;
+- manifesto de fontes: 1.104 arquivos verificados antes da inclusão dos novos
+  documentos e do teste invariante subsequente.
+
+Validação pendente deliberadamente
+
+O teste Rust exato, a exportação do seed canônico e a campanha cargo-fuzz serão
+executados depois que a prova RISC Zero ativa liberar memória. Nenhuma segunda
+compilação Rust pesada foi iniciada em paralelo com a prova.
+
+Nenhuma mineração, chave, carteira, assinatura, deploy, transmissão, fundo,
+commit ou push foi usado.

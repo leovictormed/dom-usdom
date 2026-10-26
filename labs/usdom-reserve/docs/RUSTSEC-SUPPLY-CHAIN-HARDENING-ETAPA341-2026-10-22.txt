@@ -1,0 +1,78 @@
+RUSTSEC E SUPPLY-CHAIN FAIL-CLOSED — ETAPA 341 — 2026-10-22
+
+Escopo
+
+Esta etapa reavaliou o Cargo.lock contra a base RustSec atual durante a prova
+local longa. Nenhuma compilação ou prova concorrente pesada foi iniciada para
+o conjunto RISC Zero. Não houve assinatura, mineração, deploy, broadcast ou
+uso de fundos.
+
+Achados e correções
+
+O primeiro cargo audit encontrou 17 vulnerabilidades. Onze tinham versões
+compatíveis corrigidas e foram removidas do grafo:
+
+- quinn-proto 0.11.15 -> 0.11.18, fechando cinco vetores remotos de OOM/pânico;
+- rustls 0.23.40 -> 0.23.46;
+- rustls-webpki 0.103.13 -> 0.103.16;
+- webpki-roots 1.0.7 -> 1.0.10.
+
+O teste oficial de consenso Ethereum usava serde_yaml somente para ler
+updates_count de um meta.yaml. serde_yaml trazia unsafe-libyaml, abandonado e
+baseado em código unsafe. O teste agora desserializa um tipo mínimo com
+serde-saphyr 2.0.0, cuja crate proíbe unsafe. serde_yaml e unsafe-libyaml não
+existem mais no Cargo.lock. O crate local usdom-ethereum-finality-experiment
+também passou a declarar explicitamente a licença MIT já presente na raiz.
+
+Exceções transientes e estreitas
+
+Seis advisories continuam fisicamente no grafo da versão estável fixada do
+RISC Zero 3.0.6/Arkworks 0.5, mas seus caminhos vulneráveis não são alcançáveis
+pela aplicação:
+
+- RUSTSEC-2023-0071: rsa 0.9.10 só chega por rzup. O risco exige operação com
+  chave RSA privada observável por timing; DOM/USD₮ não usa rzup nem RSA para
+  assinar e não possui dependência direta dessas crates.
+- RUSTSEC-2025-0055: tracing-subscriber 0.2.25 só chega por ark-relations. A
+  camada de constraint trace dessa versão ignora campos dinâmicos e formata
+  apenas Metadata estático compilado (nome, módulo, arquivo e linha).
+- RUSTSEC-2026-0344: ruzstd 0.7.3 só chega por object 0.36.7 no provador. Todos
+  os ELFs/programas entregues ao RISC Zero são arquivos locais limitados e têm
+  SHA-256 fixo verificado antes do parser.
+- RUSTSEC-2026-0367/0368/0369: zip 2.4.2 só chega por
+  risc0-circuit-recursion 4.0.5, que lê por nome um arquivo ZIP embutido e
+  autenticado pelo pacote; não chama ZipArchive::extract nem extrai para o
+  filesystem.
+
+Não se trata de uma lista genérica de ignores. scripts/check-rustsec-policy.py
+fixa versão, checksum crates.io e único pai direto de cada exceção; rejeita uso
+direto dessas APIs por qualquer membro do workspace; exige risc0-zkvm 3.0.6
+sem recursos padrão; confirma as validações hash-pinned dos cinco hosts de
+prova; rejeita as quatro versões vulneráveis substituídas e os parsers YAML
+removidos; e exige correspondência exata com deny.toml. Qualquer mudança de
+versão, origem, checksum, pai, manifesto, uso ou validação invalida a exceção.
+
+O job supply-chain do CI agora executa esse verificador antes de cargo-deny e
+cargo-audit. cargo-audit recebe somente os seis IDs que acabaram de passar a
+análise fail-closed. Advisories novos continuam falhando.
+
+Validação observada
+
+- npm audit --omit=dev: zero vulnerabilidades nas dependências Node de produção;
+- forge lint, severidades high/med/low: nenhum diagnóstico nos quatro contratos
+  de produção;
+- cargo fmt --all --check e git diff --check: passaram;
+- teste unitário do dom-ethereum-consensus-core após a troca do parser: 1/1;
+- cargo-deny: advisories, bans, licenses e sources passaram;
+- cargo-audit: zero vulnerabilidades fora das seis exceções verificadas;
+- check-rustsec-policy.py: passou;
+- proveniência da importação: 169 arquivos, 16 modificações explícitas, passou.
+
+Limite
+
+Quando uma versão estável compatível do RISC Zero/Arkworks remover qualquer
+dependência excepcionada, a política exige retirar a respectiva exceção em vez
+de preservá-la. A prova de capacidade já em execução usa o binário construído
+antes da atualização do lockfile; ela continua válida como medição da relação
+criptográfica, mas os checks de build da árvore atual serão repetidos depois
+que o provador liberar memória.

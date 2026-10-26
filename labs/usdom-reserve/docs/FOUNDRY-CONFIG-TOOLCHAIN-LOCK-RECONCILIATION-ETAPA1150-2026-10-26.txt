@@ -1,0 +1,33 @@
+FOUNDRY CONFIG TOOLCHAIN LOCK RECONCILIATION — STAGE 1150
+Date: 2026-10-26
+
+Finding
+
+A byte comparison of the closed-mainnet toolchain lock found exactly one stale
+file pin. `package-lock.json`, `Cargo.lock`, all eight executable hashes and the
+pinned solc hash matched, while `foundry.toml` was declared as
+`9c7f1e...ef8a` but its current SHA-256 is `20029b...ef97`.
+
+The current Foundry configuration is the authoritative post-viaIR configuration
+recorded and validated in stage 1110: solc 0.8.37, Cancun, optimizer enabled with
+one run, viaIR enabled, metadata bytecode hash disabled, and the enlarged fuzz/
+invariant policies. Keeping the old hash made the readiness prerequisite
+impossible even with those reviewed bytes.
+
+Correction
+
+Only the `foundry.toml` SHA-256 entry in `mainnet-toolchain-lock.json` was
+updated to `20029b980175ac1237c4a1f77071b42d78b6737f9bc2f3a337cbbfed6f40ef97`.
+No compiler setting or production fact changed. A focused test now recomputes
+all three closed file pins from the exact current files and rejects drift.
+
+Validation
+
+- Closed file digest comparison: PASS, 3/3.
+- Toolchain authority/direct-file/command-generator tests: PASS, 6/6.
+- Independent Python digest check: PASS.
+
+No Cargo, Rust, Forge, network, signing, deployment, funds, commit or push ran.
+The complete toolchain checker remains deferred until the concurrent Cargo suite
+ends because its authenticated version probes intentionally execute those
+binaries.

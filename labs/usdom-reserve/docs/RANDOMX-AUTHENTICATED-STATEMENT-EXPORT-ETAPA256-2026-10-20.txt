@@ -1,0 +1,74 @@
+USDOM stage 256 — authenticated canonical RandomX statement export
+Date: 2026-10-20
+
+Finding
+=======
+
+A canonically framed USDOMBL4 package does not prove by itself that its block
+belongs to the authenticated DOM continuation. Accepting a package, header or
+manually supplied network/height/seed tuple as measurement input would allow a
+structurally valid but unrelated UDCRXST1 statement to be presented as release
+evidence. A failed refresh could also leave an older statement on disk and make
+the next preflight consume stale evidence.
+
+Correction
+==========
+
+The feature-gated host binary `dom-usdom-export-randomx-statement` now accepts
+no arguments and reads only these fixed canonical inputs:
+
+* evidence/randomx-source/checkpoint-segment-transition.bin (UDCSTN02)
+* evidence/randomx-source/checkpoint-segment-private-input.bin (UDCSPI01)
+* evidence/randomx-source/checkpoint-segment-policy-input.bin (UDCSPOL1)
+* evidence/randomx-source/checkpoint-segment-native-state-opening.bin (UDCSNS01)
+
+It invokes `execute_checkpoint_segment_portable`, which validates the public
+transition, committed packages and native/economic witnesses, immutable
+Ethereum/native/privacy policy, prior state opening, block sequence, target,
+accumulated work and terminal state. The terminal RandomX binding is therefore
+derived from the exact executed segment rather than from operator-selected
+fields. The tool does not execute RandomX, generate a receipt, mine, use a
+wallet, access a network or accept a field override.
+
+The exporter rejects symlinks and nonregular inputs, bounds every read, detects
+device/inode/size replacement, invalidates both previous outputs before work,
+and publishes the 384-byte statement and exact JSON origin report through
+fsynced atomic renames. If either publication or any validation fails, no stale
+statement/report pair remains usable.
+
+Independent plan verification
+=============================
+
+`plan-randomx-measurement.mjs` now requires the saved export report and all four
+source files. It opens them with O_NOFOLLOW, checks stable metadata, enforces the
+exact report schema, recomputes all domain-separated source commitments, checks
+the private-input commitment embedded in UDCSTN02, parses the terminal
+USDOMBL4 package, reconstructs its 256-byte header from UDCRXST1, and recomputes
+the BLAKE2b block identifier. The plan remains nonexecuting and fail-closed.
+
+Verification
+============
+
+* strict exporter clippy: pass
+* end-to-end Rust exporter integration: pass, including exact output equality
+  and corrupted-transition rejection with stale-output removal
+* checkpoint-program host-reference suite: 42 executed pass, 0 fail; the
+  pre-existing 390-block release vector remains deliberately ignored
+* focused Node readiness/operator/measurement suite: 44 pass, 0 fail
+* complete laboratory Node suite: 123 pass, 0 fail
+* production Solidity lint and clean 43-file build: pass; no contract changed
+* imported provenance: 169 files, 16 explicit modifications, pass
+* proof-program panic/inventory boundary: all 12 exact sources, including the
+  exporter, pass and match the dedicated manifest
+
+Current boundary
+================
+
+No real v4 DOM segment evidence exists in the repository, so neither output is
+present and plan mode remains NOT READY. A real canonical v4 block and its
+complete proving inputs must come from the implemented native chain path. They
+must not be fabricated by nonce search. Complete RandomX execution/proving and
+cost measurement remain separate, explicitly unauthorized actions.
+
+No deployment, transaction, fund movement, wallet access, mining, expensive
+RISC Zero proof, commit or push occurred in this stage.

@@ -5,7 +5,7 @@ import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {parseStrictJson} from '../../sdk/strict-json.mjs';
+import {parseStrictJson,parseStrictJsonBytes} from '../../sdk/strict-json.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 
@@ -21,6 +21,15 @@ test('strict JSON rejects direct and escape-equivalent duplicate keys',()=>{
  assert.throws(()=>parseStrictJson('{"ready":false,"ready":true}'),/duplicate object key "ready"/);
  assert.throws(()=>parseStrictJson('{"ready":false,"\\u0072eady":true}'),/duplicate object key "ready"/);
  assert.throws(()=>parseStrictJson('{"outer":{"hash":"a","hash":"b"}}'),/duplicate object key "hash"/);
+});
+
+test('strict JSON byte boundary rejects invalid UTF-8 and escaped duplicate keys',()=>{
+ assert.throws(()=>parseStrictJsonBytes(Buffer.from([
+  0x7b,0x22,0x78,0x22,0x3a,0x22,0xff,0x22,0x7d,
+ ]),{label:'checkpoint authority'}),/invalid UTF-8/);
+ assert.throws(()=>parseStrictJsonBytes(Buffer.from(
+  '{"transactionHash":"one","\\u0074ransactionHash":"two"}'),
+ {label:'checkpoint authority'}),/duplicate object key "transactionHash"/);
 });
 
 test('strict JSON rejects malformed, ambiguous and resource-exhausting input',()=>{

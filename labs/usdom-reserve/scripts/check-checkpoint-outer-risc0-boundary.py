@@ -49,9 +49,9 @@ def main() -> None:
     if expected_segment_bytes not in compact_source:
         fail("compile-time segment ImageID differs from reviewed candidate")
     markers = [
-        "CheckpointStatementV4::from_bytes",
+        "CheckpointStatementV6::from_bytes",
         "CheckpointOuterChain::from_bytes",
-        "validate_checkpoint_outer_chain",
+        "validate_checkpoint_outer_chain_v6",
         "verify_checkpoint_segment_receipts_in_guest(executed.segment_receipts())",
         "env::commit_slice(&executed.statement_hash())",
     ]
@@ -85,7 +85,7 @@ def main() -> None:
         [cargo, "+risc0", "tree", "--locked", "--target",
          "riscv32im-risc0-zkvm-elf", "-p",
          "dom-usdom-checkpoint-outer-risc0-guest"],
-        cwd=REPO, check=True, capture_output=True, text=True,
+        cwd=REPO, check=True, capture_output=True, text=True, timeout=120,
     ).stdout
     for forbidden in [
         "randomx-rs", "secp256k1-zkp-sys", "grin_secp256k1zkp",
@@ -102,7 +102,7 @@ def main() -> None:
         "imageId": EXPECTED_IMAGE_ID,
         "pinnedSegmentImageId": SEGMENT_IMAGE_ID,
         "maximumSegments": 720,
-        "maximumChainBytes": 1622892,
+        "maximumChainBytes": 1670412,
         "segmentBlockCountRange": [1, 32],
         "canonicalTargetBoundaryRequired": True,
         "confirmationSuffixRequired": True,
@@ -130,4 +130,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except subprocess.TimeoutExpired as error:
+        fail(f"Cargo dependency graph command timed out after {error.timeout} seconds")

@@ -1,0 +1,42 @@
+Stage 534 — mainnet deployment post-authorization reobservation
+Date: 2026-10-23
+
+Finding
+
+The deployment executor checked the reviewed package, nonce, empty CREATE
+address and transaction visibility before asking the operator to authorize
+transmission. The prompt is an unbounded wait. After the operator answered, the
+executor published the already signed transaction without reobserving those
+mutable conditions. A concurrent transaction could consume the deployer nonce,
+or a contract could occupy the planned CREATE address, during that interval.
+The resulting signed transaction remained byte-authentic but its live execution
+preconditions were stale.
+
+Correction
+
+Immediately after the exact transmission authorization and before `cast
+publish`, `execute-mainnet-deployment.sh` now:
+
+- resolves the authenticated RPC catalog again and requires exact equality;
+- regenerates the source-bound transaction handoff and compares it bytewise;
+- requires finalized and pending nonce consensus at the planned nonce;
+- requires the planned CREATE address to remain empty at finalized on every
+  source;
+- requires the signed transaction hash to remain absent on every source; and
+- rereads and compares the raw transaction, validation and transaction-hash
+  evidence files.
+
+Every check fails closed before publication. The existing post-publication
+receipt, finality, canonical ancestry and runtime-code consensus remain intact.
+
+Adversarial validation
+
+The focused Node test treats each live reobservation marker as a publication
+barrier and proves it occurs after the authorization check and before the only
+publish command. It would fail if the pending-nonce check, transaction-absence
+check or evidence reread were moved back across the operator prompt. Shell
+syntax validation also passed.
+
+No Cargo, Foundry, Anvil, full readiness, proof, network, signing, funds,
+deployment or publication operation was run while the RandomX proof workload
+was active.

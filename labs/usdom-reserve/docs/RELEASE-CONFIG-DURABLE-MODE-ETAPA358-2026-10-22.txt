@@ -1,0 +1,46 @@
+USD + DOM — configuração de release durável e sem escrita pelo grupo
+Etapa 358 — 2026-10-22
+
+Problema corrigido
+
+Arquivos públicos que controlam a configuração e as evidências da release ainda
+podiam ser atualizados com `mv` por caminho e alguns estavam em modo 0664. Isso
+mantinha uma janela de substituição do diretório e permitia escrita pelo grupo.
+
+Correção
+
+- o gravador durável comum agora aceita um modo explícito seguro, exige leitura
+  e escrita do proprietário, proíbe bits de execução e escrita de grupo/outros,
+  e rejeita diretórios graváveis por grupo/outros;
+- a leitura direta aceita um modo exato e a verificação pós-instalação confirma
+  esse modo no mesmo inode;
+- `install-release-config-stdin.mjs` instala entrada limitada em modo 0644 pela
+  fronteira com diretório fixado, temporário exclusivo, `fsync`, rename relativo
+  ao descritor e releitura exata;
+- as materializações do controle Safe, proveniência, risco residual, autorização
+  de produção e atestações nativas usam agora os instaladores duráveis 0644 ou
+  0600 conforme a confidencialidade do destino;
+- os quatro manifestos públicos atualmente configuráveis foram normalizados de
+  0664 para 0644.
+
+Validação inicial
+
+- leitura por modo exato e gravação durável 0644: passaram;
+- modo 0666 e diretório 0770: rejeitados;
+- instalador de configuração: arquivo 0644 exato e rejeição de diretório
+  gravável por grupo passaram;
+- sintaxe Bash/JavaScript e ShellCheck: passaram;
+- suíte operacional: 61/61 testes passaram;
+- testes focados do leitor/gravador: 4/4 passaram;
+- lint e compilação forçada dos 44 fontes Solidity de produção: passaram;
+- regressão Node completa: 299/299 testes passaram;
+- proveniência completa: 169 importações, 45 fontes de prova e 1.134 fontes
+  do manifesto foram verificadas;
+- gate não configurado: 161 fatos derivados esperados, sem regressão de
+  integridade;
+- `git diff --check`: passou.
+
+Limites preservados
+
+Nenhum push, commit, tag, deploy, assinatura, broadcast, mineração ou uso de
+fundos foi executado. A prova longa não foi alterada nem reiniciada.

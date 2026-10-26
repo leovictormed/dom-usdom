@@ -1,0 +1,26 @@
+ETAPA 930 — idempotência das mutações DOM RPC
+Data: 2026-10-23
+
+USD0M issuance/private burn/transfer
+- Bearer é obrigatório, body e taxa são limitados e cada família usa concurrency 1 antes do runtime compartilhado.
+- O envelope canônico determina o candidate ID por hash tagged; timestamp não participa do ID.
+- Sob o lock único do runtime, lookup da duplicata e inserção na fila são atômicos. Retry concorrente recebe o mesmo candidate ID sem nova inserção.
+- A fila é volátil, mas retry pós-restart recompõe o mesmo ID. Se a transição já foi minerada, verificação contra estado canônico impede emissão/nullifier/burn duplicado; o cliente confirma inclusão pelo scan autenticado.
+- Falha ou perda da resposta após admissão é recuperável pelo mesmo payload e ID determinístico. Verificação/prova precede qualquer capacidade durável.
+
+Registro de depósito na wallet
+- O registro usa identidade exata do depósito/witness/wallet, staging privado create-once e publicação atômica.
+- Em restart/rerun, diretório existente passa por `validate_existing`; combinação divergente falha e combinação idêntica retorna `already-registered` sem submeter ou minerar.
+
+Gap corrigido
+- DTOs JSON aceitavam campos desconhecidos. Um caller podia enviar `request_id`, tip precondition ou outra suposta chave e ter o campo ignorado, acreditando falsamente que ele participava do dedup/autorização.
+- Private USDOM submit, public tx submit, wallet spend, Slate create/finalize/submit e regtest mine agora usam schema fechado `deny_unknown_fields`.
+- Issuance continua binária e canonicamente versionada; não possui JSON onde um request-id pudesse ser ignorado.
+
+Validação leve
+- Regressão fonte rejeita `request_id` não vinculado em private submit/Slate e precondition extra em tx submit.
+- Checker estrutural e de cadeia: 6/6; rustfmt e diff-check aprovados.
+- Cargo focado reservado para aggregate pós-prova; sem RPC, registro, mutação ou build pesado.
+
+Limite de confiança
+- Um único Bearer local autentica o operador do nó, mas não concede autoridade de consenso: provas, schedule, estado e replay são revalidados no runtime. Separação futura por tokens de função reduziria blast radius operacional, mas não corrige ou substitui os gates de consenso existentes.

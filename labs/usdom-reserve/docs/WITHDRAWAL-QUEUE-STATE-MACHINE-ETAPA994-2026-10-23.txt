@@ -1,0 +1,32 @@
+ETAPA 994 — máquina de estados das filas de withdrawal
+Data: 2026-10-23
+
+Escopo
+- filas de USDOMProofReserve e do protótipo USDOMReserve;
+- enqueue, execute, discard, prune, pause/rotation, reset O(1), renewal e replay de IDs.
+
+Invariantes auditados
+- fila vazia mantém count/amount/head/tail em zero;
+- fila ativa possui head.previous=0, tail.next=0, links recíprocos e soma/contagem alcançáveis;
+- remoção current-epoch faz um splice e uma subtração;
+- remoção stale-epoch não altera headers, links ou accounting atuais;
+- paid burn/request são permanentes e renewal proof-authorized exige statement/pairing idênticos.
+
+Achado concreto corrigido
+- O protótipo apagava pendingRequests[requestId] incondicionalmente durante lazy cleanup.
+  Agora limpa somente quando o índice ainda aponta ao burn removido, impedindo stale cleanup
+  de apagar um replacement.
+- O protótipo fazia splice/subtrações sem validar count/amount, head/tail e links recíprocos.
+  Agora valida toda a vizinhança antes da primeira escrita. Divergência falha com
+  PendingMismatch, sem underflow, orphan ou splice cross-epoch.
+
+Cobertura
+- O invariant stateful do protótipo agora inclui pruneExpired como ação fuzzável.
+- Regressão cobre enqueue -> rotation/reset O(1) -> lazy stale cleanup -> reutilização exata
+  de burnId/requestId no novo epoch, verificando headers, amount, count e índice.
+- Gate permanente: test/node/withdrawal-queue-state-machine.test.mjs.
+- Gate estrutural Python: PASS (3 grupos); git diff --check: PASS.
+- Forge não foi executado durante a prova RISC0 ativa.
+
+Não foi encontrado outro caminho público que permita a um stale node alterar a geração nova.
+Nenhum commit, push, deploy, assinatura, broadcast ou uso de fundos foi realizado.

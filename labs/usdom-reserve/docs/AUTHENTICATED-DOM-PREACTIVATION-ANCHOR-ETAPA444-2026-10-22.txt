@@ -1,0 +1,60 @@
+Authenticated DOM pre-activation anchor — stage 444
+Date: 2026-10-22
+
+Problem
+
+The pre-activation release core required the canonical DOM predecessor block,
+continuation context and cumulative work, but no release command could obtain
+those values from authenticated node state. Manual entry could substitute an
+arbitrary fork or omit the ordinary economic state and RandomX history needed
+by the first checkpoint proof. The prior native-facts schema also mixed chain
+facts with bridge-policy choices.
+
+Implementation
+
+`authenticated_checkpoint_bootstrap_anchor` now derives the current canonical
+predecessor from an opened ChainState. It verifies the tip and height index
+before and after a complete economic replay, constructs the bounded UDCCTX02
+context containing economic roots, eleven recent headers and required RandomX
+seed anchors, commits it, and returns the canonical height, block and cumulative
+difficulty. A tip change during the replay rejects the export.
+
+`dom-usdom-export-preactivation-anchor` is an offline, exact-argument Rust
+binary. It opens the selected database using the configured genesis identity,
+derives the RFC chain ID, accepts only a canonical 1..720 context span and emits
+an exact JSON schema. It has no network, mining, signing or transaction path.
+
+The JS assembler treats the Rust JSON as authenticated DOM facts and a separate
+`usdom-preactivation-policy-v1` file as explicit policy. It enforces DOM
+mainnet, exact schemas, nonzero commitments, `firstV4Height = predecessor + 1`,
+contract cadence/challenge bounds, and equality between the authenticated
+context span and interval plus confirmation depth. It produces the existing
+`usdom-native-preactivation-facts-v1` input without relabeling policy as chain
+data.
+
+Operational boundary
+
+The fixed no-argument materializer shares an exclusive directory lock with the
+closed-mainnet node wrapper, so it cannot replay a database while that node is
+running. It writes a durable anchor evidence file and atomically installs the
+assembled fact file. Existing differing anchor evidence rejects instead of
+silently following a newer tip. The command contains no Git publication,
+secret, signature, RPC, deployment, mining, transaction or authorization path.
+It currently fails closed because no local DOM mainnet database exists and the
+policy file intentionally remains unconfigured.
+
+Validation
+
+- Rust exporter unit tests: 2/2 pass.
+- Focused native/pre-activation Node regression: 9/9 pass.
+- Complete Node regression: 335/335 pass.
+- `cargo check -p dom-usdom-checkpoint-program --features host-reference` passes.
+- Shell and Node syntax checks pass.
+- Complete provenance passes for 169 imported files, 49 panic-free proof-program
+  sources, 99 critical proof artifacts and all 1,262 laboratory sources.
+- A real invocation without the required database returns nonzero and leaves
+  `native-preactivation-facts.unconfigured.json` byte-identical.
+
+This stage implements the authenticated extraction and assembly mechanism. It
+does not claim that a canonical mainnet tip, Ethereum weak-subjectivity
+checkpoint, bridge domain or production cadence has been selected.

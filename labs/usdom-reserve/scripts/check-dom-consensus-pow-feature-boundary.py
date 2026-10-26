@@ -24,6 +24,7 @@ def tree(package: str, *extra: str) -> str:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        timeout=120,
     )
     return result.stdout
 
@@ -77,5 +78,7 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
+    except subprocess.TimeoutExpired as error:
+        fail(f"Cargo dependency graph command timed out after {error.timeout} seconds")
     except subprocess.CalledProcessError as error:
         raise SystemExit(error.stderr or str(error)) from error

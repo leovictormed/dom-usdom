@@ -66,13 +66,13 @@ pub fn check_clock_health_with_servers(servers: &[&str]) -> Result<DriftStatus, 
     let local_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| TimeError::SystemClock(e.to_string()))?
-        .as_secs() as i64;
+        .as_secs();
 
     let mut drifts = Vec::new();
 
     for server in servers {
         if let Ok(ntp_time) = query_sntp(server) {
-            drifts.push(local_time - ntp_time as i64);
+            drifts.push(i128::from(local_time) - i128::from(ntp_time));
         }
     }
 
@@ -83,14 +83,27 @@ pub fn check_clock_health_with_servers(servers: &[&str]) -> Result<DriftStatus, 
     // Compute median drift
     drifts.sort();
     let median = drifts[drifts.len() / 2];
-    let abs_drift = median.abs();
+    let abs_drift = median.unsigned_abs();
+    let reported_median = i64::try_from(median).unwrap_or_else(|_| {
+        if median.is_negative() {
+            i64::MIN
+        } else {
+            i64::MAX
+        }
+    });
 
-    let status = if abs_drift > CLOCK_DRIFT_ERROR_SECS {
-        DriftStatus::Critical { drift_secs: median }
-    } else if abs_drift > CLOCK_DRIFT_WARN_SECS {
-        DriftStatus::Warning { drift_secs: median }
+    let status = if abs_drift > CLOCK_DRIFT_ERROR_SECS as u128 {
+        DriftStatus::Critical {
+            drift_secs: reported_median,
+        }
+    } else if abs_drift > CLOCK_DRIFT_WARN_SECS as u128 {
+        DriftStatus::Warning {
+            drift_secs: reported_median,
+        }
     } else {
-        DriftStatus::Healthy { drift_secs: median }
+        DriftStatus::Healthy {
+            drift_secs: reported_median,
+        }
     };
 
     Ok(status)
@@ -132,18 +145,56 @@ fn query_sntp(server: &str) -> Result<u64, TimeError> {
 
     // Transmit timestamp is bytes 40-47
     // First 4 bytes: seconds since NTP epoch (1900-01-01)
-    let ntp_seconds =
-        u32::from_be_bytes([response[40], response[41], response[42], response[43]]) as u64;
+    let ntp_seconds = u32::from_be_bytes([response[40], response[41], response[42], response[43]]);
 
-    // Convert NTP epoch to Unix epoch
-    // NTP epoch starts 70 years before Unix epoch
+    let local_unix = unix_now()?;
+    unfold_ntp_seconds(ntp_seconds, local_unix)
+}
+
+/// Expand the 32-bit NTP seconds field to the era nearest the local clock.
+///
+/// NTP seconds wrap in February 2036. Treating the wire field as an era-zero
+/// integer would reject every honest server after that date. The local clock
+/// is used only to disambiguate adjacent eras; the resulting offset is still
+/// independently classified as healthy/warning/critical by the caller.
+fn unfold_ntp_seconds(raw: u32, local_unix: u64) -> Result<u64, TimeError> {
     const NTP_UNIX_DELTA: u64 = 2_208_988_800;
+    const NTP_ERA_SECS: u64 = 1u64 << 32;
 
-    if ntp_seconds < NTP_UNIX_DELTA {
-        return Err(TimeError::Network("invalid NTP timestamp".into()));
+    let local_ntp = local_unix
+        .checked_add(NTP_UNIX_DELTA)
+        .ok_or_else(|| TimeError::SystemClock("Unix-to-NTP timestamp overflow".into()))?;
+    let local_era = local_ntp / NTP_ERA_SECS;
+    let mut best: Option<(u64, u64)> = None;
+    for era in [
+        local_era.checked_sub(1),
+        Some(local_era),
+        local_era.checked_add(1),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let Some(full_ntp) = era
+            .checked_mul(NTP_ERA_SECS)
+            .and_then(|base| base.checked_add(u64::from(raw)))
+        else {
+            continue;
+        };
+        if full_ntp < NTP_UNIX_DELTA {
+            continue;
+        }
+        let distance = full_ntp.abs_diff(local_ntp);
+        if best
+            .map(|(_, best_distance)| distance < best_distance)
+            .unwrap_or(true)
+        {
+            best = Some((full_ntp, distance));
+        }
     }
-
-    Ok(ntp_seconds - NTP_UNIX_DELTA)
+    let (full_ntp, _) = best.ok_or_else(|| TimeError::Network("invalid NTP timestamp".into()))?;
+    full_ntp
+        .checked_sub(NTP_UNIX_DELTA)
+        .ok_or_else(|| TimeError::Network("invalid NTP timestamp".into()))
 }
 
 /// Get current Unix timestamp in seconds.
@@ -186,6 +237,22 @@ mod tests {
     fn check_with_no_servers_returns_unknown() {
         let result = check_clock_health_with_servers(&[]).unwrap();
         assert_eq!(result, DriftStatus::Unknown);
+    }
+
+    #[test]
+    fn ntp_era_unfolding_survives_the_2036_rollover() {
+        const DELTA: u64 = 2_208_988_800;
+        let unix_after_rollover = (1u64 << 32) - DELTA + 10;
+        assert_eq!(
+            unfold_ntp_seconds(10, unix_after_rollover).unwrap(),
+            unix_after_rollover
+        );
+    }
+
+    #[test]
+    fn signed_drift_arithmetic_covers_the_full_u64_domain() {
+        let drift = i128::from(u64::MAX) - i128::from(0u64);
+        assert_eq!(drift.unsigned_abs(), u128::from(u64::MAX));
     }
 
     #[test]

@@ -1,0 +1,60 @@
+Stage 618 — Solidity proof-domain separation audit (2026-10-23)
+
+Scope
+
+Audited the Solidity boundary joining `BurnIntent`, `FinalizedBurn`, reserve and
+checkpoint configuration, RISC Zero adapters, Ethereum `chainid`, contract
+addresses, DOM/bridge domains and the activation schedule commitment. No Rust,
+guest or proof-launcher code was inspected or changed in this stage.
+
+Result
+
+No Solidity defect was confirmed.
+
+- `BurnIntent` commits burn/request IDs, recipient, amount, DOM domain,
+  deadline, Ethereum chain ID and the exact reserve address. It deliberately
+  excludes fields that exist only after finalization. Although it does not
+  repeat `activationScheduleCommitment`, the exact reserve address selects one
+  immutable activation commitment, and the reserve configuration hash commits
+  both that address and commitment.
+- `FinalizedBurn` uses a distinct type hash and additionally commits height,
+  block, state root, Beacon slot and the activation schedule commitment. The
+  queue recomputes this hash using current `block.chainid` and `address(this)`.
+- Checkpoint statements use their own versioned type hash and commit bridge
+  domain, network/state versions, the complete predecessor and successor,
+  confirmation work, Ethereum chain ID, exact registry address, activation
+  schedule and `checkpointConfigHash`. The latter commits DOM chain identity,
+  verifier identity and the ratified bootstrap/control plane.
+- The burn and checkpoint RISC Zero adapters pin chain ID, underlying verifier
+  address/code, selector, ImageID, journal schema and distinct acceptance
+  capabilities. Callers require their exact capability, so the common raw
+  32-byte journal representation does not merge the two protocols.
+- Solidity does not directly call the checkpoint registry from the reserve.
+  That relation is intentionally inside the immutable finalized-burn guest
+  selected by its ImageID. Solidity authenticates that program and its exact
+  public statement; correctness of the guest's registry/event verification is
+  a separate non-Solidity proof boundary and was not inferred here.
+
+Material regressions added
+
+1. `testProofCannotReplayAcrossReserveDomainOrActivationDeployment` proves
+   that one approved burn proof cannot queue on deployments with another
+   activation schedule or DOM domain. It checks reserve configuration,
+   finalized statement and native intent separation, then confirms failed
+   replay attempts do not consume the valid original authorization.
+2. `testCheckpointProofCannotReplayAcrossRegistryDomainOrActivationDeployment`
+   proves rejection after changing Ethereum chain ID, registry deployment,
+   bridge domain or activation schedule, then submits the same proof
+   successfully only to the exact registry tuple for which it was approved.
+
+Validation
+
+- new replay regressions: 2/2 passed;
+- reserve, registry and both adapter suites: 77/77 passed, including four
+  1,024-run fuzz tests;
+- full Solidity campaign: 150/150 passed across 14 suites, including three
+  256-run/16,384-call invariant campaigns;
+- lint with warnings denied for all four audited production contracts: passed;
+- changed-test formatting and `git diff --check`: passed.
+
+No commit, push, deployment, signature or funds operation was performed.

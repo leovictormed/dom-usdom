@@ -1,0 +1,37 @@
+Checkpoint receipt collector memory-bound audit — stage 581
+Date: 2026-10-23
+
+Finding
+=======
+
+The checkpoint capacity collector enforced a per-file maximum, but collected
+the RandomX, aggregate, economic, segment and outer layers concurrently. An
+artifact set near the accepted limit could therefore multiply the bounded
+receipt allocation across several simultaneous readers. The collector also
+accepted 512 MiB succinct/Groth16 artifacts although every corresponding Rust
+decoder rejects above 256 MiB. Composite receipts do not enter this collector.
+
+Correction
+==========
+
+- The JavaScript ceiling is now the same 256 MiB used by all applicable Rust
+  receipt decoders.
+- The six checkpoint layers are captured sequentially. This keeps the dominant
+  live allocation within one receipt boundary instead of multiplying it across
+  independent layers.
+- The outer EVM graph is also captured sequentially. Groth16 and source-index
+  artifacts needed only for identity retain their SHA-256/size record, not
+  their complete Buffer.
+- Existing direct-file, owner/private-mode, symlink/hardlink, strict-JSON,
+  count, exact-field, hash, ImageID, journal and proof-kind checks remain.
+
+Validation
+==========
+
+- Focused checkpoint artifact collector tests: 3/3 passed.
+- `git diff --check` passed.
+- No proof result, release fact, deployment, signing, broadcast or funds action
+  was produced.
+
+Integrated tests remain queued until the active RISC Zero proof releases the
+machine's constrained resources.

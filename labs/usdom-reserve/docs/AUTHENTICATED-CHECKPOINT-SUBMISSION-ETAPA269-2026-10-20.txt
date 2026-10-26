@@ -1,0 +1,67 @@
+USD DOM — authenticated checkpoint submission package (stage 269)
+Date: 2026-10-20
+Status: implementation verified without proof generation or public submission
+
+Scope
+
+This stage connects the authenticated stage-268 EVM seal package to the exact
+permissionless DOMCheckpointRegistry.submitCheckpointCandidate entry point. It
+does not create a proof, authorize a broadcast, deploy a contract, move funds or
+claim positive production-proof evidence.
+
+Implemented boundary
+
+- sdk/checkpoint-submission.mjs decodes the exact 518-byte UDCPST04 framing and
+  rejects every other version, length or zero network identity.
+- The independent encoder round-trips the same fixed-width statement and checks
+  its Solidity-compatible checkpoint statement hash.
+- Registry fields are recomputed from the exact release configuration, including
+  checkpointConfigHash, chain ID, registry, bridge domain, activation schedule,
+  DOM identity, cadence, confirmation depth and bootstrap opening.
+- The checkpoint verifier manifest is recomputed and must agree with the
+  registry verifierConfigHash and all shared protocol policy fields.
+- The pinned outer guest ImageID is
+  e59d68487386939b2ac379f04528acb6b3138697e17adfda3ad23ebe195af3df.
+- The stage-268 index is parsed with duplicate-key rejection and an exact field
+  set. It must describe a verified, non-development RISC Zero 3.0.6 Groth16
+  receipt, the exact verifier-parameter digest, selector 0x73c457ba and no mining.
+- The seal is bounded to 64 KiB, must begin with selector 0x73c457ba and must
+  match both the byte count and SHA-256 committed by the authenticated index.
+- statement_hash and journal_digest must equal the canonical registry statement
+  hash and SHA-256 of its raw 32 bytes respectively.
+- The emitted package contains value zero and deterministic ABI calldata. It is
+  explicitly unsigned and records broadcastAuthorized=false.
+- verifyAuthenticatedCheckpointSubmissionOnEvm checks the chain ID and registry
+  code, recomputes checkpointStatementHash through the deployed registry and
+  executes the full candidate submission as a read-only eth_call.
+
+Fixed operator command
+
+  npm run --silent prepare:authenticated-checkpoint-submission
+
+The command accepts no arguments and reads only the fixed release, verifier,
+statement, proof-index and seal paths. It atomically writes:
+
+  evidence/checkpoint-submission/checkpoint-submission.json
+
+The command fails before proof access while the exact Ethereum mainnet release
+remains unconfigured or productionReady is false. It never reads signing
+material and contains no transaction-send operation.
+
+Verification
+
+- Focused canonical/mutation tests: 6/6 passed.
+- Local deployed EVM integration: 1/1 passed. The generated package was checked
+  by eth_call against a deployed registry and the identical calldata then
+  selected the candidate through the permissionless entry point.
+- A forced 43-file Forge build restored and retained the reusable artifact cache.
+- No RISC Zero proof or compression lifecycle ran.
+
+Residual requirements
+
+This implementation cannot supply a real Groth16 seal until the operator
+explicitly authorizes the expensive proving/compression lifecycle. Ethereum
+mainnet packaging also remains fail-closed until the release identities and
+production contract constants are ratified and configured. Those are objective
+release inputs; external audit absence and an impossible zero-risk guarantee are
+not treated as blockers.

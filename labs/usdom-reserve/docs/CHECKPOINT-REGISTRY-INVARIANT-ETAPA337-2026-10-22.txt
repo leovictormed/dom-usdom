@@ -1,0 +1,42 @@
+USD + DOM — invariante da máquina de estados do registro de checkpoints
+Etapa 337 — 2026-10-22
+
+Achado
+
+DOMCheckpointRegistry possuía testes unitários de configuração, prova,
+competição, desempate, janela, finalização e halt, mas não possuía uma campanha
+invariante que combinasse essas ações em ordens arbitrárias. Esse registro é a
+fronteira Ethereum que transforma a prova recursiva da extensão DOM em eventos
+de finalidade consumidos pelos resgates.
+
+Correção
+
+Foi criado DOMCheckpointRegistryInvariant.t.sol com um handler e ledger
+independentes. O handler executa aleatoriamente:
+
+- submissão de candidato comprovado com trabalho superior;
+- tentativa sem prova;
+- tentativa comprovada que não lidera por trabalho/desempate;
+- tentativa de melhoria após o fechamento da janela;
+- finalização, avanço do relógio, halt autorizado e halt não autorizado.
+
+As propriedades conferem que:
+
+- altura, bloco, raiz, contexto, dificuldade e contador formam exatamente um
+  prefixo monotônico de rodadas fixas;
+- o candidato pertence somente à próxima rodada, preserva o primeiro readyAt,
+  tem confirmação posterior e trabalho estritamente crescente;
+- configuração, verificador e guardião continuam ligados aos hashes imutáveis;
+- halt permanente congela tanto o checkpoint finalizado quanto o candidato.
+
+Validação
+
+- campanha focal: 256 runs, 16.384 chamadas, zero reverts do handler;
+- três invariantes passaram;
+- suíte Solidity completa: 139/139 testes, zero falhas;
+- as campanhas das reservas e da recuperação também repetiram 16.384 chamadas
+  cada, sem reverts do handler;
+- forge fmt e git diff --check passaram.
+
+Nenhuma mineração, chave, carteira, assinatura, deploy, transmissão, fundo,
+commit ou push foi usado.

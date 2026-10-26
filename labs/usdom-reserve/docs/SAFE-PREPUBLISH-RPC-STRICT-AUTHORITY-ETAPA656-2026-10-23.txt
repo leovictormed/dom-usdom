@@ -1,0 +1,25 @@
+ETAPA 656 — RESPOSTA RPC PRÉ-PUBLICAÇÃO SAFE EM JSON ESTRITO
+Data: 2026-10-23
+
+Foi auditada a decisão imediatamente anterior à publicação de cada transação de
+recuperação Safe. Para cada RPC independente, o executor consulta
+`eth_getTransactionByHash`; se nenhuma fonte já tiver visto o hash, publica o
+raw previamente validado.
+
+A resposta era capturada numa variável e passada diretamente ao `jq`, que aceita
+chaves duplicadas. Uma resposta malformada poderia alterar a decisão “null ou
+transação com o hash esperado”, mesmo se várias fontes devolvessem bytes iguais.
+
+Agora cada resposta é escrita, sob um nome não derivado da URL, no diretório
+privado temporário, passa por `check-private-strict-json-file.mjs` e somente
+então é avaliada pelo `jq`. UTF-8 inválido, duplicatas, arquivos indiretos,
+permissões erradas, excesso de tamanho/profundidade falham antes da decisão.
+
+Foram preservados consenso do estado Safe imediatamente antes da publicação,
+snapshot do raw, hash/nonce/calldata/owners, múltiplos RPCs, autorização
+interativa, observação finalizada e persistência create-once.
+
+Validação reutiliza a regressão malformed-identical com chave duplicada/0xff e
+confirma o wiring Safe. Testes focados passaram 2/2; `bash -n` e `git diff
+--check` passaram. Nenhum RPC, Safe, assinatura, transmissão, deploy, commit,
+push ou fundos foram usados.

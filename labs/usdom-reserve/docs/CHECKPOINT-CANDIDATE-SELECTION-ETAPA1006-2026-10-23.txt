@@ -1,0 +1,40 @@
+ETAPA 1006 — checkpoint candidate selection/finalization — 2026-10-23
+
+Scope
+- Fixed target/confirmation heights, cumulative-work comparison, tie-breaks,
+  challenge window, replacement/finalize ordering, timestamps, halt and bounds.
+
+Concrete finding and correction
+- The comparator used confirmation work then confirmation block, but treated an
+  exact rank tie as first-arrival-wins. Selection could therefore depend on the
+  relayer/mempool ordering rather than a strict deterministic order. A sound
+  ancestry proof normally makes divergent statements sharing one confirmation
+  block impossible, but the registry boundary should remain deterministic and
+  independent of that extra assumption.
+- `_candidateIsBetter` now defines a strict total order: greatest confirmation
+  total difficulty, then smallest confirmation block hash, then smallest full
+  statement hash. The final key binds every proved field and removes arrival
+  order from the remaining tie.
+- A regression submits the higher statement hash first, replaces it with the
+  lower hash at identical work/block rank, proves readyAt is unchanged, then
+  proves the losing candidate cannot replace it back.
+
+Audit conclusions
+- Every candidate targets exactly latestHeight+interval and one fixed
+  confirmationDepth; constructor and admission arithmetic reject uint64
+  overflow. Target and confirmation work must strictly increase.
+- Replacement is permitted only before readyAt and never resets readyAt. At the
+  boundary timestamp replacement is closed and permissionless finalization is
+  open, removing an overlap race.
+- The verifier statement authenticates predecessor, target, context, work,
+  confirmation block/work/timestamp, deployment/config and activation domain.
+  Future confirmation timestamps are rejected before verification.
+- Halt is checked before submission and finalization. Guardian/verifier drift
+  preserves the candidate for retry but prevents finalization.
+
+Checks
+- Lightweight Python structural gate: 19/19 assertions passed.
+- git diff --check passed for all ETAPA1006 files.
+- Permanent Node gate: test/node/checkpoint-candidate-selection.test.mjs.
+- Node is unavailable and Forge remains deferred during the live RISC0 proof.
+  No network, push or deployment was performed.

@@ -1,4 +1,4 @@
-//! RISC Zero outer guest for one complete `UDCPST04` checkpoint statement.
+//! RISC Zero outer guest for one complete `UDCPST06` checkpoint statement.
 //!
 //! The guest authenticates policy and the previous candidate-v2 state, checks
 //! a bounded chain of complete segment transitions through the target and
@@ -9,9 +9,9 @@
 
 #[cfg(target_os = "zkvm")]
 use dom_usdom_checkpoint_program::{
-    validate_checkpoint_outer_chain, verify_checkpoint_segment_receipts_in_guest,
+    validate_checkpoint_outer_chain_v6, verify_checkpoint_segment_receipts_in_guest,
     CheckpointOuterChain, CheckpointSegmentNativeStateOpening, CheckpointSegmentPolicyInput,
-    CheckpointStatementV4, CHECKPOINT_STATEMENT_V4_BYTES, MAX_CHECKPOINT_OUTER_CHAIN_BYTES,
+    CheckpointStatementV6, CHECKPOINT_STATEMENT_V6_BYTES, MAX_CHECKPOINT_OUTER_CHAIN_BYTES,
     MAX_CHECKPOINT_SEGMENT_NATIVE_OPENING_BYTES, MAX_CHECKPOINT_SEGMENT_POLICY_INPUT_BYTES,
 };
 #[cfg(target_os = "zkvm")]
@@ -36,7 +36,7 @@ fn read_bounded(maximum: usize, label: &str) -> Vec<u8> {
 
 #[cfg(target_os = "zkvm")]
 fn guest_main() {
-    let mut statement_bytes = [0u8; CHECKPOINT_STATEMENT_V4_BYTES];
+    let mut statement_bytes = [0u8; CHECKPOINT_STATEMENT_V6_BYTES];
     env::read_slice(&mut statement_bytes);
     let policy_bytes = read_bounded(
         MAX_CHECKPOINT_SEGMENT_POLICY_INPUT_BYTES,
@@ -49,7 +49,7 @@ fn guest_main() {
     let chain_bytes = read_bounded(MAX_CHECKPOINT_OUTER_CHAIN_BYTES, "checkpoint segment chain");
 
     let statement =
-        CheckpointStatementV4::from_bytes(&statement_bytes).expect("invalid checkpoint statement");
+        CheckpointStatementV6::from_bytes(&statement_bytes).expect("invalid checkpoint statement");
     let policy =
         CheckpointSegmentPolicyInput::from_bytes(&policy_bytes).expect("invalid checkpoint policy");
     let opening = CheckpointSegmentNativeStateOpening::from_bytes(&opening_bytes)
@@ -57,7 +57,7 @@ fn guest_main() {
     let chain =
         CheckpointOuterChain::from_bytes(&chain_bytes).expect("invalid checkpoint segment chain");
     let executed =
-        validate_checkpoint_outer_chain(&statement, &chain, &policy, &opening, SEGMENT_IMAGE_ID)
+        validate_checkpoint_outer_chain_v6(&statement, &chain, &policy, &opening, SEGMENT_IMAGE_ID)
             .expect("checkpoint outer composition failed");
     verify_checkpoint_segment_receipts_in_guest(executed.segment_receipts())
         .expect("segment receipt assumption verification is infallible");

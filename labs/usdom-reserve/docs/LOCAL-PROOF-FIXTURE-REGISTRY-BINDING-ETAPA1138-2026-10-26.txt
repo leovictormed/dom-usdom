@@ -1,0 +1,26 @@
+Local proof fixture registry binding — Stage 1138 — 2026-10-26
+
+Finding
+
+scripts/generate-local-proof-reserve-fixture.mjs still supplied the historical
+ten-field Reserve configuration. The current constructor requires the immutable
+checkpoint registry as its third component, so the fixture would interpret the
+DOM domain as an address and fail before generating deposit proof evidence.
+
+Correction
+
+The fixture deploys MockGracefulShutdownRegistry with the exact DOM domain and
+activation schedule commitment and inserts that address between verifier and
+domDomain. The remaining fields retain their canonical order.
+
+Evidence
+
+- pinned Node syntax check: pass
+- local-proof-reserve-fixture-constructor.test.mjs: 1/1 pass
+- compiled Reserve ABI: exact eleven Config components
+- compiled mock registry ABI: exact bytes32 domain and activation constructor
+
+The end-to-end receipt/MPT fixture generation remains scheduled after the
+already-running full Cargo workspace validation, because it invokes Cargo for
+the receipt-proof generator. No network, signature, deployment outside local
+Anvil, funds, commit or push was used.

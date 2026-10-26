@@ -1,0 +1,45 @@
+ETAPA681 — MAINNET COLLECTOR SNAPSHOT ATOMICITY
+Date: 2026-10-23
+
+Scope
+- Audited checkpoint bootstrap/finalized-event, Safe control/recovery and CREATE
+  deployment identity collectors for latest/default/mixed state and cross-RPC
+  snapshot disagreement.
+- No live RPC or external operation was performed.
+
+Primary finding and correction
+The CREATE deployment identity ceremony used finalized-number reads plus a
+pending nonce, but did not pin the bounded provider after discovering the
+finalized head. After ETAPA677 this also meant the shared provider's transport
+boundary would correctly reject those unpinned calls in production. More
+materially, the ceremony allowed independent RPCs to authorize the same nonce
+while reporting different finalized heights/hashes.
+
+The ceremony now pins each bounded provider to its observed finalized number
+and hash before finalized nonce/code/address reads. Independent RPC sources
+must agree on finalized number, finalized hash and nonce, and every source is
+rechecked at that block. A pending nonce is permitted only through an explicit
+`allowPendingNonce` snapshot policy, only for eth_getTransactionCount; it does
+not permit pending/latest code, storage or calls. This preserves the necessary
+mempool-busy check without weakening finalized state reads.
+
+Additional reconciliation
+- Recoverable Safe baseline and pre-recovery collectors now pin compatible
+  bounded providers immediately after their initial finalized block. Repeated
+  collection can only repin the identical snapshot.
+- Finalized EIP-1271 authority collection uses the provider's canonical pinned
+  tag when available; custom bounded collectors retain explicit number tags,
+  post-read block-hash checks and independent-RPC equality.
+- The checkpoint finalized-event collector already reads registry code/state at
+  the receipt's canonical finalized historical block, repeats receipt/block/
+  code/all getters, and requires exact independent-RPC agreement. No change was
+  needed there.
+
+Validation
+- Deployment identity, bounded provider, Safe observation and Safe RPC
+  consensus suites: 38/38 passed.
+- Checkpoint ratification, EIP-1271, deployment identity and provider focused
+  suites: 19/19 passed.
+- Regressions cover pre-pin state, mixed finalized blocks, unauthorized pending
+  state, repinning, reorg rechecks and cross-source disagreement.
+- Node syntax and repository whitespace checks passed.

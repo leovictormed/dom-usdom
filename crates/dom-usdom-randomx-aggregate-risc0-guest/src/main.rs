@@ -2,7 +2,7 @@
 //!
 //! This guest commits `UDCRXAG1`, a distinct component journal. It does not
 //! execute ordinary DOM economic validation or native USDOM state transitions
-//! and therefore cannot emit or replace a complete UDCSTN02 checkpoint proof.
+//! and therefore cannot emit or replace a complete UDCSTN04 checkpoint proof.
 
 #![no_main]
 

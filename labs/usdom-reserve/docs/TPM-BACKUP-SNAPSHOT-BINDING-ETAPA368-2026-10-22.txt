@@ -1,0 +1,43 @@
+USD + DOM — vínculo do backup TPM ao snapshot autenticado
+Etapa 368 — 2026-10-22
+
+Problemas corrigidos
+
+O provisionador TPM lia o backup criptografado para calcular a evidência e
+depois reabria o caminho para descriptografá-lo. As duas leituras eram seguras
+isoladamente, mas uma troca entre elas poderia fazer o hash e a restauração
+representarem inodes diferentes. A compilação ampla também revelou que o
+decodificador do arquivo de queimas USDOM V2 propagava `UsdomStateError` onde a
+API exigia `DomError`, impedindo uma configuração completa de compilar.
+
+Correções
+
+- `dom-wallet-crypto` expõe uma rotina limitada que autentica e descriptografa
+  bytes de envelope já capturados, mantendo a saída em memória zeroizável;
+- `WalletRecoverySeed` restaura diretamente desses bytes e conserva a checagem
+  da identidade de cadeia;
+- o provisionador TPM usa o mesmo buffer direto para SHA-256, descriptografia,
+  endereço e evidência, sem segunda consulta ao caminho do backup;
+- o decodificador do arquivo de queimas converte explicitamente qualquer erro
+  do registro para `DomError::Malformed`, que a camada persistente transforma
+  em falha interna fechada;
+- a regressão estática exige o consumo do snapshot no binário TPM.
+
+Validação focada
+
+- `cargo check` passou para `dom-wallet-crypto`, `dom-usdom-wallet` e `dom-node`
+  com o recurso operacional TPM;
+- o envelope em memória recuperou o plaintext correto e rejeitou senha errada;
+- o backup capturado restaurou o mesmo endereço e rejeitou outra cadeia;
+- o teste de todos os prefixos truncados e bytes residuais dos decodificadores
+  persistidos passou;
+- o round-trip V2 de todos os domínios e localizadores passou;
+- `cargo fmt --check` passou;
+- compilação forçada dos 44 contratos e regressão Node completa passaram em
+  303/303 testes;
+- proveniência completa passou para 169 importados, 45 fontes de programas de
+  prova, oito arquivos do manifesto de carteira e 1.149 fontes totais.
+
+Nenhum TPM foi acessado, nenhuma carteira ou senha real foi criada e nenhuma
+chamada RPC, assinatura, transação, fundo, deploy, mineração, commit, tag ou
+push ocorreu. A prova longa permaneceu ativa e não foi reiniciada.

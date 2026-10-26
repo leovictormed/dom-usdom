@@ -1,0 +1,20 @@
+USDOM — ETAPA 1161 — BARREIRA FINAL DOS ARTEFATOS DE DEPLOY
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+O executor de implantação validava candidatos e persistência create-once, mas a mensagem final não reabria pacote, observação, recibo e evidência depois de toda a janela de materialização. Uma mutação tardia podia separar a confirmação exibida dos arquivos autoritativos ou duráveis efetivamente presentes.
+
+Implementação
+
+- Pacote de implantação e observação de identidade são relidos diretamente e comparados byte a byte aos snapshots autenticados.
+- O catálogo RPC é novamente autenticado pelo SHA-256 fixado.
+- Recibo e evidência instalados são relidos e precisam coincidir exatamente com os candidatos validados.
+- O proxy privado autenticado precisa continuar vivo antes da única mensagem final de implantação.
+
+Validação
+
+- Testes focais de deploy, reorg, pinagem e barreira: 7/7.
+- Suíte ampla completa do runbook: 84/84.
+- Sintaxe Bash e diff-check direcionado aprovados.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

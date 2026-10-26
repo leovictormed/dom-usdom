@@ -1,0 +1,24 @@
+ETAPA 965 — supressão de pacotes de prova USDOM duplicados
+Data: 2026-10-23
+
+Achado corrigido
+- O gate global impedia duas provas simultâneas, mas não distinguia um pacote novo de repetição byte-a-byte. Reenvios por peers diferentes disputavam capacidade e, após o job terminar, voltavam ao parser/runtime sem uma barreira explícita de in-flight.
+- `NativeProofAdmission` agora combina o semaphore global com um HashSet de digests BLAKE2b-256 dos bytes wire exatos. O digest é calculado antes de framing/metadata/prova; check+insert ocorre sob mutex. Um pacote idêntico já em voo falha imediatamente como PolicyRejected.
+- Se outro digest encontra capacidade ocupada, sua entrada é removida antes do retorno. `NativeProofPermit::drop` remove o digest em sucesso, erro, panic unwind ou término real da closure blocking. A cópia da ETAPA961 mantém tanto capacidade quanto digest ativos durante cancelamento do caller.
+
+Limites e autoridade
+- O conjunto pending é estritamente limitado pela capacidade global 1; não é uma cache atacante expansível.
+- Não há negative cache de pacotes inválidos. Após o job encerrar, bytes podem ser reavaliados contra tip/config atual, evitando decisão negativa dependente de consenso.
+- Pacotes validados/AlreadyHave atravessam o check persistido do chain/runtime, que é autoridade após restart. Não se adicionou cache positiva volátil que pudesse sobreviver a reorg/config drift ou substituir estado persistido.
+- Restart elimina apenas estado in-flight, correto porque nenhum job antigo continua no novo processo; blocos aceitos permanecem no store canônico e duplicatas são AlreadyHave.
+- Hash do envelope exato evita colisão entre witness/package diferentes e custa uma passagem bounded pelos bytes, sem alocação proporcional adicional.
+
+Regressão
+- `identical_native_proof_package_is_suppressed_while_inflight`: repetição idêntica é rejeitada enquanto permit vive e volta a ser admissível após drop, provando ausência de negative cache.
+- Testes anteriores continuam cobrindo capacidade global e cancelamento com owner blocking.
+
+Validação leve
+- rustfmt --check: aprovado.
+- Gate estrutural: digest antes dos dois parsers, atomic pending set, cleanup RAII e regressão presentes.
+- git diff --check: aprovado.
+- Cargo pendente pós-prova; sem rede/node/operação externa.

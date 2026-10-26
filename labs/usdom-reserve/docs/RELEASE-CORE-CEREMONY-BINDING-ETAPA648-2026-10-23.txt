@@ -1,0 +1,41 @@
+ETAPA 648 — cerimônia raiz do release core
+Data: 2026-10-23
+
+Achados
+1. O produtor raiz calculava os runtime hashes dos dois adapters por chamadas
+separadas. Embora os manifests fossem válidos, a fronteira não explicitava a
+reconciliação de config hash usada pelos consumidores após a ETAPA644.
+2. governanceOwnersCommitment e guardianOwnersCommitment vinham do template,
+mas o produtor não os recalculava a partir do trio canônico controlPlaneOwners.
+3. O preparador rechecava todas as entradas antes da saída, porém o wrapper não
+comparava novamente o template mutável antes da instalação durável.
+
+Correções
+- O produtor usa os bindings integrais dos dois verificadores, incluindo chain,
+  verifier/codehash, selector, ImageID, journal e capability.
+- Os dois compromissos dos Safes devem ser exatamente
+  keccak256(abi.encode(owner0,owner1,owner2)) do único trio ordenado do release.
+- Native facts continuam reconciliados entre ambos manifests e alimentam os
+  hashes da reserve e do checkpoint registry em uma única função pura.
+- O wrapper mantém flock, instalação durável e idempotência, e agora captura e
+  revalida o SHA-256 do template imediatamente antes da transição.
+- Configurações já materializadas só admitem repetição idêntica; drift de fatos,
+  hashes ou owners falha antes da escrita.
+
+Artefatos atuais
+A ETAPA646 fez `_requireVerifierUnchanged()` revalidar `PROOF_ACCEPTED` durante
+a operação da reserve e do registry, alterando runtime e initcode. Os hashes da
+ETAPA644 são explicitamente stale e foram substituídos pelos artefatos recompilados:
+reserve runtime 0x1c2372c106c484f963ec2e442d0bf399a75125ffee64c036e5c7416d798e9b47
+(18040 bytes), initcode 0xb9a9c2163119917b36f50b2e9348c0954b91c8bbdc2a4537289a0dea10e9744d
+(24944 bytes); registry runtime 0xacbf8ead8e8ff7f0de7a6272b5b204f8c9561801e09dba7c01c0cfd0f2f7995b
+(8555 bytes), initcode 0x0f5886642ce0093beafaf0777b4b73994d8339823e2a123e47d436fcaaadf2e7
+(13827 bytes).
+
+Validação
+- Node focado: 25/25.
+- Solidity de mutação/restauração da capability em runtime: 2/2.
+- bash -n, node --check e git diff --check: aprovados.
+- Nenhuma materialização real foi executada.
+
+Nenhum commit, push, deploy, assinatura, transmissão ou fundo foi usado.

@@ -1,0 +1,46 @@
+USDOM stage 404 — Safe EOA-owner pinning
+Date: 2026-10-22
+
+Finding
+=======
+
+The on-chain Safe policy required three distinct nonzero owners but did not
+reject contract owners. A later owner recovery could therefore introduce a
+programmable EIP-1271 authority while retaining the nominal 2-of-3 shape. The
+initial Safe evidence required EOAs, but the runtime predicate did not preserve
+that property.
+
+Correction
+==========
+
+Both contracts now require every current Safe owner to have zero runtime code.
+Owners must also differ from the Safe itself and from the Safe linked-list
+sentinel. These checks are part of the same construction and runtime predicates
+used by value/resume, health and irreversible-halt paths. A contract-owner
+substitution fails closed immediately.
+
+The finalized-snapshot preflight now records a code hash beside every observed
+owner for all three roles. All nine hashes must equal Ethereum's canonical empty
+code hash. Two independent RPCs must agree on the complete address/hash policy,
+and strict schema validation rejects missing, extra or malformed entries.
+
+Evidence
+========
+
+- Focused Solidity policy tests and 50 preflight/readiness tests pass.
+- Complete Solidity suite: 145/145 pass, including invariant campaigns.
+- Complete Node suite: 304/304 pass.
+- Current runtime sizes are 16,366 bytes for the reserve and 7,487 bytes for
+  the checkpoint registry, below EIP-170.
+- Production lint, forced build and whitespace checks pass.
+
+No live RPC, signature, transaction, deployment, funds, mining, project commit,
+tag or push occurred. The detached finalized-burn capacity proof remained
+active and was not restarted or modified.
+
+Next action
+===========
+
+Audit whether EIP-7702 delegation and counterfactual owner deployment require
+additional operational evidence, then inspect the next locally correctable
+contract/release boundary while the capacity proof runs.

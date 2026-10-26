@@ -3,16 +3,86 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import {createHash} from 'node:crypto';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';
 import {ContractFactory, Wallet, hexlify, randomBytes, keccak256} from 'ethers';
 import {localEvm} from './helpers/evm.mjs';
-import {candidateBurnTypes, compareViews, inspectBurn, monitorOnce, snapshotReader} from '../../scripts/candidate-monitor.mjs';
+import {
+  acquireCandidateMonitorLock,releaseCandidateMonitorLock,
+  assertBoundedEventRange,candidateBurnTypes,compareViews,inspectBurn,monitorOnce,
+  nextEventRange,parseCandidateMonitorJson,snapshotReader,validateEventSequence,
+} from '../../scripts/candidate-monitor.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const fresh = () => hexlify(randomBytes(32));
 const bn254ScalarField = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001n;
 const freshCommitment = () =>
   '0x' + (BigInt(fresh()) % (bn254ScalarField - 1n) + 1n).toString(16).padStart(64, '0');
+
+test('candidate monitor safely recovers an authenticated SIGKILL orphan lock',async t=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'usdom-monitor-lock-kill-'));
+  t.after(()=>fs.rm(directory,{recursive:true,force:true}));
+  const stateFile=path.join(directory,'checkpoint.json');
+  const modulePath=path.join(root,'scripts/candidate-monitor.mjs');
+  const child=spawn(process.execPath,['--input-type=module','--eval',
+    `import {acquireCandidateMonitorLock} from ${JSON.stringify(new URL(`file://${modulePath}`).href)};`
+    +`await acquireCandidateMonitorLock(${JSON.stringify(stateFile)});process.stdout.write('ready\\n');setInterval(()=>{},1000);`],
+  {stdio:['ignore','pipe','pipe']});
+  let output='';
+  while(!output.includes('ready\n')) {
+    const [chunk]=await once(child.stdout,'data'); output+=chunk.toString();
+  }
+  child.kill('SIGKILL'); await once(child,'exit');
+  const recovered=await acquireCandidateMonitorLock(stateFile);
+  await releaseCandidateMonitorLock(recovered);
+  await assert.rejects(fs.lstat(`${stateFile}.lock`),error=>error.code==='ENOENT');
+});
+
+test('candidate monitor lock handles concurrency and PID reuse without stealing a live lock',async t=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'usdom-monitor-lock-race-'));
+  t.after(()=>fs.rm(directory,{recursive:true,force:true}));
+  const stateFile=path.join(directory,'checkpoint.json');
+  const [first,second]=await Promise.allSettled([
+    acquireCandidateMonitorLock(stateFile),acquireCandidateMonitorLock(stateFile),
+  ]);
+  const acquired=[first,second].filter(result=>result.status==='fulfilled');
+  const rejected=[first,second].filter(result=>result.status==='rejected');
+  assert.equal(acquired.length,1); assert.equal(rejected.length,1);
+  assert.match(rejected[0].reason.message,/already running/);
+  const active=acquired[0].value;
+  await assert.rejects(acquireCandidateMonitorLock(stateFile),/already running/);
+  await active.handle.close(); // model a dead process while retaining its durable record
+  const record=JSON.parse(await fs.readFile(`${stateFile}.lock`,'utf8'));
+  record.owner.startTicks=(BigInt(record.owner.startTicks)+1n).toString();
+  const authenticated={schema:record.schema,owner:record.owner,nonce:record.nonce,createdAt:record.createdAt};
+  record.recordSha256=createHash('sha256').update(JSON.stringify(authenticated)).digest('hex');
+  await fs.writeFile(`${stateFile}.lock`,`${JSON.stringify(record)}\n`,{mode:0o600});
+  const replacement=await acquireCandidateMonitorLock(stateFile);
+  await releaseCandidateMonitorLock(replacement);
+});
+
+test('candidate monitor lock fails closed on unauthenticated and indirect artifacts',async t=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'usdom-monitor-lock-invalid-'));
+  t.after(()=>fs.rm(directory,{recursive:true,force:true}));
+  const stateFile=path.join(directory,'checkpoint.json'),lockPath=`${stateFile}.lock`;
+  await fs.writeFile(lockPath,'{}\n',{mode:0o600});
+  await assert.rejects(acquireCandidateMonitorLock(stateFile),/unexpected fields/);
+  await fs.rm(lockPath);
+  const target=path.join(directory,'target'); await fs.writeFile(target,'{}\n',{mode:0o600});
+  await fs.symlink(target,lockPath);
+  await assert.rejects(acquireCandidateMonitorLock(stateFile),error=>['ELOOP','EINVAL'].includes(error.code));
+  await fs.rm(lockPath);
+  await fs.link(target,lockPath);
+  await assert.rejects(acquireCandidateMonitorLock(stateFile),/path policy mismatch/);
+});
+
+test('candidate monitor rejects duplicate JSON keys and trailing content',()=>{
+  assert.throws(()=>parseCandidateMonitorJson('{"version":1,"version":2}'),/duplicate object key/);
+  assert.throws(()=>parseCandidateMonitorJson('{"version":1} trailing'),/trailing content/);
+  assert.deepEqual(parseCandidateMonitorJson('{"version":1}'),Object.assign(Object.create(null),{version:1}));
+});
 async function compile() {
   const files = [['USDOMReserve.sol','USDOMReserve'],['Mocks.sol','HostileToken'],['Mocks.sol','MockGovernance']];
   const artifacts = {};
@@ -70,6 +140,12 @@ async function fixture(t) {
   const config = {reserve, guardian, networkId, domDomain, chainId: '31337', deploymentBlock,
     expectedCodeHash: keccak256(await provider.getCode(reserve.target)),
     initialCheckpoint: {height: '0', tip: blocks[0]}, stateFile: path.join(directory, 'checkpoint.json'),
+    ethereumSources: [
+      {operatorId:'operator-a',providerId:'provider-a',infrastructureId:'infra-a',
+        originKeccak256:fresh(),provider},
+      {operatorId:'operator-b',providerId:'provider-b',infrastructureId:'infra-b',
+        originKeccak256:fresh(),provider},
+    ],
     maxNoProgressMs: 300_000, sources: [
       {id: 'verified-source-a', read: async () => structuredClone(view)},
       {id: 'verified-source-b', read: async () => structuredClone(view)},
@@ -85,7 +161,9 @@ test('candidate monitor binds each public burn field and rejects unsafe normaliz
   const burn = {burnId: fresh(), requestId: fresh(), recipient: '0x' + '12'.repeat(20), amount: 42n,
     height: 1n, blockHash: blocks[1], domDomain};
   const view = {version: 1, ordering: 'single-sequencer-experimental', network: networkId, domDomain,
-    height: '2', tip: blocks[2], blockHashes: blocks, records: [{...burn, amount: '42', height: '1', asset: 1, confirmations: '2'}]};
+    height: '2', tip: blocks[2], blockHashes: blocks, records: [{burnId:burn.burnId,
+      requestId:burn.requestId,recipient:burn.recipient,blockHash:burn.blockHash,
+      amount: '42', height: '1', asset: 1, confirmations: '2'}]};
   const config = {networkId, domDomain, initialCheckpoint: {height: '0', tip: blocks[0]}};
   assert.equal(inspectBurn(burn, view, 2), null);
   compareViews([view, structuredClone(view)], config);
@@ -97,13 +175,67 @@ test('candidate monitor binds each public burn field and rejects unsafe normaliz
   assert(inspectBurn(burn, view, 3));
   assert.throws(() => compareViews([view, {...view, network: fresh()}], config));
   assert.throws(() => compareViews([view, {...view, records: [{...view.records[0], amount: 42}]}], config));
+  assert.throws(() => compareViews([view, {...view, debug: 'unexpected'}], config),/unexpected fields/);
+  assert.throws(() => compareViews([view, {...view, records: [{...view.records[0], debug: 'unexpected'}]}], config),/unexpected fields/);
+  assert.throws(() => compareViews([view, {...view, records: [view.records[0],
+    {...view.records[0],burnId:fresh()}]}], config),/duplicate burn request/);
   assert.throws(() => snapshotReader({url: 'https://example.com', binary: '/tmp/verifier', networkDirectory: '/tmp/network', networkId}));
+});
+
+test('candidate monitor bounds sources, timeouts, event pages and canonical log identity',async()=>{
+  const event=(overrides={})=>({removed:false,blockNumber:10,blockHash:'0x'+'11'.repeat(32),
+    transactionHash:'0x'+'22'.repeat(32),transactionIndex:0,index:0,...overrides});
+  assert.equal(validateEventSequence([event()],'events',10,10).length,1);
+  assert.throws(()=>validateEventSequence([event(),event()],'events',10,10),/duplicate log/);
+  assert.throws(()=>validateEventSequence([
+    event({index:1}),event({index:0}),
+  ],'events',10,10),/canonically ordered/);
+  assert.throws(()=>validateEventSequence([event({removed:true})],'events',10,10),/removed log/);
+  assert.equal(assertBoundedEventRange(0,512*256-1),256);
+  assert.throws(()=>assertBoundedEventRange(0,512*256),/bounded archival window/);
+  assert.deepEqual(nextEventRange(7,null,7),{first:7,last:7});
+  assert.deepEqual(nextEventRange(7,null,7+512*256),{first:7,last:7+512*256-1});
+  assert.deepEqual(nextEventRange(7,7+512*256-1,7+512*256),
+    {first:7+512*256,last:7+512*256});
+  assert.equal(nextEventRange(7,10,10),null);
+  assert.throws(()=>nextEventRange(7,6,10),/cursor/);
+  const base={reserve:null,guardian:null,networkId:fresh(),domDomain:fresh(),expectedCodeHash:fresh(),
+    chainId:'31337',deploymentBlock:0,initialCheckpoint:{height:'0',tip:fresh()},
+    ethereumSources:[
+      {operatorId:'operator-a',providerId:'provider-a',infrastructureId:'infra-a',originKeccak256:fresh(),
+        provider:{getNetwork(){},getBlock(){},getCode(){},send(){}}},
+      {operatorId:'operator-b',providerId:'provider-b',infrastructureId:'infra-b',originKeccak256:fresh(),
+        provider:{getNetwork(){},getBlock(){},getCode(){},send(){}}},
+    ],
+    stateFile:path.join(os.tmpdir(),'never-created-monitor-state')};
+  await assert.rejects(monitorOnce({...base,sourceTimeoutMs:999,sources:[
+    {id:'one',read(){}},{id:'two',read(){}},
+  ]}),/source timeout/);
+  await assert.rejects(monitorOnce({...base,sources:Array.from({length:6},(_,index)=>({
+    id:`source-${index}`,read(){},
+  }))}),/distinct source identities/);
+});
+
+test('candidate monitor advances a durable Ethereum event cursor without rescanning deployment',async t=>{
+  const f=await fixture(t);
+  const initial=await f.monitor();
+  assert.equal(initial.status,'healthy',JSON.stringify(initial));
+  const first=JSON.parse(await fs.readFile(f.config.stateFile));
+  assert(first.ethereum.height>=f.config.deploymentBlock);
+  await f.rpc.request({method:'evm_mine',params:[]});
+  const result=await f.monitor({now:await f.now()+5_000});
+  assert.equal(result.status,'healthy');
+  const second=JSON.parse(await fs.readFile(f.config.stateFile));
+  assert.equal(second.ethereum.height,first.ethereum.height+1);
+  assert.notEqual(second.ethereum.hash,first.ethereum.hash);
 });
 
 test('candidate monitor accepts a consistent queue and persists a restart checkpoint', async t => {
   const f = await fixture(t); await f.queue();
-  assert.equal((await f.monitor()).status, 'healthy');
-  assert.equal((await f.monitor()).status, 'healthy');
+  const firstOutcome=await f.monitor();
+  assert.equal(firstOutcome.status, 'healthy',JSON.stringify(firstOutcome));
+  assert.equal((await f.monitor()).status, 'throttled');
+  assert.equal((await f.monitor({now:await f.now()+5_000})).status,'healthy');
   assert.equal(await f.reserve.paused(), false);
   const saved = JSON.parse(await fs.readFile(f.config.stateFile));
   assert.equal(saved.checkpoint.tip, f.view.tip);
@@ -114,7 +246,7 @@ test('candidate monitor accepts a consistent queue and persists a restart checkp
 test('a quorum-signed fabricated burn triggers actual emergency pause and revocation', async t => {
   const f = await fixture(t); await f.queue();
   f.setView({...f.view, records: []});
-  const outcome = await f.monitor();
+  const outcome = await f.monitor({now:await f.now()+5_000});
   assert.equal(outcome.status, 'paused'); assert.equal(outcome.emergency, true);
   assert.match(outcome.reason, /canonical burn absent/);
   assert.equal(await f.reserve.paused(), true); assert.equal(await f.reserve.recoveryRequired(), true);
@@ -135,7 +267,7 @@ test('destination mismatch triggers emergency pause before payment maturity', as
 
 test('source outage or timeout causes operational pause without key revocation', async t => {
   const f = await fixture(t); await f.queue();
-  const outcome = await f.monitor({sourceTimeoutMs: 20, sources: [f.config.sources[0],
+  const outcome = await f.monitor({sourceTimeoutMs: 1_000, sources: [f.config.sources[0],
     {id: 'unavailable-source', read: async () => new Promise(() => {})}]});
   assert.equal(outcome.status, 'paused'); assert.equal(outcome.emergency, false);
   assert.equal(await f.reserve.paused(), true); assert.equal(await f.reserve.recoveryRequired(), false);
@@ -148,6 +280,35 @@ test('disagreeing sources fail closed with operational pause', async t => {
   const outcome = await f.monitor({sources: [f.config.sources[0], {id: 'divergent-source', read: async () => fork}]});
   assert.equal(outcome.emergency, false); assert.match(outcome.reason, /sources disagree/);
   assert.equal(await f.reserve.paused(), true);
+});
+
+test('Ethereum RPC identities must be independently catalogued',async t=>{
+  const f=await fixture(t);
+  const duplicate=f.config.ethereumSources.map(source=>({...source}));
+  duplicate[1].providerId=duplicate[0].providerId;
+  await assert.rejects(f.monitor({ethereumSources:duplicate}),/providerId identities must be distinct/);
+  assert.equal(await f.reserve.paused(),false);
+});
+
+test('divergent finalized Ethereum RPC views fail closed with operational pause',async t=>{
+  const f=await fixture(t);
+  const delegate=f.provider;
+  const divergent=new Proxy(delegate,{get(target,property,receiver){
+    if(property==='getBlock') return async tag=>{
+      const block=await target.getBlock(tag);
+      if(typeof tag==='number') return {...block,hash:fresh()};
+      return block;
+    };
+    const value=Reflect.get(target,property,receiver);
+    return typeof value==='function'?value.bind(target):value;
+  }});
+  const ethereumSources=[f.config.ethereumSources[0],
+    {...f.config.ethereumSources[1],provider:divergent}];
+  const outcome=await f.monitor({ethereumSources});
+  assert.equal(outcome.status,'paused');
+  assert.equal(outcome.emergency,false);
+  assert.match(outcome.reason,/source unavailable or untrusted/);
+  assert.equal(await f.reserve.paused(),true);
 });
 
 test('replayed unchanged checkpoint becomes stale across monitor restarts', async t => {
@@ -167,8 +328,8 @@ test('a paid burn disappearing from matching views activates emergency recovery'
   assert.equal((await f.monitor()).status, 'healthy');
   const fork = {...f.view, records: [], blockHashes: [f.view.blockHashes[0], fresh(), fresh(), fresh()]};
   fork.tip = fork.blockHashes[3]; f.setView(fork);
-  const outcome = await f.monitor();
-  assert.equal(outcome.emergency, true); assert.match(outcome.reason, /paid .*canonical burn absent/);
+  const outcome = await f.monitor({now:await f.now()+5_000});
+  assert.equal(outcome.emergency, true); assert.match(outcome.reason, /no longer extends durable checkpoint/);
   assert.equal(await f.reserve.totalReleased(), f.burn.amount, 'pause cannot reverse a completed payout');
 });
 
@@ -176,7 +337,7 @@ test('failed guardian submission is reported as failure and retains incident for
   const f = await fixture(t); await f.queue(); f.setView({...f.view, records: []});
   const failingGuardian = {provider: f.provider, getAddress: () => f.config.guardian.getAddress(),
     sendTransaction: async () => { throw Error('inclusion unavailable'); }};
-  await assert.rejects(f.monitor({guardian: failingGuardian}), /inclusion unavailable/);
+  await assert.rejects(f.monitor({guardian: failingGuardian}), /candidate monitor pause failed/);
   assert.equal(await f.reserve.paused(), false);
   assert.equal(JSON.parse(await fs.readFile(f.config.stateFile)).incident.emergency, true);
   assert.equal((await f.monitor()).emergency, true);
@@ -191,6 +352,19 @@ test('corrupted durable checkpoint pauses instead of starting over silently', as
   assert.equal(outcome.emergency, false); assert.match(outcome.reason, /durable checkpoint invalid/);
   assert.equal(await f.reserve.paused(), true);
   assert.equal(await f.reserve.recoveryRequired(), false);
+});
+
+test('indirect durable checkpoint pauses and cannot be overwritten through a link', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.monitor()).status, 'healthy');
+  const copy=`${f.config.stateFile}.untrusted-copy`;
+  await fs.copyFile(f.config.stateFile,copy);
+  await fs.unlink(f.config.stateFile);
+  await fs.symlink(copy,f.config.stateFile);
+  await assert.rejects(f.monitor(),/candidate monitor pause failed/);
+  assert.equal(await f.reserve.paused(),true);
+  assert.equal(await f.reserve.recoveryRequired(),false);
+  assert.equal((await fs.lstat(f.config.stateFile)).isSymbolicLink(),true);
 });
 
 test('wrong deployment pin is refused before the guardian signs any transaction', async t => {
@@ -232,16 +406,17 @@ test('a journal write failure still attempts the actual pause and reports persis
     await fs.mkdir(f.config.stateFile, {recursive: true});
     return structuredClone(f.view);
   }}));
-  await assert.rejects(f.monitor({sources}), /durable incident journal failed/);
+  await assert.rejects(f.monitor({sources}), /candidate monitor pause failed/);
   assert.equal(await f.reserve.paused(), true);
   assert.equal(await f.reserve.recoveryRequired(), false);
 });
 
 test('an existing monitor lock blocks a second worker and never reports healthy', async t => {
   const f = await fixture(t);
-  await fs.writeFile(`${f.config.stateFile}.lock`, 'simulated terminated worker');
-  await assert.rejects(f.monitor(), {code: 'EEXIST'});
+  const active=await acquireCandidateMonitorLock(f.config.stateFile);
+  await assert.rejects(f.monitor(),/already running/);
   assert.equal(await f.reserve.paused(), false, 'supervisor must handle failed worker startup');
+  await releaseCandidateMonitorLock(active);
 });
 
 test('a latched old incident preserves replacement keys but never approves resumption', async t => {

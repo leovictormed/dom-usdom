@@ -1,0 +1,18 @@
+ETAPA 825 — canonicidade e separação dos sete journals RISC Zero
+Data: 2026-10-23
+
+RESULTADO DA AUDITORIA
+Nenhuma ambiguidade explorável nova foi confirmada. Os sete guests publicam exatamente uma chamada `env::commit_slice` com 32 bytes, sem framing serde nem comprimento variável. Os hosts exigem igualdade integral do journal, portanto prefixos e trailing bytes não são aceitos.
+
+Os valores de 32 bytes não são hashes genéricos intercambiáveis: RandomX, aggregate, economic chunk, economic block e checkpoint segment usam domínios distintos; checkpoint outer e finalized burn usam type hashes distintos com versões/cadeia/domínio/contrato incorporados nos campos. Mesmo diante de colisão acidental de bytes entre formatos, os ImageIDs diferentes e imutáveis separam os sete programas. Somente outer e burn chegam ao Ethereum, cada um por adapter com ImageID próprio, proof de 260 bytes, selector v3 e SHA-256 do journal bruto de 32 bytes.
+
+REGRESSÃO
+Novo `check-risc0-journal-canonicality.py` mantém inventário exato de sete guests, exige uma única publicação raw, domínios/type hashes, igualdade integral nos cinco hosts e as duas bordas EVM. O self-test troca `commit_slice` por framing serde e remove o domínio tipado do burn; ambas as mutações devem falhar.
+
+VALIDAÇÃO
+- `node --test test/node/risc0-journal-canonicality.test.mjs`: 2/2.
+- checker `--self-test`: 7/7, duas mutações rejeitadas.
+- `python3 -m py_compile`: passou.
+- `git diff --check`: passou.
+
+Nenhuma prova pesada, deploy, RPC, assinatura, push ou operação externa foi executada.

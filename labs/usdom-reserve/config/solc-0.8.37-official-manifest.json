@@ -1,0 +1,8 @@
+{
+  "schema": "usdom-official-solc-release/v1",
+  "version": "0.8.37+commit.f401782d.Linux.g++",
+  "origin": "https://github.com/argotorg/solidity/releases/download/v0.8.37/solc-static-linux",
+  "sha256": "5de843c2c93563cc66425c99a4fb13fdbf32b4c4ae07469480faaf126e14404a",
+  "officialRelease": "https://github.com/argotorg/solidity/releases/tag/v0.8.37",
+  "provenance": "Official GitHub release asset digest independently matched in ETAPA63"
+}

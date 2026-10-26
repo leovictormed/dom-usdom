@@ -1,0 +1,68 @@
+FINALIZED BURN V6 CLOSURE BINDING — ETAPA 1073
+Date: 2026-10-26
+Scope: crates/dom-usdom-finalized-burn-program/src/lib.rs and its unit tests only
+
+Finding
+=======
+`finalized_burn_statement` compared the V6 `total_issued` and `total_burned`
+extensions with the authenticated `BurnStateWitnessV2` state, but did not compare
+V6 `issuance_closed` with the presence of the state's issuance-closure record.
+The recursive checkpoint receipt authenticates the V6 statement, and the state
+root authenticates the witness state, but the finalized-burn composition must
+also prove that both descriptions refer to the same closure status. Depending
+on recursive proof authority alone left that cross-proof equality unstated.
+
+Correction
+==========
+The binding now fails closed unless:
+
+    checkpoint_statement.issuance_closed == state.issuance_closure.is_some()
+
+The check is adjacent to the existing exact issued and burned total bindings.
+It therefore covers both substitution directions: an open state cannot be
+presented as closed and a closed state cannot be presented as open.
+
+V6 field audit
+==============
+Every V6 economic extension is now directly bound to the witness state:
+
+- `total_issued` == `state.total_issued`;
+- `total_burned` == `state.total_burned`;
+- `issuance_closed` == `state.issuance_closure.is_some()`.
+
+The embedded checkpoint fields are validated and bound to the Ethereum record,
+activation schedule, policy and state root as appropriate. The full state root
+commits all remaining StateCommitmentV2 fields, including the exact closure
+record and `gracefully_shutdown`. V6 has no separate graceful-shutdown bit to
+mirror. The finalized-burn program intentionally does not reject a historical
+burn merely because its checkpoint state is gracefully shut down: shutdown is
+valid only after closure and complete native burn, and already-created reserve
+obligations must remain provable/payable. State/witness canonical validation
+continues to enforce that graceful shutdown implies closure and
+`total_burned == total_issued`.
+
+Negative tests
+==============
+Added one focused two-direction regression:
+
+- V6 says closed while the authenticated state is open => InvalidCheckpoint;
+- V6 says open while a valid authenticated closure record is present =>
+  InvalidCheckpoint;
+- the same valid closed witness with V6 closed remains accepted.
+
+Validation
+==========
+PASS: rustfmt on the edited source.
+PASS: focused offline regression, 1 passed, 0 failed.
+PASS: complete library suite, 9 passed, 0 failed.
+PASS: CLI integration test, 1 passed, 0 failed.
+PASS: rustfmt and git diff --check for the edited targets.
+
+The related raw-checkpoint test was migrated from the removed two-argument
+`LightClient::accept` API to the current authenticated one-argument API. It then
+compiled and executed, exposing a stale fixed input-length expectation: 64,782
+versus the current canonical 64,815 bytes after concurrent framing changes. The
+operator requested immediate build-artifact cleanup at that point, so no further
+build was started; the closure-binding regression itself and all nine library
+tests remain green. No network, push, deploy, signing or funds operation was
+performed.

@@ -1,0 +1,28 @@
+Stage 1161 — readiness bounded uint64 parsing
+Date: 2026-10-26
+
+Finding
+The release-readiness consumer accepted arbitrary-length decimal strings before
+converting attestation, finalized-snapshot and authorization timestamps through
+BigInt/EIP-712 helpers. Although later numeric checks rejected values above
+uint64, an attacker-controlled evidence document could force avoidable parsing
+of a very large integer first.
+
+Change
+- Added one canonical nonzero uint64 predicate with a 20-digit lexical ceiling
+  and an exact uint64 numeric ceiling.
+- Applied it to native-attestation completion time, both finalized approval
+  snapshots and residual-risk/release-authorization acceptance time.
+- EIP-712 digest construction and timestamp ordering now run only after the
+  bounded timestamp predicate succeeds.
+- Added 100,000-digit negative vectors for each affected evidence class.
+
+Validation
+- Focused Node readiness tests: 3/3 pass.
+- Command used the repository-declared pinned Node 24.19.0 executable:
+  /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node
+- git diff --check for the two modified source/test files: pass.
+
+Scope
+No production fact was changed. No Cargo, Rust, Forge, real network, signing,
+deployment, funds, commit or push ran.

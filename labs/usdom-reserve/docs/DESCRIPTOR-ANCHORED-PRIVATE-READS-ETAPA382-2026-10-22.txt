@@ -1,0 +1,50 @@
+USDOM stage 382 — descriptor-anchored private reads
+Date: 2026-10-22
+
+Finding
+=======
+
+The RPC bearer-token and recovery-passphrase loaders checked private pathname
+metadata and then opened by path. Their post-open checks were strong, but the
+lookup itself did not remain anchored to the authenticated parent descriptor.
+
+Correction
+==========
+
+dom-wallet-crypto now provides read_private_bytes. On Unix it retains the
+exact current-user mode-0700 parent, opens the child descriptor-relatively with
+O_NOFOLLOW and O_CLOEXEC, requires a current-user mode-0600 single-link regular
+file, enforces a caller bound before and during allocation, reauthenticates the
+file and parent after capture, and returns a zeroizing byte buffer.
+
+The RPC token and offline recovery password loaders use this boundary before
+UTF-8 parsing and their existing semantic validation. No secret is added to an
+argument, environment variable, log or durable evidence file.
+
+Validation
+==========
+
+- shared bounded direct/symlink/hard-link reader: 1/1 passed
+- RPC owner-only token test with rpc-client: 1/1 passed
+- recovery password permission/symlink test: 1/1 passed
+- formatting and repository whitespace checks pass
+
+Source SHA-256
+=============
+
+a2f5c51f1549ab339854a7c88d3f6826d763552be4a96aa284c4f1e720b5e98e  crates/dom-wallet-crypto/src/lib.rs
+607953b64405547f5207415fed61c860842cc4c94083508e7bc9cb363a2762da  crates/dom-usdom-wallet/src/rpc_client.rs
+5ad8f32c36f3f45a486621aad2f6bdcf18c2ace5132dc0cdd7d5fa50be812428  crates/dom-usdom-wallet/src/bin/dom-usdom-wallet-recovery.rs
+
+Operational boundary
+====================
+
+Only synthetic local files were used. No real token, passphrase, wallet,
+network, signature, transaction, deployment, funds, mining, commit, tag or
+push occurred. The existing capacity proof was not restarted.
+
+Next action
+===========
+
+Migrate remaining owner-only authorization and credential readers to the same
+shared captured-byte boundary where their existing callers still open by path.

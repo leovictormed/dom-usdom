@@ -1,0 +1,34 @@
+DOM / USDOM — autorização interativa da recuperação Safe
+Etapa 609 — 2026-10-23
+
+Escopo
+======
+
+Foi auditado o executor mainnet da recuperação dos três papéis controlados por
+Safe: governance, reserveGuardian e checkpointGuardian. Publicação de código,
+executor de deploy e componentes RISC0 ficaram fora desta etapa.
+
+Achado corrigido
+================
+
+`execute-recoverable-safe-recovery.sh` exigia a frase exata que autoriza os
+três `swapOwner`, mas aceitava a frase por stdin redirecionado. Um pipe ou
+arquivo podia, portanto, contornar a presença humana pretendida pela cerimônia
+antes da assinatura Ledger e publicação das transações Ethereum.
+
+O executor agora exige stdin e stdout ligados a um terminal real antes de ler
+pacote, baseline, plano, transações ou credenciais RPC. A frase exata continua
+obrigatória e os vínculos já existentes de Ledger relayer, requiredSigners,
+envelope, nonce, target, raw transaction, hash e reobservação permanecem.
+
+Validação
+=========
+
+- teste estrutural confirma os requisitos `-t 0` e `-t 1`;
+- teste comportamental fornece pipes e confirma recusa fail closed, status 1,
+  antes de qualquer variável operacional obrigatória;
+- teste Node focado: 1/1 passou;
+- `bash -n` e `git diff --check` passaram.
+
+Nenhuma assinatura, transmissão, deploy, staging, commit, push ou uso de fundos
+foi executado.

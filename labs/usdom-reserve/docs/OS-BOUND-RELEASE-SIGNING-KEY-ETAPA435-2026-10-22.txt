@@ -1,0 +1,40 @@
+USD/DOM stage 435 — operating-system-bound release signing key
+Date: 2026-10-22
+
+Finding
+=======
+
+The release key configurator, source commit, evidence commit/tag and provenance
+materializer located the SSH signing key through mutable `$HOME`. The
+configurator also honored `XDG_CONFIG_HOME` for the allowed-signers trust file.
+An altered environment could redirect the ceremony to another local key or
+trust directory before the final signature checks detected a mismatch.
+
+Correction
+==========
+
+Each ceremony command obtains the current UID's home from the operating-system
+password database. It requires `$HOME` and its resolved path to equal that
+absolute non-root location. The release key is fixed below `.ssh` and the
+allowed-signers file below `.config/git`; `XDG_CONFIG_HOME` cannot redirect it.
+
+At every use, both private and public key files must be direct regular files,
+owned by the current UID, mode 0600 and have exactly one hard link. Existing
+fingerprint, Git identity, commit signature and tag signature checks remain in
+force. Tests simulate an account home only by replacing the test process's
+`python3` executable; production code exposes no home override.
+
+Validation
+==========
+
+- Focused operator/ceremony regression: 69/69 pass.
+- Complete Node regression: 313/313 pass.
+- Production Solidity lint and forced 44-file build pass.
+- Shell syntax checks pass for all four ceremony commands.
+- Complete provenance passes for 169 imports, every proof and panic boundary,
+  and 1,222 source files.
+- Closed-mainnet and real-funds gates remain intentionally closed at 169 and
+  176 blockers; neither contains a stage-435 failure.
+
+No commit, tag, push, signature, transaction, deployment, funds or mining
+occurred.

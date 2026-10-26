@@ -2,6 +2,7 @@
 pragma solidity 0.8.37;
 import {USDOMReserve} from "../../contracts/USDOMReserve.sol";
 import {ReserveFixture} from "./USDOMReserve.t.sol";
+import {Vm} from "./TestBase.sol";
 
 contract QueueV3Test is ReserveFixture {
     function testBlockedRecipientDoesNotBlockOtherWithdrawals() public {
@@ -68,6 +69,26 @@ contract QueueV3Test is ReserveFixture {
         reserve.pruneExpired(257);
     }
 
+    function testPruneEmitsExactlyOneDiscardEventPerRemovedCertificate() public {
+        USDOMReserve.Burn memory a = queued(10);
+        vm.warp(uint256(a.validUntil) + 1);
+
+        vm.recordLogs();
+        assertEq(reserve.pruneExpired(1), 1);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 discardedTopic = keccak256("WithdrawalDiscarded(bytes32,bytes32)");
+        uint256 matchingLogs;
+        for (uint256 i; i < logs.length; ++i) {
+            if (
+                logs[i].emitter == address(reserve) && logs[i].topics.length == 3 && logs[i].topics[0] == discardedTopic
+                    && logs[i].topics[1] == a.burnId && logs[i].topics[2] == a.requestId
+            ) {
+                ++matchingLogs;
+            }
+        }
+        assertEq(matchingLogs, 1);
+    }
+
     function testDustEntriesCannotExhaustAnArtificialQueueSlotCap() public {
         for (uint256 i; i < 256; ++i) {
             queued(1);
@@ -100,7 +121,10 @@ contract QueueV3Test is ReserveFixture {
         vm.prank(ALICE);
         reserve.deposit(CAP - INITIAL, bytes32(uint256(2)), bytes32(uint256(2)));
         USDOMReserve.Burn[] memory claims = new USDOMReserve.Burn[](50);
-        uint256 start = block.timestamp;
+        // ReserveFixture pins this clock in setUp. Keep it explicit because
+        // block.timestamp is EVM-invariant within a transaction and via-IR may
+        // legally CSE it across vm.warp test-only cheatcodes.
+        uint256 start = 1_800_000_000;
         for (uint256 i; i < claims.length; ++i) {
             claims[i] = queued(FLOW);
         }
@@ -122,7 +146,9 @@ contract QueueV3Test is ReserveFixture {
 
         USDOMReserve.Burn memory retry = claims[6];
         reserve.discardWithdrawal(retry.burnId);
-        retry.validUntil = uint64(block.timestamp + 6 days);
+        // Use the explicit test clock: via-IR may common-subexpression-eliminate
+        // block.timestamp inside one test transaction across vm.warp cheatcodes.
+        retry.validUntil = uint64(start + 12 days + 1);
         // Relayer cannot silently extend deadline or reattest without quorum.
         bytes[] memory empty = new bytes[](0);
         vm.expectRevert(USDOMReserve.InvalidQuorum.selector);
@@ -130,7 +156,7 @@ contract QueueV3Test is ReserveFixture {
         reserve.queueWithdrawal(retry, signatures(retry));
         vm.expectRevert(USDOMReserve.TooEarly.selector);
         reserve.executeWithdrawal(retry);
-        mature();
+        vm.warp(start + 7 days + 2);
         reserve.executeWithdrawal(retry);
         assertEq(reserve.totalReleased(), 14_000e6);
         assertEq(token.balanceOf(BOB), 14_000e6);

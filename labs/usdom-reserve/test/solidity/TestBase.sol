@@ -21,14 +21,31 @@ interface Vm {
     function deal(address who, uint256 amount) external;
     function etch(address who, bytes calldata code) external;
     function load(address target, bytes32 slot) external view returns (bytes32);
+    function store(address target, bytes32 slot, bytes32 value) external;
     function recordLogs() external;
     function getRecordedLogs() external returns (Log[] memory entries);
     function envOr(string calldata name, uint256 defaultValue) external view returns (uint256);
+    function readFile(string calldata path) external view returns (string memory);
+    function parseJsonBytes(string calldata json, string calldata key) external pure returns (bytes memory);
 }
 
 abstract contract TestBase {
+    function canonicalRiscZeroProof(bytes32 payload) internal pure returns (bytes memory) {
+        return abi.encodePacked(bytes4(0x73c457ba), new bytes(7 * 32), payload);
+    }
+
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
     uint256 internal constant BN254_SCALAR_FIELD = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001;
+    address internal constant SAFE_MAINNET_FALLBACK_HANDLER = 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99;
+    bytes32 internal constant SAFE_MAINNET_FALLBACK_HANDLER_CODE_HASH =
+        0x7c6007a5d711cea8dfd5d91f5940ec29c7f200fe511eb1fc1397b367af3c42f9;
+
+    function installMainnetSafeFallbackHandler() internal {
+        string memory fixture = vm.readFile("test/fixtures/safe-1.4.1-mainnet.json");
+        bytes memory runtime = vm.parseJsonBytes(fixture, ".fallbackHandlerRuntimeCode");
+        assertEq(keccak256(runtime), SAFE_MAINNET_FALLBACK_HANDLER_CODE_HASH);
+        vm.etch(SAFE_MAINNET_FALLBACK_HANDLER, runtime);
+    }
 
     function canonicalCommitment(bytes32 entropy) internal pure returns (bytes32) {
         return bytes32(uint256(entropy) % (BN254_SCALAR_FIELD - 1) + 1);

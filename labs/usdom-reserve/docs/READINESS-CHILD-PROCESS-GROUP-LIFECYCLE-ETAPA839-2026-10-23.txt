@@ -1,0 +1,30 @@
+ETAPA 839 — readiness child process-group lifecycle
+Date: 2026-10-23
+
+Finding
+
+Readiness children had output bounds and executable rechecks but no explicit
+timeout in the local executor. Killing a Forge parent alone is also insufficient:
+compiler grandchildren can survive if the invoker dies or a limit is exceeded.
+This matched the observed orphaned Forge/I/O condition.
+
+Correction
+
+- Replaced the readiness-local exec wrapper with the shared pinned child runner.
+- Every child starts in a dedicated process group with stdin closed and separate
+  bounded stdout/stderr.
+- Timeout or output overflow sends TERM to the entire group, schedules KILL after
+  two seconds, and waits for child/pipe close before returning. `finally` kills
+  any remaining group and rechecks executable identity.
+- Readiness now declares explicit deadlines: Forge/Cargo ten minutes; every
+  Git/Python query thirty seconds.
+- The four reproducible-build preparers also declare their ten-minute Forge
+  deadline explicitly; no caller may omit timeout or output bounds.
+
+Validation
+
+- An adversarial test starts a shell grandchild, forces timeout and verifies the
+  descendant PID no longer exists; output-flood termination is also covered.
+- Syntax and focused lifecycle/readiness/reproducible-build tests: 16/16 pass.
+- Diff check passes.
+- No Forge/Cargo build, RPC, deploy, signature, commit, push or funds action ran.

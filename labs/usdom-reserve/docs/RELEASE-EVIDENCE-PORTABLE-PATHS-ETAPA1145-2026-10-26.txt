@@ -1,0 +1,31 @@
+RELEASE EVIDENCE PORTABLE PATHS — STAGE 1145
+Date: 2026-10-26
+
+Finding
+
+After evidence-root confinement, path components could still contain newlines,
+tabs, spaces, non-ASCII confusables and other ambiguous characters. Linux can
+open such names and JSON can encode them, but signed manifests, terminal
+output, review tools and cross-platform extraction may render or normalize them
+differently. That creates an avoidable human/tool interpretation boundary in
+release evidence.
+
+Correction
+
+Every evidence path component must now use a portable unambiguous ASCII grammar:
+`[A-Za-z0-9][A-Za-z0-9._-]*`. Directory separators remain literal `/`.
+Combined with the prior root policy, this admits conventional nested evidence
+names and the four exact canonical Foundry artifacts while rejecting control
+characters, whitespace, Unicode/confusables, hidden/leading-punctuation names,
+empty components, dot components and traversal.
+
+Validation
+
+- Existing evidence tree scan: 2 entries, 0 incompatible paths.
+- Node syntax check: PASS.
+- Focused path, direct-file, commitment and readiness tests: PASS, 15/15.
+- Negative vectors include LF, TAB, space, accented Latin, Cyrillic confusable,
+  hidden/underscore-leading, traversal, NUL, backslash and arbitrary out paths.
+
+No production fact changed. No Cargo, Rust, Forge, network, signing, deployment,
+funds, commit or push ran.

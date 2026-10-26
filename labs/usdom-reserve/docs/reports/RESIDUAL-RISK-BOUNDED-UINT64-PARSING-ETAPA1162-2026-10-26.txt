@@ -1,0 +1,15 @@
+Stage 1162 — residual-risk report bounded uint64 parsing
+Date: 2026-10-26
+
+The residual-risk report builder previously admitted arbitrary-length canonical
+decimal strings to BigInt before rejecting values outside uint64. Its four
+release limits now have a 20-digit lexical ceiling before conversion, followed
+by the existing nonzero and exact uint64 numeric checks. Each accepted value is
+converted once.
+
+Regression coverage includes a 100,000-digit governance delay and the exact
+2^64 boundary. The focused residual-risk suite passes 7/7 and targeted
+diff-check passes with pinned Node 24.19.0.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

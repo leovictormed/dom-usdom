@@ -1,0 +1,40 @@
+USDⓄM RESERVE — REMOVAL OF THE 1-OF-1 SAFE OPERATOR PATH (STAGE 411)
+Date: 2026-10-22
+
+Finding
+
+The production contract and readiness gates require three-owner Safes with an
+exact threshold of two. The main operator runbook still contained a complete
+legacy workflow for preparing and broadcasting three 1-of-1 Safe deployments.
+Although labelled as a no-funds prototype, executing it on mainnet could spend
+gas on controls that the reserve and checkpoint registry would later reject.
+
+Correction
+
+- Removed the complete 1-of-1 preparation and broadcast workflow from the
+  closed-mainnet Linux runbook.
+- Renumbered the remaining Safe ceremony so the only documented path begins
+  with the recoverable 2-of-3 package.
+- Removed the legacy `prepare:safe-controls` npm entry.
+- Replaced the direct legacy script with a fail-closed command that performs no
+  RPC, produces no calldata and points to `prepare:recoverable-safe-controls`.
+- Added regression checks that reject any 1-de-1 marker or legacy script use in
+  the operator runbook and execute the deprecated command to prove failure.
+
+The low-level 1-of-1 SDK constructor remains available only to its isolated
+historical unit tests. Stage 417 subsequently removed that low-level constructor
+and its tests as well. No executable project path can construct a 1-of-1 role
+Safe. Production contract enforcement remains exact 2-of-3.
+
+Validation
+
+- operator/runbook suite: 64/64 passed;
+- complete Node regression: 306/306 passed;
+- production Solidity lint passed;
+- source manifest: 1,192 ordered SHA-256 entries;
+- imported provenance: 169 files and 16 explicit modifications;
+- JavaScript syntax and repository whitespace checks passed;
+- active non-development finalized-burn proof remained unchanged.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

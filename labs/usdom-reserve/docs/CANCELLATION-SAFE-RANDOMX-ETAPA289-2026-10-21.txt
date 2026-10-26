@@ -1,0 +1,24 @@
+ETAPA 289 - CANCELAMENTO SEGURO DO COORDENADOR RANDOMX
+Data: 2026-10-21
+
+Achado
+
+O minerador aguardava um `spawn_blocking` cancelavel, mas o descarte do future
+assincrono nao sinalizava o flag de parada. Uma queda de cliente ou timeout do
+novo RPC mainnet limitado poderia portanto deixar a busca de nonce consumindo
+CPU em segundo plano. O resultado nao seria conectado, mas o consumo poderia
+continuar ate encontrar um nonce.
+
+Correcao
+
+Foi adicionado um guard RAII que pertence ao future coordenador e sempre marca
+o flag de parada ao ser descartado. No caminho normal, todos os workers ja
+foram unidos antes do guard ser liberado. No caminho cancelado, o worker
+destacado recebe a parada mesmo que o JoinHandle do Tokio seja descartado.
+
+Validacao
+
+- compilacao release do dom-node feature-enabled: passou.
+- teste dirigido Drop/stop do coordenador: 1/1 passou.
+
+Nenhum minerador ou endpoint mainnet foi executado durante essa validacao.

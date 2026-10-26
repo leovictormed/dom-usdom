@@ -1,0 +1,72 @@
+Dandelion and relay propagation audit — stage 594
+Date: 2026-10-23
+Scope: monotonic stem lifetime, exact replay, selected-peer churn, relay channel
+behavior, privacy fallbacks, expiry/eviction, deduplication and restart recovery
+
+Finding corrected
+=================
+Stage 590 prevented an exact transaction replay from resetting the original
+stem timer, but route_new_tx still returned Stem for a live duplicate. Every
+RPC retry therefore emitted another StemEnvelope to the same selected peer.
+A public caller could amplify network traffic with one already-known canonical
+transaction, and the RPC path could report a fresh relay despite performing no
+new logical admission.
+
+Correction
+==========
+DandelionPhase now has an explicit Suppressed outcome. A live exact replay:
+* preserves the original monotonic Instant and selected stem peer;
+* emits no StemEnvelope or Fluff message;
+* reports relayed=false to RPC/wallet callers;
+* causes no relay metric increment on P2P ingress.
+
+All five production propagation match sites handle Suppressed explicitly.
+Expired replay still removes the stem state and returns Fluff immediately, so
+suppression cannot extend the liveness deadline. Deterministic tests assert the
+preserved lifetime/peer and expired promotion behavior without sleeps or random
+success assumptions.
+
+Propagation/lifecycle evidence
+==============================
+* Stem time uses std::time::Instant, so wall-clock changes cannot extend or
+  shorten the 30-second privacy interval.
+* The selected peer is fixed for the original stem identity. A disconnected,
+  lagging or missing selected peer cannot reset the deadline: the critical
+  five-second timeout task removes expired state and fluffs canonical bytes
+  still present in the mempool.
+* Peer churn can delay propagation for at most the original timeout plus one
+  skipped-tick interval. It does not silently select a second peer and create a
+  timing fingerprint.
+* Stem broadcast capacity is fixed at 256. All peer tasks see the envelope but
+  only the exact target writes it to the socket. Lag is logged; timeout fallback
+  supplies liveness.
+* Lock-contention/no-peer fallback chooses Fluff. This is an explicit liveness
+  fallback and can reduce source privacy during local overload; it does not
+  claim anonymity or silently retain work. Removing it would allow an accepted
+  transaction to receive no propagation state. This residual operational
+  privacy limitation is documented rather than represented as consensus
+  privacy.
+* Exact duplicate consensus admission is rejected or resolved idempotently
+  before P2P propagation. The added Suppressed state also closes retransmission
+  if a duplicate reaches the router through RPC/wallet recovery paths.
+* Stem state is runtime-only. On orderly or crash restart it is empty, as is the
+  volatile mempool. Durable wallet Slate state and canonical transaction bytes
+  support exact resubmission; external submitters must retain canonical bytes.
+  No response from the relay layer constitutes confirmation or finality.
+* Runtime retention remains transitively bounded by the 50,000-entry mempool,
+  the 30-second timeout scan and the 256-message relay channel. Timed-out
+  identities missing from mempool are discarded instead of retaining duplicate
+  transaction bytes.
+
+Light validation
+================
+* rustfmt on dom-wire Dandelion and four production consumers: PASS
+* git diff whitespace/integrity check: PASS
+* Structural checks assert Suppressed-before-insert, five exhaustive production
+  handlers, no relay send/metric action in Suppressed branches, monotonic
+  Instant, timeout scan interval and bounded channel.
+* Cargo execution is queued until the active RandomX proof releases shared
+  compiler and memory resources.
+
+No readiness fact, commit, push, deploy, signature, external RPC, transaction,
+mining or funds action occurred.

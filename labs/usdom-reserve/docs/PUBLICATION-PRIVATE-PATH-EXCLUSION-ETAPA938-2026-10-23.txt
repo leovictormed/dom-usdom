@@ -1,0 +1,18 @@
+ETAPA938 — PUBLICATION PRIVATE PATH EXCLUSION
+Date: 2026-10-23
+
+Exact excluded classes
+- password/owner-auth, credential, private keys/seeds/mnemonics, raw transactions,
+  witness/private-witness, private-input, temporary files and continuation logs.
+- Proof source generations and wallet/TPM state remain outside publication;
+  public manifests carry only hashes, identities and logical references.
+
+Finding and correction
+- Source commit excluded evidence and common key extensions, but evidence commit
+  staged the whole evidence tree and both basename filters omitted witness,
+  private-input, raw, credential, password and tmp classes.
+- Both commit ceremonies now reject every listed class before commit, in
+  addition to mode and allowlist checks. This is fail-closed even if a private
+  file is accidentally placed below evidence. No commit was executed.
+
+Validation: structural tests 2/2, bash syntax and diff-check pass.

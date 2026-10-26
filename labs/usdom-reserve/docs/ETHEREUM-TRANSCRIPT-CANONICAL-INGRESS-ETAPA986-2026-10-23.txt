@@ -1,0 +1,31 @@
+ETAPA 986 — Ethereum transcript canonical ingress
+
+Finding
+=======
+The Ethereum light-client transcript was parsed before its exact canonical JSON
+encoding was checked. The old terminal re-export comparison prevented ambiguous
+bytes from becoming valid authority, but only after bootstrap and update
+cryptographic verification. Duplicate JSON members, reordered members, or
+whitespace variants could therefore consume avoidable consensus verification
+work before their inevitable rejection.
+
+Correction
+==========
+`decode_canonical_transcript` now deserializes and immediately reserializes the
+typed transcript, requiring exact byte equality. Both bounded restoration and
+the replay-slot extractor use this boundary. The existing terminal re-export
+comparison remains as defense in depth after full authenticated replay.
+
+The public unbounded `restore_transcript` entry point was also removed. It had
+derived its time ceiling from the witness itself, which could make a stale
+bootstrap appear fresh to a future caller. Production restoration now has only
+the bounded API and must receive the ceiling from containing DOM consensus.
+
+Evidence
+========
+* Rust regression constructs a duplicate top-level `version` member and requires
+  fail-closed rejection as a noncanonical transcript.
+* Node structural gate proves canonical decoding precedes bootstrap and update
+  verification, the replay-slot path shares the same exact-byte check, and no
+  public unbounded restoration API remains.
+* No Cargo build was started while the isolated RISC0 proof was running.

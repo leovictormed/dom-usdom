@@ -114,8 +114,9 @@ Required proof semantics
 The immutable checkpoint-registry verifier and the immutable finalized-burn
 verifier must compose to prove all of the following as one sound release. The
 registry verifier proves the DOM consensus extension and publishes its resulting
-state root. UDFINL02 then authenticates that registry event under Ethereum
-finality and proves burn-set inclusion in the published state root. Neither
+state root. UDFINL04 recursively verifies the pinned checkpoint-outer receipt,
+authenticates the matching registry event under Ethereum finality and proves
+burn-set inclusion in the published state root. Neither
 verifier may accept a caller-supplied root without its corresponding proof.
 
 1. The DOM network/domain, genesis, consensus parameters, fork schedule and
@@ -156,8 +157,10 @@ exact-value burn with no private outputs has an empty memo and commits the
 canonical zero field element.
 
 The checkpoint proof may be recursive or aggregate several DOM transitions.
-The UDFINL02 burn program consumes only a canonical USDBRN03 state decomposition
-and inclusion path plus the bounded Ethereum finality/receipt/state witness. It
+The UDFINL04 burn program consumes the exact V4 checkpoint statement, a
+canonical USDBR204 candidate-V2 state
+commitment and burn-set inclusion path plus the bounded Ethereum
+finality/receipt/state witness. It
 does not re-run LMDB, RandomX or the DOM block body because those belong to the
 separately pinned checkpoint consensus-extension verifier. Both programs must
 enforce bounded resource use and canonical encodings. A proof about an
@@ -237,18 +240,25 @@ address. A production release must compile the
 objectively validated release values into PRODUCTION_VERIFIER_CODE_HASH and
 PRODUCTION_VERIFIER_CONFIG_HASH; constructor-supplied hashes are insufficient.
 
-The contract also computes reserveConfigHash as a nested canonical ABI
+The contract computes reserveConfigHash as a nested canonical ABI
 commitment. ReserveIdentity binds Ethereum chain ID, the exact precomputed
 reserve address, token address/code hash, verifier address/code/config hashes
-and DOM domain. ReservePolicy binds governance and guardian addresses and their
+and DOM domain plus the activation-schedule commitment. ReservePolicy binds
+governance and guardian addresses and their
 deployment-time extcodehashes, both delays, maximum exposure and daily outflow
 capacity. Value paths and resume authorization fail closed if either role's
 runtime code later changes or disappears. This check does not authenticate
 mutable proxy storage, Safe owners, thresholds, guards or modules; production
 must use reviewed role deployments and bind their exact configuration in the
-release evidence and operational review. Chain ID 1 additionally requires the
-reserve hash to equal the nonzero PRODUCTION_RESERVE_CONFIG_HASH compiled into
-the release. Release tooling must reproduce the same hash independently before
+release evidence and operational review. Chain ID 1 additionally requires an
+acyclic pre-activation hash to equal the nonzero
+PRODUCTION_RESERVE_PREACTIVATION_CONFIG_HASH compiled into the release. That
+hash covers every ReserveIdentity and ReservePolicy field except the activation
+commitment. The complete reserveConfigHash and activation commitment are
+constructor-written storage and remain bound by release evidence and every burn
+statement. This split lets the native empty state commit the final reserve
+runtime before the activation commitment exists, without weakening statement
+binding. Release tooling must reproduce both hashes independently before
 deployment.
 Any successful chain ID 1 release starts paused. Governance must schedule the
 ordinary delayed resume after independently checking the deployed bytecode,
@@ -274,7 +284,9 @@ exclude delegatecall and payment configuration, authenticates the canonical
 factory/singleton/fallback-handler addresses and exact runtime hashes at
 finalized Ethereum state, pins the exact factory proxy-creation-code hash and
 independently recomputes every CREATE2 address from the factory proxy creation
-code. Two independent mainnet RPCs must reproduce byte-identical JSON. Hardware
+code. These identity pins are compile-time constants with no public builder
+parameter capable of replacing them. Two independent mainnet RPCs must
+reproduce byte-identical JSON. Hardware
 signing and broadcast remain a separate explicitly authorized phase; the
 package is rederived and byte-compared before each signature. Sharing one owner
 does not satisfy production signer/custody independence and must remain an
@@ -485,7 +497,7 @@ addresses and timing remain public and may be correlated externally. The system
 must not claim absolute anonymity or equivalence to Monero.
 
 Canonical finalized-burn replay
-- UDFINL02 carries a raw checkpoint witness containing a prior trusted
+- UDFINL04 carries a raw checkpoint witness containing a prior trusted
   Ethereum bootstrap, authenticated light-client updates and receipt, account,
   code and storage proofs for the exact Checkpoint event.
 - Every update in this proof transcript records `current_slot` equal to its
@@ -498,15 +510,19 @@ Canonical finalized-burn replay
 - The finalized beacon slot remains in the public statement. The reserve
   independently derives Ethereum's current slot from `block.timestamp` and
   rejects future or stale finalized slots before queueing a withdrawal.
-- The frozen positive vector exercises a 512-member BLS supermajority update,
+- The retired UDFINL03 positive vector exercised a 512-member BLS supermajority update,
   SSZ branches, receipt/account/storage Merkle-Patricia proofs, the exact event,
-  native burn inclusion and canonical UDFINL02 re-decoding. Its input SHA-256
-  is `975383b1ad8dbf8e7ec471673314e6b26250ca6e325456f8380cbaef3529ff4e`
+  native candidate-V2 burn inclusion and canonical UDFINL03 re-decoding. Its
+  input SHA-256 is
+  `f0256065e381b89d54df68fc860170bcbbd800b83eb2421d8727d94acfd837ee`
   and its raw journal is
-  `881ebff15b6a4ee9939138160651119b4107713397d362b550355aae22fafaf8`.
-- The pinned RISC Zero 3.0.6 guest executes that vector in 562,418,750 user
-  cycles and 570 `2^20` segments. This measurement does not claim proving time,
-  proof cost or production capacity.
+  `c0461e1c2bcff62d1dfd8e8fed0b094b5d19c2744cf9bad34c8ae3722e7eaef4`.
+- That retired RISC Zero 3.0.6 guest executed the vector in 571,308,757 user
+  cycles and 580 segments, of which 579 use the `2^20` limit. This measurement
+  does not claim proving time, proof cost or production capacity and is not
+  evidence for UDFINL04. UDFINL04 requires a new reproducible guest build and
+  a positive execution with the checkpoint-outer receipt supplied as an
+  assumption.
 
 Mainnet gates
 The three production hash constants remain zero until every item below is complete:

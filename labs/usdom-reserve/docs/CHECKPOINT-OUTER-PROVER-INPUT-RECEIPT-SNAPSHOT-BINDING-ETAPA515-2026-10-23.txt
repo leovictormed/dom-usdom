@@ -1,0 +1,34 @@
+USD0M stage 515 — checkpoint outer-prover input and receipt snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The long-running checkpoint outer prover consumed the live planner surface,
+outer job, statement, chain, segment receipts and guest artifacts after Cargo
+compilation. It also resumed and published directly in the durable output
+directory. Concurrent replacement could mix filesystem generations or leave a
+completion index beside a partial output.
+
+Correction
+==========
+
+The launcher now captures the complete stage-514 planner surface, outer job
+index, statement and chain, both segment and outer ELF/program/ImageID files,
+and any resumable outer receipt into one owner-only layout replica. It rejects
+empty, excessive, duplicate or noncanonical derived catalogs before copying
+their files. The prover runs only in the replica. After successful built-in
+verification, the receipt is installed durably and the verified receipt-set
+index is installed last as the sole completion marker. A prior marker is
+removed and its directory synchronized before work starts, so interruption
+fails closed.
+
+Evidence and scope
+==================
+
+Focused operator-runbook tests enforce capture order, bounded unique catalogs,
+replica-only proving, resumable receipt capture and completion-marker order.
+Readiness requires
+`production_checkpoint_outer_prover_inputs_and_receipts_snapshotted=true`.
+No proof, network, signing, deployment, funds operation, commit or push was
+performed.

@@ -1,0 +1,43 @@
+Stage 460 — RandomX resource-transcript binding
+Date: 2026-10-23
+
+Finding
+
+The checkpoint capacity report retained parsed RandomX wall-time and peak-RSS
+numbers, but did not commit the exact proof-host transcript or `/usr/bin/time`
+resource log from which the execution and cost claims were derived. The private
+run directory retained those files, yet a copied report could no longer prove
+which bytes were parsed. This left a false-evidence path for the proving-cost
+gate without changing the cryptographic checkpoint itself.
+
+Correction
+
+Capacity report schema v2 adds two mandatory nonzero SHA-256 commitments:
+
+- `randomxProverTranscriptSha256` binds the exact bounded transcript whose
+  strict grammar says every receipt was proved and verified;
+- `randomxResourceLogSha256` binds the exact private `/usr/bin/time -v` output
+  parsed for RandomX wall time and peak resident memory.
+
+The executor captures each file once through the direct private-file reader,
+parses those captured bytes, and carries their hashes into the release report.
+The semantic validator requires both hashes and includes them in its global
+artifact uniqueness check. Older v1 reports fail closed rather than silently
+acquiring the stronger meaning.
+
+Verification
+
+Focused capacity report and executor tests pass 7/7, including schema,
+transcript-hash uniqueness, malformed hash and fixed-command mutations.
+JavaScript syntax, production requirements JSON and diff checks pass. After the
+`rzup` Cargo installation released machine resources, the complete readiness
+suite passed 60/60.
+
+Status
+
+The structural binding is recorded by
+`production_checkpoint_randomx_resource_transcripts_bound_to_capacity_report`.
+The positive receipt and measured-cost live facts remain false until an exact
+release-bound execution produces these transcripts. No proof,
+network operation, signing, transaction, deployment, funds, mining, commit or
+push occurred.

@@ -1,0 +1,6 @@
+ETAPA 742 — RandomX aggregate prover TOCTOU closure
+Date: 2026-10-23
+
+The future aggregate runner now works from an owner-private snapshot of the aggregate job catalog, inner receipt set, checkpoint source set, resumable aggregate receipts and aggregate ELF/BIN/IID. It rejects symlinks recursively, pins and rechecks Cargo/Node/cp/env/find, reconstructs the aggregate job index with the verify-only planner and requires byte identity. A manifest hashes every snapshotted input and artifact immediately before the pinned local prover. Existing verified aggregate receipts are copied into the snapshot so valid resumptions remain available; publication occurs only from the private output snapshot.
+
+Validation: bash -n passed; focused structural test 1/1 passed; git diff --check passed. No Cargo, proof, active process, mining, RPC, commit or push.

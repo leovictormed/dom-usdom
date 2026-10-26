@@ -1,0 +1,27 @@
+ETAPA 922 — framing HTTP do DOM RPC
+Data: 2026-10-23
+
+Cobertura auditada
+- Transfer/content-length: Hyper fornece parsing HTTP; a política RPC agora rejeita transfer-encoding e headers singleton duplicados, incluindo content-length.
+- Compression: request content-encoding é rejeitado; o servidor não descomprime payloads.
+- Content type: `Json` exige JSON e os ingressos binários exigem exatamente application/octet-stream.
+- Método/path/query: Router mantém allowlist exata de métodos e paths; as quatro estruturas Query agora rejeitam campos desconhecidos.
+- Headers/URI: máximo de 32 campos, 16 KiB agregados e URI de 4 KiB antes das rotas.
+- Body/time/concurrency: limites route-specific existentes permanecem; GET/HEAD não podem anunciar corpo não vazio.
+- Response: páginas/ranges/estimativas e gates de resposta existentes permanecem ativos; nenhum compressor de resposta foi habilitado.
+
+Correções
+- Nova camada `require_canonical_http_framing`, instalada no servidor real depois da barreira externa de Host e antes das rotas/auth.
+- Rejeita URI/header metadata excessiva, singleton duplicado, content/transfer encoding e corpo anunciado em GET/HEAD.
+- `MempoolQuery`, `ScanQuery` e `FullScanQueryV1` agora usam `deny_unknown_fields`; `AncestryQuery` já usava.
+
+Validação leve
+- Checker estrutural: 9/9 invariantes aprovadas.
+- rustfmt check: aprovado.
+- git diff --check: aprovado.
+- Teste unitário fonte adicionado para framing válido, gzip, chunked, GET com tamanho não zero e header excessivo.
+- Cargo focado fica para a suíte agregada pós-prova, conforme restrição operacional desta etapa.
+
+Limites residuais
+- Timeout Tower começa quando a requisição alcança o serviço; não é deadline de leitura parcial do header no socket. `axum::serve` não expõe header-read/idle timeout nessa API. O listener é estritamente loopback e valida Host, reduzindo isso a DoS por processo local. Fechar integralmente exige substituir o accept/serve por configuração Hyper de conexão com lifecycle próprio.
+- Keepalive segue o lifecycle padrão Hyper/Axum. Cada requisição admitida continua sujeita a timeout e limites, mas conexão local ociosa não possui deadline explícito nesta API.

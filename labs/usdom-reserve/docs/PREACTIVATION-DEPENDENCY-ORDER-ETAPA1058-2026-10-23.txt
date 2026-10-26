@@ -1,0 +1,38 @@
+ETAPA1058 — PRE-ACTIVATION DEPENDENCY ORDER
+Date: 2026-10-23
+
+Finding
+=======
+The pre-activation materializer still attempted to derive the reserve identity
+before the checkpoint Registry runtime existed. Since ETAPA1056 the reserve
+cryptographically commits to that runtime code hash and its exact configuration.
+The old ordering was therefore circular and could only proceed by inventing a
+placeholder Registry identity.
+
+Correction
+==========
+- Native pre-activation now derives verifier identities and the Registry's
+  pre-activation configuration only.
+- The reserve pre-activation pin remains explicitly absent until activation roots
+  and the source-verified Registry runtime are available.
+- The later Solidity-pin stage requires and binds Registry address, runtime hash and
+  configuration hash before producing the reserve pin.
+- Pre-activation owner input must be in canonical ascending order, preserving
+  deterministic restart output and rejecting reordered recovery sets.
+
+Evidence
+========
+Explicit Node v24.19.0 suites passed 9/9:
+  production-preactivation-core.test.mjs
+  production-solidity-pins.test.mjs
+  release-materializer-completion-order.test.mjs
+
+Broad mainnet readiness remained green: 62/62 passed.
+
+Gate
+====
+python3 labs/usdom-reserve/scripts/check-preactivation-dependency-order-stage1058.py
+
+Scope
+=====
+No Cargo/Forge rebuild, network, deployment, signing, push or funds.

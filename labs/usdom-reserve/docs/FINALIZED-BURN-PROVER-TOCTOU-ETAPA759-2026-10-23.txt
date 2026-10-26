@@ -1,0 +1,6 @@
+ETAPA 759 — Finalized-burn prover TOCTOU closure
+Date: 2026-10-23
+
+Future finalized-burn proving now pins/rechecks Cargo/Node/JQ/cmp/cp/env; reconstructs the job index and private witness with the non-proving planner and requires byte identity; and verifies a final manifest over source/job witness, job index, checkpoint statement, authenticated checkpoint receipt assumption, finalized-burn ELF/IID and resumed regular/composite receipts immediately before proof. This guest publishes ELF/IID only; there is no canonical BIN artifact in its artifact catalog. The previous completion index remains valid throughout proof and is removed only after a complete new private output exists; receipt precedes index publication.
+
+Validation: focused structural/adversarial/liveness tests 4/4 including regression for misplaced assertions, bash -n and diff-check pass. No Cargo, proof, build interruption, RPC, commit or push.

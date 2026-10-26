@@ -1,0 +1,55 @@
+ETAPA 1087 — SOLIDITY GAS / DOS BOUNDARY AUDIT
+Date: 2026-10-26
+
+Scope
+-----
+Adversarial review of loops, dynamic calldata, memory allocation, pagination,
+pruning, candidate replacement, external-call gas, returndata bombs, proof size,
+events and permissionless griefing in USDOMProofReserve,
+DOMCheckpointRegistry, the two RISC Zero adapters and the legacy quorum reserve.
+No deployment, broadcast, signing, funds, network access, commit or push.
+
+Concrete finding and correction
+-------------------------------
+DOMCheckpointRegistry previously verified a complete Groth16 proof before
+rejecting a candidate whose rank was already known to lose or whose immutable
+challenge window had already closed. This did not corrupt state and the caller
+paid the gas, but it made automation and honest relayers spend the full bounded
+five-million-gas verifier allowance on a terminal local error.
+
+`submitCheckpointCandidate` now calls a local
+`_requireCandidateAdmissible(checkpoint, statementHash)` before the proof
+adapter. `_selectCandidate` repeats the same check after verification, retaining
+fail-closed protection if a future refactor introduces an intervening call.
+The existing competition and closed-window regressions now deliberately use
+unapproved proofs for the losing/late submissions; they can return the precise
+local error only when the expensive verifier was skipped.
+
+Other reviewed boundaries
+-------------------------
+* All proof entry points demand exactly 260 bytes and the canonical four-byte
+  selector before encoding or forwarding proof calldata.
+* Reserve queue pagination, head pruning and arbitrary stale-ID pruning are
+  capped at 256. Pagination's duplicate scan is quadratic but strictly limited
+  to 32,640 memory comparisons and its storage traversal is also capped.
+* Quorum loops and signer-array events are capped at 16; signature count must
+  equal the configured threshold before recovery begins.
+* Prune/event batches may be chosen smaller by any caller. An oversized chosen
+  batch can only revert that caller's transaction and cannot block independent
+  single-entry cleanup.
+* Every token, Safe, registry, adapter and upstream verifier interaction has a
+  fixed gas allowance. Assembly copies zero, one, three or five words only and
+  separately checks exact returndata size, so return bombs cannot force an
+  attacker-sized copy or allocation.
+* Candidate replacement requires a valid proof and strict deterministic rank,
+  preserves the original readyAt, and is closed at readyAt. Replacements cannot
+  extend finalization or use equal-rank arrival ordering to oscillate state.
+* Events contain fixed-size burn/checkpoint structs or bounded signer arrays;
+  proof bytes and arbitrary stale-ID arrays are never emitted.
+
+Validation status
+-----------------
+Static diff checking passes. Foundry remains intentionally pending because the
+serialized Cargo proof test is still active and the parent prohibited parallel
+compiler work. The focused Registry tests must run in the pinned default
+pipeline after Cargo exits; via-ir is not a permitted workaround.

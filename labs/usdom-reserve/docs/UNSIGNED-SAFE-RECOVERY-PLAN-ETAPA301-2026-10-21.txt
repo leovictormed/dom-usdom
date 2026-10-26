@@ -1,0 +1,68 @@
+USDOM — plano unsigned e handoff de recuperação Safe (etapa 301)
+Data: 2026-10-21
+Escopo: planejamento e assinatura offline; nenhuma transação transmitida
+
+OBJETIVO
+
+Transformar a evidência de recuperação da etapa 300 em uma cerimônia
+reproduzível sem aceitar calldata, hashes ou assinaturas montados manualmente.
+O ensaio fixa a chave primária como chave simuladamente perdida, usa somente as
+chaves secundária e de recuperação e instala uma quarta chave física
+independente como substituta nos três controles.
+
+IMPLEMENTAÇÃO
+
+- `prepare:recoverable-safe-recovery` relê o pacote e o snapshot-base, observa
+  novamente os três Safes num único bloco finalizado e exige que o estado ainda
+  seja idêntico ao baseline;
+- para cada Safe, deriva o predecessor correto da lista ligada, codifica somente
+  `swapOwner`, fixa valor/operação/gás/pagamento em zero e nonce 0;
+- calcula o hash Safe diretamente com os typehashes oficiais e o compara com
+  `getTransactionHash` no bloco fixado;
+- produz JSON EIP-712 exato para Ledger, com as duas chaves sobreviventes como
+  únicos signers permitidos;
+- `sign:recoverable-safe-recovery` confirma duas vezes cada endereço no
+  dispositivo, exige a frase `ASSINO RECUPERACAO SAFE SEM TRANSMITIR`, coleta
+  seis assinaturas typed-data e mantém arquivos temporários em `/dev/shm` 0700;
+- `assemble:recoverable-safe-recovery` recupera cada signer, aceita somente
+  assinaturas ECDSA typed-data diretas com `v=27/28`, ordena por endereço e
+  gera o calldata final `execTransaction` sem RPC ou capacidade de envio.
+
+ACHADOS CORRIGIDOS DURANTE O TESTE
+
+1. A primeira montagem incluía o nonce como décimo primeiro argumento externo.
+   O nonce integra o hash Safe, mas não o ABI de `execTransaction`; a montagem
+   agora fornece exatamente os dez argumentos corretos.
+2. O typed data e a transação compartilhavam a mesma referência JavaScript.
+   Agora são objetos distintos, de modo que qualquer mutação unilateral falha
+   na comparação canônica antes de aceitar uma assinatura.
+3. `ethers.Signature` normaliza `v=0/1`; isso seria perigoso para Safe, onde
+   `v=1` significa aprovação prévia. O código agora confere o byte original e
+   aceita exclusivamente `27` ou `28`.
+
+VALIDAÇÃO INICIAL
+
+- 8/8 testes de snapshot, recuperação, plano e assembly passaram;
+- o caminho positivo reproduz o hash EIP-712 e monta três transações;
+- signer perdido, assinatura pré-aprovada e typed data adulterado falham;
+- scripts de planejamento e assembly não possuem chave nem envio;
+- o handoff usa somente Ledger e não contém `cast send`, chave privada,
+  mnemônico ou RPC.
+
+VALIDAÇÃO COMPLETA
+
+- lint dos contratos de produção e build Foundry completo passaram;
+- regressão Node completa passou 199/199 testes, incluindo EVM local;
+- proveniência passou 169 importações/16 modificações declaradas, 45 fontes de
+  prova, 7 fontes de carteira e 982 arquivos-fonte completos;
+- os gates permanecem esperadamente fechados em 161 bloqueios para Mainnet
+  fechada e 172 para fundos reais, sem bloqueio das capacidades desta etapa e
+  sem exigir auditoria externa ou garantia de risco zero.
+
+LIMITES
+
+Nenhum dispositivo foi conectado e nenhuma assinatura foi criada. O pacote
+montado ainda não foi transmitido e o gate de ensaio real permanece falso. A
+execução será implementada separadamente, com nova validação de estado e uma
+frase explícita de autorização antes de qualquer `cast send`. Nenhum push foi
+realizado.

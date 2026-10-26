@@ -1,0 +1,24 @@
+ETAPA 897 — segunda metade dos writers derived-retryable
+
+Universo nominal, em ordem do inventário ETAPA888 (15–28 de 28):
+
+15. `materialize-production-preactivation-core.sh` — conforme: config única, lock, snapshot/hash e troca durável.
+16. `materialize-production-release-core.sh` — conforme: config única, lock, snapshot/hash e troca durável.
+17. `materialize-production-solidity-pins.sh` — conforme/fail-closed: cada fonte usa temp+fsync+rename; hashes da config são rechecados entre trocas e qualquer crash produz mismatch detectável, sem completion externo enganoso.
+18. `materialize-release-provenance.sh` — conforme: evidence-first, intent/completion-last e releituras cruzadas sob lock.
+19. `materialize-safe-control-release-config.sh` — conforme: config única atômica sob lock.
+20. `materialize-safe-control-release-metadata.sh` — conforme: metadata única atômica sob lock.
+21. `observe-authenticated-checkpoint.sh` — conforme: observer MJS remove duravelmente a observação antes do RPC e publica uma troca única.
+22. `observe-finalized-deposit-wallet.sh` — conforme: diretório derivado removido duravelmente antes de senha/RPC, estado registrado anti-replay preservado.
+23. `plan-authenticated-checkpoint-outer.sh` — gap corrigido nesta etapa.
+24. `plan-authenticated-checkpoint-segment-set.sh` — conforme: output único é o índice atômico.
+25. `plan-authenticated-economic-receipt-set.sh` — conforme: output único é o índice atômico.
+26. `plan-authenticated-finalized-burn.sh` — conforme: índice+input antigos removidos e diretório sincronizado; input primeiro, índice por último.
+27. `plan-authenticated-randomx-aggregate-set.sh` — conforme: planner Rust publica índice único sob autoridade privada.
+28. `plan-authenticated-randomx-receipt-set.sh` — conforme: output único é o índice atômico.
+
+Achado corrigido: o planner checkpoint-outer publicava statement, chain e job index em sequência sem invalidar o índice antigo. Uma queda após substituir um supporting artifact podia deixar o índice anterior visível sobre geração mista. Agora o índice permanece disponível durante o cálculo, é removido duravelmente após o plano completo e antes da primeira mutação pública, e continua sendo instalado por último.
+
+Contagens da metade: antes 13/14 conformes e 1/14 pendente; depois 14/14 conformes e 0/14 pendentes. Consolidação ETAPA894+897: 28/28 derived-retryable conformes, 0/28 pendentes.
+
+Validação: inventário/regressões das duas metades 4/4, `bash -n` e `git diff --check` aprovados. Nenhum build, prova ou RPC foi executado.

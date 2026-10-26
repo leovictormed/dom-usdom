@@ -1,0 +1,37 @@
+MAINNET RPC DIVERSITY AND IDENTITY AUDIT — ETAPA 1116
+Date: 2026-10-26
+Scope: local gates and lightweight tests. No network, signing, deployment, funds, Forge/Cargo, commit or push.
+
+RESULT
+The mainnet preflight no longer treats two different URLs as sufficient evidence of independent RPC authority. Catalog v2 requires two to five distinct declared operators, providers, infrastructures, public DNS hostnames and origin commitments, plus explicit strict-TLS and stable execution-client policies. Reuse or drift in any declared identity fails closed.
+
+ENDPOINT AND TLS BOUNDARY
+- Runtime endpoints must be root HTTPS origins. Inline username/password, path API keys, query tokens, fragments, IP literals, localhost/private naming and duplicate hostnames are rejected.
+- Proxy variables, custom CA variables, disabled TLS verification and Node environment-proxy mode remain rejected.
+- Catalog originKeccak256 binds the exact HTTPS origin create-once. The TLS policy explicitly uses Node's unmodified default CA validation, hostname and certificate-expiry checks plus the catalog origin pin. Custom CA selection flags and OpenSSL configuration are rejected.
+- A bounded wall-clock policy rejects stale, nonsensical and far-future host time before any request. Certificate validity still relies on the operating-system clock used by Node TLS; this guard detects gross misconfiguration, not a subtly compromised clock.
+- This is not an SPKI certificate pin. Node fetch does not expose a portable authenticated peer-certificate binding suitable for this gate; claiming one would provide false assurance.
+
+DIVERSITY POLICY
+- Each source declares operatorId, providerId and infrastructureId. All three sets must be unique and match the create-once catalog.
+- Public hostname and origin commitment must also be unique. IP endpoints are forbidden, so a directly repeated IP cannot enter the catalog.
+- Infrastructure identity is an operator assertion. DNS aliases, shared clouds, common upstreams or colluding providers cannot be proved independent from endpoint responses alone. Production evidence must name the real provider/infrastructure truthfully; the gate fails when declared identities reveal overlap, but it does not invent physical independence.
+
+CHAIN AND CLIENT IDENTITY
+- The bounded transport rejects any non-mainnet chain ID and now rejects a noncanonical Ethereum mainnet genesis block directly.
+- Every source must report a bounded, recognizable Ethereum execution-client identity. The identity is read at the start and end of the observation and must remain byte-identical, preventing a load balancer/client swap during collection.
+- Finalized responses require canonical number/hash identity. Missing hashes, changed hashes and regressions fail; all complete finalized observations still must be byte-identical across sources.
+- There is deliberately no automatic failover: all catalog sources run under Promise.all and any transport, TLS or identity failure aborts the ceremony. A failing authority cannot be silently replaced by an uncatalogued endpoint.
+
+OPERATOR PACKAGE
+- The generated closed-mainnet command now emits v2 source records with provider, infrastructure, TLS and client policies. URLs contain no inline credentials.
+- Existing v1 catalogs are intentionally rejected at the current boundary and must be regenerated create-once from reviewed declarations.
+
+VALIDATION
+- Focused RPC/preflight suites: 25/25 passed.
+- Generator-related suites: 8/8 passed. The stale assertion now validates the exact safe diagnostic record and explicitly rejects raw error text.
+- Node syntax, shell syntax and focused diff integrity passed.
+
+REMAINING OPERATIONAL EVIDENCE
+- Review the actual operator/provider/infrastructure declarations before generating the production catalog.
+- Run the live two-to-five-source finalized observation only in the authorized ceremony. This stage performed no network request.

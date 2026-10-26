@@ -1,0 +1,22 @@
+DOM/USDOM hardening stage 393 — RISC Zero packager proof inventory
+
+Date: 2026-10-22
+
+The central RISC Zero ProgramBinary packager is now inside the immutable
+proof-program source inventory. This closes a provenance gap in which the
+component that combines a guest ELF with the pinned v1 compatibility kernel
+and computes its ImageID was tested but not authenticated by the critical
+source manifest.
+
+The critical inventory increased from 47 to 48 exact sources. Its checker
+continues to reject production panic primitives and validates local-prover,
+bounded-input and private-output policies for their applicable components.
+
+Validation completed:
+
+- proof-program checker mutation self-test: passed;
+- exact proof-program source/hash verification: 48/48 passed;
+- repository whitespace validation: passed.
+
+No proof was started or restarted, no RandomX work was performed and no live or
+remote system was contacted by this provenance change.

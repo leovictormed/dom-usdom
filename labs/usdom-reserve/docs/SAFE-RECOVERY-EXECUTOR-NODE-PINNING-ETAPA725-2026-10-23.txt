@@ -1,0 +1,29 @@
+ETAPA 725 — recoverable Safe executor Node pinning
+Date: 2026-10-23
+
+Finding
+=======
+The Safe-recovery executor pinned Cast in ETAPA721 but still resolved Node through PATH for the
+private RPC proxy, plan/transaction/envelope/target/raw validators, consensus observation and
+collection, file snapshots and immutable evidence installation. Replacement after TTY consent
+could alter validated or published authority.
+
+Correction
+==========
+Node is resolved once to a canonical absolute path and must be a regular executable with one
+link, safe root/current ownership, non-group/world-writable file and parent directory.
+Device/inode/size/mtime/ctime and SHA-256 are snapshotted. Every Node invocation, including those
+under timeout and helpers using absolute script paths, uses the captured binary.
+
+Node is rechecked with Cast before initial relayer identity, immediately after the three-swap TTY
+phrase, before the post-consent Ledger identity/raw construction and immediately before each role
+publication. Existing multi-RPC Safe target consensus, Safe/EOA nonce, envelope/raw/hash checks,
+source and durable-evidence TOCTOU, final observation and no-clobber installation remain.
+
+Validation
+==========
+Updated Safe executor structural test passes 1/1. Node syntax, `bash -n` and git diff checks pass.
+No executor, child, Node operational script, RPC, Ledger or Cast operation ran.
+
+No signing, transmission, deployment, funds, build, Cargo, Rust, Solidity, RISC0 proof, staging,
+commit, tag, publication or push was performed.

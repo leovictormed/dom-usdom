@@ -1,0 +1,29 @@
+ETAPA1044 — closed-mainnet payout delta evidence
+
+Concrete gap
+------------
+The redemption executor finalized queue/execute receipts and required paidBurns and
+paidRequests, but its terminal evidence did not prove that the intended recipient's
+USDT balance increased by exactly 1,000,000 base units. Boolean replay state alone
+was insufficient operational evidence of the real-funds outcome.
+
+Correction
+----------
+Before signing the execute transaction, the executor now authenticates the reserve's
+token() against the release token on two RPCs, observes the recipient balance at the
+finalized tag on both RPCs, requires equality, and durably installs a package-bound
+mode-0600 baseline. Restart validates and reuses that exact baseline.
+
+After the execute receipt is finalized with matching block/hash on both RPCs, each
+RPC must report recipientBalance == baseline + 1,000,000. Terminal output-last
+evidence binds the token, recipient, baseline SHA-256, before/after balances, exact
+amount and dual-RPC finality. The offline checklist independently hashes and validates
+the baseline and exact delta. Any donation or unrelated balance change during the
+window fails closed and requires operator investigation rather than creating false
+payout evidence.
+
+Validation
+----------
+Pinned Node 24.19.0 focused payout and redemption tests passed 5/5. Shell syntax,
+checker syntax and focused diff check passed. No network, signing, proof, deployment,
+publication, push or funds were used.

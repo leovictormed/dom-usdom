@@ -1,0 +1,57 @@
+DOM / USDOM — auditoria do escopo real de publicação
+Etapa 602 — 2026-10-23
+
+Escopo
+======
+
+Foi auditado o importador `/home/leonardov/publicar-dom-usdom.sh`, desde o
+rsync da raiz do repositório até o índice Git do clone descartável. A análise
+cobriu arquivos fora de `labs/usdom-reserve`, nomes/extensões locais, links,
+ownership/modes, conteúdo com formato de credencial e divergência entre a
+árvore inspecionada e aquilo que `git add -A` selecionaria. Nenhum segredo real
+foi aberto e nenhuma operação de staging, commit ou push foi executada.
+
+Achado corrigido
+================
+
+A inspeção anterior ocorria depois de `git add -A`, aceitava links simbólicos
+internos e não provava que todos os arquivos copiados pertenciam exatamente ao
+índice. Também não cobria extensões locais comuns como `.seed`, `.wif`,
+`.token`, `.bak`, `.orig` e `.tmp`, JSON keystore, ownership ou diretórios/
+arquivos graváveis por grupo/outros.
+
+Foi adicionado `scripts/check-publication-snapshot.py`. O importador agora o
+executa antes de staging e novamente depois, com `--verify-git-index`. O gate:
+
+- percorre toda a raiz copiada, sem limitar a auditoria ao laboratório;
+- recusa qualquer symlink, arquivo não regular, owner diferente do operador e
+  qualquer caminho gravável por grupo/outros;
+- recusa nomes de segredo, credencial, backup/editor e artefato local;
+- detecta PEM, tokens conhecidos, atribuições de chave/seed, JSON keystore e
+  URLs remotas com userinfo;
+- recusa arquivos acima do limite de publicação;
+- compara bidirecionalmente arquivos regulares da árvore e entradas do índice,
+  impedindo que `.gitignore` oculte arquivo copiado ou que o índice inclua algo
+  fora da inspeção.
+
+Arquivos owner-only (0600) não são tratados como prova automática de segredo:
+o repositório foi desenvolvido sob umask 077 e contém fontes públicas nesse
+modo. Eles passam pela mesma inspeção de nome, tipo, ownership e conteúdo; no
+snapshot Git seu modo público é materializado somente após esses gates.
+
+Validação leve
+==============
+
+- 2/2 testes Python passaram, incluindo seis classes de aceitação/recusa;
+- um snapshot completo produzido com a lista real de exclusões passou o novo
+  gate sem staging;
+- `bash -n`, `py_compile` e `git diff --check` passaram;
+- os dois `CONTINUATION-STATE.md` continuam excluídos pela etapa 601 e essa
+  regra não foi alterada.
+
+Limites
+=======
+
+Detecção de segredo por padrão reduz publicação acidental, mas não substitui a
+revisão do commit preparado. O fluxo mantém a confirmação separada antes do
+push. Esta etapa não executou publicação, commit, deploy, assinatura ou fundos.

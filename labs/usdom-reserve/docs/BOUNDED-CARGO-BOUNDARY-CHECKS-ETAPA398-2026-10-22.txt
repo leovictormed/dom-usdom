@@ -1,0 +1,29 @@
+DOM/USDOM hardening stage 398 — bounded Cargo boundary checks
+
+Date: 2026-10-22
+
+Ten release-boundary checkers invoked Cargo dependency-graph commands without a
+deadline. A concurrent long prover can retain Cargo's global cache authority,
+causing readiness/provenance verification to wait indefinitely rather than
+produce a fail-closed result.
+
+Every subprocess invocation in the Python `check-*.py` boundary suite now has
+a literal 120-second timeout. Every affected checker catches
+`subprocess.TimeoutExpired` and reports a precise failure. This bounds both
+`cargo tree` and the finalized-burn `cargo metadata` query while preserving the
+complete graph checks when Cargo is available.
+
+The proof-program policy checker now parses every boundary checker with Python
+AST and rejects any `subprocess.run` call without a literal timeout between one
+and 300 seconds or without a TimeoutExpired handler. Its self-test mutates both
+properties and confirms rejection.
+
+Validation completed:
+
+- all Python boundary checkers compile;
+- timeout-policy mutation self-test passes;
+- critical proof checker passes 98/98 entries and 48/48 host sources;
+- repository whitespace validation passes.
+
+The active prover was not interrupted. The complete Cargo-backed provenance
+chain remains scheduled after it releases the global cache.

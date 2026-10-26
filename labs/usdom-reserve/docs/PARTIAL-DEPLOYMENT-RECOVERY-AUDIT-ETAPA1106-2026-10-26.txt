@@ -1,0 +1,40 @@
+USD0M partial deployment recovery audit — Stage 1106 — 2026-10-26
+
+Protocol contracts
+
+The deployment order is verifier, checkpoint verifier, checkpoint registry and
+reserve. A later index cannot execute unless every prior receipt/evidence set
+is present and revalidated on every RPC against the same package SHA, release
+SHA, observation, deployer, nonce, raw transaction, initcode, expected address,
+runtime code, receipt block and finalized anchor. A mined transaction without
+complete authenticated evidence is fail-closed. A known exact transaction can
+resume receipt recovery idempotently. The reserve is last and its constructor
+starts paused, so a partial prefix cannot accept deposits.
+
+Safes
+
+CREATE2 identity is generation-specific because the salt combines the exact
+initializer hash with its role salt nonce. Nine globally separated owners make
+the three initializers distinct. Baseline collection requires all three roles
+at one finalized snapshot and rejects missing code, altered owners, threshold,
+singleton, handler, guard, modules or nonce.
+
+Finding corrected
+
+The operator generator attempted to read a nonexistent `.packageHash` member
+from the Safe package. The package commitment is intentionally external to
+avoid self-reference, and the on-chain observer derives it as keccak256 over
+canonical sorted-key JSON. The generator now calls a strict bounded helper that
+uses that exact derivation in hardware custody proofs and subsequent package
+rechecks. Partial failure cannot silently switch to another Safe generation.
+
+Deposit containment
+
+The deposit executor requires full real-funds readiness before accessing the
+Ledger. Cold-start readiness requires exact complete deployments and all three
+Safe roles, verifies the reserve remains paused with zero queue/accounting and
+rejects any partial or mixed-generation state.
+
+Validation: pinned lightweight deployment/Safe/operator suites pass 36/36;
+shell syntax and diff checks pass. No network, Cargo, Forge, key access,
+signing, deployment, commit or push ran.

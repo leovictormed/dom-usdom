@@ -1,0 +1,28 @@
+ETAPA1002 — Solidity/Ethereum/native-ZK field canonicality audit
+Date: 2026-10-23
+
+Scope
+- receivingCommitment at Solidity calldata/event, Ethereum receipt verification, native issuance and wallet package boundaries;
+- Poseidon BN254 note roots, note commitments and nullifiers;
+- private-burn ABI identity helper and finalized-deposit operational evidence.
+
+Frozen wire rule
+Every BN254 scalar crossing a byte boundary is exactly 32 bytes, unsigned big-endian, unreduced, and strictly below Fr modulus
+0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001.
+Identities (receiver, roots, notes, nullifiers) must additionally be nonzero. Solidity uint256(bytes32), Ethereum ABI words, Rust lexicographic [u8;32] comparison, PrivacyScalar::from_bytes round-trip, and Arkworks to_bytes_be therefore agree byte for byte.
+
+Findings and fixes
+1. Native and authorization paths were already fail-closed: both reserve contracts reject zero/non-field receivers; receipt verification repeats that check; native issuance reparses with PrivacyScalar::from_bytes; state validation reparses roots/notes/nullifiers; Groth16 public inputs are native Fr values.
+2. Three operational JS validators were weaker than the authoritative relation. finalized-deposit-source accepted any nonzero bytes32 receiver; finalized-deposit-issuance accepted arbitrary nonzero-looking receiver/note hashes; derivePrivateBurnId accepted non-field nullifiers. These could not authorize invalid native consensus state, but could produce misleading evidence or an unusable cross-domain package. They now reject zero/reduced/non-field encodings before hashing or accepting evidence.
+3. Regression fixtures now use valid small field elements and explicitly reject 0xff..ff receiver, note and nullifier values.
+
+Permanent gate
+scripts/check-cross-domain-field-canonicality.py locks the modulus and big-endian/unreduced checks across Solidity, Ethereum finality, privacy Scalar, native state and JS evidence/helper boundaries.
+
+Validation
+PASS check-cross-domain-field-canonicality.py
+PASS python3 -m py_compile check-cross-domain-field-canonicality.py
+PASS git diff --check for all ETAPA1002 files
+Node was unavailable in this shell, so Node regressions were added but not executed. Cargo/Forge and heavy builds were intentionally not run while the long RISC Zero proof is active.
+
+No network, push, deploy, signing, broadcast or funds operation occurred.

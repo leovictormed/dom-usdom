@@ -1,0 +1,37 @@
+LEDGER SIGNING SURFACE AUDIT — ETAPA 1120
+Date: 2026-10-26
+Scope: local signing gates and lightweight tests. No device/network/signing/deployment/funds/commit/push.
+
+TRANSACTION SIGNING
+- Deposit and redemption sign only canonical EIP-1559 type-2 transactions on
+  chain ID 1. Package/raw validators bind action, recipient contract, nonce,
+  zero ETH value, complete calldata hash, gas limit, max fee and exact 2 gwei
+  priority fee.
+- Before the Ledger call, the executor prints an independently package-derived
+  review containing action, chain, signer, contract, nonce, value, selector,
+  calldata hash, gas and fee caps; redemption also prints validUntil.
+- A second exact confirmation states that blind signing is prohibited and may be
+  entered only when the device displays the same recognized action.
+- After signing, the raw transaction is decoded canonically and ECDSA recovery
+  must equal the expected Ledger address before the raw file can be persisted or
+  published.
+
+TYPED DATA / DIGEST SIGNING
+- Safe recovery uses exact EIP-712 SafeTx typed data. Existing validation binds
+  domain chainId/verifyingContract, action calldata, Safe nonce and zero payment
+  fields; assembly recovers each signer from safeTxHash.
+- Release/native authorization derives typed-data requests from the current
+  release, signs only the independently derived EIP-712 digest with --no-hash,
+  and verifies the recovered Ledger address. This avoids personal_sign prefixing.
+- No pilot signing path invokes eth_sign or personal_sign RPC methods.
+
+OPERATIONAL LIMIT
+Host software cannot remotely prove the Ledger application's Blind Signing
+setting or the exact device screen. The new gate requires human comparison and
+forbids continuation if the device shows only an opaque hash. If the installed
+Ledger Ethereum app cannot clear-sign the custom reserve calldata, that Ledger
+path is blocked; enabling blind signing is not an accepted workaround.
+
+VALIDATION
+- Focused transaction, release authorization and Safe typed-data suites: 32/32.
+- Shell syntax and focused diff integrity passed.

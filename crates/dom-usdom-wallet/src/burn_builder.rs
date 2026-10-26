@@ -12,6 +12,7 @@ use dom_usdom_state::{
     private_burn_payload_id, BridgeIdentity, BurnRecord, NoteAnchor, UsdomStateError,
 };
 use rand_core::{CryptoRng, RngCore};
+use std::collections::BTreeSet;
 use thiserror::Error;
 
 use super::{
@@ -81,6 +82,10 @@ pub enum PrivateBurnBuildError {
     /// Amount or deadline arithmetic overflowed.
     #[error("USDOM private burn arithmetic overflow")]
     ArithmeticOverflow,
+    /// The CSPRNG did not produce a nonzero, locally unique request identifier
+    /// within the fixed retry budget.
+    #[error("failed to generate a unique USDOM private burn request identifier")]
+    IdentifierGenerationFailed,
     /// Bridge identity or public obligation is invalid.
     #[error("invalid USDOM private burn bridge obligation: {0}")]
     State(#[from] UsdomStateError),
@@ -227,10 +232,13 @@ impl WalletState {
             .map(|(nullifier, _, _)| nullifier.to_bytes())
             .collect::<Vec<_>>();
         let burn_id = derive_private_burn_id(bridge, &nullifiers, recipient, amount, valid_until)?;
-        let mut request_id = random_identifier(rng);
-        while request_id == burn_id {
-            request_id = random_identifier(rng);
-        }
+        let request_id = fresh_request_identifier(
+            rng,
+            burn_id,
+            self.pending_burns
+                .values()
+                .map(|pending| pending.record.request_id),
+        )?;
         let mut record = BurnRecord {
             burn_id,
             request_id,
@@ -442,12 +450,90 @@ impl WalletState {
     }
 }
 
-fn random_identifier<R: RngCore + CryptoRng>(rng: &mut R) -> [u8; 32] {
-    loop {
+const REQUEST_IDENTIFIER_ATTEMPTS: usize = 128;
+
+fn fresh_request_identifier<R, I>(
+    rng: &mut R,
+    burn_id: [u8; 32],
+    existing: I,
+) -> Result<[u8; 32], PrivateBurnBuildError>
+where
+    R: RngCore + CryptoRng,
+    I: IntoIterator<Item = [u8; 32]>,
+{
+    let existing = existing.into_iter().collect::<BTreeSet<_>>();
+    for _ in 0..REQUEST_IDENTIFIER_ATTEMPTS {
         let mut value = [0u8; 32];
         rng.fill_bytes(&mut value);
-        if value != [0; 32] {
-            return value;
+        if value != [0; 32] && value != burn_id && !existing.contains(&value) {
+            return Ok(value);
         }
+    }
+    Err(PrivateBurnBuildError::IdentifierGenerationFailed)
+}
+
+#[cfg(test)]
+mod identifier_tests {
+    use super::*;
+    use rand_core::{CryptoRng, Error, RngCore};
+
+    struct SequenceRng {
+        values: Vec<[u8; 32]>,
+        next: usize,
+    }
+
+    impl RngCore for SequenceRng {
+        fn next_u32(&mut self) -> u32 {
+            let mut bytes = [0u8; 4];
+            self.fill_bytes(&mut bytes);
+            u32::from_le_bytes(bytes)
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            let mut bytes = [0u8; 8];
+            self.fill_bytes(&mut bytes);
+            u64::from_le_bytes(bytes)
+        }
+
+        fn fill_bytes(&mut self, destination: &mut [u8]) {
+            let value = self.values.get(self.next).copied().unwrap_or([0; 32]);
+            self.next += 1;
+            destination.copy_from_slice(&value[..destination.len()]);
+        }
+
+        fn try_fill_bytes(&mut self, destination: &mut [u8]) -> Result<(), Error> {
+            self.fill_bytes(destination);
+            Ok(())
+        }
+    }
+
+    impl CryptoRng for SequenceRng {}
+
+    #[test]
+    fn request_identifier_rejects_zero_burn_id_and_pending_collision() {
+        let burn_id = [0x41; 32];
+        let pending = [0x42; 32];
+        let fresh = [0x43; 32];
+        let mut rng = SequenceRng {
+            values: vec![[0; 32], burn_id, pending, fresh],
+            next: 0,
+        };
+        assert_eq!(
+            fresh_request_identifier(&mut rng, burn_id, [pending]).unwrap(),
+            fresh
+        );
+    }
+
+    #[test]
+    fn request_identifier_has_a_fixed_failure_budget() {
+        let mut rng = SequenceRng {
+            values: vec![[0; 32]; REQUEST_IDENTIFIER_ATTEMPTS],
+            next: 0,
+        };
+        assert!(matches!(
+            fresh_request_identifier(&mut rng, [0x41; 32], []),
+            Err(PrivateBurnBuildError::IdentifierGenerationFailed)
+        ));
+        assert_eq!(rng.next, REQUEST_IDENTIFIER_ATTEMPTS);
     }
 }

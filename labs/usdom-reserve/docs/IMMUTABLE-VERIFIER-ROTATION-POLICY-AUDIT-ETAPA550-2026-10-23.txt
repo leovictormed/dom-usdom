@@ -1,0 +1,68 @@
+Stage 550 — registry, verifier and reserve rotation-policy audit
+Date: 2026-10-23
+
+Result
+
+No exploitable rotation, downgrade or old-proof lifecycle defect was found. The
+production design has no in-place verifier, ImageID, registry or reserve update
+path. A change requires a separately reviewed deployment and native activation.
+No implementation or readiness fact changed.
+
+Immutable identity
+
+- Both adapters immutably bind Ethereum chain ID, RISC Zero verifier address and
+  runtime code hash, canonical selector, guest ImageID, journal schema and proof
+  acceptance domain in `verifierConfigHash`.
+- Registry and reserve immutably bind adapter address, runtime code hash and
+  configuration hash. Their complete configuration hashes additionally bind
+  chain, contract address, DOM identity, activation schedule, policy and pinned
+  control-plane identities.
+- Mainnet constructors require nonzero compile-time production pins matching
+  independently derived deployment hashes. SDK derivation rejects ImageID,
+  protocol version, selector, artifact or activation-schedule substitution.
+- Runtime verification rechecks adapter code/config; adapters recheck the
+  underlying verifier code and selector. Metamorphic or proxy drift fails closed.
+
+Governance and emergency behavior
+
+- Governance cannot replace verifier or policy. Its only reserve recovery power
+  is scheduling resume after a two-day-or-greater immutable delay. A subsequent
+  pause cancels that schedule; execution rechecks control plane, verifier and
+  USDT usability.
+- Guardian or governance may pause and invalidate the complete withdrawal queue
+  generation. Registry guardian may only halt permanently; it cannot install a
+  verifier or rewrite a finalized checkpoint.
+- Safe implementation, owners, threshold, modules, guard and fallback policy
+  are pinned/rechecked, so changing administrative machinery blocks value paths
+  and recovery instead of acquiring update authority.
+
+Old proofs and queued withdrawals
+
+- Proof statements bind the exact registry/reserve address, configuration and
+  activation schedule. A proof for an old or new deployment cannot cross those
+  domains even when the guest statement fields otherwise match.
+- A queued withdrawal stores the exact verified statement hash and remains
+  executable only under the same immutable verifier/configuration, queue epoch,
+  delay and lease. Pause invalidates it; it can be cleaned and the irreversible
+  native debt reproved under the still-valid deployment rules.
+- Registry candidates cannot migrate across a deployment or verifier change.
+  Permanent halt blocks submission and finalization; a successor registry needs
+  a separately ratified bootstrap/activation rather than inheriting candidates.
+
+Downgrade assessment
+
+There is no version negotiation at runtime. Canonical proof length and selector,
+fixed ImageIDs, exact protocol-version hashes and activation commitments prevent
+acceptance of an older guest or verifier configuration. Operational tooling
+rebuilds config/code/initcode commitments and release authorization binds the
+resulting reserve and registry hashes.
+
+Validation
+
+Focused Node verifier-config, checkpoint-config and production-pin tests passed.
+Lightweight source assertions confirmed absence of update/upgrade entry points,
+immutable verifier fields, delayed resume checks, pause cancellation and
+permanent registry halt. Diff whitespace checks passed.
+
+No full readiness, Cargo, Foundry, Anvil, proof, network, signing, funds,
+deployment, push or publication operation was run.

@@ -1,0 +1,54 @@
+Mempool runtime/persistence/RPC bounds — stage 580
+Date: 2026-10-23
+Scope: crates/dom-mempool/src/lib.rs, crates/dom-rpc/src/lib.rs
+
+Finding corrected
+=================
+The live mempool was bounded only by `10 * MAX_BLOCK_WEIGHT = 400,000` weight
+units. A structurally admissible one-kernel shape has weight 3, so weight alone
+does not prove fewer than 133,333 entries. The persisted decoder, however,
+rejects more than `MAX_BLOCK_TXS * 10 = 50,000` entries. Runtime admission could
+therefore reach a state whose canonical snapshot serializer emitted bytes that
+the same implementation refused to restore.
+
+The authenticated `/mempool` endpoint also called `all_hashes()`, cloning and
+sorting the complete live set before slicing a page, then performed up to 1,000
+entry lookups. At the persistence-compatible 50,000-entry maximum, the raw hash
+vector alone is 1,600,000 bytes plus allocation/sort overhead. The read governor
+bounded calls per source but did not bound simultaneous snapshot generation.
+
+Corrections
+===========
+* `Mempool` now has a runtime `max_entries` initialized from the exact persisted
+  decoder constant. Before admitting a new entry at capacity, it applies the
+  existing deterministic lowest-fee eviction policy. A lower/equal-fee incoming
+  transaction is rejected by the existing policy; a successful eviction must
+  strictly reduce the count. Weight enforcement remains independent and still
+  runs before insertion. Count/weight pressure with a noncompetitive fee is
+  also rejected by the cheap pre-cryptography gate, preventing a full pool from
+  becoming a proof-verification amplification surface.
+* This makes every default runtime entry count representable by the persisted
+  format and caps the hash-clone input at 50,000 entries (1.6 MB of raw hashes).
+* `/mempool` now has its own single fail-fast response-generation slot and its
+  own validated read bucket. A concurrent call receives 503 rather than
+  duplicating the full clone/sort or observing an empty list because the first
+  RPC holds the nonblocking mempool lock.
+* Small authenticated reads and the two-slot chain/USDOM scan class remain
+  independent, so a mempool query cannot occupy their capacity.
+
+Validation
+==========
+* Added a reduced-cap unit regression: two low-fee entries fill the cap, one
+  higher-fee entry evicts exactly the lowest, count remains bounded, and the
+  resulting snapshot round-trips through `PersistedMempoolState::from_bytes`.
+* The stage-579 middleware regression directly covers the reused capacity
+  primitive: first request holds the slot, second receives 503 without
+  queueing, cancellation restores the permit.
+* Structural assertions cover the shared runtime/persistence constant, count
+  gate, pre-cryptography fee rejection, fee eviction, progress check,
+  persistence round-trip and isolated one-slot RPC route: 8/8.
+* rustfmt and git diff integrity pass for all three touched Rust files.
+
+Cargo execution remains queued while the pinned RandomX proof owns shared
+compiler/memory resources. No readiness fact, push, deploy, signature,
+transaction, mining or funds action occurred.

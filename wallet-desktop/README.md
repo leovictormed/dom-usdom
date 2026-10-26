@@ -45,10 +45,10 @@ custom `tracing_subscriber` layer captures every event into a broadcast channel
 and forwards it to the UI as `node-log` events — with a defensive scrubber so a
 password/seed-looking line can never reach the screen.
 
-**RPC token.** `dom-rpc` resolves its bearer token from `DOM_RPC_TOKEN`, else
-`~/.dom/rpc_token`, else it generates one. The app generates a token, exports
-`DOM_RPC_TOKEN` *before* the node starts, and uses the same token in the
-wallet's `NodeRpcClient`. No copy-paste, no terminal.
+**RPC token.** The app generates a process-owned token and passes it directly
+to the embedded RPC server and wallet client. Standalone RPC uses an owner-only
+token file; reusable bearer credentials are never exported in the process
+environment. No copy-paste, no terminal.
 
 ---
 

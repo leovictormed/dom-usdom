@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.37;
 import {USDOMReserve} from "../../contracts/USDOMReserve.sol";
-import {IDOMFinalizedBurnVerifier, USDOMProofReserve} from "../../contracts/USDOMProofReserve.sol";
+import {
+    IDOMFinalizedBurnVerifier,
+    IDOMGracefulShutdownRegistry,
+    USDOMProofReserve
+} from "../../contracts/USDOMProofReserve.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {TestBase} from "../solidity/TestBase.sol";
-import {MockGovernance} from "../solidity/Mocks.sol";
+import {MockGovernance, MockGracefulShutdownRegistry} from "../solidity/Mocks.sol";
 
 interface ITetherFork {
     function owner() external view returns (address);
@@ -143,12 +147,14 @@ contract USDTMainnetForkTest is TestBase {
     function testProofReserveRefusesMainnetUntilRatifiedVerifierHashesArePinned() public {
         MockGovernance gov = new MockGovernance();
         ForkBurnVerifier proofVerifier = new ForkBurnVerifier();
+        MockGracefulShutdownRegistry checkpointRegistry = new MockGracefulShutdownRegistry(DOMAIN, ACTIVATION_SCHEDULE);
         vm.chainId(1);
         vm.expectRevert(USDOMProofReserve.ProductionUnavailable.selector);
         new USDOMProofReserve(
             USDOMProofReserve.Config(
                 IERC20(USDT),
                 proofVerifier,
+                checkpointRegistry,
                 DOMAIN,
                 ACTIVATION_SCHEDULE,
                 address(gov),

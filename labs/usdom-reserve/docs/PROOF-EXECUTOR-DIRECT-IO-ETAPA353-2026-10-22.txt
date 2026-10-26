@@ -1,0 +1,44 @@
+USD + DOM — E/S direta e durável nos executores de prova
+Etapa 353 — 2026-10-22
+
+Problema corrigido
+
+Os executores da capacidade de checkpoint, da queima finalizada vinculada à
+release e da capacidade de queima finalizada ainda continham sequências de
+`lstat`/`readFile` ou `lstat`/`copyFile`. Isso reabria o nome do arquivo depois
+da validação e permitia uma troca concorrente de configuração, recibo, selo,
+métrica, relatório ou binário convidado. Algumas cópias e o runtime observado
+também eram gravados por rotas locais diferentes do gravador durável comum.
+
+Correção
+
+- configurações de release/verificador/evidência são lidas diretamente dentro
+  da raiz esperada e rechecadas pelo mesmo limite antes da conclusão;
+- recibos succinct/Groth16, selos EVM, índices, métricas e relatórios são lidos
+  pelo descritor `O_NOFOLLOW`, com inode único, proprietário, tamanho e modo
+  privado quando pertencem ao workspace de prova;
+- índices e bytes associados são consumidos uma única vez, de modo que o hash e
+  a semântica validada se referem ao mesmo inode;
+- cópias de árvores privadas e binários convidados leem o inode validado e
+  instalam os bytes com temporário exclusivo, fsync, rename, fsync do diretório
+  e releitura exata;
+- o runtime RISC Zero observado e os relatórios finais usam o mesmo gravador
+  durável; a única leitura de caminho genérica restante nesses executores é
+  `/proc/meminfo`, uma interface virtual do kernel usada apenas no preflight de
+  capacidade.
+
+Validação
+
+- regressão focada dos três executores e limites comuns: 10/10 aprovada;
+- lint de produção, build Solidity forçado de 44 arquivos e regressão Node
+  completa: 295/295 aprovados;
+- proveniência completa aprovada para 169 arquivos importados, 45 fontes dos
+  programas de prova e manifesto determinístico de 1.127 fontes;
+- o gate permanece deliberadamente fechado em 161 fatos derivados da release
+  ainda não configurada, sem bloqueio de integridade de fonte, auditoria externa
+  ou garantia impossível de risco zero.
+
+O provador RISC Zero já ativo não importa esses executores JavaScript durante a
+execução atual e não foi alterado nem reiniciado. Nenhuma chave, assinatura,
+publicação, implantação, mineração, transmissão ou movimentação de fundos foi
+realizada.

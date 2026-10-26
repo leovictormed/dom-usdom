@@ -1,0 +1,31 @@
+USD0M stage 518 — checkpoint capacity adapter-artifact snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The checkpoint capacity executor first opened the compiled checkpoint adapter
+artifact from the live project after every long Cargo proof and compression
+step, and only after starting isolated Anvil. Replacement during that window
+could make isolated EVM evidence refer to a different artifact generation than
+the reviewed run inputs.
+
+Correction
+==========
+
+After Cargo completes and before runtime observation or Anvil starts, the
+executor reads the direct bounded adapter artifact once, parses those bytes,
+and durably installs them under an owner-only input-snapshots directory in the
+run. It rereads the installed snapshot byte-for-byte and passes only the parsed
+snapshot into isolated deployment and verification. The Anvil phase no longer
+opens the live project artifact. The capacity report remains durably published
+before the succeeded run-status completion marker.
+
+Evidence and scope
+==================
+
+Focused tests enforce snapshot-before-observation/Anvil ordering, owner-only
+durable installation, byte equality, absence of the live artifact path in the
+isolated verifier and report-before-completion ordering. Readiness requires
+`production_checkpoint_capacity_adapter_artifact_snapshotted=true`. No proof,
+Anvil, network, signing, deployment, funds operation, commit or push was run.

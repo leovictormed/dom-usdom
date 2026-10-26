@@ -1,0 +1,31 @@
+ETAPA 690 — BUILD REPRODUCÍVEL DO CHECKPOINT REGISTRY COM BYTES ESTRITOS
+Data: 2026-10-23
+
+Correção
+Release evidence/config e artifacts das duas builds isoladas do
+DOMCheckpointRegistry agora entram em parseStrictJsonBytes. UTF-8 inválido falha
+antes de substituição e chaves duplicadas continuam rejeitadas.
+
+Garantias preservadas
+- release docs 4 MiB/profundidade 64; artifact 64 MiB/profundidade 128;
+- ambiente reproducível e Forge seguro/estável vinculado por hash;
+- duas builds isoladas, out/cache e build IDs distintos;
+- compiler, artifact, source set, runtime, initcode e registry config bindings;
+- guardian address/code hash, guardian implementation/code hash e
+  guardianOwnersCommitment derivado dos controlPlaneOwners;
+- bytecode de capability/implementação guardiã participa da configuração
+  imutável que deve reproduzir runtime/initcode esperados;
+- artifact canônico SHA-bound, compiler source keccak e fontes rechecadas;
+- release/config/artifact/source/tool rechecados contra TOCTOU;
+- writer mantém locks e instalação imutável/create-once.
+
+Testes leves
+- metadata duplicada por escape e UTF-8 inválido são rejeitados;
+- mutação de controlPlaneOwners/guardianOwnersCommitment e do
+  checkpointGuardianImplementationCodeHash é rejeitada;
+- divergências de artifact/source/runtime/build identity/report continuam cobertas;
+- regra estrutural exige 3 fronteiras byte-strict e rechecks;
+- 5/5 testes em <0,3 s; node --check e git diff --check passaram.
+Nenhuma build Forge foi executada.
+
+Nenhum RPC, Cargo/Rust, Solidity build, RISC0, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

@@ -1,0 +1,36 @@
+ETAPA 984 — fronteira de erro entre persistência local e entrada hostil
+Data: 2026-10-23
+
+Escopo
+- ativação V2, snapshot V4, checkpoint Ethereum persistido, headers/pacotes de rewind,
+  auditoria de reorg/provas e exportação autenticada de histórico USDOM;
+- separação entre corrupção local (falha interna/operacional) e bytes hostis
+  (malformed/invalid/policy na fronteira que os recebe).
+
+Falhas concretas corrigidas
+1. `load` e `load_consensus` decodificavam checkpoint vindo do LMDB com a mesma
+   classificação PolicyRejected usada pelo decoder de entrada. Corrupção local agora é
+   remapeada para `DomError::Internal`, inclusive conflito entre as duas gerações persistidas.
+2. Nove decodificações de dados já persistidos propagavam Malformed/Invalid/PolicyRejected:
+   schedule V2, checkpoint/header/pacote de snapshot, pacote/header de rewind/auditoria,
+   pacote da auditoria de provas e pacote de histórico. Todas agora produzem Internal com
+   contexto exato.
+3. O decoder público continua preservando a classificação de entrada e os caminhos que
+   recebem package/witness hostil continuam sem operações delete/repair/rollback. Logo,
+   bytes de rede não ganharam um caminho de reparo ou mutação destrutiva.
+
+Regressões e gate
+- `corrupt_persisted_checkpoint_is_internal_not_peer_invalidity` cobre metadata e consensus
+  state corrompidos e exige `DomError::Internal`.
+- Gate permanente:
+  `labs/usdom-reserve/test/node/native-usdom-persistence-error-boundary.test.mjs`.
+- Validação estrutural equivalente executada por Python: PASS (3 grupos).
+- rustfmt executado nos três Rust alterados; `git diff --check`: PASS.
+- Node não estava presente no PATH desta sessão, portanto o arquivo `.mjs` não foi executado.
+- Cargo/testes pesados foram deliberadamente evitados enquanto a prova RISC0 longa disputa
+  CPU/I/O; a regressão Rust deve integrar a rodada pós-prova já prevista.
+
+Limite
+- Esta etapa impede atribuição indevida ao peer e impede que a fronteira auditada acione
+  reparo destrutivo. Não transforma corrupção persistente em recuperação automática: o node
+  falha fechado e requer diagnóstico/recuperação operacional explícita.

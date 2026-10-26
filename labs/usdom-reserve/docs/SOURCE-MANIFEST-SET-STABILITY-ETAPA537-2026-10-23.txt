@@ -1,0 +1,34 @@
+Etapa 537 — estabilidade do conjunto e identidade dos paths do source manifest
+
+Achados
+
+Depois do endurecimento da etapa 535, três casos ainda mereciam rejeição
+explícita. Um arquivo novo após a enumeração inicial não entrava no resultado;
+um rename podia deixar o descritor antigo legível enquanto o nome passava a
+apontar para outro inode; e hardlinks permitiam que um alias externo ao escopo
+mutasse o mesmo inode autenticado.
+
+Correção
+
+render_paths autentica a lista enumerada e repete included_files ao final,
+exigindo igualdade exata e ordenada. verify também repete essa comparação depois
+de validar todos os digests. digest exige st_nlink == 1. Após a leitura, além de
+comparar metadados do descritor, faz stat sem seguir links sobre o path e exige
+que device/inode ainda sejam os mesmos do descritor aberto.
+
+Testes adversariais
+
+- enumera, adiciona late.txt e exige falha por mudança do conjunto;
+- cria hardlink de um arquivo válido e exige rejeição no hash;
+- durante o primeiro os.read, renomeia o arquivo aberto e instala outro no nome
+  original; a identidade/metadata pós-leitura precisa rejeitar a operação.
+
+Consumidores e conjunto exato
+
+O consumidor de release executa source-manifest.py no check completo e novamente
+como último check nomeado no relatório de validação, cujo sourceManifestSha256
+liga os bytes do MANIFEST. O manifesto de proof programs possui inventário
+separado e seu checker exige igualdade exata com SOURCES | ARTIFACTS. As exclusões
+do manifesto principal continuam limitadas a caches/resultados/evidência e aos
+documentos operacionais mutáveis declarados. Nenhum novo fact foi criado e o
+manifesto não foi regenerado nesta etapa.

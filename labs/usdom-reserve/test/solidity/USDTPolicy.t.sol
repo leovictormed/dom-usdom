@@ -2,11 +2,53 @@
 pragma solidity 0.8.37;
 
 import {USDOMReserve} from "../../contracts/USDOMReserve.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReserveFixture} from "./USDOMReserve.t.sol";
+
+contract HostilePolicyReturnToken {
+    uint256 private immutable responseMode;
+
+    constructor(uint256 responseMode_) {
+        responseMode = responseMode_;
+    }
+
+    fallback() external {
+        uint256 mode = responseMode;
+        assembly {
+            let selector := shr(224, calldataload(0))
+            // decimals()
+            if eq(selector, 0x313ce567) {
+                mstore(0, 6)
+                return(0, 32)
+            }
+            // paused(): dirty boolean or bounded-copy return bomb.
+            if eq(selector, 0x5c975abb) {
+                if eq(mode, 1) {
+                    mstore(0, 2)
+                    return(0, 32)
+                }
+                mstore(0, 0)
+                return(0, 0x100000)
+            }
+            mstore(0, 0)
+            return(0, 32)
+        }
+    }
+}
 
 contract USDTPolicyTest is ReserveFixture {
     function unsafePolicy(uint256 variant) private {
         token.setPolicy(variant == 0, variant == 1, variant == 2 ? 1 : 0, variant == 3 ? 1 : 0, variant == 4);
+    }
+
+    function testPolicyReturnBombAndDirtyBooleanFailClosedAtBoundedBoundary() public {
+        for (uint256 mode = 1; mode <= 2; ++mode) {
+            HostilePolicyReturnToken hostile = new HostilePolicyReturnToken(mode);
+            USDOMReserve.Config memory candidate = config();
+            candidate.token = IERC20(address(hostile));
+            vm.expectRevert(USDOMReserve.UnsupportedToken.selector);
+            new USDOMReserve(candidate, signers, 3);
+        }
     }
 
     function testUnsafePolicyRejectsDeploymentAndDepositWithoutConsumingId() public {
@@ -28,6 +70,21 @@ contract USDTPolicyTest is ReserveFixture {
         token.setPolicy(false, false, 0, 0, false);
         vm.prank(ALICE);
         assertEq(reserve.deposit(1, salt, bytes32(uint256(1))), id);
+    }
+
+    function testLegacyUpgradeTargetFailsClosedEvenIfDeprecatedFlagIsFalse() public {
+        token.setUpgradedAddress(address(0x1234));
+        vm.expectRevert(USDOMReserve.UnsafeTokenState.selector);
+        new USDOMReserve(config(), signers, 3);
+
+        bytes32 salt = keccak256("prototype legacy upgrade target");
+        bytes32 id = reserve.depositId(ALICE, salt);
+        vm.prank(ALICE);
+        vm.expectRevert(USDOMReserve.UnsafeTokenState.selector);
+        reserve.deposit(1, salt, bytes32(uint256(1)));
+        (address funder,,) = reserve.deposits(id);
+        assertEq(funder, address(0));
+        assertEq(reserve.totalDeposited(), INITIAL);
     }
 
     function testUnsafePolicyRejectsAdmissionWithoutReservingIdsOrCredit() public {
@@ -99,6 +156,22 @@ contract USDTPolicyTest is ReserveFixture {
         token.setBlocked(address(0));
         reserve.executeWithdrawal(b);
         assertTrue(reserve.paidBurns(b.burnId));
+    }
+
+    function testChangedTokenRuntimeCannotMutateCollateralLedger() public {
+        bytes memory originalRuntime = address(token).code;
+        assertEq(uint256(reserve.tokenCodeHash()), uint256(address(token).codehash));
+        vm.etch(address(token), hex"00");
+
+        vm.prank(ALICE);
+        vm.expectRevert(USDOMReserve.TokenChanged.selector);
+        reserve.deposit(1, bytes32(uint256(901)), bytes32(uint256(1)));
+        assertEq(reserve.totalDeposited(), INITIAL);
+        assertEq(reserve.totalReleased(), 0);
+        assertEq(reserve.totalPendingAmount(), 0);
+
+        vm.etch(address(token), originalRuntime);
+        assertEq(uint256(reserve.tokenCodeHash()), uint256(address(token).codehash));
     }
 
     function testQuorumPrototypeCannotDeployOnEthereumMainnet() public {

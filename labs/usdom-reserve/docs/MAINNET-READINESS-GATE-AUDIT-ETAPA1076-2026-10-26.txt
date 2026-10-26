@@ -1,0 +1,64 @@
+Mainnet readiness gate semantic audit — Stage 1076
+Date: 2026-10-26
+Scope: labs/usdom-reserve/sdk/{mainnet-readiness,production-implementation-claims}.mjs and focused Node tests
+
+Result
+======
+
+The pure readiness and byte-boundary suites initially passed 70/70, but a direct
+comparison between the current production ledger, the Stage-57 UDBBLK02 security
+boundary and the implementation-closure map found two stale semantic defects in
+the gate itself.
+
+1. The closed-Mainnet gate required
+   `native_burn_block_prover_input_proves_finality === true`. UDBBLK02 is only a
+   bounded block/state/burn transport and expressly does not prove RandomX fork
+   choice, ancestry, or Ethereum-recognized finality. Requiring true inverted its
+   documented trust boundary and caused the checked-in, correct false value to
+   appear as a technical blocker. The gate now requires this value to remain
+   exactly false and emits `requirement_native_burn_block_prover_input_scope_invalid`
+   if any release ledger tries to grant that intermediate transport independent
+   finality authority. The recursive checkpoint/finalized-burn proof remains the
+   only production authority.
+
+2. The broad finalized-burn implementation dependency still named retired
+   `production_finalized_burn_e2e_report_v3_enforced`, a key absent from the
+   current ledger. The release schema and main gate require v4. Once a real
+   positive receipt allowed the broad claim to become true, this stale dependency
+   would have made closure impossible. It now requires the current v4 fact, and a
+   regression rejects reintroduction of v3.
+
+Current blocker interpretation
+==============================
+
+A direct pure assessment of the deliberately unconfigured checked-in candidate
+now reports 165 closed-Mainnet codes and 172 real-funds codes. These are cascading
+fail-closed diagnostics, not 337 independent defects. One absent release config or
+evidence document deliberately produces several field, hash, semantic and
+cross-binding diagnostics.
+
+The next technical/evidence-generation boundary is the current-source recursive
+RISC Zero chain: authenticated RandomX/economic/segment/outer receipts, finalized-
+burn receipt, local EVM receipt verification, and measured capacity/gas evidence.
+The historical long proof ended by external SIGTERM and cannot satisfy it. This
+boundary needs an authenticated current-source rebuild and real positive receipts;
+it is not solved by changing a Boolean in the ledger.
+
+The remaining configuration/operational class includes choosing exact production
+limits and identities, installing the privacy verifying key/trusted-setup result,
+Safe custody/recovery ceremonies, finalized checkpoint/bootstrap observations,
+predeployment/cold-start attestations, exact source/evidence commits and tag, and
+final EIP-1271 release authorization/residual-risk acceptance. External audit and
+an absolute zero-risk guarantee remain explicitly optional and were not restored
+as blockers.
+
+Validation
+==========
+
+- Focused Node campaign: 75/75 passed.
+- It covers the pure readiness suite, byte-strict authority snapshots and broad
+  implementation-claim dependencies.
+- New negative coverage proves UDBBLK02 must remain non-authoritative for finality
+  and implementation closure must use finalized-burn E2E schema v4.
+- No compilation, proof, deployment, signing, broadcast, mining, push or fund
+  movement occurred.

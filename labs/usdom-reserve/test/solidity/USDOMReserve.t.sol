@@ -517,6 +517,12 @@ contract USDOMReserveTest is ReserveFixture {
         govern(abi.encodeCall(reserve.proposeNotaries, (next, 3)));
         vm.warp(block.timestamp + 2 days);
         reserve.executeNotaries(next, 3);
+        for (uint256 i; i < signers.length; ++i) {
+            assertEq(reserve.notaryEpoch(signers[i]), 0);
+        }
+        for (uint256 i; i < next.length; ++i) {
+            assertEq(reserve.notaryEpoch(next[i]), reserve.currentEpoch());
+        }
         USDOMReserve.Burn memory b = burn(1);
         bytes[] memory sigs = signatures(b);
         vm.expectRevert(USDOMReserve.InvalidQuorum.selector);
@@ -535,10 +541,10 @@ contract USDOMReserveTest is ReserveFixture {
         vm.prank(GUARDIAN);
         reserve.pauseOperational();
         govern(abi.encodeCall(reserve.proposeNotaries, (signers, 3)));
-        vm.warp(block.timestamp + 2 days);
+        vm.warp(reserve.notariesReadyAt());
         reserve.executeNotaries(signers, 3);
         govern(abi.encodeCall(reserve.scheduleResume, ()));
-        vm.warp(block.timestamp + 2 days);
+        vm.warp(reserve.resumeReadyAt());
         reserve.executeResume();
         vm.expectRevert(USDOMReserve.StaleCertificate.selector);
         reserve.executeWithdrawal(b);
@@ -716,6 +722,10 @@ contract USDOMReserveTest is ReserveFixture {
         vm.warp(uint256(type(uint64).max) + 1);
         vm.expectRevert(USDOMReserve.TimestampOverflow.selector);
         new USDOMReserve(config(), signers, 3);
+
+        vm.warp(type(uint256).max);
+        vm.expectRevert(USDOMReserve.TimestampOverflow.selector);
+        reserve.previewWithdrawal(1);
     }
 
     function testConstructorAndProposalRejectUnsafeQuorums() public {
@@ -745,6 +755,80 @@ contract USDOMReserveTest is ReserveFixture {
         roles[2] = address(type(uint160).max);
         vm.expectRevert(USDOMReserve.InvalidConfiguration.selector);
         new USDOMReserve(c, roles, 3);
+
+        address[] memory contractSignerSet = new address[](3);
+        contractSignerSet[0] = signers[0];
+        contractSignerSet[1] = signers[1];
+        contractSignerSet[2] = address(new MockGovernance());
+        for (uint256 i; i < contractSignerSet.length; ++i) {
+            for (uint256 j = i + 1; j < contractSignerSet.length; ++j) {
+                if (contractSignerSet[j] < contractSignerSet[i]) {
+                    (contractSignerSet[i], contractSignerSet[j]) = (contractSignerSet[j], contractSignerSet[i]);
+                }
+            }
+        }
+        vm.expectRevert(USDOMReserve.InvalidConfiguration.selector);
+        new USDOMReserve(c, contractSignerSet, 3);
+        vm.expectRevert(USDOMReserve.InvalidConfiguration.selector);
+        govern(abi.encodeCall(reserve.proposeNotaries, (contractSignerSet, 3)));
+    }
+
+    function testStateChangingDynamicInputsAreBoundedBeforeIteration() public {
+        address[] memory tooManyNotaries = new address[](reserve.MAX_NOTARIES() + 1);
+        for (uint256 i; i < tooManyNotaries.length; ++i) {
+            tooManyNotaries[i] = address(uint160(0x1000 + i));
+        }
+        vm.expectRevert(USDOMReserve.InvalidConfiguration.selector);
+        govern(abi.encodeCall(reserve.proposeNotaries, (tooManyNotaries, uint8(tooManyNotaries.length))));
+        assertEq(reserve.proposedNotariesHash(), bytes32(0));
+
+        govern(abi.encodeCall(reserve.proposeNotaries, (signers, 3)));
+        vm.warp(block.timestamp + reserve.governanceDelay());
+        vm.expectRevert(USDOMReserve.InvalidConfiguration.selector);
+        reserve.executeNotaries(tooManyNotaries, uint8(tooManyNotaries.length));
+        assertTrue(reserve.proposedNotariesHash() != bytes32(0));
+
+        USDOMReserve.Burn memory b = burn(1);
+        bytes[] memory tooManySignatures = new bytes[](reserve.MAX_NOTARIES() + 1);
+        vm.expectRevert(USDOMReserve.InvalidQuorum.selector);
+        reserve.queueWithdrawal(b, tooManySignatures);
+
+        bytes[] memory malformed = signatures(b);
+        malformed[0] = new bytes(4096);
+        vm.expectRevert();
+        reserve.queueWithdrawal(b, malformed);
+        assertEq(reserve.pendingCount(), 0);
+        assertEq(reserve.totalPendingAmount(), 0);
+        (bytes32 digest,,,,,,,) = reserve.pendingWithdrawals(b.burnId);
+        assertEq(digest, bytes32(0));
+    }
+
+    function testRotationResetAllowsExactIdsOnlyAfterStaleEntryCleanup() public {
+        USDOMReserve.Burn memory b = burn(100e6);
+        reserve.queueWithdrawal(b, signatures(b));
+        assertEq(reserve.pendingCount(), 1);
+
+        govern(abi.encodeCall(reserve.proposeNotaries, (signers, 3)));
+        vm.warp(block.timestamp + reserve.governanceDelay());
+        reserve.executeNotaries(signers, 3);
+        assertEq(reserve.pendingCount(), 0);
+        assertEq(reserve.totalPendingAmount(), 0);
+        assertEq(reserve.firstPendingBurn(), bytes32(0));
+        assertEq(reserve.lastPendingBurn(), bytes32(0));
+
+        // The stale object remains addressable for bounded lazy cleanup, but
+        // cannot splice the fresh generation or retain its request reservation.
+        reserve.discardWithdrawal(b.burnId);
+        assertEq(reserve.pendingRequests(b.requestId), bytes32(0));
+
+        b.epoch = reserve.currentEpoch();
+        b.validUntil = uint64(block.timestamp + 6 days);
+        reserve.queueWithdrawal(b, signatures(b));
+        assertEq(reserve.pendingCount(), 1);
+        assertEq(reserve.totalPendingAmount(), b.amount);
+        assertEq(reserve.firstPendingBurn(), b.burnId);
+        assertEq(reserve.lastPendingBurn(), b.burnId);
+        assertEq(reserve.pendingRequests(b.requestId), b.burnId);
     }
 
     function testFuzzDepositsPreserveAccounting(uint64 rawAmount, bytes32 salt) public {

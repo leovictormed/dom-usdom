@@ -1,0 +1,46 @@
+[package]
+name = "dom-usdom-randomx-proof-host"
+description = "Fail-closed planning and local proving lifecycle for authenticated DOM RandomX statements"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = []
+verify = ["dep:bincode", "dep:risc0-zkvm"]
+prove = ["verify", "risc0-zkvm/client", "risc0-zkvm/prove"]
+
+[[bin]]
+name = "dom-usdom-plan-randomx-receipt-set"
+path = "src/bin/plan.rs"
+
+[[bin]]
+name = "dom-usdom-prove-randomx-receipt-set"
+path = "src/bin/prove.rs"
+required-features = ["prove"]
+
+[[bin]]
+name = "dom-usdom-plan-randomx-aggregate-set"
+path = "src/bin/plan-aggregate.rs"
+required-features = ["verify"]
+
+[[bin]]
+name = "dom-usdom-prove-randomx-aggregate-set"
+path = "src/bin/prove-aggregate.rs"
+required-features = ["prove"]
+
+[dependencies]
+zeroize.workspace = true
+dom-wallet-crypto.workspace = true
+dom-usdom-checkpoint-statement = { path = "../dom-usdom-checkpoint-statement" }
+dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", features = ["segment-bindings"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+bincode = { workspace = true, optional = true }
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std", "disable-dev-mode"], optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

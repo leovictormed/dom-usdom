@@ -1,0 +1,6 @@
+ETAPA 870 — invalidacao do par report/metadata de seguranca
+Data: 2026-10-23
+
+O report de security validation era imutavel e seu hash permanecia anunciado no release metadata durante retry. Se fontes mudassem, a nova geracao falhava e a antiga continuava current. Sob ambos locks, o writer agora limpa e fsynca primeiro o ponteiro `securityValidationReport`, remove duravelmente o report antigo e somente depois prepara a nova geracao. O report novo e instalado antes do metadata final, preservando output-last do ponteiro de conclusao.
+
+Validacao: teste 1/1, sintaxe Bash e diff-check aprovados. Sem build/RPC.

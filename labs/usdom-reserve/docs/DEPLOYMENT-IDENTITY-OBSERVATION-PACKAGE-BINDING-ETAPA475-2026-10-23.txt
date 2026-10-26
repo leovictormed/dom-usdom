@@ -1,0 +1,23 @@
+Stage 475 — deployment identity observation/package binding
+Date: 2026-10-23
+
+The deployment identity observation now contains canonical RPC-consensus
+evidence, its exact pre-materialization release configuration and a commitment
+over the complete observation. Its validator recomputes the source catalog,
+CREATE addresses and nonces, both configuration SHA-256 values and the
+observation commitment against the configured release.
+
+Package preparation requires an absolute direct-file observation path and an
+operator-supplied SHA-256. It validates the observation, rereads the exact bytes
+after artifact/package derivation and binds both the document SHA-256 and
+observation commitment into the deployment package schema.
+
+`production_deployment_package_binds_identity_observation` is true. The next
+boundary remains explicitly false:
+`production_deployment_transaction_handoff_binds_identity_observation`. The
+per-transaction Ledger handoff and executor must independently reread and bind
+the observation in stage 476 before this evidence can authorize deployment.
+
+No network, signature, deployment, funds, mining, commit or push occurred.
+Validation: focused identity/package tests pass 10/10, direct-input dependents
+13/13, complete operator runbook 71/71 and readiness 60/60.

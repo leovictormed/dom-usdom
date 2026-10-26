@@ -1,0 +1,63 @@
+Stage 665 — ERC-20 bounded-call EVM semantics audit (2026-10-23)
+
+Scope
+
+Audited the stage-661 bounded ERC-20 boundary in `USDOMProofReserve` for EVM
+call semantics: EIP-150 gas forwarding, the 500,000-gas child-call cap, exact
+returndata size, noncanonical boolean words, code-less EOA/precompile targets,
+token code identity, STATICCALL behavior, callbacks and atomic retry.
+
+Result
+
+No additional production defect was confirmed. The existing implementation is
+fail-closed on every audited boundary:
+
+- construction rejects a token address whose `code.length` is zero, so the EVM
+  behavior where CALL to an EOA/precompile can succeed with empty returndata
+  cannot satisfy the historical-USDT empty-return compatibility path;
+- every value path first checks the token's immutable runtime code hash. Code
+  removal or replacement fails as `TokenChanged`, and a change during a token
+  call is also caught by the exact post-call balance read, reverting all effects;
+- `balanceOf` uses STATICCALL, forwards at most 500,000 gas, copies at most one
+  word and requires exactly 32 returned bytes. STATICCALL prevents a balance
+  callback from changing token or reserve state;
+- transfer calls forward at most 500,000 gas and accept only zero bytes or one
+  exact word equal to one. A 32-byte word with dirty upper bits/noncanonical
+  bool, false, 31 bytes, 33 bytes and oversized returndata all fail;
+- EIP-150 plus the explicit child cap leaves the caller enough gas to turn a
+  child out-of-gas into `UnsupportedToken`; the transaction rollback restores
+  deposit IDs, credit, paid flags, debt, queue and rate bucket;
+- callback/reentrancy remains covered by `nonReentrant` and exact before/after
+  balance equations. Empty-return USDT-compatible transfers remain accepted
+  only for the pinned contract identity and only after exact value movement.
+
+The 500,000-gas cap is deliberately conservative relative to ordinary ERC-20
+execution. This stage did not perform a live mainnet fork measurement, so the
+release rehearsal must still record actual gas for the pinned Ethereum USDT
+runtime rather than treating this structural audit as empirical mainnet data.
+A transaction supplied with too little outer gas may itself run out of gas, but
+cannot produce credit or consume debt because the EVM reverts the transaction.
+
+Material regressions
+
+- Constructor deployment with an EOA token and with precompile address 0x01 is
+  rejected even though a low-level call to a code-less address can report
+  success with empty returndata.
+- Transfer/transferFrom replies of 31 and 33 bytes are rejected atomically.
+- A hostile token that consumes all 500,000 forwarded gas cannot create deposit
+  credit or consume a queued withdrawal. After restoring ordinary behavior,
+  the exact same debt pays successfully once.
+- The existing malformed-return regression supplies the exact 32-byte word 2,
+  proving dirty/noncanonical boolean data is rejected.
+
+Validation
+
+- new focused regressions: 2/2 passed;
+- complete Solidity campaign: 167/167 passed across 14 suites, including all
+  invariant campaigns;
+- `forge lint` on all four production contracts: passed;
+- `forge fmt --check` and `git diff --check`: passed.
+
+Only Solidity mocks/tests and this documentation were changed in this stage.
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit, push,
+deployment, signature, transmission or funds operation was performed.

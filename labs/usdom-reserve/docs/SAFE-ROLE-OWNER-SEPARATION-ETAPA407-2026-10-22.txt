@@ -1,0 +1,35 @@
+Stage 407 — Safe role owner separation
+
+Finding
+=======
+
+The reserve previously validated the governance and guardian Safes independently,
+but did not reject an owner appearing in both Safes. A shared owner weakens the
+intended separation between ordinary administration and emergency control.
+
+Correction
+==========
+
+USDOMProofReserve now requires disjoint governance and guardian owner sets when
+both roles are Safe proxies. The constructor rejects overlap, and every value or
+resume path continuously rechecks the relation through the same bounded Safe
+owner reads used by controlPlaneHealthy(). Emergency pause remains callable even
+when policy has drifted, preserving the fail-safe path.
+
+The finalized-snapshot mainnet preflight independently rejects any governance
+owner shared with either reserve guardian or checkpoint guardian. Sharing owners
+between the two emergency roles remains permitted; neither can perform ordinary
+reserve governance.
+
+Verification
+============
+
+- Focused USDOMProofReserve suite: 40/40 passed.
+- Complete Solidity suite: 146/146 passed, including invariant and fuzz tests.
+- Complete Node suite: 304/304 passed.
+- Mainnet-preflight focused suite: 3/3 passed, including both overlap mutations.
+- Production Solidity lint passed.
+- Reserve runtime: 17,631 bytes (EIP-170 limit: 24,576).
+- Reserve initcode: 24,300 bytes (EIP-3860 limit: 49,152).
+
+No deployment, transaction signing, funds, commit, push or mining occurred.

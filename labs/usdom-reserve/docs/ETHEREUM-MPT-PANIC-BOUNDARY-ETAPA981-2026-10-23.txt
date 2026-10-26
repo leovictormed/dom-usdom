@@ -1,0 +1,24 @@
+ETAPA 981 — fronteira de panic do verificador Ethereum MPT
+Data: 2026-10-23
+
+Achado
+`alloy-trie` 0.9.8 verifica bytes de proof fornecidos pelo relayer e contém um `unreachable!` no decoder recursivo de extension nodes inline. Mesmo que a condição represente uma invariável interna da biblioteca, bytes hostis não podem ter autoridade para encerrar o processo do node. As três fronteiras diretas (receipt, account e storage) chamavam a biblioteca sem pré-validar a forma que aciona esse abort.
+
+Correção
+- Criada uma única `verify_mpt_proof` em state.rs.
+- Cada proof node e todo nó e child inline são decodificados antes da dependência.
+- Extension cujo child inline não é Branch é rejeitado antes de alcançar o `unreachable!` do alloy-trie.
+- Receipt, account e storage agora usam exclusivamente essa fronteira.
+- Os limites existentes de count/bytes, raiz autenticada, RLP canônico e proof verification permanecem inalterados.
+
+Verificação
+- Gate estrutural `ethereum-mpt-panic-boundary-stage981.test.mjs`: 2/2 PASS.
+- `rustfmt` nos dois arquivos: PASS.
+- `git diff --check`: PASS.
+- Regressão Rust constrói branch→extension→leaf inline, reproduz o panic exato da dependência sob o perfil de teste e exige que a pré-validação o rejeite; execução fica na suíte Cargo agregada pós-prova RISC0 para não disputar I/O.
+
+Limite
+O workspace usa `panic = "abort"`; por isso a correção valida a forma perigosa antes da chamada e não depende de unwind. A prova inválida nunca alcança o abort interno nem concede autoridade.
+
+Operações externas
+Nenhum commit, push, deploy, assinatura, broadcast, RPC de rede ou fundo foi usado.

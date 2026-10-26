@@ -58,7 +58,8 @@ pub use native_usdom_v4::{
     native_usdom_v4_activation_updates_for_schedule, native_usdom_v4_regtest_activation_schedule,
     persisted_usdom_v4_activation_schedule, restore_persisted_usdom_v2_activation,
     restore_persisted_usdom_v2_state_for_schedule, restore_persisted_usdom_v4_state,
-    restore_persisted_usdom_v4_state_for_schedule, rewind_persisted_usdom_v4_state_to_ancestor,
+    restore_persisted_usdom_v4_state_for_schedule, rewind_persisted_usdom_v2_state_to_ancestor,
+    rewind_persisted_usdom_v4_state_to_ancestor,
     rewind_persisted_usdom_v4_state_to_ancestor_for_schedule,
     verify_native_usdom_v4_snapshot_manifest, verify_usdom_v4_serialized_candidate_for_schedule,
     verify_usdom_v4_serialized_candidate_regtest,
@@ -79,6 +80,6 @@ pub use native_usdom_v4::{
 
 #[cfg(feature = "native-usdom-v4-poc")]
 pub use dom_usdom_finalized_burn_program::{
-    FinalizedBurnProverInput, FINALIZED_BURN_PROVER_INPUT_VERSION,
+    CheckpointStatementV6, FinalizedBurnProverInput, FINALIZED_BURN_PROVER_INPUT_VERSION,
     MAX_FINALIZED_BURN_PROVER_INPUT_BYTES,
 };

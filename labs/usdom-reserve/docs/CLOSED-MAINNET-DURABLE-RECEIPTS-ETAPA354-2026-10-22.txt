@@ -1,0 +1,38 @@
+USD + DOM — recibos duráveis do ciclo fechado
+Etapa 354 — 2026-10-22
+
+Problema corrigido
+
+A submissão da emissão, a inicialização da gênese e a produção do único bloco
+de emissão mantinham três cópias de um gravador `temp + rename`. Elas faziam
+fsync, mas usavam nomes temporários previsíveis, não rejeitavam todos os links
+do destino e não reliam os bytes instalados. O produtor do bloco também abria
+segredos sem `O_NOFOLLOW`. O verificador de alegações de produção ainda lia seu
+documento fixo reabrindo o caminho.
+
+Correção
+
+- os três recibos usam `writePrivateFileDurable`, com temporário aleatório,
+  O_EXCL/O_NOFOLLOW, modo 0600, fsync do arquivo, rename, fsync do diretório e
+  releitura exata do inode instalado;
+- token RPC e recibo de submissão usados pelo bloco fechado passam pelo leitor
+  direto e exigem proprietário atual, um link e modo exato 0600;
+- o documento de requisitos das alegações de produção é lido pela fronteira de
+  projeto direta e limitada a 2 MiB;
+- nenhuma rota ganhou mineração contínua, rede P2P, transmissão Ethereum ou
+  capacidade de usar chaves.
+
+Validação
+
+- regressão focada operacional, de proveniência e limites de E/S: 64/64;
+- lint de produção, build Solidity forçado de 44 arquivos e regressão Node
+  completa: 295/295 aprovados;
+- proveniência completa aprovada para 169 arquivos importados, 45 fontes dos
+  programas de prova e manifesto determinístico de 1.128 fontes;
+- o gate permanece deliberadamente fechado em 161 fatos derivados da release
+  ainda não configurada, sem bloqueio de integridade de fonte, auditoria externa
+  ou garantia impossível de risco zero.
+
+A prova RISC Zero ativa permaneceu em execução e não foi reiniciada. Nenhuma
+chave, assinatura, publicação, implantação, mineração adicional, transmissão ou
+movimentação de fundos foi realizada.

@@ -594,21 +594,26 @@ started by any participant running the released software.
 Example:
 
 ```bash
-read -rsp "Miner wallet password: " DOM_WALLET_PASSWORD
+wallet_password_file=$(mktemp -p /dev/shm dom-wallet-password.XXXXXXXX)
+chmod 600 "$wallet_password_file"
+read -rsp "Miner wallet password: " wallet_password
 echo
-export DOM_WALLET_PASSWORD
+printf '%s' "$wallet_password" >"$wallet_password_file"
+unset wallet_password
 
 DOM_NETWORK=mainnet \
 DOM_SEED_PEERS="seed1.dom-protocol.org:33369" \
 DOM_MINE=true \
 DOM_MINER_THREADS="$(nproc)" \
 DOM_WALLET_PATH="/absolute/path/to/compatible/wallet-directory" \
+DOM_WALLET_PASSWORD_FILE="$wallet_password_file" \
 DOM_DATA_DIR="$HOME/.local/share/dom/mainnet-miner" \
 DOM_P2P_LISTEN_ADDR="0.0.0.0:33369" \
 DOM_LOG=info \
 ./target/release/dom-node
 
-unset DOM_WALLET_PASSWORD
+rm -f -- "$wallet_password_file"
+unset wallet_password_file
 ```
 
 `DOM_MINER_THREADS` is a local resource setting and does not change consensus.
@@ -623,8 +628,9 @@ Do not place a wallet password or recovery phrase in:
 - a public systemd unit;
 - an issue report or support message.
 
-For unattended mining, use a root-readable environment file, systemd credentials,
-or a dedicated secret manager and restrict all filesystem permissions.
+For unattended mining, materialize a root-readable credential file through
+systemd credentials or a dedicated secret manager and restrict all filesystem
+permissions. Never place the password value itself in an environment variable.
 
 ---
 

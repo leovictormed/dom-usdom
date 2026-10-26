@@ -30,6 +30,17 @@ pub trait NodeHandle: Send + Sync + 'static {
     /// a hardcoded literal.
     fn network(&self) -> &'static str;
 
+    /// One coherent operational snapshot for `/status`. Production handles
+    /// override this to hold the chain and mempool locks together; the default
+    /// preserves compatibility for lightweight embedders and tests.
+    fn status_snapshot(&self) -> Result<NodeStatusSnapshot, RpcError> {
+        Ok(NodeStatusSnapshot {
+            chain_height: self.chain_height(),
+            mempool_size: self.mempool_size(),
+            network: self.network(),
+        })
+    }
+
     /// Get block header bytes by hash. Returns None if not found.
     fn get_block_header(&self, hash: &[u8; 32]) -> Option<Vec<u8>>;
 
@@ -112,6 +123,20 @@ pub trait NodeHandle: Send + Sync + 'static {
         })
     }
 
+    /// Produce exactly one canonical block for the explicitly armed,
+    /// peerless Mainnet test ceremony. Implementations must compare the
+    /// request with the current canonical tip before doing any work.
+    fn closed_mainnet_mine_one_v1(
+        &self,
+        _request: ClosedMainnetMineOneRequestV1,
+    ) -> ClosedMainnetMineFuture {
+        Box::pin(async {
+            Err(RpcError::Internal(
+                "closed Mainnet bounded mining API not available".into(),
+            ))
+        })
+    }
+
     /// Submit one exact private USDOM transfer payload through the node's
     /// proof-verifying Regtest candidate path. The authenticated RPC boundary
     /// carries public proof bytes only; wallet and proving secrets stay out of
@@ -135,6 +160,34 @@ pub trait NodeHandle: Send + Sync + 'static {
                 "native USDOM burn submission is not available".into(),
             ))
         })
+    }
+
+    /// Submit one exact authenticated Ethereum-deposit witness through the
+    /// native USDOM proof verifier. RPC authentication grants no issuance
+    /// authority: the configured runtime independently verifies Ethereum
+    /// consensus, receipt inclusion, reserve identity and the deposit event.
+    fn submit_usdom_v4_issuance_witness_v1(
+        &self,
+        _witness: Vec<u8>,
+    ) -> UsdomV4IssuanceSubmitFuture {
+        Box::pin(async {
+            Err(RpcError::Internal(
+                "native USDOM issuance submission is not available".into(),
+            ))
+        })
+    }
+
+    /// Reconcile one exact issuance submission against the bounded volatile
+    /// pool and recent canonical history. This authenticated read exposes only
+    /// public identities and commitments; it never returns witness or note
+    /// opening bytes.
+    fn usdom_v4_issuance_status_v1(
+        &self,
+        _request: UsdomV4IssuanceStatusRequestV1,
+    ) -> Result<UsdomV4IssuanceStatusV1, RpcError> {
+        Err(RpcError::Internal(
+            "native USDOM issuance status is not available".into(),
+        ))
     }
 
     /// Submit one exact candidate-V2 proof envelope and ordered execution
@@ -196,7 +249,7 @@ pub trait NodeHandle: Send + Sync + 'static {
     /// busy (mining / connecting a block), return a retriable
     /// [`RpcError::Overloaded`] immediately. Mining always has priority.
     fn scan_chain(&self, _from: u64, _to: u64) -> Result<ChainScan, RpcError> {
-        Err(RpcError::Internal("chain scan not supported".into()))
+        Err(RpcError::Unsupported("chain scan".into()))
     }
 
     /// Serve one authenticated, full-fidelity F7 scanner page.
@@ -206,9 +259,7 @@ pub trait NodeHandle: Send + Sync + 'static {
     /// chain lock. The default is unsupported so existing test handles remain
     /// source compatible.
     fn scan_chain_full_v1(&self, _request: FullScanRequestV1) -> Result<ChainScanFullV1, RpcError> {
-        Err(RpcError::Internal(
-            "full-fidelity chain scan v1 not supported".into(),
-        ))
+        Err(RpcError::Unsupported("full-fidelity chain scan v1".into()))
     }
 
     /// Request the node's existing coordinated shutdown path. The RPC handler
@@ -221,12 +272,12 @@ pub trait NodeHandle: Send + Sync + 'static {
     /// A coherent snapshot of the canonical chain identity.  This is a
     /// wallet-safe RPC value, deliberately separate from `PROTOCOL_VERSION`.
     fn chain_identity(&self) -> Result<ChainIdentity, RpcError> {
-        Err(RpcError::Internal("chain identity not supported".into()))
+        Err(RpcError::Unsupported("chain identity".into()))
     }
 
     /// Bounded canonical-chain source evidence.  This is not a finality proof.
     fn chain_ancestry(&self, _request: AncestryRequest) -> Result<ChainAncestry, RpcError> {
-        Err(RpcError::Internal("chain ancestry not supported".into()))
+        Err(RpcError::Unsupported("chain ancestry".into()))
     }
 }
 
@@ -237,9 +288,17 @@ pub type ShutdownFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 pub type RegtestMineFuture =
     Pin<Box<dyn Future<Output = Result<RegtestMineResultV1, RpcError>> + Send + 'static>>;
 
+/// Type-erased exactly-one-block request for an isolated Mainnet test node.
+pub type ClosedMainnetMineFuture =
+    Pin<Box<dyn Future<Output = Result<ClosedMainnetMineResultV1, RpcError>> + Send + 'static>>;
+
 /// Type-erased authenticated native USDOM transfer submission.
 pub type UsdomV4TransferSubmitFuture =
     Pin<Box<dyn Future<Output = Result<UsdomV4TransferSubmissionV1, RpcError>> + Send + 'static>>;
+
+/// Type-erased authenticated finalized-deposit witness submission.
+pub type UsdomV4IssuanceSubmitFuture =
+    Pin<Box<dyn Future<Output = Result<UsdomV4IssuanceSubmissionV1, RpcError>> + Send + 'static>>;
 
 /// Type-erased authenticated candidate-V2 proof/witness submission.
 pub type UsdomV2CandidateSubmitFuture =
@@ -249,6 +308,30 @@ pub type UsdomV2CandidateSubmitFuture =
 /// call returns. Bounds how long the chain lock is held so block connection is
 /// never stalled; clients page across larger ranges.
 pub const MAX_SCAN_RANGE: u64 = 1000;
+
+/// Maximum number of authenticated large scan responses generated at once.
+/// Excess page requests are retryable and receive 503 instead of queueing.
+pub const MAX_EXPENSIVE_SCAN_INFLIGHT: usize = 2;
+
+/// Mempool pagination clones and canonically sorts the bounded live hash set;
+/// serialize it so contending requests fail retryably instead of duplicating
+/// that snapshot cost or observing a false empty pool from `try_lock`.
+pub const MAX_MEMPOOL_RPC_INFLIGHT: usize = 1;
+
+/// Public transaction admission performs consensus and cryptographic checks.
+/// Keep a small amount of parallelism without letting a submit burst occupy
+/// every async runtime worker.
+pub const MAX_TX_SUBMIT_INFLIGHT: usize = 2;
+
+/// Wallet mutations share reservation state and durable wallet storage.
+pub const MAX_WALLET_MUTATION_INFLIGHT: usize = 1;
+
+/// A regtest mining call can request up to 1,000 real blocks.
+pub const MAX_REGTEST_MINE_INFLIGHT: usize = 1;
+
+/// Canonical ancestry walks are bounded to 256 steps but cost materially more
+/// than point reads; retain limited parallelism without multiplying the walk.
+pub const MAX_ANCESTRY_RPC_INFLIGHT: usize = 2;
 
 /// Version of the wallet-safe HTTP contract.  It is intentionally independent
 /// of the consensus protocol version returned by `/status`.
@@ -352,6 +435,15 @@ pub const MAX_USDOM_V4_HISTORY_BLOCKS_V1: u64 = 16;
 /// Soft encoded-size budget for one native USDOM history page. A single
 /// canonical block is returned even when it alone exceeds this budget.
 pub const USDOM_V4_HISTORY_RESPONSE_SOFT_LIMIT_BYTES_V1: usize = 2 * 1024 * 1024;
+
+fn validate_scan_page_size(max_blocks: u64, limit: u64) -> Result<(), RpcError> {
+    if max_blocks == 0 || max_blocks > limit {
+        return Err(RpcError::InvalidScan(format!(
+            "max_blocks must be between 1 and {limit}"
+        )));
+    }
+    Ok(())
+}
 
 /// Approximate maximum encoded response size. Implementations always return at
 /// least one requested block when it exists, even when that block alone is
@@ -616,6 +708,7 @@ pub fn full_scan_block_wire_weight_v1(block: &ScanBlock) -> usize {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SpendRequest {
     /// Recipient commitment (hex-encoded 33 bytes).
     pub recipient_commitment: String,
@@ -629,6 +722,7 @@ pub struct SpendRequest {
 
 /// Public-only request for the authenticated Wallet V3 Slate sender boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WalletSlateCreateRequestV1 {
     /// Optional canonical lowercase Wallet V3 recipient address. When absent,
     /// the official Wallet V3 automatic one-time identity framing is used.
@@ -656,6 +750,7 @@ pub struct WalletSlateOfferV1 {
 
 /// Exact public Wallet V3 recipient response submitted for finalization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WalletSlateFinalizeRequestV1 {
     /// Hex encoding of canonical recovery Slate envelope bytes.
     pub canonical_response_hex: String,
@@ -674,6 +769,7 @@ pub struct WalletSlateFinalizedV1 {
 
 /// Submit authority for one exact, already-persisted Wallet V3 transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WalletSlateSubmitRequestV1 {
     /// Hex encoding of the 32-byte pending sender-record key.
     pub pending_key_hex: String,
@@ -692,6 +788,7 @@ pub struct WalletSlateSubmittedV1 {
 
 /// Authenticated regtest-only bounded mining request.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegtestMineRequestV1 {
     /// Exact number of new canonical blocks requested (1..=1000).
     pub count: u32,
@@ -708,6 +805,28 @@ pub struct RegtestMineResultV1 {
     pub block_hashes: Vec<[u8; 32]>,
 }
 
+/// Anti-replay precondition for exactly one isolated Mainnet block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClosedMainnetMineOneRequestV1 {
+    /// Height observed immediately before authorization. An empty database is
+    /// represented by height zero plus the all-zero hash.
+    pub expected_tip_height: u64,
+    /// Canonical lowercase 32-byte hexadecimal tip hash without `0x`.
+    pub expected_tip_hash: String,
+}
+
+/// Exact canonical result of one isolated Mainnet block operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClosedMainnetMineResultV1 {
+    /// Height created by the request.
+    pub height: u64,
+    /// Canonical hash stored at `height` after the operation.
+    pub block_hash: [u8; 32],
+    /// True only when the operation initialized the fixed height-zero genesis.
+    pub initialized_genesis: bool,
+}
+
 /// Exact identifiers returned after the node verifies and queues one private
 /// USDOM transfer candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -717,6 +836,69 @@ pub struct UsdomV4TransferSubmissionV1 {
     /// Identifier of the canonical single-entry mining envelope.
     pub candidate_id: [u8; 32],
 }
+
+/// Receipt for one finalized-deposit witness retained for native mining.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UsdomV4IssuanceSubmissionV1 {
+    /// Identifier of the canonical single-entry mining envelope.
+    pub candidate_id: [u8; 32],
+}
+
+/// Exact authenticated issuance pair to reconcile after an interrupted
+/// client-side receipt write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UsdomV4IssuanceStatusRequestV1 {
+    /// Exact supported request schema.
+    pub schema_version: u16,
+    /// Expected DOM network magic.
+    pub network_magic: u32,
+    /// Expected consensus chain identifier.
+    pub chain_id: [u8; 32],
+    /// Candidate identifier returned by issuance submission.
+    pub candidate_id: [u8; 32],
+    /// Public reserve deposit identifier carried by that candidate.
+    pub deposit_id: [u8; 32],
+}
+
+/// Canonical location and commitment of an exact issuance candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UsdomV4IssuanceInclusionV1 {
+    /// Canonical DOM height.
+    pub height: u64,
+    /// Canonical DOM block identifier.
+    pub block_hash: [u8; 32],
+    /// Zero-based proof-envelope transition index.
+    pub transition_index: u32,
+    /// Consensus transition commitment bound by the DOM header.
+    pub transition_commitment: [u8; 32],
+}
+
+/// Bounded, chain-pinned result for one exact candidate/deposit pair.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsdomV4IssuanceStatusV1 {
+    /// Exact response schema.
+    pub schema_version: u16,
+    /// Chain identity and tip observed under the same lock snapshot.
+    pub identity: CoreChainIdentity,
+    /// True only when the volatile pool contains this exact pair.
+    pub queued: bool,
+    /// True when canonical native state has consumed the deposit.
+    pub consumed: bool,
+    /// Commitment reconstructed from the canonical issuance record.
+    pub issuance_commitment: Option<[u8; 32]>,
+    /// Exact pair inclusion found in the bounded retained history window.
+    pub inclusion: Option<UsdomV4IssuanceInclusionV1>,
+    /// First canonical height examined for pair inclusion.
+    pub scanned_from: u64,
+    /// Last canonical height examined for pair inclusion.
+    pub scanned_to: u64,
+}
+
+/// Maximum recent canonical blocks inspected by issuance reconciliation.
+pub const MAX_USDOM_V4_ISSUANCE_STATUS_BLOCKS_V1: u64 = 256;
+
+/// Maximum raw UDOMDPW1 body accepted by the issuance submission RPC.
+pub const MAX_USDOM_V4_ISSUANCE_WITNESS_BYTES_V1: usize = 4 * 1_024 * 1_024;
 
 /// Receipt for one exact candidate-V2 proof/witness pair retained for mining.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -842,6 +1024,8 @@ pub enum RpcError {
     Rejected(String),
     #[error("overloaded: {0}")]
     Overloaded(String),
+    #[error("unsupported: {0}")]
+    Unsupported(String),
     #[error("internal: {0}")]
     Internal(String),
 }
@@ -854,7 +1038,18 @@ impl RpcError {
             }
             Self::Rejected(_) | Self::ScanReorg(_) => StatusCode::CONFLICT,
             Self::Overloaded(_) => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Unsupported(_) => StatusCode::NOT_IMPLEMENTED,
             Self::CanonicalGap(_) | Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    /// Message safe to return across the untrusted HTTP boundary.
+    fn client_message(&self) -> String {
+        match self {
+            // Internal strings may contain storage paths, parser diagnostics or
+            // backend details. Preserve them in server-side logs only.
+            Self::Internal(_) => "internal server error".to_owned(),
+            _ => self.to_string(),
         }
     }
 }
@@ -867,13 +1062,11 @@ struct ErrorResponse {
 impl IntoResponse for RpcError {
     fn into_response(self) -> Response {
         let status = self.status_code();
-        (
-            status,
-            Json(ErrorResponse {
-                error: self.to_string(),
-            }),
-        )
-            .into_response()
+        if let Self::Internal(message) = &self {
+            error!(%message, "RPC request failed internally");
+        }
+        let error = self.client_message();
+        (status, Json(ErrorResponse { error })).into_response()
     }
 }
 
@@ -886,11 +1079,18 @@ struct HealthResponse {
 struct StatusResponse {
     version: u32,
     chain_height: u64,
-    mempool_size: usize,
     network: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NodeStatusSnapshot {
+    pub chain_height: u64,
+    pub mempool_size: usize,
+    pub network: &'static str,
+}
+
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MempoolQuery {
     #[serde(default)]
     page: usize,
@@ -916,11 +1116,13 @@ struct MempoolResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SubmitTxRequest {
     tx_hex: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UsdomV4TransferSubmitRequestV1 {
     schema_version: u16,
     payload_hex: String,
@@ -936,6 +1138,24 @@ struct UsdomV4TransferSubmitResponseV1 {
 }
 
 #[derive(Debug, Serialize)]
+struct UsdomV4IssuanceSubmitResponseV1 {
+    schema_version: u16,
+    accepted: bool,
+    candidate_id: String,
+    state: &'static str,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UsdomV4IssuanceStatusRequestBodyV1 {
+    schema_version: u16,
+    expected_network_magic: u32,
+    expected_chain_id: String,
+    candidate_id: String,
+    deposit_id: String,
+}
+
+#[derive(Debug, Serialize)]
 struct UsdomV2CandidateSubmitResponseV1 {
     schema_version: u16,
     accepted: bool,
@@ -944,12 +1164,14 @@ struct UsdomV2CandidateSubmitResponseV1 {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UsdomV4TransferScanAnchorRequestV1 {
     height: u64,
     block_hash: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UsdomV4TransferScanRequestBodyV1 {
     schema_version: u16,
     expected_network_magic: u32,
@@ -961,12 +1183,14 @@ struct UsdomV4TransferScanRequestBodyV1 {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UsdomV4HistoryTrustedTipRequestV1 {
     height: u64,
     hash: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UsdomV4HistoryAnchorRequestV1 {
     height: u64,
     block_hash: String,
@@ -974,6 +1198,7 @@ struct UsdomV4HistoryAnchorRequestV1 {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UsdomV4HistoryRequestBodyV1 {
     schema_version: u16,
     expected_network_magic: u32,
@@ -983,7 +1208,6 @@ struct UsdomV4HistoryRequestBodyV1 {
     start_height: u64,
     max_blocks: u64,
     anchor: Option<UsdomV4HistoryAnchorRequestV1>,
-    #[serde(default)]
     require_checkpoint_finality: bool,
 }
 
@@ -1123,38 +1347,78 @@ use std::time::Duration;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer};
 
-pub fn router(handle: Arc<dyn NodeHandle>, bearer_token: Arc<BearerToken>) -> Router {
+pub fn router(
+    handle: Arc<dyn NodeHandle>,
+    bearer_token: Arc<BearerToken>,
+) -> Result<Router, RpcError> {
+    router_with_rate_limit_policy(
+        handle,
+        bearer_token,
+        middleware::RpcRateLimitPolicy::from_env(),
+    )
+}
+
+fn router_with_rate_limit_policy(
+    handle: Arc<dyn NodeHandle>,
+    bearer_token: Arc<BearerToken>,
+    policy: Result<middleware::RpcRateLimitPolicy, String>,
+) -> Result<Router, RpcError> {
+    let policy = policy.map_err(|error| {
+        RpcError::Internal(format!("invalid RPC rate-limit configuration: {error}"))
+    })?;
     let standard_body_limit = RequestBodyLimitLayer::new(1_024_000);
     let usdom_v2_candidate_body_limit =
         RequestBodyLimitLayer::new(MAX_USDOM_V2_CANDIDATE_RPC_BODY_BYTES_V1);
+    let usdom_v4_issuance_body_limit =
+        RequestBodyLimitLayer::new(MAX_USDOM_V4_ISSUANCE_WITNESS_BYTES_V1);
     let timeout = TimeoutLayer::new(Duration::from_secs(30));
+    let usdom_v4_issuance_timeout = TimeoutLayer::new(Duration::from_secs(120));
+    let closed_mainnet_mine_timeout = TimeoutLayer::new(Duration::from_secs(4 * 60 * 60));
 
-    let rate_limit_read = middleware::rate_limit_read();
-    let rate_limit_auth_read = middleware::rate_limit_read();
-    let rate_limit_submit = middleware::rate_limit_submit();
-    let rate_limit_wallet_spend = middleware::rate_limit_submit();
-    let rate_limit_wallet_slate_create = middleware::rate_limit_submit();
-    let rate_limit_wallet_slate_finalize = middleware::rate_limit_submit();
-    let rate_limit_wallet_slate_submit = middleware::rate_limit_submit();
-    let rate_limit_regtest_mine = middleware::rate_limit_submit();
-    let rate_limit_usdom_transfer_submit = middleware::rate_limit_submit();
-    let rate_limit_usdom_transfer_scan = middleware::rate_limit_read();
-    let rate_limit_usdom_burn_submit = middleware::rate_limit_submit();
-    let rate_limit_usdom_v2_candidate_submit = middleware::rate_limit_submit();
-    let rate_limit_usdom_burn_scan = middleware::rate_limit_read();
-    let rate_limit_usdom_history_scan = middleware::rate_limit_read();
+    let rate_limit_read = middleware::rate_limit_read(policy.read_burst);
+    let rate_limit_ancestry = middleware::rate_limit_read(policy.read_burst);
+    let rate_limit_auth_read = middleware::rate_limit_read(policy.read_burst);
+    let rate_limit_mempool = middleware::rate_limit_read(policy.read_burst);
+    let rate_limit_expensive_scan = middleware::rate_limit_read(policy.read_burst);
+    let rate_limit_submit = middleware::rate_limit_submit(policy.submit_burst);
+    let rate_limit_wallet_mutation = middleware::rate_limit_submit(policy.submit_burst);
+    let rate_limit_regtest_mine = middleware::rate_limit_submit(policy.submit_burst);
+    let rate_limit_closed_mainnet_mine = middleware::rate_limit_submit(policy.submit_burst);
+    let rate_limit_usdom_private_submit = middleware::rate_limit_submit(policy.submit_burst);
+    let rate_limit_usdom_issuance_submit = middleware::rate_limit_submit(policy.submit_burst);
+    let rate_limit_usdom_v2_candidate_submit = middleware::rate_limit_submit(policy.submit_burst);
 
     let public_routes = Router::new()
         .route("/status", get(status))
         .route("/chain/identity", get(chain_identity_handler))
-        .route("/chain/ancestry", get(chain_ancestry_handler))
         .route("/block/:height_or_hash", get(get_block))
         .route("/utxo/:commitment", get(get_utxo))
         .route("/kernel/:excess", get(get_kernel))
+        // Browser access is useful for already-public chain data. Keep CORS
+        // scoped to these GET routes; authenticated and mutating routes never
+        // expose the bearer credential surface cross-origin.
+        .layer(axum::middleware::from_fn(
+            middleware::public_get_cors_middleware,
+        ))
         .layer(rate_limit_read);
+
+    let public_ancestry_routes = Router::new()
+        .route("/chain/ancestry", get(chain_ancestry_handler))
+        .layer(axum::middleware::from_fn(
+            middleware::public_get_cors_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(MAX_ANCESTRY_RPC_INFLIGHT)),
+            middleware::require_inflight_capacity,
+        ))
+        .layer(rate_limit_ancestry);
 
     let submit_route = Router::new()
         .route("/tx/submit", post(submit_tx))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(MAX_TX_SUBMIT_INFLIGHT)),
+            middleware::require_inflight_capacity,
+        ))
         .layer(rate_limit_submit);
 
     // `/mempool` and `/tx/:tx_hash` are authenticated, not public. They are the
@@ -1170,73 +1434,155 @@ pub fn router(handle: Arc<dyn NodeHandle>, bearer_token: Arc<BearerToken>) -> Ro
     // by syncing; withholding it would buy nothing. The line is drawn at
     // unconfirmed state, not at chain state.
     let auth_read_routes = Router::new()
-        .route("/mempool", get(mempool))
+        .route("/peers", get(get_peers_handler))
         .route("/tx/:tx_hash", get(get_tx))
         .route("/wallet/balance", get(wallet_balance_handler))
-        .route("/chain/scan", get(chain_scan_handler))
-        .route("/chain/scan/scriptless/v1", get(chain_scan_full_v1_handler))
         .route("/build-info", get(build_info_handler))
         .route("/shutdown", post(shutdown_handler))
         .layer(rate_limit_auth_read);
 
+    let mempool_routes = Router::new()
+        .route("/mempool", get(mempool))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(MAX_MEMPOOL_RPC_INFLIGHT)),
+            middleware::require_inflight_capacity,
+        ))
+        .layer(rate_limit_mempool);
+
+    let expensive_scan_routes = Router::new()
+        .route("/chain/scan", get(chain_scan_handler))
+        .route("/chain/scan/scriptless/v1", get(chain_scan_full_v1_handler))
+        .route(
+            "/usdom/v4/transfer/scan/v1",
+            post(usdom_v4_transfer_scan_v1_handler),
+        )
+        .route(
+            "/usdom/v4/burn/scan/v1",
+            post(usdom_v4_burn_scan_v1_handler),
+        )
+        .route(
+            "/usdom/v4/history/scan/v1",
+            post(usdom_v4_history_scan_v1_handler),
+        )
+        .route(
+            "/usdom/v4/issuance/status/v1",
+            post(usdom_v4_issuance_status_v1_handler),
+        )
+        // Scanner requests are page-retryable. Reject excess work before a
+        // chain snapshot or multi-megabyte response is generated rather than
+        // retaining an unbounded queue behind a concurrency semaphore.
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(MAX_EXPENSIVE_SCAN_INFLIGHT)),
+            middleware::require_inflight_capacity,
+        ))
+        .layer(rate_limit_expensive_scan);
+
     let usdom_v2_candidate_routes = Router::new()
         .route(
             "/usdom/v2/candidate/submit/v1",
-            post(usdom_v2_candidate_submit_v1_handler).layer(rate_limit_usdom_v2_candidate_submit),
+            post(usdom_v2_candidate_submit_v1_handler),
         )
         // Native V2 admission is deliberately serialized by its consensus
         // runtime. Apply matching HTTP backpressure before buffering another
         // consensus-sized request in the handler.
         .layer(ConcurrencyLimitLayer::new(1))
         .layer(usdom_v2_candidate_body_limit)
+        // Reject excess source traffic before it can wait on the serialized
+        // proof-verification permit.
+        .layer(rate_limit_usdom_v2_candidate_submit)
         .route_layer(axum::middleware::from_fn_with_state(
             Arc::clone(&bearer_token),
             middleware::require_bearer_token,
         ));
 
-    let auth_routes = Router::new()
-        .route("/peers", get(get_peers_handler))
-        .merge(auth_read_routes)
+    let usdom_v4_issuance_routes = Router::new()
         .route(
-            "/wallet/spend",
-            post(wallet_spend_handler).layer(rate_limit_wallet_spend),
+            "/usdom/v4/issuance/submit/v1",
+            post(usdom_v4_issuance_submit_v1_handler),
         )
-        .route(
-            "/wallet/slate/v1/create",
-            post(wallet_slate_create_v1_handler).layer(rate_limit_wallet_slate_create),
-        )
-        .route(
-            "/wallet/slate/v1/finalize",
-            post(wallet_slate_finalize_v1_handler).layer(rate_limit_wallet_slate_finalize),
-        )
-        .route(
-            "/wallet/slate/v1/submit",
-            post(wallet_slate_submit_v1_handler).layer(rate_limit_wallet_slate_submit),
-        )
-        .route(
-            "/regtest/mine/v1",
-            post(regtest_mine_v1_handler).layer(rate_limit_regtest_mine),
-        )
+        // Finality verification is CPU-intensive. Keep a second consensus-sized
+        // body outside the handler until the first admission has completed.
+        .layer(ConcurrencyLimitLayer::new(1))
+        .layer(usdom_v4_issuance_body_limit)
+        .layer(usdom_v4_issuance_timeout)
+        .layer(rate_limit_usdom_issuance_submit)
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&bearer_token),
+            middleware::require_bearer_token,
+        ));
+
+    let usdom_v4_private_submit_routes = Router::new()
         .route(
             "/usdom/v4/transfer/submit/v1",
-            post(usdom_v4_transfer_submit_v1_handler).layer(rate_limit_usdom_transfer_submit),
-        )
-        .route(
-            "/usdom/v4/transfer/scan/v1",
-            post(usdom_v4_transfer_scan_v1_handler).layer(rate_limit_usdom_transfer_scan),
+            post(usdom_v4_transfer_submit_v1_handler),
         )
         .route(
             "/usdom/v4/burn/submit/v1",
-            post(usdom_v4_burn_submit_v1_handler).layer(rate_limit_usdom_burn_submit),
+            post(usdom_v4_burn_submit_v1_handler),
+        )
+        // Transfer and burn share the same proof-verifying native runtime.
+        // Apply backpressure before JSON decoding and runtime-lock queuing so
+        // concurrent authenticated submissions cannot accumulate proof-sized
+        // request buffers while one Groth16 verification is in progress.
+        .layer(ConcurrencyLimitLayer::new(1))
+        // Transfer and burn share the same verifier and therefore the same
+        // admission bucket. Apply it before the serialized work queue.
+        .layer(rate_limit_usdom_private_submit)
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&bearer_token),
+            middleware::require_bearer_token,
+        ));
+
+    let closed_mainnet_mine_routes = Router::new()
+        .route(
+            "/closed-mainnet/mine-one/v1",
+            post(closed_mainnet_mine_one_v1_handler),
+        )
+        // A Mainnet RandomX block can legitimately exceed the ordinary RPC
+        // timeout. Only one authenticated request may hold this capability.
+        .layer(ConcurrencyLimitLayer::new(1))
+        .layer(RequestBodyLimitLayer::new(4_096))
+        .layer(closed_mainnet_mine_timeout)
+        .layer(rate_limit_closed_mainnet_mine)
+        .route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&bearer_token),
+            middleware::require_bearer_token,
+        ));
+
+    let wallet_mutation_routes = Router::new()
+        .route("/wallet/spend", post(wallet_spend_handler))
+        .route(
+            "/wallet/slate/v1/create",
+            post(wallet_slate_create_v1_handler),
         )
         .route(
-            "/usdom/v4/burn/scan/v1",
-            post(usdom_v4_burn_scan_v1_handler).layer(rate_limit_usdom_burn_scan),
+            "/wallet/slate/v1/finalize",
+            post(wallet_slate_finalize_v1_handler),
         )
         .route(
-            "/usdom/v4/history/scan/v1",
-            post(usdom_v4_history_scan_v1_handler).layer(rate_limit_usdom_history_scan),
+            "/wallet/slate/v1/submit",
+            post(wallet_slate_submit_v1_handler),
         )
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(MAX_WALLET_MUTATION_INFLIGHT)),
+            middleware::require_inflight_capacity,
+        ))
+        .layer(rate_limit_wallet_mutation);
+
+    let regtest_mine_routes = Router::new()
+        .route("/regtest/mine/v1", post(regtest_mine_v1_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(MAX_REGTEST_MINE_INFLIGHT)),
+            middleware::require_inflight_capacity,
+        ))
+        .layer(rate_limit_regtest_mine);
+
+    let auth_routes = Router::new()
+        .merge(auth_read_routes)
+        .merge(mempool_routes)
+        .merge(expensive_scan_routes)
+        .merge(wallet_mutation_routes)
+        .merge(regtest_mine_routes)
         .route_layer(axum::middleware::from_fn_with_state(
             bearer_token,
             middleware::require_bearer_token,
@@ -1245,16 +1591,22 @@ pub fn router(handle: Arc<dyn NodeHandle>, bearer_token: Arc<BearerToken>) -> Ro
     let standard_routes = Router::new()
         .route("/health", get(health))
         .merge(public_routes)
+        .merge(public_ancestry_routes)
         .merge(submit_route)
         .merge(auth_routes)
+        .merge(usdom_v4_private_submit_routes)
         .layer(standard_body_limit);
 
-    Router::new()
+    let ordinary_routes = Router::new()
         .merge(standard_routes)
         .merge(usdom_v2_candidate_routes)
-        .layer(axum::middleware::from_fn(middleware::cors_middleware))
-        .layer(timeout)
-        .with_state(handle)
+        .layer(timeout);
+
+    Ok(Router::new()
+        .merge(ordinary_routes)
+        .merge(usdom_v4_issuance_routes)
+        .merge(closed_mainnet_mine_routes)
+        .with_state(handle))
 }
 
 async fn get_peers_handler(State(handle): State<Arc<dyn NodeHandle>>) -> Json<Vec<PeerInfo>> {
@@ -1296,9 +1648,24 @@ async fn shutdown_signal() {
 /// (EADDRINUSE, permission, etc.) before spawning the accept loop in
 /// a detached task. The caller passes the returned listener to `serve`.
 pub async fn bind(addr: SocketAddr) -> Result<tokio::net::TcpListener, RpcError> {
+    validate_rpc_listen_addr(addr)?;
     tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| RpcError::Internal(format!("failed to bind {addr}: {e}")))
+}
+
+/// RPC carries a reusable bearer credential and intentionally provides no
+/// native TLS endpoint. Keep the underlying HTTP transport on loopback for all
+/// callers, including embedders that bypass `dom-node` startup configuration.
+/// Remote operators must terminate authenticated TLS outside this process and
+/// connect that narrowly scoped proxy to loopback.
+fn validate_rpc_listen_addr(addr: SocketAddr) -> Result<(), RpcError> {
+    if !addr.ip().is_loopback() {
+        return Err(RpcError::Rejected(
+            "RPC HTTP transport must bind to a loopback address".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Run the RPC accept loop on an already-bound listener.
@@ -1339,23 +1706,41 @@ pub async fn serve_with_token_until_shutdown<F>(
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let token_str = token::get_or_create_token_with_config(configured_token.as_deref())
-        .map_err(|e| RpcError::Internal(format!("failed to init token: {e}")))?;
-    let bearer_token = Arc::new(BearerToken(token_str));
-
     let local = listener
         .local_addr()
         .map_err(|e| RpcError::Internal(format!("local_addr: {e}")))?;
+    // `serve*` is public and callers can construct a Tokio listener without
+    // using `dom_rpc::bind`. Recheck the actual bound socket before reading or
+    // generating a credential and before entering the accept loop.
+    validate_rpc_listen_addr(local)?;
+
+    // Consume the configured allocation directly: cloning it here would keep
+    // two secret buffers alive for the entire server future. BearerToken owns
+    // the validated allocation and zeroizes it when graceful shutdown drops
+    // the router; the helper also zeroizes malformed configured material.
+    let token_str = token::take_or_create_token_with_config(configured_token)
+        .map_err(|e| RpcError::Internal(format!("failed to init token: {e}")))?;
+    let bearer_token = Arc::new(BearerToken(token_str));
+
     info!("RPC server listening on {local}");
 
-    // SmartIpKeyExtractor (used by tower_governor rate limit middleware) requires
+    // PeerIpKeyExtractor (used by tower_governor rate limit middleware) requires
     // ConnectInfo<SocketAddr> to be present in the request extensions. Default
     // axum::serve doesn't inject it. Use into_make_service_with_connect_info to
-    // wire the peer SocketAddr through. Without this, every rate-limited route
-    // returns 500 "Unable To Extract Key!".
+    // wire the observed TCP peer through. Forwarding headers are deliberately
+    // ignored because this listener has no trusted-proxy allowlist; accepting
+    // them would let a direct client evade limits by inventing source IPs.
+    let service = router(handle, bearer_token)?
+        .layer(axum::middleware::from_fn(
+            middleware::require_canonical_http_framing,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            local,
+            middleware::require_listener_host,
+        ));
     axum::serve(
         listener,
-        router(handle, bearer_token).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        service.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown)
     .await
@@ -1369,13 +1754,15 @@ async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
 }
 
-async fn status(State(handle): State<Arc<dyn NodeHandle>>) -> Json<StatusResponse> {
-    Json(StatusResponse {
+async fn status(
+    State(handle): State<Arc<dyn NodeHandle>>,
+) -> Result<Json<StatusResponse>, RpcError> {
+    let snapshot = handle.status_snapshot()?;
+    Ok(Json(StatusResponse {
         version: WIRE_PROTOCOL_VERSION,
-        chain_height: handle.chain_height(),
-        mempool_size: handle.mempool_size(),
-        network: handle.network(),
-    })
+        chain_height: snapshot.chain_height,
+        network: snapshot.network,
+    }))
 }
 
 async fn mempool(
@@ -1453,10 +1840,7 @@ async fn submit_tx(
             let warning = if admission.state == TxAdmissionState::Confirmed || admission.relayed {
                 None
             } else {
-                info!(
-                    "submit_tx: accepted tx {} but not relayed (no peers connected)",
-                    hex::encode(admission.tx_hash)
-                );
+                info!("submit_tx: accepted transaction but no relay peer was available");
                 Some(WARN_ACCEPTED_NOT_RELAYED.to_owned())
             };
             (
@@ -1543,6 +1927,115 @@ async fn usdom_v4_private_submit_v1_response(
     }
 }
 
+async fn usdom_v4_issuance_submit_v1_handler(
+    State(handle): State<Arc<dyn NodeHandle>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        != Some("application/octet-stream")
+    {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "native USDOM issuance requests require application/octet-stream",
+        )
+            .into_response();
+    }
+    if body.is_empty() {
+        return RpcError::InvalidTx("native USDOM issuance witness must not be empty".into())
+            .into_response();
+    }
+    match handle
+        .submit_usdom_v4_issuance_witness_v1(body.to_vec())
+        .await
+    {
+        Ok(submission) => (
+            StatusCode::OK,
+            Json(UsdomV4IssuanceSubmitResponseV1 {
+                schema_version: 1,
+                accepted: true,
+                candidate_id: hex::encode(submission.candidate_id),
+                state: "queued",
+            }),
+        )
+            .into_response(),
+        Err(error) => {
+            warn!("native USDOM issuance submission failed: {error}");
+            error.into_response()
+        }
+    }
+}
+
+async fn usdom_v4_issuance_status_v1_handler(
+    State(handle): State<Arc<dyn NodeHandle>>,
+    Json(request): Json<UsdomV4IssuanceStatusRequestBodyV1>,
+) -> Response {
+    if request.schema_version != 1 {
+        return RpcError::InvalidScan(format!(
+            "unsupported native USDOM issuance-status schema {}",
+            request.schema_version
+        ))
+        .into_response();
+    }
+    let chain_id =
+        match parse_canonical_nonzero_hash_hex("expected_chain_id", &request.expected_chain_id) {
+            Ok(value) => value,
+            Err(error) => return error.into_response(),
+        };
+    let candidate_id = match parse_canonical_nonzero_hash_hex("candidate_id", &request.candidate_id)
+    {
+        Ok(value) => value,
+        Err(error) => return error.into_response(),
+    };
+    let deposit_id = match parse_canonical_nonzero_hash_hex("deposit_id", &request.deposit_id) {
+        Ok(value) => value,
+        Err(error) => return error.into_response(),
+    };
+    let result = match handle.usdom_v4_issuance_status_v1(UsdomV4IssuanceStatusRequestV1 {
+        schema_version: request.schema_version,
+        network_magic: request.expected_network_magic,
+        chain_id,
+        candidate_id,
+        deposit_id,
+    }) {
+        Ok(result) => result,
+        Err(error) => return error.into_response(),
+    };
+    let inclusion = result.inclusion.map(|value| {
+        serde_json::json!({
+            "height": value.height,
+            "block_hash": hex::encode(value.block_hash),
+            "transition_index": value.transition_index,
+            "transition_commitment": hex::encode(value.transition_commitment),
+        })
+    });
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "schema_version": result.schema_version,
+            "identity": {
+                "network": result.identity.network.as_str(),
+                "network_magic": result.identity.network_magic,
+                "chain_id": hex::encode(result.identity.chain_id),
+                "genesis_hash": hex::encode(result.identity.genesis_hash),
+                "tip_height": result.identity.current_tip.height,
+                "tip_hash": hex::encode(result.identity.current_tip.hash),
+            },
+            "candidate_id": hex::encode(candidate_id),
+            "deposit_id": hex::encode(deposit_id),
+            "queued": result.queued,
+            "consumed": result.consumed,
+            "issuance_commitment": result.issuance_commitment.map(hex::encode),
+            "inclusion": inclusion,
+            "scanned_from": result.scanned_from,
+            "scanned_to": result.scanned_to,
+        })),
+    )
+        .into_response()
+}
+
 async fn usdom_v2_candidate_submit_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
     headers: HeaderMap,
@@ -1614,6 +2107,10 @@ async fn usdom_v4_history_scan_v1_handler(
             request.schema_version
         ))
         .into_response();
+    }
+    if let Err(error) = validate_scan_page_size(request.max_blocks, MAX_USDOM_V4_HISTORY_BLOCKS_V1)
+    {
+        return error.into_response();
     }
     let chain_id =
         match parse_canonical_nonzero_hash_hex("expected_chain_id", &request.expected_chain_id) {
@@ -1752,6 +2249,11 @@ fn usdom_v4_private_scan_v1_response(
             request.schema_version
         ))
         .into_response();
+    }
+    if let Err(error) =
+        validate_scan_page_size(request.max_blocks, MAX_USDOM_V4_TRANSFER_SCAN_BLOCKS_V1)
+    {
+        return error.into_response();
     }
     let chain_id = match parse_hash_hex(&request.expected_chain_id) {
         Ok(value) => value,
@@ -1996,6 +2498,7 @@ async fn get_kernel(
 
 fn submit_error(err: RpcError) -> (StatusCode, Json<SubmitTxResponse>) {
     let status = err.status_code();
+    let error = err.client_message();
     (
         status,
         Json(SubmitTxResponse {
@@ -2006,7 +2509,7 @@ fn submit_error(err: RpcError) -> (StatusCode, Json<SubmitTxResponse>) {
             already_known: false,
             confirmed: false,
             warning: None,
-            error: Some(err.to_string()),
+            error: Some(error),
         }),
     )
 }
@@ -2047,6 +2550,7 @@ async fn wallet_balance_handler(State(handle): State<Arc<dyn NodeHandle>>) -> im
 
 /// Query for `/chain/scan?from=<u64>&to=<u64>`.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ScanQuery {
     from: u64,
     to: u64,
@@ -2115,6 +2619,7 @@ struct ChainScanResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FullScanQueryV1 {
     from: u64,
     to: u64,
@@ -2422,7 +2927,18 @@ async fn chain_scan_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
     Query(q): Query<ScanQuery>,
 ) -> impl IntoResponse {
-    match handle.scan_chain(q.from, q.to) {
+    // Apply the documented clamp at the untrusted HTTP boundary.  A custom
+    // NodeHandle must never receive an attacker-selected u64-wide range and
+    // accidentally turn one RPC into a full-chain walk. Preserve the existing
+    // `from > to` empty-range request for wallet clients probing beyond tip.
+    let bounded_to = if q.from > q.to {
+        q.to
+    } else {
+        q.from
+            .saturating_add(MAX_SCAN_RANGE.saturating_sub(1))
+            .min(q.to)
+    };
+    match handle.scan_chain(q.from, bounded_to) {
         Ok(scan) => {
             let blocks = scan
                 .blocks
@@ -2510,6 +3026,19 @@ async fn wallet_spend_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
     Json(req): Json<SpendRequest>,
 ) -> impl IntoResponse {
+    // This one-message legacy flow can reserve and admit a transaction before
+    // its HTTP response reaches the caller, but it has no client-supplied
+    // replay key with which to recover that exact result after a lost reply.
+    // Keep it as a Regtest convenience only. Public networks must use the
+    // persisted Slate create/finalize/submit protocol, whose pending key and
+    // expected transaction hash make retries exact across restarts.
+    if handle.network() != "regtest" {
+        return RpcError::Rejected(
+            "legacy wallet spend is restricted to regtest; use the recoverable Slate v1 flow"
+                .into(),
+        )
+        .into_response();
+    }
     match handle.wallet_spend(req) {
         Ok(tx_hash) => (
             StatusCode::OK,
@@ -2615,10 +3144,36 @@ async fn regtest_mine_v1_handler(
     }
 }
 
+async fn closed_mainnet_mine_one_v1_handler(
+    State(handle): State<Arc<dyn NodeHandle>>,
+    Json(request): Json<ClosedMainnetMineOneRequestV1>,
+) -> impl IntoResponse {
+    match handle.closed_mainnet_mine_one_v1(request).await {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "schema_version": 1,
+                "height": result.height,
+                "block_hash": hex::encode(result.block_hash),
+                "initialized_genesis": result.initialized_genesis,
+                "count": 1,
+            })),
+        )
+            .into_response(),
+        Err(error) => {
+            warn!("closed Mainnet single-block error: {error}");
+            error.into_response()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::Body, http::Request};
+    use axum::{
+        body::Body,
+        http::{header, Request},
+    };
     use dom_core::PROTOCOL_VERSION;
     use http_body_util::BodyExt;
     use serde_json::Value;
@@ -2630,7 +3185,153 @@ mod tests {
         },
         time::Duration,
     };
+
+    #[test]
+    fn scan_page_size_is_nonzero_and_bounded_before_backend_work() {
+        assert!(validate_scan_page_size(1, 16).is_ok());
+        assert!(validate_scan_page_size(16, 16).is_ok());
+        assert!(matches!(
+            validate_scan_page_size(0, 16),
+            Err(RpcError::InvalidScan(_))
+        ));
+        assert!(matches!(
+            validate_scan_page_size(17, 16),
+            Err(RpcError::InvalidScan(_))
+        ));
+    }
+
+    #[test]
+    fn mutation_requests_reject_unbound_idempotency_or_precondition_fields() {
+        let private = serde_json::from_value::<UsdomV4TransferSubmitRequestV1>(serde_json::json!({
+            "schema_version": 1,
+            "payload_hex": "00",
+            "request_id": "silently-ignored-before-etapa930"
+        }));
+        assert!(private.is_err());
+
+        let submit = serde_json::from_value::<SubmitTxRequest>(serde_json::json!({
+            "tx_hex": "00",
+            "expected_tip_hash": "00"
+        }));
+        assert!(submit.is_err());
+
+        let slate = serde_json::from_value::<WalletSlateSubmitRequestV1>(serde_json::json!({
+            "pending_key_hex": "00",
+            "expected_transaction_hash_hex": "00",
+            "request_id": "not-part-of-the-signed-slate"
+        }));
+        assert!(slate.is_err());
+    }
+
+    #[test]
+    fn native_usdom_read_requests_reject_unknown_fields_and_missing_policy_flags() {
+        let transfer =
+            serde_json::from_value::<UsdomV4TransferScanRequestBodyV1>(serde_json::json!({
+                "schema_version": 1,
+                "expected_network_magic": 1,
+                "expected_chain_id": "00",
+                "transition_id": "00",
+                "start_height": 1,
+                "max_blocks": 1,
+                "anchor": null,
+                "future_policy": true
+            }));
+        assert!(transfer.is_err());
+
+        let missing_finality =
+            serde_json::from_value::<UsdomV4HistoryRequestBodyV1>(serde_json::json!({
+                "schema_version": 1,
+                "expected_network_magic": 1,
+                "expected_chain_id": "00",
+                "expected_dom_domain": "00",
+                "trusted_tip": {"height": 1, "hash": "00"},
+                "start_height": 1,
+                "max_blocks": 1,
+                "anchor": null
+            }));
+        assert!(missing_finality.is_err());
+
+        let unknown_nested =
+            serde_json::from_value::<UsdomV4HistoryRequestBodyV1>(serde_json::json!({
+                "schema_version": 1,
+                "expected_network_magic": 1,
+                "expected_chain_id": "00",
+                "expected_dom_domain": "00",
+                "trusted_tip": {"height": 1, "hash": "00", "future": 2},
+                "start_height": 1,
+                "max_blocks": 1,
+                "anchor": null,
+                "require_checkpoint_finality": true
+            }));
+        assert!(unknown_nested.is_err());
+    }
     use tower::ServiceExt;
+
+    #[test]
+    fn rpc_http_transport_accepts_only_loopback_listeners() {
+        assert!(validate_rpc_listen_addr("127.0.0.1:3370".parse().unwrap()).is_ok());
+        assert!(validate_rpc_listen_addr("[::1]:3370".parse().unwrap()).is_ok());
+        assert!(matches!(
+            validate_rpc_listen_addr("0.0.0.0:3370".parse().unwrap()),
+            Err(RpcError::Rejected(_))
+        ));
+        assert!(matches!(
+            validate_rpc_listen_addr("192.0.2.1:3370".parse().unwrap()),
+            Err(RpcError::Rejected(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn serve_rejects_a_prebound_non_loopback_listener() {
+        // Bypass `dom_rpc::bind` exactly as an embedder can. The serve boundary
+        // must independently reject the listener before token initialization.
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+        let result = serve_with_token_until_shutdown(
+            Arc::new(MockNode::new(42)),
+            listener,
+            Some("x".repeat(64)),
+            std::future::pending(),
+        )
+        .await;
+        assert!(matches!(result, Err(RpcError::Rejected(_))));
+    }
+
+    #[tokio::test]
+    async fn cors_is_limited_to_public_get_routes() {
+        let public = app()
+            .oneshot(
+                Request::builder()
+                    .uri("/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(public.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+        assert_eq!(
+            public.headers()[header::ACCESS_CONTROL_ALLOW_METHODS],
+            "GET"
+        );
+        assert!(!public
+            .headers()
+            .contains_key(header::ACCESS_CONTROL_ALLOW_HEADERS));
+        assert_eq!(public.headers()[header::CACHE_CONTROL], "no-store");
+
+        let authenticated = app()
+            .oneshot(
+                Request::builder()
+                    .uri("/mempool")
+                    .header(header::AUTHORIZATION, "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(!authenticated
+            .headers()
+            .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+        assert_eq!(authenticated.headers()[header::CACHE_CONTROL], "no-store");
+    }
 
     struct MockNode {
         height: u64,
@@ -2887,6 +3588,23 @@ mod tests {
             })
         }
 
+        fn closed_mainnet_mine_one_v1(
+            &self,
+            request: ClosedMainnetMineOneRequestV1,
+        ) -> ClosedMainnetMineFuture {
+            Box::pin(async move {
+                if request.expected_tip_height != 42 || request.expected_tip_hash != "11".repeat(32)
+                {
+                    return Err(RpcError::Rejected("unexpected test tip".into()));
+                }
+                Ok(ClosedMainnetMineResultV1 {
+                    height: 43,
+                    block_hash: [0x22; 32],
+                    initialized_genesis: false,
+                })
+            })
+        }
+
         fn submit_usdom_v4_private_transfer_v1(
             &self,
             payload: Vec<u8>,
@@ -2911,6 +3629,67 @@ mod tests {
                     transition_id: [0x65; 32],
                     candidate_id: [0x76; 32],
                 })
+            })
+        }
+
+        fn submit_usdom_v4_issuance_witness_v1(
+            &self,
+            witness: Vec<u8>,
+        ) -> UsdomV4IssuanceSubmitFuture {
+            Box::pin(async move {
+                if witness != [7, 8, 9] {
+                    return Err(RpcError::Rejected(
+                        "unexpected test issuance witness".into(),
+                    ));
+                }
+                Ok(UsdomV4IssuanceSubmissionV1 {
+                    candidate_id: [0x46; 32],
+                })
+            })
+        }
+
+        fn usdom_v4_issuance_status_v1(
+            &self,
+            request: UsdomV4IssuanceStatusRequestV1,
+        ) -> Result<UsdomV4IssuanceStatusV1, RpcError> {
+            use dom_wallet_core_api::{BlockRef, CoreNetwork};
+
+            if request.schema_version != 1
+                || request.network_magic != 0xd0_4d_00_04
+                || request.chain_id != [0x21; 32]
+                || request.candidate_id != [0x46; 32]
+                || request.deposit_id != [0x47; 32]
+            {
+                return Err(RpcError::Rejected(
+                    "unexpected test issuance-status request".into(),
+                ));
+            }
+            Ok(UsdomV4IssuanceStatusV1 {
+                schema_version: 1,
+                identity: CoreChainIdentity {
+                    network: CoreNetwork::Regtest,
+                    network_magic: request.network_magic,
+                    chain_id: request.chain_id,
+                    genesis_hash: [0x22; 32],
+                    protocol_version: 4,
+                    range_proof_serialization_version: 2,
+                    coinbase_maturity: 1_000,
+                    current_tip: BlockRef {
+                        height: 12,
+                        hash: [0x77; 32],
+                    },
+                },
+                queued: true,
+                consumed: true,
+                issuance_commitment: Some([0x88; 32]),
+                inclusion: Some(UsdomV4IssuanceInclusionV1 {
+                    height: 12,
+                    block_hash: [0x77; 32],
+                    transition_index: 2,
+                    transition_commitment: [0x88; 32],
+                }),
+                scanned_from: 1,
+                scanned_to: 12,
             })
         }
 
@@ -3149,12 +3928,30 @@ mod tests {
 
     fn app() -> Router {
         let token = Arc::new(middleware::BearerToken("test-token".to_string()));
-        router(Arc::new(MockNode::new(42)), token)
+        router(Arc::new(MockNode::new(42)), token).expect("valid test RPC policy")
     }
 
     fn app_with<N: NodeHandle>(node: N) -> Router {
         let token = Arc::new(middleware::BearerToken("test-token".to_string()));
-        router(Arc::new(node), token)
+        router(Arc::new(node), token).expect("valid test RPC policy")
+    }
+
+    #[test]
+    fn router_returns_typed_error_for_invalid_rate_limit_policy() {
+        let token = Arc::new(middleware::BearerToken("test-token".to_string()));
+        let result = router_with_rate_limit_policy(
+            Arc::new(MockNode::new(42)),
+            token,
+            Err("DOM_RPC_RATELIMIT_SUBMIT must be between 1 and 1000".to_owned()),
+        );
+        match result {
+            Err(RpcError::Internal(message)) => {
+                assert!(message.contains("invalid RPC rate-limit configuration"));
+                assert!(message.contains("DOM_RPC_RATELIMIT_SUBMIT"));
+            }
+            Err(other) => panic!("unexpected error: {other}"),
+            Ok(_) => panic!("invalid rate-limit policy constructed a router"),
+        }
     }
 
     #[tokio::test]
@@ -3232,6 +4029,202 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+    }
+
+    #[tokio::test]
+    async fn usdom_issuance_submission_is_authenticated_binary_and_exact() {
+        let unauthorized = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/submit/v1")
+                    .header("content-type", "application/octet-stream")
+                    .body(Body::from(vec![7, 8, 9]))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let wrong_media = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/submit/v1")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(vec![7, 8, 9]))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(wrong_media.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+        let empty = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/submit/v1")
+                    .header("content-type", "application/octet-stream")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(empty.status(), StatusCode::BAD_REQUEST);
+
+        let accepted = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/submit/v1")
+                    .header("content-type", "application/octet-stream")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(vec![7, 8, 9]))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(accepted.status(), StatusCode::OK);
+        assert_eq!(
+            body_json(accepted).await,
+            serde_json::json!({
+                "schema_version": 1,
+                "accepted": true,
+                "candidate_id": "46".repeat(32),
+                "state": "queued"
+            })
+        );
+
+        let oversized = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/submit/v1")
+                    .header("content-type", "application/octet-stream")
+                    .header("authorization", "Bearer test-token")
+                    .header(
+                        "content-length",
+                        (MAX_USDOM_V4_ISSUANCE_WITNESS_BYTES_V1 + 1).to_string(),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn usdom_issuance_status_is_authenticated_chain_pinned_and_exact() {
+        let exact_body = serde_json::json!({
+            "schema_version": 1,
+            "expected_network_magic": 0xd0_4d_00_04_u32,
+            "expected_chain_id": "21".repeat(32),
+            "candidate_id": "46".repeat(32),
+            "deposit_id": "47".repeat(32),
+        });
+        let unauthorized = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/status/v1")
+                    .header("content-type", "application/json")
+                    .body(Body::from(exact_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/status/v1")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(exact_body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            body_json(response).await,
+            serde_json::json!({
+                "schema_version": 1,
+                "identity": {
+                    "network": "regtest",
+                    "network_magic": 0xd0_4d_00_04_u32,
+                    "chain_id": "21".repeat(32),
+                    "genesis_hash": "22".repeat(32),
+                    "tip_height": 12,
+                    "tip_hash": "77".repeat(32),
+                },
+                "candidate_id": "46".repeat(32),
+                "deposit_id": "47".repeat(32),
+                "queued": true,
+                "consumed": true,
+                "issuance_commitment": "88".repeat(32),
+                "inclusion": {
+                    "height": 12,
+                    "block_hash": "77".repeat(32),
+                    "transition_index": 2,
+                    "transition_commitment": "88".repeat(32),
+                },
+                "scanned_from": 1,
+                "scanned_to": 12,
+            })
+        );
+
+        let mut unknown = exact_body.clone();
+        unknown["unexpected"] = serde_json::json!(true);
+        let unknown_response = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/status/v1")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(unknown.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(unknown_response.status().is_client_error());
+
+        for invalid_body in [
+            serde_json::json!({
+                "schema_version": 1,
+                "expected_network_magic": 0xd0_4d_00_04_u32,
+                "expected_chain_id": "AB".repeat(32),
+                "candidate_id": "46".repeat(32),
+                "deposit_id": "47".repeat(32),
+            }),
+            serde_json::json!({
+                "schema_version": 1,
+                "expected_network_magic": 0xd0_4d_00_04_u32,
+                "expected_chain_id": "21".repeat(32),
+                "candidate_id": "00".repeat(32),
+                "deposit_id": "47".repeat(32),
+            }),
+        ] {
+            let rejected = app()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/usdom/v4/issuance/status/v1")
+                        .header("content-type", "application/json")
+                        .header("authorization", "Bearer test-token")
+                        .body(Body::from(invalid_body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
         }
     }
 
@@ -3408,6 +4401,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn usdom_v2_candidate_rate_limit_precedes_concurrency_wait() {
+        let gate = Arc::new(CandidateGate {
+            entered: AtomicUsize::new(0),
+            release: Arc::new(tokio::sync::Semaphore::new(0)),
+        });
+        let token = Arc::new(middleware::BearerToken("test-token".to_string()));
+        let app = router_with_rate_limit_policy(
+            Arc::new(MockNode::with_candidate_gate(Arc::clone(&gate))),
+            token,
+            Ok(middleware::RpcRateLimitPolicy {
+                submit_burst: 1,
+                read_burst: 1,
+            }),
+        )
+        .expect("valid one-request test policy");
+        let body = encode_usdom_v2_candidate_submission_v1(&[0x10, 0x20], &[0x30, 0x40])
+            .expect("canonical candidate body");
+        let request = |body: Vec<u8>| {
+            Request::builder()
+                .method("POST")
+                .uri("/usdom/v2/candidate/submit/v1")
+                .header("content-type", "application/octet-stream")
+                .header("authorization", "Bearer test-token")
+                .body(Body::from(body))
+                .unwrap()
+        };
+
+        let first = tokio::spawn(app.clone().oneshot(request(body.clone())));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while gate.entered.load(Ordering::SeqCst) != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("first candidate reaches the node handle");
+
+        let second = tokio::time::timeout(Duration::from_secs(1), app.oneshot(request(body)))
+            .await
+            .expect("excess request must not wait on the concurrency permit")
+            .unwrap();
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(gate.entered.load(Ordering::SeqCst), 1);
+
+        gate.release.add_permits(1);
+        assert_eq!(first.await.unwrap().unwrap().status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn usdom_transfer_scan_requires_bearer_and_returns_exact_location() {
         let body = serde_json::json!({
             "schema_version": 1,
@@ -3575,7 +4616,8 @@ mod tests {
                 "height": 11,
                 "block_hash": "44".repeat(32),
                 "state_root": "88".repeat(32)
-            }
+            },
+            "require_checkpoint_finality": false
         })
         .to_string();
         let unauthorized = app()
@@ -3642,7 +4684,8 @@ mod tests {
                     "height": 11,
                     "block_hash": "44".repeat(32),
                     "state_root": "88".repeat(32)
-                }
+                },
+                "require_checkpoint_finality": false
             })
             .to_string();
             let response = app()
@@ -3678,6 +4721,10 @@ mod tests {
         // app()'s MockNode is configured for regtest, so /status must report
         // it — never the old hardcoded "mainnet" (DOM-AUDIT-006).
         assert_eq!(body["network"], serde_json::json!("regtest"));
+        assert!(
+            body.get("mempool_size").is_none(),
+            "public status must not expose unconfirmed local-state cardinality"
+        );
     }
 
     #[tokio::test]
@@ -3687,7 +4734,7 @@ mod tests {
         let server = tokio::spawn(serve_with_token_until_shutdown(
             Arc::new(MockNode::new(0)),
             listener,
-            Some("test-token".to_owned()),
+            Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned()),
             async move {
                 let _ = shutdown_rx.await;
             },
@@ -4328,7 +5375,31 @@ mod tests {
         assert_eq!(r.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(
             body_json(r).await["error"],
-            serde_json::json!("internal: wallet not available")
+            serde_json::json!("internal server error")
+        );
+    }
+
+    #[tokio::test]
+    async fn wallet_spend_is_rejected_on_mainnet_before_wallet_mutation() {
+        let r = app_with(MockNode::with_network(42, "mainnet"))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/wallet/spend")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(wallet_spend_body()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            body_json(r).await["error"],
+            serde_json::json!(
+                "rejected: legacy wallet spend is restricted to regtest; use the recoverable Slate v1 flow"
+            )
         );
     }
 
@@ -4748,6 +5819,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn closed_mainnet_single_block_requires_bearer_and_exact_tip() {
+        let body = serde_json::json!({
+            "expected_tip_height": 42,
+            "expected_tip_hash": "11".repeat(32),
+        })
+        .to_string();
+        let unauthorized = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/closed-mainnet/mine-one/v1")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let authorized = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/closed-mainnet/mine-one/v1")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authorized.status(), StatusCode::OK);
+        let response = body_json(authorized).await;
+        assert_eq!(response["schema_version"], serde_json::json!(1));
+        assert_eq!(response["height"], serde_json::json!(43));
+        assert_eq!(response["block_hash"], serde_json::json!("22".repeat(32)));
+        assert_eq!(response["initialized_genesis"], serde_json::json!(false));
+        assert_eq!(response["count"], serde_json::json!(1));
+    }
+
+    #[tokio::test]
     async fn chain_scan_empty_range_returns_only_tip() {
         let r = app_with(MockNode::with_scan(2, canned_scan()))
             .oneshot(
@@ -4974,6 +6086,36 @@ mod tests {
         assert_eq!(body_json(r).await, serde_json::json!([]));
     }
 
+    #[tokio::test]
+    async fn peers_obeys_authenticated_read_rate_limit() {
+        let token = Arc::new(middleware::BearerToken("test-token".to_string()));
+        let app = router_with_rate_limit_policy(
+            Arc::new(MockNode::new(1)),
+            token,
+            Ok(middleware::RpcRateLimitPolicy {
+                submit_burst: 1,
+                read_burst: 1,
+            }),
+        )
+        .expect("valid one-request test policy");
+        let request = || {
+            Request::builder()
+                .uri("/peers")
+                .header("authorization", "Bearer test-token")
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        assert_eq!(
+            app.clone().oneshot(request()).await.unwrap().status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            app.oneshot(request()).await.unwrap().status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+
     /// AUTH-3 — wrong scheme case ("bearer " lowercase) is rejected. The
     /// production check is `header.starts_with("Bearer ")` — case-sensitive by
     /// construction; an RFC-7235 scheme is case-insensitive, so a lowercase
@@ -5025,7 +6167,7 @@ mod tests {
     #[tokio::test]
     async fn empty_configured_token_never_authorizes() {
         let token = Arc::new(middleware::BearerToken(String::new()));
-        let app = router(Arc::new(MockNode::new(1)), token);
+        let app = router(Arc::new(MockNode::new(1)), token).expect("valid test RPC policy");
         let r = app
             .oneshot(
                 Request::builder()
@@ -5214,19 +6356,9 @@ mod tests {
         assert_eq!(r.status(), StatusCode::BAD_REQUEST);
     }
 
-    // ===== static / info-leak: RpcError::Internal echoes internal strings
-    //
-    // RpcError::into_response serializes `self.to_string()` into the client
-    // body. For `Internal(msg)` that is `"internal: {msg}"` — i.e. internal
-    // implementation strings reach the untrusted client. This test PINS that
-    // shape so the leak is documented; it is a FINDING (info-leak), not a pass.
-
-    /// LEAK-1 — an unsupported /chain/scan returns the raw internal message
-    /// ("internal: chain scan not supported") in the response body to the
-    /// client. Pins the leak shape (info-leak finding: internal strings are not
-    /// redacted before reaching the client).
+    // Internal diagnostics belong in server logs, never in the HTTP body.
     #[tokio::test]
-    async fn internal_error_echoes_internal_string_to_client() {
+    async fn internal_error_is_redacted_from_client() {
         let r = app() // default MockNode → scan_chain returns Internal(...)
             .oneshot(
                 Request::builder()
@@ -5239,11 +6371,8 @@ mod tests {
             .unwrap();
         assert_eq!(r.status(), StatusCode::INTERNAL_SERVER_ERROR);
         let body = body_json(r).await;
-        // FINDING: internal text reaches the client verbatim.
-        assert_eq!(
-            body["error"],
-            serde_json::json!("internal: chain scan not supported")
-        );
+        assert_eq!(body["error"], serde_json::json!("internal server error"));
+        assert!(!body.to_string().contains("chain scan not supported"));
     }
 
     // ===== proptest-invariante: mempool offset (page*limit) + limit clamp

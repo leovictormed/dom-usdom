@@ -1,0 +1,11 @@
+ETAPA852 — PRIVATE-BURN TOOL READER AUTHORITY
+Date: 2026-10-23
+
+Private-burn preparation and submission pinned Cargo/Node hashes but left
+executable size unbounded and parent identity unbound.  Both Cargo boundaries
+and the submission Node boundary now require size 1..512 MiB, canonical safe
+parent identity, and post-hash file/parent rechecks.  Final assertions repeat
+those checks, and secret cleanup authenticates Node immediately before use.
+
+Focused boundary, crash, environment and descriptor tests pass 9/9; Bash
+syntax and diff checks pass. No burn, build, TPM, RPC, funds, commit or push ran.

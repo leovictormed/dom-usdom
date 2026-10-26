@@ -1,0 +1,31 @@
+ETAPA 721 — recoverable Safe executor Cast pinning
+Date: 2026-10-23
+
+Finding
+=======
+The recoverable-Safe execution ceremony resolved Cast through PATH for Ledger relayer identity,
+all multi-RPC observations, raw checks and three `swapOwner` broadcasts. Replacement after the
+single TTY authorization could redirect the publication executable.
+
+Correction
+==========
+The executor now resolves Cast once to an absolute canonical path and requires a regular
+executable with one hard link, safe root/current ownership, non-group/world-writable file and
+parent directory. It snapshots device/inode/size/mtime/ctime and SHA-256.
+
+The bounded RPC helper and Ledger identity calls use only the captured path. Cast is rechecked
+before initial Ledger identity, immediately after the exact three-swap TTY phrase, before the
+post-consent relayer identity check and immediately before every role publication. Existing
+multi-RPC target consensus, nonce/Safe nonce, code/state, raw transaction/envelope/hash,
+source-snapshot TOCTOU, durable validation/evidence and no-clobber controls remain.
+
+Node and JQ remain separately auditable command dependencies. Cast was prioritized because it
+performs the RPC publication and Ledger identity operations.
+
+Validation
+==========
+Structural test passes 1/1. Node syntax, `bash -n` and git diff checks pass. The executor and no
+child, RPC, Ledger or Cast operation was run.
+
+No signing, transmission, deployment, funds, build, Cargo, Rust, Solidity, RISC0 proof, staging,
+commit, tag, publication or push was performed.

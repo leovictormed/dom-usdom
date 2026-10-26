@@ -1,0 +1,30 @@
+ETAPA 671 — ATESTAÇÃO NATIVA COM JSON DE BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O checker entregue aos signatários de atestação nativa decodificava com
+Buffer.toString('utf8') quatro snapshots owner-only (request, Safe bundle,
+release config, release evidence) e três evidências privadas da carteira
+(identity, TPM custody, recovery drill). UTF-8 inválido podia ser substituído
+antes do vínculo de digests, owners, runtime e custódia.
+
+Correção
+O helper único `parse` agora usa parseStrictJsonBytes. Como os dois arrays
+`snapshots` e `walletBytes` passam por esse helper, todos os sete documentos
+recebem UTF-8 fatal e rejeição de chaves duplicadas.
+
+Garantias preservadas
+- snapshots com modo exato 0600 e evidências wallet com privateMode;
+- 4 MiB/profundidade 64;
+- SHA-256 sobre bytes originais de bundle, manifest e public identity;
+- validação Rust do manifest mainnet/privacy verifier permanece obrigatória;
+- reconciliação de wallet address, TPM, recovery e manifest;
+- derivação independente dos digests e recheck byte a byte contra TOCTOU.
+
+Testes leves
+- request com schema duplicado por escape e UTF-8 inválido falha antes de Cargo;
+- regra estrutural exige parser de bytes nos snapshots e wallet evidence;
+- 2/2 testes passaram em <0,7 s; node --check e git diff --check passaram.
+Nenhuma suíte pesada ou Cargo foi executado durante o build ativo.
+
+Nenhum RPC, Rust/Cargo, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

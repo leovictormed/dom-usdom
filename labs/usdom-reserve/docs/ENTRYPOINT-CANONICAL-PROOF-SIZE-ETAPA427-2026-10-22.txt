@@ -1,0 +1,54 @@
+USD-native / USDOM — Stage 427: canonical proof size at value entrypoints
+Date: 2026-10-22
+
+Finding
+=======
+
+The immutable RISC Zero adapters rejected every EVM seal whose length was not
+260 bytes, but USDOMProofReserve.queueWithdrawal and
+DOMCheckpointRegistry.submitCheckpointCandidate admitted any nonempty proof up
+to 64 KiB before invoking those adapters. Such input could not gain authority,
+but it unnecessarily crossed the main contract ABI/parser and consumed control
+checks and calldata processing before deterministic rejection.
+
+Correction
+==========
+
+Both main contracts now expose EVM_PROOF_BYTES=260 and reject every other
+length before verifier interaction. MAX_PROOF_BYTES remains as a compatibility
+alias to the same exact value. This produces one consistent executable policy
+from the main entrypoint through the immutable adapter, Rust packager, artifact
+collector and signed verifier manifest.
+
+Solidity fixtures, fuzz handlers and stateful invariants now use the exact
+selector-prefixed eight-word shape. Explicit 259-byte and 261-byte cases prove
+early rejection by the reserve and registry themselves.
+
+Deterministic artifacts
+=======================
+
+- USDOMProofReserve runtime:
+  0x0c22b3b86fb83c9732fdfbc4d62853e1bbc4996df52b387d50de7e65969a388f
+  (17,087 bytes)
+- USDOMProofReserve initcode:
+  0x54ebbaf74e652187fcb4ddc3a67d086df2ae1f2b22768337b40f5fe08dac9ad2
+  (23,266 bytes)
+- DOMCheckpointRegistry runtime:
+  0xfc2377ab0884aa79589eedab9077a5de93e23a34b4a027d3efaf6899c68fd02f
+  (8,334 bytes)
+- DOMCheckpointRegistry initcode:
+  0xfaf0f9dfece29bb90df0139eb8dc85b68f0b772f3c9f548add35c9b34a2c9222
+  (13,549 bytes)
+
+Verification
+============
+
+- Focused reserve/registry Solidity: 57/57 pass.
+- Runtime, local EVM and readiness integration: 49/49 pass.
+- Complete Solidity, fuzz and invariants: 146/146 pass.
+- Complete Node: 309/309 pass.
+- Production lint and Solidity/Rust formatting pass.
+
+The long finalized-burn capacity proof remained active at about 17 hours using
+one CPU worker and about 1.7 GiB RSS. No public RPC, signature, transaction,
+deployment, funds, mining, commit, tag or push occurred.

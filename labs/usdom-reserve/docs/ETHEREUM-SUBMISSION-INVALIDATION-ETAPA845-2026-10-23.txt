@@ -1,0 +1,23 @@
+ETAPA 845 — invalidacao duravel das submissoes Ethereum
+Data: 2026-10-23
+
+Achado
+
+Os preparadores de checkpoint e finalized-burn gravavam a submissao como arquivo create-once. Ao mudar receipt, seal, journal, release ou configuracao, uma nova preparacao falhava porque o pacote antigo continuava presente. Se a nova preparacao falhasse antes da escrita, o calldata antigo permanecia observavel como se fosse o resultado corrente.
+
+Correcao
+
+- Adicionado `removePrivateFileDurableIfExists`, que abre o pai privado 0700 por descritor, valida owner/inode, exige arquivo direto 0600 com um link, remove pelo dirfd, faz fsync do pai e revalida o diretorio nomeado.
+- Os dois preparadores criam/validam o diretorio e invalidam duravelmente o pacote antigo antes de capturar qualquer input da nova geracao.
+- ENOENT e idempotente; symlink, hardlink, modo/owner incorretos e troca do pai falham fechados.
+- A nova submissao continua create-once, e publicada somente depois de snapshot, binding e releitura de release/verifier/statement/index/receipt/seal.
+- SDKs continuam vinculando chain, destino, config hash, ImageID, statement/journal, hash do seal e calldata.
+
+Validacao
+
+- suites focadas durable/checkpoint/finalized-burn: 11/11 aprovadas;
+- teste real cobre remocao, retry ENOENT e rejeicao de symlink;
+- testes estruturais exigem invalidacao antes da primeira leitura autenticada;
+- `git diff --check`: aprovado.
+
+Sem RPC, deploy, prova pesada, assinatura, broadcast, commit ou push.

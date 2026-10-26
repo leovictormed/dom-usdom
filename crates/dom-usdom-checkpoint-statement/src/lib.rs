@@ -20,6 +20,12 @@ const TYPE_STRING: &str = "DOMCheckpoint(bytes32 bridgeDomain,uint32 domNetworkM
 const V4_MAGIC: &[u8; 8] = b"UDCPST04";
 const V4_VERSION: u16 = 4;
 const V4_TYPE_STRING: &str = "DOMCheckpointV2(bytes32 bridgeDomain,uint32 domNetworkMagic,uint16 nativeStateVersion,uint16 transitionBatchVersion,uint64 previousHeight,bytes32 previousBlock,bytes32 previousStateRoot,bytes32 previousContextHash,uint256 previousTotalDifficulty,uint64 domHeight,bytes32 domBlock,bytes32 domStateRoot,bytes32 domContextHash,uint256 domTotalDifficulty,uint64 confirmationHeight,bytes32 confirmationBlock,uint256 confirmationTotalDifficulty,uint64 confirmationTimestamp,uint256 ethereumChainId,address registry,bytes32 activationScheduleCommitment,bytes32 checkpointConfigHash)";
+const V5_MAGIC: &[u8; 8] = b"UDCPST05";
+const V5_VERSION: u16 = 5;
+const V5_TYPE_STRING: &str = "DOMCheckpointV3(bytes32 bridgeDomain,uint32 domNetworkMagic,uint16 nativeStateVersion,uint16 transitionBatchVersion,uint64 previousHeight,bytes32 previousBlock,bytes32 previousStateRoot,bytes32 previousContextHash,uint256 previousTotalDifficulty,uint64 domHeight,bytes32 domBlock,bytes32 domStateRoot,bytes32 domContextHash,uint256 domTotalDifficulty,uint128 totalIssued,uint128 totalBurned,uint64 confirmationHeight,bytes32 confirmationBlock,uint256 confirmationTotalDifficulty,uint64 confirmationTimestamp,uint256 ethereumChainId,address registry,bytes32 activationScheduleCommitment,bytes32 checkpointConfigHash)";
+const V6_MAGIC: &[u8; 8] = b"UDCPST06";
+const V6_VERSION: u16 = 6;
+const V6_TYPE_STRING: &str = "DOMCheckpointV4(bytes32 bridgeDomain,uint32 domNetworkMagic,uint16 nativeStateVersion,uint16 transitionBatchVersion,uint64 previousHeight,bytes32 previousBlock,bytes32 previousStateRoot,bytes32 previousContextHash,uint256 previousTotalDifficulty,uint64 domHeight,bytes32 domBlock,bytes32 domStateRoot,bytes32 domContextHash,uint256 domTotalDifficulty,uint128 totalIssued,uint128 totalBurned,bool issuanceClosed,uint64 confirmationHeight,bytes32 confirmationBlock,uint256 confirmationTotalDifficulty,uint64 confirmationTimestamp,uint256 ethereumChainId,address registry,bytes32 activationScheduleCommitment,bytes32 checkpointConfigHash)";
 const ABI_WORDS: usize = 21;
 const CONTEXT_MAGIC: &[u8; 8] = b"UDCCTX02";
 const CONTEXT_VERSION: u16 = 2;
@@ -43,10 +49,18 @@ const MAX_SEED_ANCHORS: usize = CHECKPOINT_CONTEXT_MAX_SEED_ANCHORS;
 pub const CHECKPOINT_STATEMENT_BYTES: usize = 514;
 /// Exact canonical byte length of one candidate-v2 `UDCPST04` statement.
 pub const CHECKPOINT_STATEMENT_V4_BYTES: usize = 518;
+/// Exact canonical byte length of one economic `UDCPST05` statement.
+pub const CHECKPOINT_STATEMENT_V5_BYTES: usize = CHECKPOINT_STATEMENT_V4_BYTES + 32;
+/// Exact canonical byte length of one closure-aware `UDCPST06` statement.
+pub const CHECKPOINT_STATEMENT_V6_BYTES: usize = CHECKPOINT_STATEMENT_V5_BYTES + 1;
+/// Native closed-state interpretation frozen by `UDCPST06`.
+pub const CHECKPOINT_NATIVE_STATE_V6_VERSION: u16 = 3;
 /// Native state-root interpretation frozen by `UDCPST04`.
 pub const CHECKPOINT_NATIVE_STATE_VERSION: u16 = 2;
 /// Transition-batch commitment interpretation frozen by `UDCPST04`.
 pub const CHECKPOINT_TRANSITION_BATCH_VERSION: u16 = 3;
+/// Transition-batch commitment interpretation frozen by `UDCPST05`.
+pub const CHECKPOINT_TRANSITION_BATCH_V5_VERSION: u16 = 4;
 /// Exact raw public output expected by `DOMCheckpointRegistry`'s verifier.
 pub const CHECKPOINT_PUBLIC_OUTPUT_BYTES: usize = 32;
 /// Semantic version of the unframed 32-byte public output.
@@ -868,6 +882,215 @@ impl CheckpointStatementV4 {
     }
 }
 
+/// Candidate-v2 checkpoint statement with authenticated economic totals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckpointStatementV5 {
+    /// Exact V4 consensus/checkpoint fields.
+    pub checkpoint: CheckpointStatement,
+    /// Deposit-backed issuance at the selected checkpoint height.
+    pub total_issued: u128,
+    /// Native burns at the selected checkpoint height.
+    pub total_burned: u128,
+}
+
+impl CheckpointStatementV5 {
+    /// Validate the checkpoint relation and economic conservation bound.
+    pub fn validate(&self) -> Result<(), StatementError> {
+        self.checkpoint.validate()?;
+        if self.total_burned > self.total_issued {
+            return Err(StatementError::InvalidExtension);
+        }
+        Ok(())
+    }
+
+    /// Encode the unique fixed-width `UDCPST05` representation.
+    pub fn to_bytes(&self) -> Result<[u8; CHECKPOINT_STATEMENT_V5_BYTES], StatementError> {
+        self.validate()?;
+        let v4 = CheckpointStatementV4 {
+            checkpoint: self.checkpoint,
+        }
+        .to_bytes()?;
+        let mut bytes = [0u8; CHECKPOINT_STATEMENT_V5_BYTES];
+        bytes[..8].copy_from_slice(V5_MAGIC);
+        bytes[8..10].copy_from_slice(&V5_VERSION.to_be_bytes());
+        bytes[10..CHECKPOINT_STATEMENT_V4_BYTES].copy_from_slice(&v4[10..]);
+        bytes[12..14].copy_from_slice(&CHECKPOINT_TRANSITION_BATCH_V5_VERSION.to_be_bytes());
+        bytes[CHECKPOINT_STATEMENT_V4_BYTES..CHECKPOINT_STATEMENT_V4_BYTES + 16]
+            .copy_from_slice(&self.total_issued.to_be_bytes());
+        bytes[CHECKPOINT_STATEMENT_V4_BYTES + 16..]
+            .copy_from_slice(&self.total_burned.to_be_bytes());
+        Ok(bytes)
+    }
+
+    /// Decode only the V5 frame; V3/V4 bytes remain distinct and fail closed.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, StatementError> {
+        if bytes.len() != CHECKPOINT_STATEMENT_V5_BYTES
+            || &bytes[..8] != V5_MAGIC
+            || u16::from_be_bytes(array(bytes, 8)?) != V5_VERSION
+            || u16::from_be_bytes(array(bytes, 12)?) != CHECKPOINT_TRANSITION_BATCH_V5_VERSION
+        {
+            return Err(StatementError::InvalidFraming);
+        }
+        let mut v4 = [0u8; CHECKPOINT_STATEMENT_V4_BYTES];
+        v4[..8].copy_from_slice(V4_MAGIC);
+        v4[8..10].copy_from_slice(&V4_VERSION.to_be_bytes());
+        v4[10..].copy_from_slice(&bytes[10..CHECKPOINT_STATEMENT_V4_BYTES]);
+        v4[12..14].copy_from_slice(&CHECKPOINT_TRANSITION_BATCH_VERSION.to_be_bytes());
+        let value = Self {
+            checkpoint: CheckpointStatementV4::from_bytes(&v4)?.checkpoint,
+            total_issued: u128::from_be_bytes(array(bytes, CHECKPOINT_STATEMENT_V4_BYTES)?),
+            total_burned: u128::from_be_bytes(array(bytes, CHECKPOINT_STATEMENT_V4_BYTES + 16)?),
+        };
+        value.validate()?;
+        if value.to_bytes()?.as_slice() != bytes {
+            return Err(StatementError::InvalidFraming);
+        }
+        Ok(value)
+    }
+
+    /// Return the exact `DOMCheckpointV3` Solidity ABI statement hash.
+    pub fn statement_hash(&self) -> Result<[u8; 32], StatementError> {
+        self.validate()?;
+        let v = &self.checkpoint;
+        let mut encoded = [0u8; 25 * 32];
+        encoded[..32].copy_from_slice(&Keccak256::digest(V5_TYPE_STRING.as_bytes()));
+        encoded[32..64].copy_from_slice(&v.bridge_domain);
+        encoded[92..96].copy_from_slice(&v.dom_network_magic.to_be_bytes());
+        encoded[126..128].copy_from_slice(&CHECKPOINT_NATIVE_STATE_VERSION.to_be_bytes());
+        encoded[158..160].copy_from_slice(&CHECKPOINT_TRANSITION_BATCH_V5_VERSION.to_be_bytes());
+        encoded[184..192].copy_from_slice(&v.previous_height.to_be_bytes());
+        encoded[192..224].copy_from_slice(&v.previous_block);
+        encoded[224..256].copy_from_slice(&v.previous_state_root);
+        encoded[256..288].copy_from_slice(&v.previous_context_hash);
+        encoded[288..320].copy_from_slice(&v.previous_total_difficulty);
+        encoded[344..352].copy_from_slice(&v.height.to_be_bytes());
+        encoded[352..384].copy_from_slice(&v.block);
+        encoded[384..416].copy_from_slice(&v.state_root);
+        encoded[416..448].copy_from_slice(&v.context_hash);
+        encoded[448..480].copy_from_slice(&v.total_difficulty);
+        encoded[496..512].copy_from_slice(&self.total_issued.to_be_bytes());
+        encoded[528..544].copy_from_slice(&self.total_burned.to_be_bytes());
+        encoded[568..576].copy_from_slice(&v.confirmation_height.to_be_bytes());
+        encoded[576..608].copy_from_slice(&v.confirmation_block);
+        encoded[608..640].copy_from_slice(&v.confirmation_total_difficulty);
+        encoded[664..672].copy_from_slice(&v.confirmation_timestamp.to_be_bytes());
+        encoded[672..704].copy_from_slice(&v.ethereum_chain_id);
+        encoded[716..736].copy_from_slice(&v.registry);
+        encoded[736..768].copy_from_slice(&v.activation_schedule_commitment);
+        encoded[768..800].copy_from_slice(&v.checkpoint_config_hash);
+        Ok(Keccak256::digest(encoded).into())
+    }
+}
+
+/// Closure-aware checkpoint statement. Historical V5 statements cannot
+/// authorize graceful shutdown because they do not carry this authenticated bit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckpointStatementV6 {
+    /// Exact checkpoint fields.
+    pub checkpoint: CheckpointStatement,
+    /// Deposit-backed issuance at the selected checkpoint height.
+    pub total_issued: u128,
+    /// Native burns at the selected checkpoint height.
+    pub total_burned: u128,
+    /// Authenticated terminal issuance boundary at the selected height.
+    pub issuance_closed: bool,
+}
+
+impl CheckpointStatementV6 {
+    /// Validate checkpoint identity and economic conservation.
+    pub fn validate(&self) -> Result<(), StatementError> {
+        self.checkpoint.validate()?;
+        if self.total_burned > self.total_issued {
+            return Err(StatementError::InvalidExtension);
+        }
+        Ok(())
+    }
+
+    /// Encode the unique fixed-width `UDCPST06` representation.
+    pub fn to_bytes(&self) -> Result<[u8; CHECKPOINT_STATEMENT_V6_BYTES], StatementError> {
+        self.validate()?;
+        let legacy = self.checkpoint.to_bytes()?;
+        let mut bytes = [0u8; CHECKPOINT_STATEMENT_V6_BYTES];
+        bytes[..8].copy_from_slice(V6_MAGIC);
+        bytes[8..10].copy_from_slice(&V6_VERSION.to_be_bytes());
+        bytes[10..12].copy_from_slice(&CHECKPOINT_NATIVE_STATE_V6_VERSION.to_be_bytes());
+        bytes[12..14].copy_from_slice(&CHECKPOINT_TRANSITION_BATCH_V5_VERSION.to_be_bytes());
+        bytes[14..CHECKPOINT_STATEMENT_V4_BYTES].copy_from_slice(&legacy[10..]);
+        bytes[CHECKPOINT_STATEMENT_V4_BYTES..CHECKPOINT_STATEMENT_V4_BYTES + 16]
+            .copy_from_slice(&self.total_issued.to_be_bytes());
+        bytes[CHECKPOINT_STATEMENT_V4_BYTES + 16..CHECKPOINT_STATEMENT_V5_BYTES]
+            .copy_from_slice(&self.total_burned.to_be_bytes());
+        bytes[CHECKPOINT_STATEMENT_V5_BYTES] = u8::from(self.issuance_closed);
+        Ok(bytes)
+    }
+
+    /// Decode only closure-aware V6 framing and reject noncanonical flags.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, StatementError> {
+        if bytes.len() != CHECKPOINT_STATEMENT_V6_BYTES
+            || &bytes[..8] != V6_MAGIC
+            || u16::from_be_bytes(array(bytes, 8)?) != V6_VERSION
+            || u16::from_be_bytes(array(bytes, 10)?) != CHECKPOINT_NATIVE_STATE_V6_VERSION
+            || u16::from_be_bytes(array(bytes, 12)?) != CHECKPOINT_TRANSITION_BATCH_V5_VERSION
+        {
+            return Err(StatementError::InvalidFraming);
+        }
+        let issuance_closed = match bytes[CHECKPOINT_STATEMENT_V5_BYTES] {
+            0 => false,
+            1 => true,
+            _ => return Err(StatementError::InvalidFraming),
+        };
+        let mut legacy = [0u8; CHECKPOINT_STATEMENT_BYTES];
+        legacy[..8].copy_from_slice(MAGIC);
+        legacy[8..10].copy_from_slice(&VERSION.to_be_bytes());
+        legacy[10..].copy_from_slice(&bytes[14..CHECKPOINT_STATEMENT_V4_BYTES]);
+        let value = Self {
+            checkpoint: CheckpointStatement::from_bytes(&legacy)?,
+            total_issued: u128::from_be_bytes(array(bytes, CHECKPOINT_STATEMENT_V4_BYTES)?),
+            total_burned: u128::from_be_bytes(array(bytes, CHECKPOINT_STATEMENT_V4_BYTES + 16)?),
+            issuance_closed,
+        };
+        value.validate()?;
+        if value.to_bytes()?.as_slice() != bytes {
+            return Err(StatementError::InvalidFraming);
+        }
+        Ok(value)
+    }
+
+    /// Return the exact `DOMCheckpointV4` Solidity ABI statement hash.
+    pub fn statement_hash(&self) -> Result<[u8; 32], StatementError> {
+        self.validate()?;
+        let v = &self.checkpoint;
+        let mut encoded = [0u8; 26 * 32];
+        encoded[..32].copy_from_slice(&Keccak256::digest(V6_TYPE_STRING.as_bytes()));
+        encoded[32..64].copy_from_slice(&v.bridge_domain);
+        encoded[92..96].copy_from_slice(&v.dom_network_magic.to_be_bytes());
+        encoded[126..128].copy_from_slice(&CHECKPOINT_NATIVE_STATE_V6_VERSION.to_be_bytes());
+        encoded[158..160].copy_from_slice(&CHECKPOINT_TRANSITION_BATCH_V5_VERSION.to_be_bytes());
+        encoded[184..192].copy_from_slice(&v.previous_height.to_be_bytes());
+        encoded[192..224].copy_from_slice(&v.previous_block);
+        encoded[224..256].copy_from_slice(&v.previous_state_root);
+        encoded[256..288].copy_from_slice(&v.previous_context_hash);
+        encoded[288..320].copy_from_slice(&v.previous_total_difficulty);
+        encoded[344..352].copy_from_slice(&v.height.to_be_bytes());
+        encoded[352..384].copy_from_slice(&v.block);
+        encoded[384..416].copy_from_slice(&v.state_root);
+        encoded[416..448].copy_from_slice(&v.context_hash);
+        encoded[448..480].copy_from_slice(&v.total_difficulty);
+        encoded[496..512].copy_from_slice(&self.total_issued.to_be_bytes());
+        encoded[528..544].copy_from_slice(&self.total_burned.to_be_bytes());
+        encoded[575] = u8::from(self.issuance_closed);
+        encoded[600..608].copy_from_slice(&v.confirmation_height.to_be_bytes());
+        encoded[608..640].copy_from_slice(&v.confirmation_block);
+        encoded[640..672].copy_from_slice(&v.confirmation_total_difficulty);
+        encoded[696..704].copy_from_slice(&v.confirmation_timestamp.to_be_bytes());
+        encoded[704..736].copy_from_slice(&v.ethereum_chain_id);
+        encoded[748..768].copy_from_slice(&v.registry);
+        encoded[768..800].copy_from_slice(&v.activation_schedule_commitment);
+        encoded[800..832].copy_from_slice(&v.checkpoint_config_hash);
+        Ok(Keccak256::digest(encoded).into())
+    }
+}
+
 /// Decode the exact public statement and emit only its raw 32-byte hash.
 ///
 /// This function intentionally does not accept a private consensus witness and
@@ -880,6 +1103,16 @@ pub fn hash_canonical_statement(bytes: &[u8]) -> Result<[u8; 32], StatementError
 /// Decode the exact candidate-v2 public statement and return its V4 hash.
 pub fn hash_canonical_statement_v4(bytes: &[u8]) -> Result<[u8; 32], StatementError> {
     CheckpointStatementV4::from_bytes(bytes)?.statement_hash()
+}
+
+/// Decode the economic statement and return its exact V5/V3 ABI hash.
+pub fn hash_canonical_statement_v5(bytes: &[u8]) -> Result<[u8; 32], StatementError> {
+    CheckpointStatementV5::from_bytes(bytes)?.statement_hash()
+}
+
+/// Decode the closure-aware statement and return its exact V6/V4 ABI hash.
+pub fn hash_canonical_statement_v6(bytes: &[u8]) -> Result<[u8; 32], StatementError> {
+    CheckpointStatementV6::from_bytes(bytes)?.statement_hash()
 }
 
 fn array<const N: usize>(bytes: &[u8], start: usize) -> Result<[u8; N], StatementError> {
@@ -1154,6 +1387,79 @@ mod tests {
         let mut wrong_batch = bytes;
         wrong_batch[13] ^= 1;
         assert!(CheckpointStatementV4::from_bytes(&wrong_batch).is_err());
+    }
+
+    #[test]
+    fn v5_is_economically_bound_and_disjoint_from_frozen_v4() {
+        let v4 = CheckpointStatementV4 {
+            checkpoint: vector(),
+        };
+        let v4_bytes = v4.to_bytes().unwrap();
+        assert_eq!(
+            hex::encode(v4.statement_hash().unwrap()),
+            "aea1d132059ed25184d27671e5c52061f53f6f767074d6aa10c0ce35fc11249e"
+        );
+        let v5 = CheckpointStatementV5 {
+            checkpoint: vector(),
+            total_issued: 1_000_000,
+            total_burned: 250_000,
+        };
+        let v5_bytes = v5.to_bytes().unwrap();
+        assert_eq!(CheckpointStatementV5::from_bytes(&v5_bytes).unwrap(), v5);
+        assert_eq!(
+            &v5_bytes[CHECKPOINT_STATEMENT_V4_BYTES..CHECKPOINT_STATEMENT_V4_BYTES + 16],
+            &v5.total_issued.to_be_bytes()
+        );
+        assert_eq!(
+            &v5_bytes[CHECKPOINT_STATEMENT_V4_BYTES + 16..],
+            &v5.total_burned.to_be_bytes()
+        );
+        assert!(CheckpointStatementV5::from_bytes(&v4_bytes).is_err());
+        assert!(CheckpointStatementV4::from_bytes(&v5_bytes).is_err());
+        let expected_hash = v5.statement_hash().unwrap();
+        let mut changed_issued = v5;
+        changed_issued.total_issued += 1;
+        assert_ne!(changed_issued.statement_hash().unwrap(), expected_hash);
+        let mut changed_burned = v5;
+        changed_burned.total_burned += 1;
+        assert_ne!(changed_burned.statement_hash().unwrap(), expected_hash);
+        let mut regressed = v5;
+        regressed.total_burned = regressed.total_issued + 1;
+        assert_eq!(regressed.validate(), Err(StatementError::InvalidExtension));
+    }
+
+    #[test]
+    fn v6_binds_canonical_issuance_closure_and_rejects_v5_replay() {
+        let open = CheckpointStatementV6 {
+            checkpoint: vector(),
+            total_issued: 1_000_000,
+            total_burned: 1_000_000,
+            issuance_closed: false,
+        };
+        let open_bytes = open.to_bytes().unwrap();
+        assert_eq!(
+            CheckpointStatementV6::from_bytes(&open_bytes).unwrap(),
+            open
+        );
+        let closed = CheckpointStatementV6 {
+            issuance_closed: true,
+            ..open
+        };
+        assert_ne!(
+            open.statement_hash().unwrap(),
+            closed.statement_hash().unwrap()
+        );
+        let closed_bytes = closed.to_bytes().unwrap();
+        assert_eq!(closed_bytes[CHECKPOINT_STATEMENT_V5_BYTES], 1);
+        let mut noncanonical = closed_bytes;
+        noncanonical[CHECKPOINT_STATEMENT_V5_BYTES] = 2;
+        assert!(CheckpointStatementV6::from_bytes(&noncanonical).is_err());
+        let v5 = CheckpointStatementV5 {
+            checkpoint: vector(),
+            total_issued: 1_000_000,
+            total_burned: 1_000_000,
+        };
+        assert!(CheckpointStatementV6::from_bytes(&v5.to_bytes().unwrap()).is_err());
     }
 
     #[test]

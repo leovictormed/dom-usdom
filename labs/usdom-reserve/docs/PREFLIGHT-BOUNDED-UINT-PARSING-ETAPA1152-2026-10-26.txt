@@ -1,0 +1,34 @@
+PREFLIGHT BOUNDED UINT PARSING — STAGE 1152
+Date: 2026-10-26
+
+Finding
+
+Mainnet preflight accepted an unbounded canonical decimal regex and then passed
+the string to `BigInt`. A private report or release configuration can be up to
+the JSON input limit, so an attacker or corrupted file could force expensive
+conversion of a multi-megabyte decimal. Values above EVM uint256 were also
+lexically accepted, and finalized block height/CREATE nonce lacked their
+narrower uint64 bound.
+
+Correction
+
+- Decimal syntax is capped at the maximum 78 digits needed for uint256 before
+  any `BigInt` call.
+- `canonicalUint` enforces the actual `2^bits - 1` numeric limit.
+- `sameUint` now rejects oversized strings, numbers and bigints consistently at
+  uint256.
+- Finalized Ethereum block number and all planned CREATE nonces are explicitly
+  bounded to uint64 before comparison or address derivation.
+- Existing canonical-decimal rules still reject signs, hex, leading zeros,
+  non-string observations and negative values.
+
+Validation
+
+- Negative vectors cover 79 digits, exactly `2^256`, exactly `2^64`, and a
+  100,000-digit release nonce; all fail closed without unbounded conversion.
+- Mainnet preflight/collector/materializer tests: PASS, 17/17.
+- Positive release and semantic predeployment/cold-start readiness: PASS, 2/2.
+- Combined focused result: PASS, 19/19.
+
+No production fact changed. No Cargo, Rust, Forge, network, signing, deployment,
+funds, commit or push ran.

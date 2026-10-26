@@ -7,6 +7,7 @@ authors.workspace = true
 license.workspace = true
 
 [features]
+default = []
 # Isolated research only. No Ethereum authentication or mainnet activation.
 ethereum-checkpoint-poc = ["dep:sha3"]
 # Concrete proof composition remains opt-in and regtest-only until DOM headers
@@ -24,6 +25,7 @@ native-usdom-v4-poc = [
     "dep:dom-usdom-privacy",
     "dep:dom-usdom-finalized-burn-program",
     "dep:dom-usdom-rpc-protocol",
+    "dep:rayon",
     "dom-usdom-state/ethereum-finality",
     "dep:usdom-ethereum-finality-experiment",
 ]
@@ -47,6 +49,7 @@ dom-usdom-state = { path = "../dom-usdom-state", optional = true }
 dom-usdom-privacy = { path = "../dom-usdom-privacy", optional = true }
 dom-usdom-finalized-burn-program = { path = "../dom-usdom-finalized-burn-program", optional = true }
 dom-usdom-rpc-protocol = { workspace = true, optional = true }
+rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
 tempfile = "3.10"

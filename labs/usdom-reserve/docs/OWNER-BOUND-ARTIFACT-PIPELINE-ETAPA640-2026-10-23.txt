@@ -1,0 +1,35 @@
+ETAPA 640 — pipeline de artefatos ligado aos owners
+Data: 2026-10-23
+
+Escopo
+Busca global dos consumidores Node que derivam config, initcode, runtime,
+manifests e pacotes dos quatro contratos da implantação. A variante antiga do
+ControlPlaneIdentity permanece somente no DOMCheckpointRegistry, consistente
+com o Solidity desse contrato; a reserva usa exclusivamente a variante de cinco
+campos com ownersCommitment.
+
+Achado
+Os derivadores independentes de initcode e runtime da reserva aceitavam ser
+chamados diretamente sem antes reconciliar reserveConfigHash com todos os campos
+da configuração. O runtime já incorporava os dois compromissos, mas um consumidor
+novo ou alterado poderia publicar hashes obtidos de uma configuração internamente
+stale. O initcode é intencionalmente invariável à troca dos owners, pois o
+construtor lê a identidade atual dos Safes e grava os compromissos como immutables.
+
+Correção
+- deriveReserveArtifactBinding exige a configuração exata, recalcula o hash
+  owner-bound, compara reserveConfigHash e só então deriva initcode e runtime.
+- O preparador do pacote principal, o checker de readiness e o relatório de
+  build reproduzível usam essa fronteira única.
+- A regressão troca somente governanceOwnersCommitment e comprova rejeição do
+  reserveConfigHash stale; campo ausente também falha fechado.
+- A busca global não encontrou default silencioso nem outro consumidor da ABI
+  antiga da reserva. Registry e adapters já recalculam suas próprias configs.
+
+Validação
+- Node config/runtime/preflight/release/preactivation/pins: 25/25.
+- Node deployment/manifests/direct-input/reproducible-build: 28/28.
+- Foundry diferencial owner/config: 2/2.
+- git diff --check: limpo.
+
+Nenhum commit, push, deploy, assinatura, transmissão ou fundo foi usado.

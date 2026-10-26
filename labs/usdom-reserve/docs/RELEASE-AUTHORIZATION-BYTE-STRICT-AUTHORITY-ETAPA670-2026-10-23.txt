@@ -1,0 +1,32 @@
+ETAPA 670 — AUTORIZAÇÃO DE RELEASE COM JSON DE BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O checker final usado antes de aceitar assinaturas de autorização de release lia
+quatro documentos owner-only — request, bundle Safe, release config e release
+evidence — com Buffer.toString('utf8') antes do parser sem chaves duplicadas.
+UTF-8 inválido podia sofrer substituição antes de entrar na validação do digest,
+owners Safe e vínculos da release.
+
+Correção
+A função comum `parse` agora chama parseStrictJsonBytes diretamente. A mudança
+abrange todos os quatro documentos porque eles são processados pela mesma
+iteração bytes.map(parse).
+
+Garantias preservadas
+- arquivos diretos com modo exato 0600;
+- mínimo 1 byte, máximo 4 MiB e profundidade 64;
+- SHA-256 do bundle calculado sobre os bytes originais;
+- validateReleaseAuthorizationSigningRequest continua vinculando request,
+  bundle/owners, release config, evidence e digest;
+- nenhuma assinatura é criada pelo checker.
+
+Testes leves
+- request com schema duplicado por escape é rejeitado;
+- request com UTF-8 inválido é rejeitado;
+- regra estrutural exige parseStrictJsonBytes(bytes), proíbe bytes.toString e
+  confirma que os quatro inputs passam pelo helper;
+- 2/2 testes passaram em ~1 s; node --check e git diff --check passaram.
+Nenhuma suíte pesada foi executada durante o build RandomX.
+
+Nenhum RPC, Rust/Cargo, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

@@ -1,0 +1,38 @@
+ETAPA 992 — Solidity/Rust/SDK statement domain and anti-replay audit
+Date: 2026-10-23
+
+Scope and result
+Compared the canonical Solidity, Rust and SDK encodings for native deposit admission, burn intent,
+finalized burn, checkpoint V2, reserve/config identities and verifier journals. The live encoders
+agree field-for-field and preserve target Ethereum chain/deployment, DOM domain/network/generation,
+activation schedule and checkpoint/verifier configuration boundaries. No live encoding divergence
+was found.
+
+Concrete audit defect corrected
+The permanent cross-domain gate previously checked only that selected field names appeared later in
+the source. It could pass after a type-string change or a field reorder, so it did not prove the
+claim made by its documentation. The gate now compares the full canonical type strings across:
+- BurnIntent: reserve Solidity, dom-usdom-state Rust and proof-reserve SDK;
+- FinalizedBurn: reserve Solidity, dom-chain Rust and proof-reserve SDK;
+- DOMCheckpointV2: registry Solidity, checkpoint-statement Rust and checkpoint-registry SDK.
+
+It additionally verifies encoder order in Rust and SDK for burn intent/finalized burn and every
+fixed ABI word in the Rust checkpoint encoder. Negative mutations cover a swapped BurnIntent field
+and replacement of the Ethereum-chain word in the checkpoint encoder.
+
+Reviewed anti-replay graph
+- Deposit IDs bind Ethereum chain, reserve deployment, funder and salt; proof policy binds Ethereum
+  genesis validators root, emitting reserve/runtime and a consumed-deposit set.
+- Burn intent binds DOM domain, Ethereum chain and reserve; finalized burn extends it with exact DOM
+  height/block/state, finalized Beacon slot and activation schedule.
+- Checkpoints bind DOM domain/network, state/batch versions, previous/new/confirmation work chain,
+  Ethereum chain, registry, activation schedule and checkpoint config.
+- Reserve/registry configuration hashes bind immutable contract/control-plane/verifier policies;
+  activation roots intentionally remain outside preactivation config hashes to avoid the documented
+  native-state/runtime cryptographic cycle and are bound by activation/checkpoint statements.
+- Burn and checkpoint receipts use separately pinned guest ImageIDs and immutable adapter configs.
+
+Verification
+- Cross-domain gate tests: 2/2 pass, including all negative mutations.
+- Node syntax and git diff --check: pass.
+- No Cargo, Forge, proof, RPC, signing, deployment, commit or push was executed.

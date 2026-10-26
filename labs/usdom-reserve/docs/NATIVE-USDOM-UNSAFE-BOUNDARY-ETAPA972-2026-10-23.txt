@@ -1,0 +1,21 @@
+ETAPA 972 — fronteiras unsafe/FFI do núcleo USDOM
+Data: 2026-10-23
+
+Escopo
+Fontes de produção Rust do estado, privacidade, prover, wallet, programas de checkpoint/burn e verificação de finalidade Ethereum.
+
+Resultado
+- Nenhum bloco/função/impl/trait `unsafe` e nenhuma ABI `extern "C"` existe no escopo de produção auditado.
+- Não há manipulação raw pointer própria nesse caminho; as operações criptográficas ficam atrás de APIs Rust seguras das dependências pinadas.
+- Os dois recursos `unsafe-test-oracle` possuem compile_error quando debug_assertions está desativado, impedindo que fixtures entrem em artefato otimizado mesmo se uma feature for selecionada por engano.
+
+Endurecimento
+Adicionado gate permanente que percorre recursivamente o escopo e falha se unsafe Rust ou C FFI forem introduzidos sem revisão, e confirma os dois guards de build otimizado.
+
+Verificação
+- native-usdom-unsafe-boundary-stage972.test.mjs: 2/2 PASS
+- git diff --check: PASS
+- Nenhum Cargo/build pesado executado durante a prova RISC0 longa.
+
+Operações externas
+Nenhum commit, push, deploy, assinatura, broadcast, RPC de rede ou fundo foi usado.

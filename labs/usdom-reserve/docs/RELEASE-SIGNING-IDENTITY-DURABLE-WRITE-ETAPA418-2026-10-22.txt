@@ -1,0 +1,28 @@
+USDⓄM RESERVE — DURABLE RELEASE-SIGNING PUBLIC IDENTITY (STAGE 418)
+Date: 2026-10-22
+
+Finding
+
+The public release-signing identity and fingerprint were passed through an
+ordinary `tee` into a predictable `/tmp` file, then immediately trusted as the
+fingerprint input for readiness checks. Public data still needs integrity when
+it identifies the key authenticating the release.
+
+Correction
+
+- The identity now lives in the owner-only control-plane evidence directory.
+- Stage 422 subsequently stages a complete successful configurator result and
+  installs it through the durable immutable/idempotent private-file writer.
+- Fingerprint extraction uses the strict direct private-file reader.
+- Runbook regression rejects the former path, direct writes and missing strict
+  reads.
+
+Validation
+
+- operator/runbook suite: 64/64 passed.
+- source-integrity manifest: 1,199/1,199 files passed;
+- imported provenance: 169 files, including 16 explicit modifications, passed;
+- repository whitespace checks passed.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

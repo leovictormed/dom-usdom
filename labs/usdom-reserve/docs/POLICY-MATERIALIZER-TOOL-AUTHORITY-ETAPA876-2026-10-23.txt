@@ -1,0 +1,3 @@
+ETAPA876: Four policy/identity materializers now pin bounded Node/jq, canonical
+parent identities and authenticated cleanup. Focused test 1/1; Bash syntax
+passes. No materialization or external operation ran.

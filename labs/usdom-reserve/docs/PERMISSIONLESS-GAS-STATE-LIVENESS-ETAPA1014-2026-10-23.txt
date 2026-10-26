@@ -1,0 +1,28 @@
+ETAPA1014 — ProofReserve/CheckpointRegistry permissionless gas, state growth and liveness
+Date: 2026-10-23
+
+Result
+No concrete block-gas deadlock or attacker-amplified unbounded state operation was found. Added a permanent cross-contract structural gate.
+
+ProofReserve
+- Queue insertion/execution/removal are O(1) doubly linked-list operations. A valid queue entry requires a fixed-size Groth16 proof of an irreversible native burn and reserves collateral; arbitrary invalid submissions revert before storage.
+- Proof length/selector and terminal replay/window errors precede the bounded verifier call. Invalid proofs pay their own verification gas and leave no state/events.
+- pruneExpired is caller-sized and capped by MAX_PRUNE_BATCH; callers can always choose one item. pruneDiscardable accepts an explicit capped list and skips unknown/duplicate/live IDs, so a griefer cannot poison an entire cleanup batch. discardWithdrawal is constant work.
+- Emergency epoch invalidation resets active headers/count/amount in O(1). Old mapping entries are independently deletable by identifier; they do not remain linked to, reserve collateral in, or enlarge the new active queue.
+- pendingBurnPage is view-only and capped. Its duplicate/cycle defense is O(n²) at at most 256 entries; callers may request smaller pages and pin blockTag. It cannot make a state transition inexecutable.
+- Persistent deposits, paid IDs and proved burn/debt/request identities grow only with actual collateral deposits or consensus-proved burns. These tombstones are required replay protection, not attacker-free garbage. Event/calldata size is fixed per operation.
+
+CheckpointRegistry
+- There is exactly one PendingCandidate storage slot. A better valid proof overwrites it without extending the challenge deadline; finalization is constant work and deletes it.
+- Candidate replacement requires a fixed-size, fully verified proof and a strict total-order improvement. Invalid submissions mutate no state. The verifier staticcall has a fixed gas cap and copies exactly one return word.
+- No loop depends on checkpoint history. Historical growth is event-only plus scalar checkpointCount; each next checkpoint advances one fixed interval. Finalization remains executable independently of prior candidate count.
+- Candidate-window closure prevents last-block replacement from extending the round. Submitters pay their own proof/calldata cost; no victim-owned bond or refund path exists to grief.
+
+Permanent gate
+scripts/check-permissionless-gas-liveness.py locks proof-size/gas ceilings, bounded pagination/pruning, O(1) epoch invalidation, stale deletion and the Registry single-candidate/non-resetting-window model.
+
+Validation
+PASS check-permissionless-gas-liveness.py
+PASS python3 -m py_compile check-permissionless-gas-liveness.py
+PASS git diff --check for gate/report/continuations.
+No Forge/Cargo heavy build, network, push, deploy, signing, broadcast or funds operation occurred.

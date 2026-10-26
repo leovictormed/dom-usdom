@@ -1,0 +1,27 @@
+ETAPA 746 — signing installation recheck and readback
+Date: 2026-10-23
+
+Finding
+=======
+The durable installers correctly use O_NOFOLLOW, a pinned parent descriptor, exclusive creation,
+file and directory fsync, atomic link/rename, and direct owner/mode/link/content verification.
+The ceremonies, however, installed multiple post-Ledger artifacts after one shared recheck and did
+not independently read each final pathname back. A failure or namespace change between installs
+could leave an unverified partial set.
+
+Correction
+==========
+Release/native signing now repeats all input/tool checks before every signature-bundle install and
+reads each installed target through the strict private reader for byte comparison with its draft.
+Safe recovery does the same independently for signatures and assembled transactions. Checkpoint
+ratification reads back and compares the signature before rechecking inputs/tools and installing
+its checksum, then reads the checksum back too.
+
+Validation
+==========
+Signing structural/adversarial and durable-writer suites pass 10/10. These exercise exclusive
+creation, symlink/hardlink rejection, owner-only mode, unsafe directory rejection, parent inode
+pinning, fsync structure, immutable mismatch rejection and installed readback structure. All three
+scripts pass `bash -n`; Node syntax and diff checks pass. No ceremony or installer ran on real data.
+
+No Ledger, RPC, signing, commit, push, deploy, transmission or funds were used.

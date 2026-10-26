@@ -76,6 +76,10 @@ pub struct NoiseCodec {
     /// validated; `None` until then. The message is complete when
     /// `acc.len() == expected`.
     expected: Option<usize>,
+    /// Per-frame idle deadline retained across `tokio::select!` cancellation.
+    /// Without persistent state, every ping/maintenance tick could recreate
+    /// `recv` and indefinitely postpone an otherwise finite idle timeout.
+    read_deadline: Option<tokio::time::Instant>,
 }
 
 impl NoiseCodec {
@@ -91,6 +95,7 @@ impl NoiseCodec {
             read_state: ReadState::Idle,
             acc: Vec::new(),
             expected: None,
+            read_deadline: None,
         }
     }
 
@@ -181,14 +186,22 @@ impl NoiseCodec {
             // The ONLY await in this loop. Cancel-safe: partial-frame progress is
             // in `self.read_state`, and whole-frame progress is in `self.acc` /
             // `self.expected`, so a dropped recv resumes here.
-            let ciphertext = tokio::time::timeout(
-                idle_timeout,
+            let deadline = *self
+                .read_deadline
+                .get_or_insert_with(|| tokio::time::Instant::now() + idle_timeout);
+            let ciphertext = tokio::time::timeout_at(
+                deadline,
                 read_framed_cancel_safe(stream, &mut self.read_state),
             )
             .await
             .map_err(|_| {
+                self.reset_reassembly();
                 DomError::PolicyRejected(format!("idle timeout after {}s", idle_timeout.as_secs()))
             })??;
+            // A complete transport frame is progress. The next frame gets one
+            // fresh idle interval, and this deadline again survives select
+            // cancellation while that frame is partial or absent.
+            self.read_deadline = Some(tokio::time::Instant::now() + idle_timeout);
 
             // INVARIANT: no `.await` between decrypt and the `acc` append, so the
             // receive nonce advances exactly once per frame even under
@@ -198,6 +211,29 @@ impl NoiseCodec {
                 .transport
                 .read_message(&ciphertext, &mut plaintext)
                 .map_err(|e| DomError::Invalid(format!("noise decrypt: {e}")))?;
+
+            // The sender uses canonical CHUNK-sized fragmentation: every frame
+            // is full except the final frame. Reject tiny-frame fragmentation
+            // before accumulation; otherwise one bounded logical message could
+            // require millions of AEAD operations and repeatedly refresh the
+            // per-frame idle deadline.
+            if self.expected.is_none() && n < 4 {
+                self.reset_reassembly();
+                return Err(DomError::Malformed(
+                    "first logical transport frame is shorter than length prefix".into(),
+                ));
+            }
+            if let Some(expected) = self.expected {
+                let remaining = expected.checked_sub(self.acc.len()).ok_or_else(|| {
+                    DomError::Malformed("transport reassembly accounting underflow".into())
+                })?;
+                if n != remaining.min(CHUNK) {
+                    self.reset_reassembly();
+                    return Err(DomError::Malformed(
+                        "noncanonical logical transport fragmentation".into(),
+                    ));
+                }
+            }
             self.acc.extend_from_slice(&plaintext[..n]);
 
             // Learn and validate the total length as soon as the prefix is in.
@@ -212,7 +248,37 @@ impl NoiseCodec {
                          {MAX_CODEC_LOGICAL_MSG_BYTES}"
                     )));
                 }
-                self.expected = Some(4 + total);
+                let expected = 4 + total;
+                self.expected = Some(expected);
+                if n != expected.min(CHUNK) {
+                    self.reset_reassembly();
+                    return Err(DomError::Malformed(
+                        "noncanonical first logical transport fragment".into(),
+                    ));
+                }
+                // The canonical first fragment also contains the complete
+                // WireMessage header. Reject an unknown command, wrong network
+                // or inconsistent inner length before receiving a potentially
+                // block-sized remainder.
+                if total >= 13 {
+                    let magic = u32::from_le_bytes(self.acc[4..8].try_into().unwrap());
+                    if magic != self.network_magic {
+                        self.reset_reassembly();
+                        return Err(DomError::Invalid("wire magic mismatch".into()));
+                    }
+                    if let Err(error) = crate::message::Command::from_byte(self.acc[8]) {
+                        self.reset_reassembly();
+                        return Err(error);
+                    }
+                    let payload_len =
+                        u32::from_le_bytes(self.acc[9..13].try_into().unwrap()) as usize;
+                    if payload_len > MAX_MESSAGE_PAYLOAD || total != 13 + payload_len {
+                        self.reset_reassembly();
+                        return Err(DomError::Malformed(
+                            "logical and wire message lengths disagree".into(),
+                        ));
+                    }
+                }
             }
 
             if let Some(expected) = self.expected {
@@ -227,6 +293,7 @@ impl NoiseCodec {
                 if self.acc.len() == expected {
                     let acc = std::mem::take(&mut self.acc);
                     self.expected = None;
+                    self.read_deadline = None;
                     // acc == [u32_le(total) ++ plaintext]; the message is acc[4..].
                     return WireMessage::from_bytes(&acc[4..], self.network_magic);
                 }
@@ -241,6 +308,7 @@ impl NoiseCodec {
         self.acc.clear();
         self.expected = None;
         self.read_state = ReadState::Idle;
+        self.read_deadline = None;
     }
 }
 
@@ -437,6 +505,54 @@ mod tests {
             matches!(err, DomError::Malformed(_)),
             "expected Malformed, got {err:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn recv_rejects_tiny_first_fragment_before_accumulation() {
+        let (mut a, mut sender_t, mut b, rt) = connected_transports().await;
+        let mut cb = NoiseCodec::new(rt, TEST_MAGIC);
+        let mut ciphertext = vec![0u8; 17];
+        let n = sender_t.write_message(&[0x01], &mut ciphertext).unwrap();
+        write_framed(&mut a, &ciphertext[..n]).await.unwrap();
+
+        let error = cb.recv(&mut b).await.unwrap_err();
+        assert!(matches!(error, DomError::Malformed(_)));
+        assert!(cb.acc.is_empty());
+    }
+
+    #[tokio::test]
+    async fn recv_rejects_unknown_command_from_first_fragment() {
+        let (mut a, mut sender_t, mut b, rt) = connected_transports().await;
+        let mut cb = NoiseCodec::new(rt, TEST_MAGIC);
+        let total = CHUNK + 100;
+        let mut fragment = vec![0u8; CHUNK];
+        fragment[..4].copy_from_slice(&(total as u32).to_le_bytes());
+        fragment[4..8].copy_from_slice(&TEST_MAGIC.to_le_bytes());
+        fragment[8] = 0xff;
+        fragment[9..13].copy_from_slice(&((total - 13) as u32).to_le_bytes());
+        let mut ciphertext = vec![0u8; fragment.len() + 16];
+        let n = sender_t.write_message(&fragment, &mut ciphertext).unwrap();
+        write_framed(&mut a, &ciphertext[..n]).await.unwrap();
+
+        let error = cb.recv(&mut b).await.unwrap_err();
+        assert!(matches!(error, DomError::Malformed(_)));
+        assert!(cb.acc.is_empty());
+    }
+
+    #[tokio::test]
+    async fn idle_deadline_survives_repeated_recv_cancellation() {
+        let (_a, _sender_t, mut b, rt) = connected_transports().await;
+        let mut cb = NoiseCodec::new(rt, TEST_MAGIC);
+        let idle = tokio::time::Duration::from_millis(20);
+
+        let error = loop {
+            tokio::select! {
+                result = cb.recv_with_idle_timeout(&mut b, idle) => break result.unwrap_err(),
+                _ = tokio::time::sleep(tokio::time::Duration::from_millis(3)) => {}
+            }
+        };
+        assert!(matches!(error, DomError::PolicyRejected(_)));
+        assert!(cb.read_deadline.is_none());
     }
 
     /// Cancel-safety: a multi-frame message sent slowly is received while

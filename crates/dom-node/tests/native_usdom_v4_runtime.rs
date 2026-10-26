@@ -6,8 +6,8 @@ use ark_serialize::CanonicalSerialize;
 use dom_chain::{
     build_canonical_genesis, genesis_canonical_changeset, native_usdom_v4_activation_updates,
     native_usdom_v4_activation_updates_for_schedule, native_usdom_v4_regtest_activation_schedule,
-    ChainState, ConnectResult, NativeUsdomV4SnapshotManifest, UsdomV2ExecutionWitnesses,
-    UsdomV4BlockPackage, UsdomV4ProofEnvelope,
+    ChainState, ConnectResult, NativeUsdomV2Runtime, NativeUsdomV4SnapshotManifest,
+    UsdomV2ExecutionWitnesses, UsdomV4BlockPackage, UsdomV4ProofEnvelope,
 };
 use dom_config::{Network, NodeConfig};
 use dom_consensus::block::ProofOfWork;
@@ -24,12 +24,18 @@ use dom_crypto::{blake2b_256_tagged, schnorr_sign, BlindingFactor, SecretKey};
 use dom_node::node::DomNode;
 use dom_node::node_handle::NodeHandleImpl;
 use dom_pow::{
-    fast_pow_hash, hash_meets_target, target_to_compact, target_to_difficulty_for_network_height,
-    CompactTarget,
+    hash_meets_target, randomx_pool::MinerVm, target_to_compact,
+    target_to_difficulty_for_network_height, CompactTarget,
 };
 use dom_rpc::{NodeHandle, RpcError, UsdomV4HistoryAnchorV1, UsdomV4HistoryRequestV1};
 use dom_serialization::DomSerialize;
 use dom_store::DomStore;
+use dom_usdom_checkpoint_program::{
+    build_first_v2_checkpoint_source, build_latest_v2_checkpoint_sources,
+    execute_checkpoint_segment_portable, CheckpointRandomXStatement,
+    CheckpointSegmentNativeStateOpening, CheckpointSegmentPolicyInput,
+    CheckpointSegmentPrivateInput, CheckpointSegmentTransition,
+};
 use dom_usdom_privacy::{circuit::SpendCircuit, verifier::SpendVerifier};
 use dom_usdom_state::{
     apply_v2_transition_batch_with_receipt, BlockContext, BridgeIdentity, BurnTimingPolicy,
@@ -37,21 +43,56 @@ use dom_usdom_state::{
 };
 use dom_wire::message::{UsdomV2PackagePayload, UsdomV4PackagePayload};
 use rand::{rngs::StdRng, SeedableRng};
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use tempfile::TempDir;
 use usdom_ethereum_finality_experiment::{
     checkpoints::{CheckpointPolicy, CheckpointTrustPolicy, StaticCheckpointTrustPolicy},
+    closures::{
+        IssuanceClosurePolicy, IssuanceClosureTrustPolicy, StaticIssuanceClosureTrustPolicy,
+    },
     deposits::{DepositTrustPolicy, ReserveDepositPolicy, StaticDepositTrustPolicy},
-    EthereumForks,
+    EthereumFork, EthereumForks,
 };
 
 const TEST_MAP_SIZE: usize = 64 << 20;
 const DOMAIN: [u8; 32] = [0x11; 32];
+const RANDOMX_RECEIPT_IMAGE_ID_HEX: &str =
+    "8efa49d4fe0f616840013adb1d3029ef71642099cb336c577a2691f7eea1dc24";
+
+fn supported_forks() -> EthereumForks {
+    let fork = |epoch, version| EthereumFork {
+        epoch,
+        fork_version: [version, 0, 0, 0].into(),
+    };
+    EthereumForks {
+        genesis: fork(0, 0),
+        altair: fork(74_240, 1),
+        bellatrix: fork(144_896, 2),
+        capella: fork(194_048, 3),
+        deneb: fork(269_568, 4),
+        electra: fork(364_032, 5),
+        fulu: fork(411_392, 6),
+        gloas: fork(u64::MAX, 7),
+    }
+}
+
+fn pinned_randomx_receipt_image_id() -> [u8; 32] {
+    let artifact =
+        include_str!("../../dom-usdom-randomx-risc0-guest/elfs/usdom-randomx.iid").trim();
+    assert_eq!(artifact, RANDOMX_RECEIPT_IMAGE_ID_HEX);
+    hex::decode(artifact).unwrap().try_into().unwrap()
+}
 
 fn policy() -> StaticCheckpointTrustPolicy {
     StaticCheckpointTrustPolicy::from_trust_policy(&CheckpointTrustPolicy {
         trusted_checkpoint: [0x41; 32].into(),
         ethereum_genesis_validators_root: [0x22; 32].into(),
-        forks: EthereumForks::default(),
+        forks: supported_forks(),
         max_current_slot: 1,
         checkpoint: CheckpointPolicy {
             ethereum_chain_id: 1,
@@ -67,11 +108,32 @@ fn policy() -> StaticCheckpointTrustPolicy {
     .unwrap()
 }
 
+fn closure_policy(schedule_commitment: [u8; 32]) -> StaticIssuanceClosureTrustPolicy {
+    StaticIssuanceClosureTrustPolicy::from_trust_policy(&IssuanceClosureTrustPolicy {
+        trusted_checkpoint: [0x41; 32].into(),
+        ethereum_genesis_validators_root: [0x22; 32].into(),
+        forks: supported_forks(),
+        max_current_slot: 1,
+        closure: IssuanceClosurePolicy {
+            ethereum_chain_id: 1,
+            ethereum_genesis_validators_root: [0x22; 32].into(),
+            reserve: [0x33; 20].into(),
+            runtime_code_hash: [0x46; 32].into(),
+            reserve_config_hash: [0x47; 32].into(),
+            activation_schedule_commitment: schedule_commitment.into(),
+            bridge_domain: DOMAIN.into(),
+            deposits_closed_storage_slot: [0x48; 32].into(),
+            total_deposited_storage_slot: [0x49; 32].into(),
+        },
+    })
+    .unwrap()
+}
+
 fn deposit_policy() -> StaticDepositTrustPolicy {
     StaticDepositTrustPolicy::from_trust_policy(&DepositTrustPolicy {
         trusted_checkpoint: [0x41; 32].into(),
         ethereum_genesis_validators_root: [0x22; 32].into(),
-        forks: EthereumForks::default(),
+        forks: supported_forks(),
         max_current_slot: 1,
         deposit: ReserveDepositPolicy {
             ethereum_chain_id: 1,
@@ -246,6 +308,7 @@ fn connect_final_v1_child(
                 selected_bridge,
                 &policy(),
                 &deposit_policy(),
+                None,
                 &verifier,
                 v1_schedule,
                 2,
@@ -260,6 +323,7 @@ fn connect_final_v1_child(
                 selected_bridge,
                 &policy(),
                 &deposit_policy(),
+                None,
                 &verifier,
                 v1_schedule,
             )
@@ -283,6 +347,7 @@ async fn candidate_startup_selects_one_persisted_phase_and_rejects_missing_bound
             selected_bridge,
             policy(),
             deposit_policy(),
+            None,
             &key_bytes,
             v1_schedule,
             2,
@@ -328,6 +393,7 @@ async fn candidate_startup_selects_one_persisted_phase_and_rejects_missing_bound
             selected_bridge,
             policy(),
             deposit_policy(),
+            None,
             &key_bytes,
             v1_schedule,
             2,
@@ -380,6 +446,7 @@ async fn candidate_startup_selects_one_persisted_phase_and_rejects_missing_bound
             selected_bridge,
             policy(),
             deposit_policy(),
+            None,
             &key_bytes,
             v1_schedule,
             2,
@@ -397,6 +464,7 @@ async fn candidate_startup_selects_one_persisted_phase_and_rejects_missing_bound
             selected_bridge,
             policy(),
             deposit_policy(),
+            None,
             &key_bytes,
             v1_schedule,
             3,
@@ -430,6 +498,7 @@ async fn candidate_startup_selects_one_persisted_phase_and_rejects_missing_bound
             selected_bridge,
             policy(),
             deposit_policy(),
+            None,
             &key_bytes,
             missing_v1_schedule,
             2,
@@ -440,6 +509,558 @@ async fn candidate_startup_selects_one_persisted_phase_and_rejects_missing_bound
     assert!(missing
         .to_string()
         .contains("without its atomic migration marker"));
+}
+
+#[test]
+fn canonical_first_v2_checkpoint_source_roundtrips_from_persisted_regtest_chain() {
+    if let Some(source) = std::env::var_os("USDOM_CHECKPOINT_FIXTURE_MIGRATE_FROM") {
+        let source = std::path::PathBuf::from(source);
+        let export_root = std::path::PathBuf::from(
+            std::env::var_os("USDOM_CHECKPOINT_FIXTURE_OUT")
+                .expect("migration requires USDOM_CHECKPOINT_FIXTURE_OUT"),
+        );
+        migrate_checkpoint_fixture_image_id(&source, &export_root).unwrap();
+        return;
+    }
+    if let Some(candidate) = std::env::var_os("USDOM_CHECKPOINT_FIXTURE_CANDIDATE") {
+        let candidate = std::path::PathBuf::from(candidate);
+        let export_root = std::path::PathBuf::from(
+            std::env::var_os("USDOM_CHECKPOINT_FIXTURE_OUT")
+                .expect("resume requires USDOM_CHECKPOINT_FIXTURE_OUT"),
+        );
+        validate_checkpoint_fixture_candidate(&candidate).unwrap();
+        assert!(export_root.is_absolute());
+        assert!(!export_root.exists());
+        std::fs::rename(candidate, export_root).unwrap();
+        return;
+    }
+    std::env::set_var("DOM_REGTEST_REAL_RANDOMX", "1");
+    let directory = TempDir::new().unwrap();
+    let (key_bytes, selected_bridge) = test_spend_key_and_bridge();
+    let (canonical, chain_id, v1_schedule) =
+        activate_scheduled_genesis(&directory, selected_bridge);
+    let store = DomStore::open_with_map_size(directory.path(), TEST_MAP_SIZE).unwrap();
+    let mut chain =
+        ChainState::open_with_utxo_repair(store, canonical.hash, NETWORK_MAGIC_REGTEST).unwrap();
+    let verifier = SpendVerifier::from_bytes(&key_bytes).unwrap();
+    let checkpoint_policy = policy();
+    let reserve_deposit_policy = deposit_policy();
+    let mut v1_state = NativeUsdomState::new(selected_bridge).unwrap();
+    let mut parent = canonical.block.as_ref().unwrap().clone();
+    let mut parent_hash = canonical.hash;
+    let first_v2_height = 11;
+    let mut v2_schedule = None;
+
+    for height in 1..first_v2_height {
+        let child = mine_v4_child(
+            &parent,
+            parent_hash,
+            canonical.hash,
+            &v1_state,
+            chain_id.as_bytes(),
+        );
+        eprintln!("native RandomX fixture mined block height={height}");
+        assert_eq!(child.header.height.0, height);
+        let child_hash = dom_chain::canonical_header_identifier(
+            NETWORK_MAGIC_REGTEST,
+            &child.header.to_bytes().unwrap(),
+        )
+        .unwrap();
+        let package = UsdomV4BlockPackage::new(child.clone(), UsdomV4ProofEnvelope::empty())
+            .unwrap()
+            .to_bytes()
+            .unwrap();
+        if height + 1 == first_v2_height {
+            let (outcome, schedule) = chain
+                .connect_usdom_v4_package_and_activate_v2_for_schedule(
+                    &package,
+                    child.header.timestamp,
+                    &mut v1_state,
+                    selected_bridge,
+                    &checkpoint_policy,
+                    &reserve_deposit_policy,
+                    None,
+                    &verifier,
+                    v1_schedule,
+                    first_v2_height,
+                )
+                .unwrap();
+            assert_eq!(outcome, ConnectResult::BestChain);
+            v2_schedule = Some(schedule);
+        } else {
+            assert_eq!(
+                chain
+                    .connect_usdom_v4_package_for_schedule(
+                        &package,
+                        child.header.timestamp,
+                        &mut v1_state,
+                        selected_bridge,
+                        &checkpoint_policy,
+                        &reserve_deposit_policy,
+                        None,
+                        &verifier,
+                        v1_schedule,
+                    )
+                    .unwrap(),
+                ConnectResult::BestChain
+            );
+        }
+        parent = child;
+        parent_hash = child_hash;
+    }
+
+    let v2_schedule = v2_schedule.unwrap();
+    let issuance_closure_policy = closure_policy(*v2_schedule.commitment().as_bytes());
+    let mut runtime = NativeUsdomV2Runtime::restore_for_schedule_with_spend_verifier(
+        &chain,
+        selected_bridge,
+        checkpoint_policy.clone(),
+        reserve_deposit_policy.clone(),
+        Some(issuance_closure_policy.clone()),
+        &key_bytes,
+        v2_schedule,
+    )
+    .unwrap();
+    let first_v2 = mine_dom_child_with_empty_usdom_v2_batch(
+        &parent,
+        parent_hash,
+        canonical.hash,
+        runtime.state(),
+        chain_id.as_bytes(),
+    );
+    eprintln!("native RandomX fixture mined block height={first_v2_height}");
+    let package = UsdomV4BlockPackage::new(first_v2.clone(), UsdomV4ProofEnvelope::empty())
+        .unwrap()
+        .to_bytes()
+        .unwrap();
+    let witnesses = UsdomV2ExecutionWitnesses::new(Vec::new()).unwrap();
+    assert_eq!(
+        runtime
+            .ingest(&mut chain, &package, &witnesses, first_v2.header.timestamp)
+            .unwrap(),
+        ConnectResult::BestChain
+    );
+
+    let bundle = build_first_v2_checkpoint_source(
+        &chain,
+        v2_schedule,
+        runtime.checkpoint_policy(),
+        runtime.deposit_policy(),
+        runtime.issuance_closure_policy().unwrap(),
+        runtime.spend_verifying_key(),
+        runtime.state(),
+        pinned_randomx_receipt_image_id(),
+    )
+    .unwrap();
+    let transition = CheckpointSegmentTransition::from_bytes(bundle.transition_bytes()).unwrap();
+    let private_input =
+        CheckpointSegmentPrivateInput::from_bytes(bundle.private_input_bytes()).unwrap();
+    let policy_input =
+        CheckpointSegmentPolicyInput::from_bytes(bundle.policy_input_bytes()).unwrap();
+    let native_opening =
+        CheckpointSegmentNativeStateOpening::from_bytes(bundle.native_state_opening_bytes())
+            .unwrap();
+    let execution = execute_checkpoint_segment_portable(
+        &transition,
+        &private_input,
+        &policy_input,
+        &native_opening,
+    )
+    .unwrap();
+    assert_eq!(transition.previous.height, first_v2_height - 1);
+    assert_eq!(transition.next.height, first_v2_height);
+    assert_eq!(transition.next.block_hash, *chain.tip_hash.as_bytes());
+    assert_eq!(
+        transition.previous.randomx_receipt_image_id,
+        pinned_randomx_receipt_image_id()
+    );
+    assert_eq!(execution.randomx_bindings().len(), 1);
+    assert!(build_first_v2_checkpoint_source(
+        &chain,
+        v2_schedule,
+        runtime.checkpoint_policy(),
+        runtime.deposit_policy(),
+        runtime.issuance_closure_policy().unwrap(),
+        runtime.spend_verifying_key(),
+        runtime.state(),
+        [0; 32],
+    )
+    .is_err());
+
+    let expected_outputs = [
+        bundle.transition_bytes().to_vec(),
+        bundle.private_input_bytes().to_vec(),
+        bundle.policy_input_bytes().to_vec(),
+        bundle.native_state_opening_bytes().to_vec(),
+    ];
+    drop(runtime);
+    drop(chain);
+
+    let export_config = directory.path().join("checkpoint-export-config");
+    let output_dir = directory.path().join("checkpoint-export-output");
+    std::fs::create_dir(&export_config).unwrap();
+    std::fs::create_dir(&output_dir).unwrap();
+    std::fs::write(export_config.join("spend.vk"), &key_bytes).unwrap();
+    let fork = |epoch: u64, version: &str| serde_json::json!({"epoch": epoch, "version": version});
+    let manifest = serde_json::json!({
+        "schema_version": 3,
+        "network_magic": NETWORK_MAGIC_REGTEST,
+        "activation_schedule_hex": hex::encode(v1_schedule.to_bytes()),
+        "candidate_v2": {
+            "first_height": first_v2_height,
+            "checkpoint_interval_blocks": 1,
+            "checkpoint_confirmation_depth_blocks": 1
+        },
+        "spend_verifying_key_file": "spend.vk",
+        "spend_verifying_key_sha256":
+            dom_node::native_usdom_config::sha256_hex(&key_bytes),
+        "ethereum": {
+            "trusted_checkpoint": "41".repeat(32),
+            "genesis_validators_root": "22".repeat(32),
+            "forks": {
+                "genesis": fork(0, "00000000"),
+                "altair": fork(74_240, "01000000"),
+                "bellatrix": fork(144_896, "02000000"),
+                "capella": fork(194_048, "03000000"),
+                "deneb": fork(269_568, "04000000"),
+                "electra": fork(364_032, "05000000"),
+                "fulu": fork(411_392, "06000000"),
+                "gloas": fork(u64::MAX, "07000000")
+            }
+        },
+        "checkpoint": {
+            "ethereum_chain_id": 1,
+            "registry": "42".repeat(20),
+            "runtime_code_hash": "43".repeat(32),
+            "config_storage_slot": "44".repeat(32),
+            "checkpoint_config_hash": "45".repeat(32),
+            "bridge_domain": "11".repeat(32),
+            "randomx_receipt_image_id": RANDOMX_RECEIPT_IMAGE_ID_HEX
+        },
+        "deposit": {
+            "ethereum_chain_id": 1,
+            "reserve": "33".repeat(20),
+            "runtime_code_hash": "46".repeat(32),
+            "bridge_domain": "11".repeat(32),
+            "max_amount": 100_000_000_000u64
+        },
+        "issuance_closure": {
+            "ethereum_chain_id": 1,
+            "reserve": "33".repeat(20),
+            "runtime_code_hash": "46".repeat(32),
+            "reserve_config_hash": "47".repeat(32),
+            "bridge_domain": "11".repeat(32),
+            "deposits_closed_storage_slot": "48".repeat(32),
+            "total_deposited_storage_slot": "49".repeat(32)
+        },
+        "bridge": {
+            "dom_domain": hex::encode(selected_bridge.dom_domain),
+            "ethereum_chain_id_uint256": hex::encode(selected_bridge.ethereum_chain_id),
+            "privacy_policy_hash": hex::encode(selected_bridge.privacy_policy_hash),
+            "privacy_verifier_config_hash":
+                hex::encode(selected_bridge.privacy_verifier_config_hash),
+            "reserve": hex::encode(selected_bridge.reserve),
+            "burn_timing": {
+                "withdrawal_delay_secs":
+                    selected_bridge.burn_timing.withdrawal_delay_secs,
+                "min_execution_window_secs":
+                    selected_bridge.burn_timing.min_execution_window_secs,
+                "max_certificate_lifetime_secs":
+                    selected_bridge.burn_timing.max_certificate_lifetime_secs,
+                "relay_safety_margin_secs":
+                    selected_bridge.burn_timing.relay_safety_margin_secs,
+                "max_ethereum_anchor_age_secs":
+                    selected_bridge.burn_timing.max_ethereum_anchor_age_secs,
+                "max_dom_clock_lead_secs":
+                    selected_bridge.burn_timing.max_dom_clock_lead_secs
+            }
+        }
+    });
+    let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+    let manifest_hash = dom_node::native_usdom_config::sha256_hex(&manifest_bytes);
+    let manifest_path = export_config.join("native-usdom-v2.json");
+    std::fs::write(&manifest_path, manifest_bytes).unwrap();
+    for name in [
+        "checkpoint-segment-transition.bin",
+        "checkpoint-segment-private-input.bin",
+        "checkpoint-segment-policy-input.bin",
+        "checkpoint-segment-native-state-opening.bin",
+    ] {
+        std::fs::write(output_dir.join(name), b"stale").unwrap();
+    }
+    let output =
+        std::process::Command::new(env!("CARGO_BIN_EXE_dom-usdom-export-checkpoint-source"))
+            .args([
+                "--manifest-file",
+                manifest_path.to_str().unwrap(),
+                "--manifest-sha256",
+                &manifest_hash,
+                "--data-dir",
+                directory.path().to_str().unwrap(),
+                "--output-dir",
+                output_dir.to_str().unwrap(),
+                "--network",
+                "regtest",
+            ])
+            .output()
+            .unwrap();
+    assert!(
+        output.status.success(),
+        "export failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("status: exported"));
+    for (name, expected) in [
+        ("checkpoint-segment-transition.bin", &expected_outputs[0]),
+        ("checkpoint-segment-private-input.bin", &expected_outputs[1]),
+        ("checkpoint-segment-policy-input.bin", &expected_outputs[2]),
+        (
+            "checkpoint-segment-native-state-opening.bin",
+            &expected_outputs[3],
+        ),
+    ] {
+        assert_eq!(std::fs::read(output_dir.join(name)).unwrap(), *expected);
+    }
+
+    let store = DomStore::open_with_map_size(directory.path(), TEST_MAP_SIZE).unwrap();
+    let mut chain =
+        ChainState::open_with_utxo_repair(store, canonical.hash, NETWORK_MAGIC_REGTEST).unwrap();
+    let mut runtime = NativeUsdomV2Runtime::restore_for_schedule_with_spend_verifier(
+        &chain,
+        selected_bridge,
+        checkpoint_policy.clone(),
+        reserve_deposit_policy.clone(),
+        Some(issuance_closure_policy.clone()),
+        &key_bytes,
+        v2_schedule,
+    )
+    .unwrap();
+    let confirmation = mine_dom_child_with_empty_usdom_v2_batch(
+        &first_v2,
+        chain.tip_hash,
+        canonical.hash,
+        runtime.state(),
+        chain_id.as_bytes(),
+    );
+    eprintln!(
+        "native RandomX fixture mined block height={}",
+        confirmation.header.height.0
+    );
+    let confirmation_package =
+        UsdomV4BlockPackage::new(confirmation.clone(), UsdomV4ProofEnvelope::empty())
+            .unwrap()
+            .to_bytes()
+            .unwrap();
+    assert_eq!(
+        runtime
+            .ingest(
+                &mut chain,
+                &confirmation_package,
+                &witnesses,
+                confirmation.header.timestamp,
+            )
+            .unwrap(),
+        ConnectResult::BestChain
+    );
+    let source_set = build_latest_v2_checkpoint_sources(
+        &chain,
+        v2_schedule,
+        runtime.checkpoint_policy(),
+        runtime.deposit_policy(),
+        runtime.issuance_closure_policy().unwrap(),
+        runtime.spend_verifying_key(),
+        runtime.state(),
+        pinned_randomx_receipt_image_id(),
+        1,
+        1,
+    )
+    .unwrap();
+    assert_eq!(source_set.previous_height(), 10);
+    assert_eq!(source_set.target_height(), 11);
+    assert_eq!(source_set.confirmation_height(), 12);
+    assert_eq!(source_set.segments().len(), 2);
+    let mut expected_set_outputs = Vec::new();
+    let mut expected_statements = Vec::new();
+    for (index, segment) in source_set.segments().iter().enumerate() {
+        assert_eq!(segment.economic_blocks().len(), 1);
+        assert_eq!(segment.economic_blocks()[0].block_index(), 0);
+        assert!(!segment.economic_blocks()[0].source().chunks().is_empty());
+        let transition =
+            CheckpointSegmentTransition::from_bytes(segment.transition_bytes()).unwrap();
+        assert_eq!(transition.block_count, 1);
+        assert_eq!(transition.previous.height, 10 + index as u64);
+        assert_eq!(transition.next.height, 11 + index as u64);
+        let execution = execute_checkpoint_segment_portable(
+            &transition,
+            &CheckpointSegmentPrivateInput::from_bytes(segment.private_input_bytes()).unwrap(),
+            &CheckpointSegmentPolicyInput::from_bytes(segment.policy_input_bytes()).unwrap(),
+            &CheckpointSegmentNativeStateOpening::from_bytes(segment.native_state_opening_bytes())
+                .unwrap(),
+        )
+        .unwrap();
+        expected_statements.extend(
+            execution
+                .randomx_bindings()
+                .iter()
+                .map(|binding| binding.statement().to_bytes().unwrap()),
+        );
+        expected_set_outputs.push([
+            segment.transition_bytes().to_vec(),
+            segment.private_input_bytes().to_vec(),
+            segment.policy_input_bytes().to_vec(),
+            segment.native_state_opening_bytes().to_vec(),
+        ]);
+    }
+    drop(runtime);
+    drop(chain);
+
+    let export_root =
+        std::env::var_os("USDOM_CHECKPOINT_FIXTURE_OUT").map(std::path::PathBuf::from);
+    let evidence_dir = if let Some(export_root) = export_root.as_ref() {
+        assert!(export_root.is_absolute());
+        let candidate = export_root.parent().unwrap().join(".evidence-candidate");
+        assert!(!candidate.exists(), "candidate must be create-once");
+        std::fs::create_dir(&candidate).unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o700)).unwrap();
+        candidate
+    } else {
+        let evidence = directory.path().join("evidence");
+        std::fs::create_dir(&evidence).unwrap();
+        evidence
+    };
+    let set_output_dir = evidence_dir.join("checkpoint-source-set");
+    std::fs::create_dir(&set_output_dir).unwrap();
+    std::fs::write(
+        set_output_dir.join("checkpoint-segment-9999-transition.bin"),
+        b"stale",
+    )
+    .unwrap();
+    std::fs::write(
+        set_output_dir.join("checkpoint-source-set-index.json"),
+        b"stale",
+    )
+    .unwrap();
+    std::fs::write(set_output_dir.join("operator-notes.txt"), b"preserve").unwrap();
+    let set_output =
+        std::process::Command::new(env!("CARGO_BIN_EXE_dom-usdom-export-checkpoint-source-set"))
+            .args([
+                "--manifest-file",
+                manifest_path.to_str().unwrap(),
+                "--manifest-sha256",
+                &manifest_hash,
+                "--data-dir",
+                directory.path().to_str().unwrap(),
+                "--output-dir",
+                set_output_dir.to_str().unwrap(),
+                "--network",
+                "regtest",
+            ])
+            .output()
+            .unwrap();
+    assert!(
+        set_output.status.success(),
+        "source-set export failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&set_output.stdout),
+        String::from_utf8_lossy(&set_output.stderr)
+    );
+    let index: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(set_output_dir.join("checkpoint-source-set-index.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(index["schema"], "usdom-canonical-checkpoint-source-set-v1");
+    assert_eq!(index["previous_height"], 10);
+    assert_eq!(index["target_height"], 11);
+    assert_eq!(index["confirmation_height"], 12);
+    assert_eq!(index["segment_count"], 2);
+    let economic_index: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(set_output_dir.join("checkpoint-economic-source-set-index.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        economic_index["schema"],
+        "usdom-economic-proof-source-set-v1"
+    );
+    assert_eq!(economic_index["block_count"], 2);
+    assert_eq!(economic_index["blocks"].as_array().unwrap().len(), 2);
+    for (index, expected) in expected_set_outputs.iter().enumerate() {
+        for (suffix, value) in [
+            ("transition.bin", &expected[0]),
+            ("private-input.bin", &expected[1]),
+            ("policy-input.bin", &expected[2]),
+            ("native-state-opening.bin", &expected[3]),
+        ] {
+            assert_eq!(
+                std::fs::read(
+                    set_output_dir.join(format!("checkpoint-segment-{index:04}-{suffix}"))
+                )
+                .unwrap(),
+                *value
+            );
+        }
+    }
+    assert!(!set_output_dir
+        .join("checkpoint-segment-9999-transition.bin")
+        .exists());
+    assert_eq!(
+        std::fs::read(set_output_dir.join("operator-notes.txt")).unwrap(),
+        b"preserve"
+    );
+
+    let statement_output_dir = evidence_dir.join("randomx-statement-set");
+    std::fs::create_dir(&statement_output_dir).unwrap();
+    std::fs::write(
+        statement_output_dir.join("randomx-statement-0999.bin"),
+        b"stale",
+    )
+    .unwrap();
+    std::fs::write(statement_output_dir.join("operator-notes.txt"), b"preserve").unwrap();
+    let statement_output =
+        std::process::Command::new(env!("CARGO_BIN_EXE_dom-usdom-export-randomx-statement-set"))
+            .args(["--evidence-dir", evidence_dir.to_str().unwrap()])
+            .output()
+            .unwrap();
+    assert!(
+        statement_output.status.success(),
+        "statement-set export failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&statement_output.stdout),
+        String::from_utf8_lossy(&statement_output.stderr)
+    );
+    if export_root.is_some() {
+        write_checkpoint_fixture_manifest(&evidence_dir).unwrap();
+    }
+    let statement_index: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(statement_output_dir.join("randomx-statement-set-index.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        statement_index["schema"],
+        "usdom-authenticated-randomx-statement-set-v1"
+    );
+    assert_eq!(statement_index["segment_count"], 2);
+    assert_eq!(statement_index["statement_count"], 2);
+    assert_eq!(statement_index["portable_segments_executed"], true);
+    assert_eq!(statement_index["randomx_relations_executed"], true);
+    for (index, expected) in expected_statements.iter().enumerate() {
+        assert_eq!(
+            std::fs::read(statement_output_dir.join(format!("randomx-statement-{index:04}.bin")))
+                .unwrap(),
+            *expected
+        );
+    }
+    assert!(!statement_output_dir
+        .join("randomx-statement-0999.bin")
+        .exists());
+    assert_eq!(
+        std::fs::read(statement_output_dir.join("operator-notes.txt")).unwrap(),
+        b"preserve"
+    );
+    if let Some(export_root) = export_root {
+        validate_checkpoint_fixture_candidate(&evidence_dir).unwrap();
+        assert!(!export_root.exists());
+        std::fs::rename(&evidence_dir, &export_root).unwrap();
+    }
 }
 
 fn build_coinbase(
@@ -470,6 +1091,357 @@ fn build_coinbase(
         },
         offset: [0; 32],
     }
+}
+
+const CHECKPOINT_FIXTURE_MANIFEST: &str = "candidate-manifest.json";
+
+fn copy_direct_tree(source: &std::path::Path, destination: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir(destination).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    std::fs::set_permissions(destination, std::fs::Permissions::from_mode(0o700))
+        .map_err(|error| error.to_string())?;
+    for entry in std::fs::read_dir(source).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        let target = destination.join(entry.file_name());
+        let metadata = std::fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!("source contains symlink: {}", path.display()));
+        }
+        if metadata.is_dir() {
+            copy_direct_tree(&path, &target)?;
+        } else if metadata.is_file() {
+            std::fs::copy(&path, &target).map_err(|error| error.to_string())?;
+            #[cfg(unix)]
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600))
+                .map_err(|error| error.to_string())?;
+        } else {
+            return Err(format!(
+                "source contains non-regular entry: {}",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn migrate_checkpoint_fixture_image_id(
+    source: &std::path::Path,
+    export_root: &std::path::Path,
+) -> Result<(), String> {
+    if !source.is_absolute() || !export_root.is_absolute() || export_root.exists() {
+        return Err("migration paths must be absolute and output must be absent".into());
+    }
+    let candidate = export_root
+        .parent()
+        .ok_or_else(|| "output parent is absent".to_owned())?
+        .join(".evidence-candidate");
+    if candidate.exists() {
+        return Err("migration candidate must be create-once".into());
+    }
+    std::fs::create_dir_all(export_root.parent().unwrap()).map_err(|error| error.to_string())?;
+    std::fs::create_dir(&candidate).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o700))
+        .map_err(|error| error.to_string())?;
+    let source_set = source.join("checkpoint-source-set");
+    let candidate_source = candidate.join("checkpoint-source-set");
+    copy_direct_tree(&source_set, &candidate_source)?;
+
+    let source_index_path = candidate_source.join("checkpoint-source-set-index.json");
+    let mut source_index: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&source_index_path).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    if source_index["schema"] != "usdom-canonical-checkpoint-source-set-v1"
+        || source_index["randomx_receipt_image_id"] == RANDOMX_RECEIPT_IMAGE_ID_HEX
+    {
+        return Err("migration source identity is invalid or already migrated".into());
+    }
+    let segments = source_index["segments"]
+        .as_array_mut()
+        .ok_or_else(|| "migration source segments absent".to_owned())?;
+    let pinned = pinned_randomx_receipt_image_id();
+    let mut previous_next: Option<dom_usdom_checkpoint_program::CheckpointSegmentState> = None;
+    for segment in segments {
+        let transition_name = segment["transition_file"]
+            .as_str()
+            .ok_or_else(|| "migration transition filename absent".to_owned())?;
+        let transition_path = candidate_source.join(transition_name);
+        let mut transition = CheckpointSegmentTransition::from_bytes(
+            &std::fs::read(&transition_path).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        transition.previous.randomx_receipt_image_id = pinned;
+        transition.next.randomx_receipt_image_id = pinned;
+        if let Some(expected) = previous_next.as_ref() {
+            if &transition.previous != expected {
+                return Err("migration source segment continuity mismatch".into());
+            }
+        }
+        let transition_bytes = transition.to_bytes().map_err(|error| error.to_string())?;
+        let private_name = segment["private_input_file"]
+            .as_str()
+            .ok_or_else(|| "migration private input filename absent".to_owned())?;
+        let policy_name = segment["policy_input_file"]
+            .as_str()
+            .ok_or_else(|| "migration policy input filename absent".to_owned())?;
+        let opening_name = segment["native_state_opening_file"]
+            .as_str()
+            .ok_or_else(|| "migration opening filename absent".to_owned())?;
+        execute_checkpoint_segment_portable(
+            &CheckpointSegmentTransition::from_bytes(&transition_bytes)
+                .map_err(|error| error.to_string())?,
+            &CheckpointSegmentPrivateInput::from_bytes(
+                &std::fs::read(candidate_source.join(private_name))
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?,
+            &CheckpointSegmentPolicyInput::from_bytes(
+                &std::fs::read(candidate_source.join(policy_name))
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?,
+            &CheckpointSegmentNativeStateOpening::from_bytes(
+                &std::fs::read(candidate_source.join(opening_name))
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        std::fs::write(&transition_path, &transition_bytes).map_err(|error| error.to_string())?;
+        segment["transition_sha256"] =
+            serde_json::Value::String(dom_node::native_usdom_config::sha256_hex(&transition_bytes));
+        previous_next = Some(transition.next);
+    }
+    source_index["randomx_receipt_image_id"] =
+        serde_json::Value::String(RANDOMX_RECEIPT_IMAGE_ID_HEX.to_owned());
+    let mut source_index_bytes =
+        serde_json::to_vec_pretty(&source_index).map_err(|error| error.to_string())?;
+    source_index_bytes.push(b'\n');
+    std::fs::write(&source_index_path, &source_index_bytes).map_err(|error| error.to_string())?;
+
+    let economic_path = candidate_source.join("checkpoint-economic-source-set-index.json");
+    let mut economic: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&economic_path).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    economic["checkpoint_source_index_sha256"] = serde_json::Value::String(
+        dom_node::native_usdom_config::sha256_hex(&source_index_bytes),
+    );
+    let mut economic_bytes =
+        serde_json::to_vec_pretty(&economic).map_err(|error| error.to_string())?;
+    economic_bytes.push(b'\n');
+    std::fs::write(economic_path, economic_bytes).map_err(|error| error.to_string())?;
+
+    let statements = candidate.join("randomx-statement-set");
+    std::fs::create_dir(&statements).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    std::fs::set_permissions(&statements, std::fs::Permissions::from_mode(0o700))
+        .map_err(|error| error.to_string())?;
+    let output =
+        std::process::Command::new(env!("CARGO_BIN_EXE_dom-usdom-export-randomx-statement-set"))
+            .args(["--evidence-dir", candidate.to_str().unwrap()])
+            .output()
+            .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(format!(
+            "migrated statement export failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    write_checkpoint_fixture_manifest(&candidate)?;
+    validate_checkpoint_fixture_candidate(&candidate)?;
+    std::fs::rename(candidate, export_root).map_err(|error| error.to_string())
+}
+
+fn candidate_files(root: &std::path::Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+    fn visit(
+        root: &std::path::Path,
+        directory: &std::path::Path,
+        files: &mut Vec<(String, Vec<u8>)>,
+    ) -> Result<(), String> {
+        for entry in std::fs::read_dir(directory).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let path = entry.path();
+            let metadata = std::fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+            if metadata.file_type().is_symlink() {
+                return Err(format!("candidate contains symlink: {}", path.display()));
+            }
+            if metadata.is_dir() {
+                visit(root, &path, files)?;
+            } else if metadata.is_file() {
+                let relative = path
+                    .strip_prefix(root)
+                    .map_err(|error| error.to_string())?
+                    .to_str()
+                    .ok_or_else(|| "candidate path is not UTF-8".to_owned())?
+                    .replace('\\', "/");
+                if relative != CHECKPOINT_FIXTURE_MANIFEST {
+                    files.push((
+                        relative,
+                        std::fs::read(&path).map_err(|error| error.to_string())?,
+                    ));
+                }
+            } else {
+                return Err(format!(
+                    "candidate has non-regular entry: {}",
+                    path.display()
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    visit(root, root, &mut files)?;
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(files)
+}
+
+fn write_checkpoint_fixture_manifest(root: &std::path::Path) -> Result<(), String> {
+    let entries = candidate_files(root)?
+        .into_iter()
+        .map(|(path, bytes)| {
+            serde_json::json!({
+                "path": path,
+                "bytes": bytes.len(),
+                "sha256": dom_node::native_usdom_config::sha256_hex(&bytes),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut bytes = serde_json::to_vec_pretty(&serde_json::json!({
+        "schema": "usdom-local-checkpoint-fixture-candidate-v1",
+        "files": entries,
+    }))
+    .map_err(|error| error.to_string())?;
+    bytes.push(b'\n');
+    let path = root.join(CHECKPOINT_FIXTURE_MANIFEST);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    use std::io::Write;
+    options
+        .open(path)
+        .and_then(|mut file| file.write_all(&bytes).and_then(|()| file.sync_all()))
+        .map_err(|error| error.to_string())
+}
+
+fn validate_checkpoint_fixture_candidate(root: &std::path::Path) -> Result<(), String> {
+    if !root.is_absolute() {
+        return Err("candidate path must be absolute".into());
+    }
+    let metadata = std::fs::symlink_metadata(root).map_err(|error| error.to_string())?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("candidate must be a direct directory".into());
+    }
+    #[cfg(unix)]
+    {
+        let home = std::env::var_os("HOME").ok_or_else(|| "HOME is unavailable".to_owned())?;
+        let home_owner = std::fs::metadata(home)
+            .map_err(|error| error.to_string())?
+            .uid();
+        if metadata.uid() != home_owner || metadata.permissions().mode() & 0o077 != 0 {
+            return Err("candidate must be owned by the operator and mode 0700".into());
+        }
+    }
+
+    verify_checkpoint_fixture_manifest(root)?;
+
+    let source_dir = root.join("checkpoint-source-set");
+    let source_index: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(source_dir.join("checkpoint-source-set-index.json"))
+            .map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    if source_index["schema"] != "usdom-canonical-checkpoint-source-set-v1"
+        || source_index["randomx_receipt_image_id"] != RANDOMX_RECEIPT_IMAGE_ID_HEX
+        || source_index["previous_height"] != 10
+        || source_index["target_height"] != 11
+        || source_index["confirmation_height"] != 12
+        || source_index["segment_count"] != 2
+    {
+        return Err("candidate source index identity mismatch".into());
+    }
+    let segments = source_index["segments"]
+        .as_array()
+        .ok_or_else(|| "candidate segments absent".to_owned())?;
+    for segment in segments {
+        let read = |field: &str| -> Result<Vec<u8>, String> {
+            let name = segment[field]
+                .as_str()
+                .ok_or_else(|| format!("candidate segment {field} absent"))?;
+            std::fs::read(source_dir.join(name)).map_err(|error| error.to_string())
+        };
+        CheckpointSegmentTransition::from_bytes(&read("transition_file")?)
+            .map_err(|error| error.to_string())?;
+        CheckpointSegmentPrivateInput::from_bytes(&read("private_input_file")?)
+            .map_err(|error| error.to_string())?;
+        CheckpointSegmentPolicyInput::from_bytes(&read("policy_input_file")?)
+            .map_err(|error| error.to_string())?;
+        CheckpointSegmentNativeStateOpening::from_bytes(&read("native_state_opening_file")?)
+            .map_err(|error| error.to_string())?;
+    }
+
+    let statement_dir = root.join("randomx-statement-set");
+    let statement_index: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(statement_dir.join("randomx-statement-set-index.json"))
+            .map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    if statement_index["schema"] != "usdom-authenticated-randomx-statement-set-v1"
+        || statement_index["randomx_receipt_image_id"] != RANDOMX_RECEIPT_IMAGE_ID_HEX
+        || statement_index["segment_count"] != 2
+        || statement_index["statement_count"] != 2
+        || statement_index["portable_segments_executed"] != true
+        || statement_index["randomx_relations_executed"] != true
+    {
+        return Err("candidate statement index identity mismatch".into());
+    }
+    for statement in statement_index["statements"]
+        .as_array()
+        .ok_or_else(|| "candidate statements absent".to_owned())?
+    {
+        let name = statement["statement_file"]
+            .as_str()
+            .ok_or_else(|| "candidate statement filename absent".to_owned())?;
+        CheckpointRandomXStatement::from_bytes(
+            &std::fs::read(statement_dir.join(name)).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn verify_checkpoint_fixture_manifest(root: &std::path::Path) -> Result<(), String> {
+    let manifest_bytes =
+        std::fs::read(root.join(CHECKPOINT_FIXTURE_MANIFEST)).map_err(|error| error.to_string())?;
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&manifest_bytes).map_err(|error| error.to_string())?;
+    if manifest["schema"] != "usdom-local-checkpoint-fixture-candidate-v1" {
+        return Err("candidate manifest schema mismatch".into());
+    }
+    let expected = manifest["files"]
+        .as_array()
+        .ok_or_else(|| "candidate manifest files are absent".to_owned())?;
+    let actual = candidate_files(root)?;
+    if expected.len() != actual.len() {
+        return Err("candidate file inventory mismatch".into());
+    }
+    for (record, (actual_path, bytes)) in expected.iter().zip(actual.iter()) {
+        if record["path"].as_str() != Some(actual_path)
+            || record["bytes"].as_u64() != Some(bytes.len() as u64)
+            || record["sha256"].as_str()
+                != Some(dom_node::native_usdom_config::sha256_hex(bytes).as_str())
+        {
+            return Err(format!("candidate manifest mismatch: {actual_path}"));
+        }
+    }
+
+    Ok(())
 }
 
 fn mine_v4_child(
@@ -505,9 +1477,8 @@ fn mine_v4_child(
         + target_to_difficulty_for_network_height(NETWORK_MAGIC_REGTEST, height, &target).unwrap();
     let compact = CompactTarget(target_to_compact(&target));
     let canonical_target = compact.to_target().unwrap();
-    let mut nonce = 0u64;
-    loop {
-        let mut header = dom_consensus::BlockHeader {
+    let header = mine_regtest_header_parallel(
+        dom_consensus::BlockHeader {
             version: BLOCK_VERSION_V4,
             height,
             prev_hash: parent_hash,
@@ -519,20 +1490,18 @@ fn mine_v4_child(
             target: compact,
             total_difficulty,
             pow: ProofOfWork {
-                nonce,
+                nonce: 0,
                 randomx_hash: Hash256::ZERO,
             },
-        };
-        let hash = fast_pow_hash(pow_seed.as_bytes(), &header.pow_preimage());
-        if hash_meets_target(&hash, &canonical_target) {
-            header.pow.randomx_hash = Hash256::from_bytes(hash);
-            return Block {
-                header,
-                coinbase,
-                transactions: vec![],
-            };
-        }
-        nonce = nonce.wrapping_add(1);
+        },
+        pow_seed,
+        canonical_target,
+    )
+    .unwrap();
+    Block {
+        header,
+        coinbase,
+        transactions: vec![],
     }
 }
 
@@ -551,7 +1520,7 @@ fn mine_dom_child_with_empty_usdom_v2_batch(
         .timestamp
         .checked_add_secs(TARGET_SPACING)
         .unwrap();
-    let coinbase = build_coinbase(height, chain_id, 0x72);
+    let coinbase = build_coinbase(height, chain_id, 0x72u8.wrapping_add(height.0 as u8));
     let (output_root, kernel_root, raw_rangeproof_root) =
         compute_block_pmmr_roots(height, &coinbase, &[]).unwrap();
     let (_, receipt) = apply_v2_transition_batch_with_receipt(
@@ -572,9 +1541,8 @@ fn mine_dom_child_with_empty_usdom_v2_batch(
         + target_to_difficulty_for_network_height(NETWORK_MAGIC_REGTEST, height, &target).unwrap();
     let compact = CompactTarget(target_to_compact(&target));
     let canonical_target = compact.to_target().unwrap();
-    let mut nonce = 0u64;
-    loop {
-        let mut header = dom_consensus::BlockHeader {
+    let header = mine_regtest_header_parallel(
+        dom_consensus::BlockHeader {
             version: BLOCK_VERSION_V4,
             height,
             prev_hash: parent_hash,
@@ -586,21 +1554,160 @@ fn mine_dom_child_with_empty_usdom_v2_batch(
             target: compact,
             total_difficulty,
             pow: ProofOfWork {
-                nonce,
+                nonce: 0,
                 randomx_hash: Hash256::ZERO,
             },
-        };
-        let hash = fast_pow_hash(pow_seed.as_bytes(), &header.pow_preimage());
-        if hash_meets_target(&hash, &canonical_target) {
-            header.pow.randomx_hash = Hash256::from_bytes(hash);
-            return Block {
-                header,
-                coinbase,
-                transactions: vec![],
-            };
-        }
-        nonce = nonce.wrapping_add(1);
+        },
+        pow_seed,
+        canonical_target,
+    )
+    .unwrap();
+    Block {
+        header,
+        coinbase,
+        transactions: vec![],
     }
+}
+
+fn mine_regtest_header_parallel(
+    template: dom_consensus::BlockHeader,
+    pow_seed: Hash256,
+    target: [u8; 32],
+) -> Result<dom_consensus::BlockHeader, String> {
+    let worker_count = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .min(4);
+    let found = Arc::new(AtomicBool::new(false));
+    let winner = Arc::new(Mutex::new(None));
+    let first_error = Arc::new(Mutex::new(None));
+
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(worker_count);
+        for worker in 0..worker_count {
+            let found = Arc::clone(&found);
+            let winner = Arc::clone(&winner);
+            let first_error = Arc::clone(&first_error);
+            let template = template.clone();
+            let target = target.clone();
+            handles.push(scope.spawn(move || {
+                let mining_vm = match MinerVm::new_light(pow_seed.as_bytes()) {
+                    Ok(vm) => vm,
+                    Err(error) => {
+                        found.store(true, Ordering::Release);
+                        if let Ok(mut slot) = first_error.lock() {
+                            slot.get_or_insert_with(|| {
+                                format!("initialize RandomX worker: {error}")
+                            });
+                        }
+                        return;
+                    }
+                };
+                let stride = worker_count as u64;
+                let mut nonce = worker as u64;
+                while !found.load(Ordering::Acquire) {
+                    let mut header = template.clone();
+                    header.pow.nonce = nonce;
+                    let hash = match mining_vm.hash(&header.pow_preimage()) {
+                        Ok(hash) => hash,
+                        Err(error) => {
+                            found.store(true, Ordering::Release);
+                            if let Ok(mut slot) = first_error.lock() {
+                                slot.get_or_insert_with(|| {
+                                    format!("execute RandomX worker: {error}")
+                                });
+                            }
+                            return;
+                        }
+                    };
+                    if hash_meets_target(&hash, &target)
+                        && found
+                            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                            .is_ok()
+                    {
+                        header.pow.randomx_hash = Hash256::from_bytes(hash);
+                        if let Ok(mut slot) = winner.lock() {
+                            *slot = Some(header);
+                        }
+                        return;
+                    }
+                    nonce = match nonce.checked_add(stride) {
+                        Some(next) => next,
+                        None => return,
+                    };
+                }
+            }));
+        }
+        for handle in handles {
+            if handle.join().is_err() {
+                found.store(true, Ordering::Release);
+                if let Ok(mut slot) = first_error.lock() {
+                    slot.get_or_insert_with(|| "RandomX mining worker panicked".to_owned());
+                }
+            }
+        }
+    });
+
+    if let Some(header) = winner.lock().map_err(|_| "winner lock poisoned")?.take() {
+        return Ok(header);
+    }
+    if let Some(error) = first_error
+        .lock()
+        .map_err(|_| "error lock poisoned")?
+        .take()
+    {
+        return Err(error);
+    }
+    Err("RandomX nonce space exhausted without a valid regtest header".to_owned())
+}
+
+#[test]
+fn bounded_parallel_regtest_miner_returns_a_native_randomx_header() {
+    let seed = Hash256::from_bytes([0x42; 32]);
+    let template = dom_consensus::BlockHeader {
+        version: BLOCK_VERSION_V4,
+        height: BlockHeight(1),
+        prev_hash: Hash256::from_bytes([0x11; 32]),
+        timestamp: Timestamp(1),
+        output_root: Hash256::from_bytes([0x22; 32]),
+        kernel_root: Hash256::from_bytes([0x33; 32]),
+        rangeproof_root: Hash256::from_bytes([0x44; 32]),
+        total_kernel_offset: [0; 32],
+        target: CompactTarget(target_to_compact(&[0xff; 32])),
+        total_difficulty: Default::default(),
+        pow: ProofOfWork {
+            nonce: 0,
+            randomx_hash: Hash256::ZERO,
+        },
+    };
+    let mined = mine_regtest_header_parallel(template, seed, [0xff; 32]).unwrap();
+    let verifier = MinerVm::new_light(seed.as_bytes()).unwrap();
+    assert_eq!(
+        mined.pow.randomx_hash,
+        Hash256::from_bytes(verifier.hash(&mined.pow_preimage()).unwrap())
+    );
+    assert!(mined.pow.nonce < 4);
+}
+
+#[test]
+fn checkpoint_fixture_candidate_manifest_rejects_mutation() {
+    let directory = TempDir::new().unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let fixture = directory.path().join("fixture.bin");
+    std::fs::write(&fixture, b"canonical").unwrap();
+    write_checkpoint_fixture_manifest(directory.path()).unwrap();
+    verify_checkpoint_fixture_manifest(directory.path()).unwrap();
+    std::fs::write(fixture, b"mutated").unwrap();
+    assert!(verify_checkpoint_fixture_manifest(directory.path()).is_err());
+}
+
+#[test]
+fn checkpoint_fixture_uses_the_pinned_randomx_guest_image_id() {
+    let image_id = pinned_randomx_receipt_image_id();
+    assert_ne!(image_id, [0; 32]);
+    assert_ne!(image_id, [0x17; 32]);
+    assert_eq!(hex::encode(image_id), RANDOMX_RECEIPT_IMAGE_ID_HEX);
 }
 
 #[tokio::test]
@@ -619,6 +1726,7 @@ async fn native_runtime_requires_explicit_regtest_activation_and_exact_wire_fram
         bridge(),
         policy(),
         deposit_policy(),
+        None,
     );
     assert!(unactivated.is_err());
 
@@ -666,6 +1774,7 @@ async fn native_runtime_requires_explicit_regtest_activation_and_exact_wire_fram
             bridge(),
             policy(),
             deposit_policy(),
+            None,
             b"malformed verifying key",
         )
         .is_err()
@@ -677,6 +1786,7 @@ async fn native_runtime_requires_explicit_regtest_activation_and_exact_wire_fram
         bridge(),
         policy(),
         deposit_policy(),
+        None,
     )
     .expect("restore activated native runtime");
     assert!(native.has_native_usdom_v4_runtime());
@@ -777,6 +1887,7 @@ async fn authenticated_history_rpc_pages_are_tip_domain_and_state_anchored() {
             bridge(),
             policy(),
             deposit_policy(),
+            None,
         )
         .unwrap(),
     );
@@ -948,6 +2059,7 @@ async fn native_orphan_replay_preserves_exact_packages_and_converges_child_befor
         bridge(),
         policy(),
         deposit_policy(),
+        None,
     )
     .unwrap();
     let state = NativeUsdomState::new(bridge()).unwrap();
@@ -1041,6 +2153,7 @@ async fn native_future_soft_buffer_preserves_exact_package_until_valid_redeliver
         bridge(),
         policy(),
         deposit_policy(),
+        None,
     )
     .unwrap();
     let state = NativeUsdomState::new(bridge()).unwrap();
@@ -1142,6 +2255,7 @@ async fn native_future_queue_runtime_drain_commits_and_relays_exact_package() {
             bridge(),
             policy(),
             deposit_policy(),
+            None,
         )
         .unwrap(),
     );
@@ -1221,6 +2335,7 @@ fn native_runtime_rejects_non_regtest_before_creating_a_database() {
         bridge(),
         policy(),
         deposit_policy(),
+        None,
     );
     assert!(result.is_err());
     assert!(!data_dir.exists());
@@ -1273,6 +2388,7 @@ async fn two_native_nodes_sync_exact_package_over_authenticated_v4_ibd() {
             bridge(),
             policy(),
             deposit_policy(),
+            None,
         )
         .unwrap(),
     );
@@ -1283,6 +2399,7 @@ async fn two_native_nodes_sync_exact_package_over_authenticated_v4_ibd() {
             bridge(),
             policy(),
             deposit_policy(),
+            None,
         )
         .unwrap(),
     );
@@ -1409,6 +2526,7 @@ async fn two_v2_nodes_sync_exact_package_and_witnesses_over_authenticated_v2_ibd
                 selected_bridge,
                 &policy(),
                 &deposit_policy(),
+                None,
                 &verifier,
                 client_schedule,
                 2,
@@ -1442,6 +2560,7 @@ async fn two_v2_nodes_sync_exact_package_and_witnesses_over_authenticated_v2_ibd
             selected_bridge,
             policy(),
             deposit_policy(),
+            None,
             &key_bytes,
             schedule,
             2,
@@ -1455,6 +2574,7 @@ async fn two_v2_nodes_sync_exact_package_and_witnesses_over_authenticated_v2_ibd
             selected_bridge,
             policy(),
             deposit_policy(),
+            None,
             &key_bytes,
             schedule,
             2,
@@ -1627,6 +2747,7 @@ async fn v2_miner_rewards_dom_and_persists_an_exact_empty_usdom_batch_without_is
             selected_bridge,
             policy(),
             deposit_policy(),
+            None,
             &key_bytes,
             v1_schedule,
             2,
@@ -1647,6 +2768,7 @@ async fn v2_miner_rewards_dom_and_persists_an_exact_empty_usdom_batch_without_is
             selected_bridge,
             &policy(),
             &deposit_policy(),
+            None,
             &verifier,
             schedule,
         )
@@ -1701,6 +2823,7 @@ async fn v2_miner_rewards_dom_and_persists_an_exact_empty_usdom_batch_without_is
             selected_bridge,
             &policy(),
             &deposit_policy(),
+            None,
             &verifier,
             v2_schedule,
         )
@@ -1741,6 +2864,7 @@ async fn native_miner_builds_persists_and_relays_the_exact_empty_v4_package() {
             bridge(),
             policy(),
             deposit_policy(),
+            None,
         )
         .unwrap(),
     );
@@ -1890,6 +3014,7 @@ async fn native_miner_builds_persists_and_relays_the_exact_empty_v4_package() {
         bridge(),
         policy(),
         deposit_policy(),
+        None,
     )
     .expect("mined native package must survive audited restart");
     assert_eq!(restored.chain.lock().await.tip_hash, tip);

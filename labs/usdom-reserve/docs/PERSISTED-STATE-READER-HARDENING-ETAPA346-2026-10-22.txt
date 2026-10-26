@@ -1,0 +1,40 @@
+USD + DOM — leitura limitada de estado persistido auxiliar
+Etapa 346 — 2026-10-22
+
+Problema corrigido
+
+Os formatos principais USDOMBL4, V2 e snapshot já usavam o Reader limitado,
+mas quatro caminhos auxiliares ainda decodificavam valores persistidos por
+offsets fixos. As larguras eram verificadas antes do corte e, portanto, não
+havia leitura fora dos limites conhecida, porém a duplicação tornava futuras
+alterações de formato sujeitas a divergência de offsets e validação.
+
+Correção
+
+- o marcador de tip V4 possui um único decodificador canônico para as três
+  hashes persistidas;
+- o arquivo compacto de queimas V2, o cursor de poda e os metadados de chunks
+  usam `dom_serialization::Reader`;
+- os carregadores de testemunhas V2 e pacotes V4 consomem o mesmo decodificador
+  de metadados;
+- todo decodificador exige largura exata, versão ou magic esperado e consumo
+  integral do buffer;
+- os cinco caminhos que restauram ou conferem o tip persistido usam a mesma
+  estrutura decodificada;
+- o verificador estático impede a reintrodução de slices de offsets fixos e
+  exige que os carregadores usem o decodificador canônico.
+
+Validação disponível nesta etapa
+
+- teste novo cobre round-trip dos quatro formatos auxiliares;
+- cada prefixo próprio truncado é rejeitado;
+- um byte residual, magic inválido e versão inválida são rejeitados;
+- o autoteste e a execução real do verificador de fronteira passam;
+- `cargo fmt --all --check` e `git diff --check` passam.
+
+A compilação e execução dos testes Rust novos estão pendentes até a prova RISC
+Zero ativa liberar memória. Isso evita competir com a prova longa e não é
+tratado como resultado compilado antecipadamente.
+
+Nenhuma chave, assinatura, publicação, implantação, mineração, transmissão ou
+movimentação de fundos foi realizada.

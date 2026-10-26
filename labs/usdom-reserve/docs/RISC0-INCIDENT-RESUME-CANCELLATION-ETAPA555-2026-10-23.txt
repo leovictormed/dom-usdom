@@ -1,0 +1,62 @@
+Stage 555 - RISC Zero incident response cancels an already scheduled resume
+
+Scope
+-----
+
+Audited the production proof-reserve pause/recovery path, its upstream RISC Zero
+health response planner and executor, plus the reserve's solvency and outflow
+fail-closed checks. No deployment, transaction, signature, proof or funds action
+was performed.
+
+Finding and correction
+----------------------
+
+The reserve contract deliberately lets a generation-bound pause be submitted
+again while the reserve is already paused. Besides preserving the pause, that
+call clears `resumeReadyAt`. The incident-response planner did not use this
+property: it omitted the reserve action whenever `paused == true`.
+
+Consequently, governance could schedule a resume after the monitor had recorded
+an unresolved RISC Zero health incident. Later monitor cycles saw the reserve
+as paused and emitted no transaction, leaving the old resume authorization live.
+After the governance delay, `executeResume` could reopen deposits and withdrawals
+although the monitored upstream condition remained unhealthy.
+
+The response schema is now v4 and binds `resumeReadyAt` in the authenticated
+reserve snapshot. Every unhealthy classification emits the generation-bound
+pause action when either the reserve is running or a resume is scheduled. The
+action precondition binds queue epoch, pause state and exact resume timestamp;
+the postcondition requires both `paused == true` and `resumeReadyAt == 0`.
+Immediately before sending, the executor reobserves all three values. After
+inclusion it independently proves that the pause remains active and the pending
+resume was cancelled.
+
+Other audited behavior
+----------------------
+
+- `USDOMProofReserve` rejects deposits and withdrawals while paused.
+- Queue admission reserves collateral and rejects a reserve balance below the
+  complete credited liability. Execution repeats solvency and exact USDT balance
+  delta checks before accepting a payout.
+- The token bucket is not reset by pause/resume and cannot exceed its immutable
+  daily capacity.
+- A pause invalidates the current pending queue in O(1), while paid burn and
+  request identifiers remain permanent.
+- Resume still requires the immutable governance delay and fresh token,
+  verifier and control-plane checks.
+
+Validation
+----------
+
+Two focused Node tests passed: one proves planning for an already paused reserve
+with a scheduled resume, and one executes that plan through a mocked transaction
+adapter and proves the resume timestamp becomes zero. The other nine lightweight
+planner/executor tests also passed before the artifact-dependent isolated drill;
+that drill could not start because its previously generated Foundry artifacts
+had intentionally been cleaned. It is deferred until the active RandomX proof
+releases resources and the normal Foundry build is run. No failure occurred in
+the changed code path.
+
+No readiness fact was changed. The fix prevents a fail-open recovery race; it
+does not claim that an operational incident drill or production configuration
+has already been completed.

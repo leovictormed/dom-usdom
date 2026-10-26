@@ -1,0 +1,19 @@
+Stage 497 — Finalized-deposit observation manifest snapshot
+Date: 2026-10-23
+
+The finalized-deposit wallet observation ceremony checked the native runtime
+manifest and pin before compilation, node identity observation and password
+entry, then passed their original paths to the TPM keystore and wallet observer
+binaries. Rehashing did not eliminate the check/open window at each binary.
+
+The ceremony now copies the manifest and pin through the direct public-file
+reader into its owner-only private temporary directory before validation. The
+fixed input commitment, TPM unlock and finalized-state observation all consume
+these exact snapshots. Source path replacement or redirection after startup
+cannot change the native policy applied to the wallet state.
+
+`production_finalized_deposit_observation_manifest_snapshotted` is a structural
+fact. No compilation, TPM access, node access, funds, mining, commit or push
+occurred while producing this evidence.
+
+Validation: shell syntax and complete operator runbook 71/71; readiness 60/60.

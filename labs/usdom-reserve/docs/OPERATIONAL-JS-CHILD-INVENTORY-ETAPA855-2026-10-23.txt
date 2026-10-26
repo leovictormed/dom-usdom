@@ -1,0 +1,29 @@
+ETAPA 855 — OPERATIONAL JAVASCRIPT CHILD-PROCESS INVENTORY
+Date: 2026-10-23
+
+Scope and result
+----------------
+The audit covered JavaScript/MJS under `labs/usdom-reserve` outside the already
+audited `scripts/` and `sdk/` trees, excluding test-only code and dependencies.
+It also inspected the explicit `monitoring/` surface. There is no operational
+JavaScript in that remaining production scope: monitoring currently contains
+only the declarative Prometheus rule file
+`native-usdom-v4-queue-alerts.yml`. Consequently there was no real child
+process boundary to migrate and no production source was changed.
+
+Regression
+----------
+`operational-js-child-inventory.test.mjs` now fails if JavaScript appears in
+the residual operational tree without a new audit, or if monitoring gains an
+executable/child-process expression. It deliberately excludes `scripts/`,
+`sdk/`, `test/` and `node_modules/`, whose lifecycle boundaries have separate
+focused coverage.
+
+Validation
+----------
+- Residual operational inventory plus adversarial process-group lifecycle:
+  3 tests passed, 0 failed.
+- The lifecycle checks still prove timeout reaps a grandchild and output flood
+  terminates the process group.
+- Diff whitespace validation passed.
+- No build, RPC, signing, deployment, publication or fund operation ran.

@@ -1,0 +1,58 @@
+USD + DOM — propriedade dos bloqueios de mainnet fechada
+Etapa 342 — 2026-10-22
+
+Resultado atual
+
+O gate `npm run --silent check:mainnet` retorna NOT READY com 161 códigos.
+Esses códigos não representam 161 defeitos independentes. Um endereço, uma
+decisão ou uma evidência ausente se propaga por contrato, plano de implantação,
+manifesto de release e atestação, criando vários códigos derivados.
+
+Trabalho que pode ser concluído sem o operador
+
+O agente pode implementar e testar os verificadores EVM, concluir provas locais
+reais, medir capacidade e gas, produzir vetores históricos, executar ensaios
+locais e em fork, fixar artefatos e hashes reproduzíveis, montar o pacote de
+release não assinado, preencher todos os campos derivados de entradas públicas e
+gerar relatórios técnicos. Também pode corrigir código, dependências, manifests,
+testes e documentação. Nenhuma dessas tarefas exige segredo, push, implantação
+ou fundos.
+
+O manifesto da finalidade Ethereum estava desatualizado depois da declaração de
+licença MIT do crate local. O digest foi corrigido, a proveniência completa voltou
+a passar e o manifesto externo verifica 1.111 fontes. Isso reduziu o gate de 162
+para 161 códigos.
+
+Entradas públicas necessárias antes da configuração final
+
+O agente consegue gerar comandos completos para o operador criar as identidades
+em ambiente externo. O operador deve devolver apenas endereços e fingerprints
+públicos. A partir deles, o agente pode derivar configurações, hashes, endereços
+previstos, planos e comandos finais sem campos para preenchimento manual.
+
+Ações que o agente não pode executar sozinho
+
+- criar ou custodiar os segredos do operador em seu lugar;
+- produzir assinaturas feitas pelas chaves físicas do operador;
+- aprovar a política final, os parâmetros econômicos e o risco residual em nome
+  do operador;
+- autorizar commit, tag, deploy, broadcast ou uso de fundos quando a autorização
+  correspondente não foi concedida;
+- fornecer ETH/USDT, assinar ou transmitir as transações reais de mainnet;
+- ratificar o bootstrap Ethereum ou uma cerimônia de parâmetros em nome dos
+  responsáveis designados;
+- fabricar evidência de endereço implantado, observação finalizada ou ciclo real
+  de depósito, queima e resgate antes de esses eventos existirem.
+
+Estado da prova longa
+
+A prova local real de queima finalizada continua saudável com um único worker,
+modo de desenvolvimento desabilitado e recibo succinct. Ela não minera, não usa
+carteira, não transmite transações e não move fundos. Ao terminar, seus artefatos
+serão validados e usados para fechar os bloqueios de capacidade correspondentes.
+
+Limites de autorização preservados
+
+Não houve push, commit, tag, deploy, assinatura, broadcast, mineração ou uso de
+fundos nesta etapa. Auditoria externa e garantia absoluta de risco zero não são
+tratadas como requisitos do gate.

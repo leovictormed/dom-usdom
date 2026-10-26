@@ -1,0 +1,52 @@
+USD + DOM — pacote unsigned do primeiro depósito fechado em mainnet
+Etapa 282 — 2026-10-21
+
+Resultado
+
+Foi implementado um comando fixo, sem argumentos, que deriva duas vezes o
+mesmo endereço público de um Ledger e gera um pacote unsigned para o primeiro
+depósito fechado. O pacote não assina, não transmite e não acessa RPC.
+
+O valor é invariavelmente 1.000.000 unidades base, isto é, 1 USDT. O pacote
+contém, nesta ordem, approve(reserva, 0), approve(reserva, 1.000.000) e
+deposit(1.000.000, salt aleatório, receivingCommitment). Essa sequência evita
+depender da alteração direta de uma allowance USDT não nula e limita a
+autorização ao valor exato do ensaio.
+
+Vínculos verificados
+
+- Ethereum chain ID 1 e contrato USDT canônico da mainnet;
+- release exata marcada productionReady e realFundsAuthorized;
+- reserveConfigHash e SHA-256 do arquivo de release;
+- SHA-256 da identidade pública da carteira nativa;
+- domDomain idêntico entre carteira e reserva;
+- framing USDADR01, escalar de cadeia, owner BN254 e chave de scan não nulos;
+- receivingCommitment idêntico no endereço nativo, pacote e calldata;
+- salt aleatório não nulo e depositId canônico, incluindo chain ID, reserva,
+  funder e salt;
+- três calldatas ABI canônicos, hashes exatos, ordem fixa e valor ETH zero;
+- broadcastAuthorized=false.
+
+O arquivo público da carteira precisa ser regular, sem symlink, com um único
+hard link, propriedade do usuário atual e modo 0600. JSON duplicado, campos
+extras, casing não canônico, bytes residuais e qualquer substituição são
+rejeitados.
+
+Comando preparado
+
+  npm run --silent prepare:closed-mainnet-deposit
+
+O comando ainda falha fechado enquanto a release exata, o endereço implantado,
+as autorizações de fundos reais e a carteira nativa não estiverem configurados.
+Executar o comando não autoriza broadcast. Assinatura e transmissão exigem uma
+autorização explícita posterior do operador e uma nova conferência finalizada.
+
+Evidência local
+
+- closed-mainnet-deposit.test.mjs: 4/4;
+- operator-runbook.test.mjs, junto com o teste novo: 28/28;
+- execução focada combinada: 32/32.
+- gate/readiness focado combinado: 70/70;
+- suíte Node completa: 162/162;
+- manifesto: 935 fontes ordenadas e verificadas;
+- proveniência importada: 169 arquivos, 16 modificações intencionais.

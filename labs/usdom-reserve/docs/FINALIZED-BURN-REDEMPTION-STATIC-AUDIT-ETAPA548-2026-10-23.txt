@@ -1,0 +1,56 @@
+Stage 548 — DOM burn to Ethereum redemption static audit
+Date: 2026-10-23
+
+Result
+
+No distinct exploitable replay, substitution, timing, queue or USDT accounting
+defect was established across burn intent, finalized source, proof packaging,
+submission, queue and execution. No implementation or readiness fact changed.
+
+Binding and replay evidence
+
+- The native intent and finalized statement retain burn ID, request ID,
+  recipient, amount, DOM domain, validity deadline, finalized height/block/state,
+  Beacon slot, Ethereum chain, reserve and activation schedule commitment.
+- Source, receipt and Groth16 indexes transitively bind exact input, statement,
+  ImageID, journal digest, verifier parameters and seal hashes. Submission
+  reconstructs calldata and rejects any field, proof, selector, hash, chain or
+  reserve substitution. Inputs are owner-only snapshotted and origins rechecked.
+- Queue admission rejects paid burn IDs, paid request IDs, active burn entries
+  and active request collisions. Execution recomputes the complete statement
+  hash. Successful payout permanently records both replay keys.
+
+Timing, finality and queue evidence
+
+- Admission requires a nonfuture Beacon slot within the seven-day finality
+  window. The native validity deadline cannot exceed the independently computed
+  queue lease. Execution requires the six-hour delay, rejects expired leases
+  and rejects any queue generation invalidated by pause.
+- Pause invalidates the queue generation and aggregate reservations in O(1).
+  Stale entries cannot execute; bounded or targeted cleanup releases their
+  storage, and the irreversible native debt may be proved again.
+- Statement and proof verification happen before reservation. Available
+  collateral, outstanding exposure, per-burn capacity and the token bucket are
+  checked before queue or payout effects.
+
+USDT and TOCTOU evidence
+
+- Token runtime identity and paused/deprecated/fee/frozen policy are rechecked
+  on value paths. Deposit and payout require exact reserve and counterparty
+  balance deltas, rejecting fee-on-transfer or changed semantics atomically.
+- Queue and execute are nonreentrant. Execution applies replay, accounting and
+  bucket effects before transfer, with total transaction rollback on failure.
+- Unsigned submission packages set broadcast authorization false and can be
+  checked against live chain ID, reserve code and on-chain statement hashing.
+  Proof packaging and submission preparation use private replicas, exact hashes,
+  source rereads and output-last durable publication.
+
+Validation
+
+Focused Node submission and native burn-identifier tests passed. Lightweight
+source assertions confirmed dual replay keys, statement-hash execution binding,
+delay/expiry/epoch checks, exact token deltas and input-origin rechecks. Diff
+whitespace checks passed.
+
+No full readiness, Cargo, Foundry, Anvil, proof, network, signing, funds,
+deployment, push or publication operation was run.

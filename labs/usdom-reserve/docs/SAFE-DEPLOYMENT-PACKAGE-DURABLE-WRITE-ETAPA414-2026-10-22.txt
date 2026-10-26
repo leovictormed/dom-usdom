@@ -1,0 +1,34 @@
+USDⓄM RESERVE — DURABLE SAFE DEPLOYMENT PACKAGE (STAGE 414)
+Date: 2026-10-22
+
+Finding
+
+The unsigned Safe deployment packages were written to predictable `/tmp`
+paths with ordinary redirection. These bytes define the factory target,
+initializers and predicted role addresses later signed during mainnet setup.
+Public content still requires strong integrity: a linked, replaced or partially
+written package must never become deployment authority.
+
+Correction
+
+- Primary and independent-secondary packages now live in the owner-only
+  control-plane evidence directory.
+- Both are streamed directly into the durable create-only writer.
+- Every later recovery and evidence step uses the same durable primary path.
+- Runbook regression rejects the old `/tmp` package names, requires the exact
+  private path and requires atomic installation for both copies.
+
+The existing byte-for-byte dual-RPC comparison, SHA-256 binding and rebuild
+before each deployment remain in place.
+
+Validation
+
+- operator/runbook suite: 64/64 passed;
+- complete Node regression: 306/306 passed;
+- source-integrity manifest: 1,195/1,195 files passed;
+- imported provenance: 169 files, including 16 explicit modifications, passed;
+- repository whitespace checks passed;
+- active non-development finalized-burn proof remained unchanged.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

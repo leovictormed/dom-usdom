@@ -1,0 +1,62 @@
+ETAPA 699 — Solidity queue pagination structural integrity
+Date: 2026-10-23
+
+Scope
+-----
+Adversarial review of USDOMProofReserve.pendingQueueSnapshot and
+pendingBurnPage. This stage changed only Solidity and its tests. It did not
+run Rust, Cargo, Node, RISC Zero, deployment, signing, transmission or funds.
+
+Confirmed defect
+----------------
+The stage-694 getter bounded traversal to 256 records and rejected unknown or
+old-generation cursors, but treated each record's `next` field as authoritative.
+A corrupted cycle, broken reciprocal link, inconsistent head/tail, or count
+that disagreed with a head traversal could therefore produce duplicated IDs,
+an endless sequence of nonzero page cursors across calls, or a false completed
+page. The individual call could not loop forever, but its output was not a
+fail-closed structural view of the active queue.
+
+Correction
+----------
+`pendingBurnPage` now snapshots and validates the queue header, including the
+empty representation and positive aggregate for a nonempty queue. During its
+strictly bounded traversal it requires:
+
+* an active record from the requested queue generation;
+* a zero predecessor at the head, or a live reciprocal predecessor for an
+  explicit cursor;
+* reciprocal previous/next links for every traversed edge;
+* no repeated burn ID within the page;
+* a zero next link only at the declared tail; and
+* when traversal started at the head, agreement between the declared count
+  and either the exact end or the first cursor beyond the requested page.
+
+The maximum remains MAX_PRUNE_BATCH (256). Same-call mutation is impossible:
+the view performs no external call. Cross-call mutations are detected by the
+existing queue-epoch argument; clients must also pin snapshot and page calls
+to one Ethereum block tag, as documented by pendingQueueSnapshot. An arbitrary
+mid-list cursor cannot prove global reachability or total position in one
+bounded page, but it must prove a live reciprocal incoming edge and every
+subsequent page remains locally fail-closed.
+
+Regression evidence
+-------------------
+Focused tests exercise valid head/middle/tail/end semantics, empty generation,
+stale epoch/cursor, a cycle, a broken reciprocal edge, undersized and oversized
+counts, missing head/tail/aggregate, and a real 256-entry page.
+
+Commands and results:
+
+* focused Forge selection: 3/3 passed;
+* full `forge test -vv`: 171/171 passed across 14 suites;
+* production-contract `forge lint ... -D warnings`: passed;
+* `forge fmt --check`: passed;
+* `git diff --check`: passed.
+
+`forge lint --report-unused-suppressions -D warnings` additionally reports two
+pre-existing unused `incorrect-strict-equality` suppressions at reserve lines
+520 and 632. They are outside this change; ordinary warning-as-error production
+lint passes and this stage introduced no unused suppression.
+
+No commit or publication was performed.

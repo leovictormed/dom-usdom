@@ -1,0 +1,15 @@
+ETAPA846 — PLANNER/EXPORTER CARGO AUTHORITY
+Date: 2026-10-23
+
+The RandomX aggregate planner and DOM preactivation-anchor exporter invoked
+`cargo` directly through PATH.  Unlike downstream proof launchers, they did
+not authenticate the executable that produces the job/anchor authority.
+
+Both now resolve Cargo to a canonical executable, require safe owner/mode,
+single link, canonical safe parent, and size 1..512 MiB; snapshot file hash,
+file identity and parent identity; recheck all immediately before the handoff;
+and invoke only the pinned absolute path.  The planner keeps `exec` semantics.
+
+Validation: dedicated structural/Bash test plus ProgramBinary inventory 5/5;
+Bash syntax and whitespace/diff checks pass.  No build, proof, export, RPC,
+signature, commit or push ran.

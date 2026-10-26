@@ -1,0 +1,27 @@
+ETAPA 842 — release validation child process groups
+Date: 2026-10-23
+
+Finding
+
+The security-validation report preparer and both proof release-evidence
+materializers authenticated executables and bounded output, but still used direct
+`execFile`. Timeout killed only the immediate child, allowing Forge/npm/test/Git
+grandchildren to survive and retain pipes or workspace activity after failure.
+
+Correction
+
+- All eight security validation children now use the ETAPA839 pinned process-
+  group runner with a required 64 MiB stream bound and explicit one-hour deadline.
+- Finalized-burn and checkpoint-capacity materializer Git inspections use the
+  same group runner with their existing 30-second/16 MiB policy.
+- Timeout or output overflow terminates the complete group, waits for close,
+  performs final group cleanup and rechecks executable identity.
+- Strict stderr and fatal UTF-8 parsing of materializer Git output remains.
+
+Validation
+
+- Three scripts pass Node syntax checks.
+- Security report, materializer, completion-order, mutation and adversarial
+  process-group suites: 16/16 pass.
+- Diff check passes.
+- No validation suite, Forge, npm, Git operation, proof, RPC or deployment ran.

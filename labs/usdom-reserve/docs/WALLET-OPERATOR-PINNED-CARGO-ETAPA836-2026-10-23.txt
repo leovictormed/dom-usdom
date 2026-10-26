@@ -1,0 +1,28 @@
+ETAPA 836 — finalized-deposit wallet pinned Cargo boundary
+Date: 2026-10-23
+
+Finding
+
+Finalized-deposit registration and observation authenticated the produced wallet
+operator binaries, but invoked `cargo build` directly through PATH. A substituted
+Cargo could execute arbitrary build-time code while recovery credentials and
+private temporary directories were active, before the resulting binary hashes
+were captured.
+
+Correction
+
+- Both flows resolve Cargo once and require a regular executable, non-symlink,
+  single link, safe owner/mode and safely owned non-writable directory.
+- Cargo stat identity and SHA-256 are captured.
+- Each build uses only the exact resolved path and is surrounded by identity
+  rechecks. Bare `cargo build` is prohibited by regression.
+- Existing hostile-environment cleanup, locked release build, binary hashing and
+  private-state cleanup remain unchanged.
+
+Validation
+
+- Both scripts pass `bash -n`.
+- Cargo/Curl boundary plus credential environment, crash and cleanup tests:
+  10/10 pass.
+- Diff check passes.
+- No Cargo build, wallet operation, RPC, TPM, commit, push or funds action ran.

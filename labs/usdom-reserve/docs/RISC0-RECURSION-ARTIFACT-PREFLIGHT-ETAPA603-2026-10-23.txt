@@ -1,0 +1,42 @@
+Stage 603 — RISC Zero recursion artifact preflight
+Date: 2026-10-23 (America/Sao_Paulo)
+
+Finding
+=======
+The canonical RandomX proof run spent 1h30m17s compiling and then failed before
+proving. `risc0-circuit-recursion 4.0.5` attempted a late network download of
+`recursion_zkr.zip`; its downloader received HTTP 400 and the build script
+panicked with exit 101. The transient systemd unit later disappeared and an
+empty `systemctl show` reported the manager defaults (`Result=success`, status
+zero). The durable run status, `/usr/bin/time` report and prover log all prove
+that the run failed, and the receipt directory is empty. This is a preparation
+failure, not a RandomX or cryptographic-proof failure.
+
+Correction
+==========
+- Resumed the public artifact download and verified its exact upstream SHA-256:
+  744b999f0a35b3c86753311c7efb2a0054be21727095cf105af6ee7d3f4d8849
+- Verified its exact 59,768,781-byte length and all 32 ZIP entries with
+  `unzip -t`; installed one owner-only, read-only, single-link copy outside the
+  repository at the versioned RISC Zero toolchain path.
+- Added `scripts/require-risc0-recursion-artifact.sh`. Every shell proof or
+  Groth16 packaging launcher now checks the direct regular artifact, exact
+  byte length and SHA-256 before Cargo compilation and exports
+  `RECURSION_SRC_PATH`. The upstream build script independently verifies the
+  same hash again before use.
+- Hardened the isolated RandomX runner to perform the same preflight before
+  publishing `running`, record the recursion artifact hash in a v2 status, use
+  atomic/fsynced status replacement, and distinguish `preflight_failed` from a
+  proof failure.
+
+Validation
+==========
+- Public artifact SHA-256: exact upstream value above.
+- ZIP integrity: pass, 32 entries.
+- Installed file: 59,768,781 bytes, mode 0400, owner leonardov, one link.
+- Focused Node regressions: 2/2 pass, including a corrupted-artifact failure.
+- `bash -n` passes for all nine affected proving launchers and the isolated
+  runner; `git diff --check` passes.
+- No receipt exists yet. The real proof must be rerun; cached compilation is
+  retained. No mining, deployment, signing, transaction, funds use, commit or
+  push occurred in this stage.

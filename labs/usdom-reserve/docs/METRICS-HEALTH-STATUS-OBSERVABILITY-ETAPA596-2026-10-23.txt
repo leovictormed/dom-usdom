@@ -1,0 +1,65 @@
+Metrics, health and status observability audit — stage 596
+Date: 2026-10-23
+Scope: Prometheus transport/export, RPC /health and /status, cardinality,
+private-data exposure, lock contention and operational consistency
+
+Findings corrected
+==================
+1. The unauthenticated Prometheus listener was described as internal but accepted
+   any configured SocketAddr. A Mainnet operator typo could bind it to a public
+   interface and expose chain, peer, mining, mempool and USDOM queue state.
+2. The metrics server handled one accepted socket at a time with no read/write
+   deadline. A client that connected and withheld a request could freeze all
+   subsequent scraping, hiding node health during an incident.
+3. Production /status obtained chain height and mempool size through separate
+   try-lock helpers that returned zero on contention. The response could combine
+   different instants or falsely report height zero/mempool zero for a healthy
+   busy node.
+
+Corrections
+===========
+* Metrics bind now rejects every non-loopback address before opening a socket.
+  Metrics remain disabled by default and require explicit local enablement.
+* Metrics connections use at most eight fail-fast in-flight slots. Each read and
+  write has a five-second timeout; excess local sockets are closed instead of
+  queued. A slow scraper therefore cannot monopolize the accept loop.
+* Added a regression proving 0.0.0.0 is rejected before bind.
+* NodeHandle now exposes a coherent NodeStatusSnapshot boundary. The production
+  implementation acquires chain then mempool in the established lock order and
+  returns typed 503 overload on contention. /status never substitutes zeros for
+  unavailable state. Default trait behavior preserves test/embedder compatibility.
+
+Remaining surface evidence
+==========================
+* Prometheus series are a fixed static catalog. Peer addresses, transaction
+  hashes, request ids, errors and user-controlled strings never become labels.
+  The only labeled metric uses four compile-time port-mapping labels.
+* Metric export reads atomics and creates a bounded fixed-size response. No
+  consensus, wallet or peer lock is acquired during scrape.
+* /status exposes only protocol version, configured network, canonical height
+  and aggregate mempool count. It exposes no peer identities, wallet values,
+  note/burn identifiers, recipients, commitments, proofs or provider data.
+* /health is deliberately a constant liveness endpoint: reaching it proves the
+  loopback RPC task is serving. It is not represented as synchronization,
+  consensus, peer or funds readiness. Operational readiness must use /status
+  plus the fixed aggregate metrics. This distinction also permits the explicitly
+  peerless closed-Mainnet ceremony.
+* RPC transport remains loopback-only; /status and /health are public only
+  within that transport. Internal RpcError details are logged server-side and
+  redacted from HTTP responses.
+* Relaxed atomic metric samples may span adjacent state transitions, which is
+  acceptable for telemetry; they cannot create unbounded cardinality or affect
+  consensus decisions.
+
+Light validation
+================
+* rustfmt on node, production NodeHandle and RPC source: PASS
+* git diff whitespace/integrity check: PASS
+* Structural checks cover loopback-before-bind, eight-slot admission,
+  read/write timeouts, fixed labels, absence of dynamic Prometheus labels,
+  coherent status override and overload errors.
+* Cargo execution is queued until the active RandomX proof releases shared
+  compiler and memory resources.
+
+No readiness fact, commit, push, deploy, signature, external RPC, transaction,
+mining or funds action occurred.

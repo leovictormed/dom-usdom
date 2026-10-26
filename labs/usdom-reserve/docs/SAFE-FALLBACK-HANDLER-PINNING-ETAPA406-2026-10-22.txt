@@ -1,0 +1,47 @@
+USDOM stage 406 — Safe fallback-handler pinning
+Date: 2026-10-22
+
+Finding
+=======
+
+Safe fallback handlers participate in EIP-1271 signature validation used by
+the release authorization system. The finalized Safe evidence pinned the
+official Safe v1.4.1 CompatibilityFallbackHandler, but the contracts did not
+continuously preserve that address and the general mainnet preflight did not
+independently bind its code at the release snapshot.
+
+Correction
+==========
+
+On Ethereum mainnet, both contracts now read the official Safe fallback-handler
+storage slot through the same bounded, exact getStorageAt() parser used for the
+guard. The decoded address must equal the pinned Safe v1.4.1 handler at
+0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99. Non-mainnet development controls
+remain independent of this mainnet-specific deployment address.
+
+The finalized preflight records the handler address and its runtime code hash
+for all three Safes. Strict assessment requires both the pinned address and
+0x7c6007a5d711cea8dfd5d91f5940ec29c7f200fe511eb1fc1397b367af3c42f9.
+Both independent RPC observations must match exactly. Runtime health tests show
+that absent, substituted and restored handlers change the deployed predicate as
+expected on chain ID 1.
+
+Evidence
+========
+
+- Focused mainnet policy and 50 preflight/readiness tests pass.
+- Complete Solidity suite: 145/145 pass, including invariant campaigns.
+- Complete Node suite: 304/304 pass.
+- Production lint and forced build pass. Runtime sizes are 16,999 and 8,165
+  bytes; initcodes are 23,141 and 13,316 bytes, below EVM limits.
+
+No live RPC, signature, transaction, deployment, funds, mining, project commit,
+tag or push occurred. The detached finalized-burn capacity proof remained
+active and was not restarted or modified.
+
+Next action
+===========
+
+Inspect Safe nonce and deployment-initialization boundaries that affect release
+authorization replay, then continue the next locally correctable boundary while
+the capacity proof runs.

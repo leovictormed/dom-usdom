@@ -24,7 +24,7 @@ thiserror = "=1.0.69"
 tracing = "=0.1.44"
 
 [dev-dependencies]
-serde_yaml = "=0.9.34"
+serde-saphyr = { version = "=2.0.0", default-features = false, features = ["deserialize"] }
 snap = "=1.1.1"
 
 [lints.rust]

@@ -1,0 +1,22 @@
+ETAPA924 — RUST STDERR REDACTION
+Date: 2026-10-23
+
+Scope and finding
+- Audited the nine explicit production stderr sites from the ETAPA918 fixed
+  inventory: one authenticated exporter and eight proof planner/prover/package
+  entrypoints.
+- All nine interpolated the complete internal error string. Their error chains
+  include filesystem paths and parser/receipt/proof diagnostics, so a service
+  manager or journal could persist private artifact topology and values quoted
+  by lower-level decoders.
+
+Correction
+- All nine failure exits retain a stable operation-specific diagnostic and
+  nonzero exit status but no longer interpolate the internal error chain.
+- No proof, subprocess, build, secret, RPC or external operation was run.
+- Focused structural test passes 1/1; rustfmt check and diff-check pass.
+
+Residual boundary
+- Rust entrypoints returning `Result` directly are a separate implicit stderr
+  boundary and are not counted among the nine explicit ETAPA918 stderr sites.
+  They require a separate inventory rather than silently broadening this one.

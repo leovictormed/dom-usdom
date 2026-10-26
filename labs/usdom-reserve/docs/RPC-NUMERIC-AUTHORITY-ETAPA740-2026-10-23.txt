@@ -1,0 +1,32 @@
+ETAPA740 — RPC numeric authority canonicalization
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+The prior deployment transaction nonce was converted by an inline unconstrained
+`BigInt`, and several RPC decimal/hex quantities reached Bash comparisons after
+only permissive regex checks. Although downstream policy bounds covered common
+values, noncanonical encodings and extreme values were not rejected uniformly.
+
+The recovery nonce now uses the canonical Ethereum-quantity uint64 helper before
+comparison with the planned decimal nonce. The executor inventory also migrated
+RPC gas estimates, block gas limits, base fees, balances and persisted maximum
+cost through shared canonical parsers. Hex quantities are lowercase canonical
+and uint64-bounded. Decimal quantities reject signs, leading zeros, exponent or
+fraction syntax and are BigInt-bounded to uint256; narrower operational bounds
+are applied before any Bash arithmetic. No JS Number conversion is used.
+
+Only local loop indexes, seconds and already bounded small policy values remain
+in Bash arithmetic. Financial balances and costs remain in BigInt checks.
+
+Verification
+============
+
+- Canonical zero, uint64 max and uint256 max pass.
+- Overflow, leading zero, sign, exponent, fraction, malformed hex/decimal and
+  reversed-bound cases fail.
+- Focused Node tests: 15/15 passed.
+- Bash syntax and `git diff --check`: passed.
+
+No real RPC, signature, deployment, funds action, commit or push occurred.

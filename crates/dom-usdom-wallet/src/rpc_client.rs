@@ -1,7 +1,6 @@
 //! Strict loopback client for the authenticated native USDOM RPC boundary.
 
 use std::{
-    fs::File,
     io::{Read, Take},
     net::IpAddr,
     path::Path,
@@ -176,11 +175,33 @@ pub struct AuthenticatedHistoryRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthenticatedHistoryScan {
     /// Operator-pinned terminal tip reached by the returned sequence.
-    pub trusted_tip: (u64, Hash256),
+    trusted_tip: (u64, Hash256),
     /// Contiguous canonical wallet blocks safe to apply in order.
-    pub blocks: Vec<CanonicalWalletBlock>,
+    blocks: Vec<CanonicalWalletBlock>,
     /// Native USDOM state root after the terminal trusted block.
-    pub terminal_state_root: Hash256,
+    terminal_state_root: Hash256,
+}
+
+impl AuthenticatedHistoryScan {
+    /// Exact terminal tip reached before this result was released.
+    pub fn trusted_tip(&self) -> (u64, Hash256) {
+        self.trusted_tip
+    }
+
+    /// Complete authenticated sequence. No page is exposed through this type.
+    pub fn blocks(&self) -> &[CanonicalWalletBlock] {
+        &self.blocks
+    }
+
+    /// State root authenticated by the terminal block.
+    pub fn terminal_state_root(&self) -> Hash256 {
+        self.terminal_state_root
+    }
+
+    /// Consume the completed scan and release its authenticated sequence.
+    pub fn into_blocks(self) -> Vec<CanonicalWalletBlock> {
+        self.blocks
+    }
 }
 
 /// Ethereum-finalized DOM checkpoint identity accepted by the wallet.
@@ -555,7 +576,7 @@ impl UsdomRpcClient {
         state
             .apply_authenticated_history_and_recover_deposit(
                 wallet,
-                scan.blocks,
+                scan.into_blocks(),
                 bridge,
                 occurrence,
             )
@@ -841,62 +862,16 @@ fn validate_token(token: &str) -> Result<(), UsdomRpcClientError> {
 }
 
 fn load_owner_only_token(path: &Path) -> Result<Zeroizing<String>, UsdomRpcClientError> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-
-        let parent = path.parent().ok_or_else(|| {
-            UsdomRpcClientError::Invalid("Bearer token path has no parent directory".into())
-        })?;
-        let parent_metadata = std::fs::symlink_metadata(parent)
-            .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?;
-        if !parent_metadata.is_dir()
-            || parent_metadata.file_type().is_symlink()
-            || parent_metadata.mode() & 0o077 != 0
-        {
-            return Err(UsdomRpcClientError::Invalid(
-                "Bearer token parent directory must be private and not a symlink".into(),
-            ));
-        }
-    }
-    let file = File::open(path).map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?;
-    let metadata = file
-        .metadata()
-        .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?;
-    let named = std::fs::symlink_metadata(path)
-        .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?;
-    if !metadata.is_file() || !named.file_type().is_file() || named.file_type().is_symlink() {
-        return Err(UsdomRpcClientError::Invalid(
-            "Bearer token path is not a regular file".into(),
-        ));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if metadata.mode() & 0o7777 != 0o600
-            || metadata.nlink() != 1
-            || metadata.dev() != named.dev()
-            || metadata.ino() != named.ino()
-        {
-            return Err(UsdomRpcClientError::Invalid(
-                "Bearer token file must be owner-only and unlinked".into(),
-            ));
-        }
-    }
-    if metadata.len() == 0 || metadata.len() > MAX_TOKEN_FILE_BYTES {
-        return Err(UsdomRpcClientError::Invalid(
-            "Bearer token file has invalid length".into(),
-        ));
-    }
-    let mut raw = Zeroizing::new(String::new());
-    file.take(MAX_TOKEN_FILE_BYTES + 1)
-        .read_to_string(&mut raw)
-        .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?;
-    if raw.len() as u64 > MAX_TOKEN_FILE_BYTES {
-        return Err(UsdomRpcClientError::Invalid(
-            "Bearer token file exceeds limit".into(),
-        ));
-    }
+    let bytes = dom_wallet_crypto::read_private_bytes(
+        path,
+        usize::try_from(MAX_TOKEN_FILE_BYTES)
+            .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?,
+    )
+    .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?;
+    let raw = Zeroizing::new(
+        String::from_utf8(bytes.to_vec())
+            .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?,
+    );
     let token = Zeroizing::new(raw.trim_end_matches(['\r', '\n']).to_owned());
     validate_token(&token)?;
     Ok(token)

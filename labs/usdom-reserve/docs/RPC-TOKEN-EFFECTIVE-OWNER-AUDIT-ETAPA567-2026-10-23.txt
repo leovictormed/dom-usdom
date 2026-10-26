@@ -1,0 +1,12 @@
+Stage 567 — RPC token effective-owner audit
+Date: 2026-10-23
+
+Finding and correction
+
+The generic dom-rpc fallback reader had been hardened to require a regular, single-link, owner-only token file and to bind the opened inode to the named path. It did not compare the file owner with the process effective UID. An ordinary same-user node was protected by filesystem permissions, but a privileged or misconfigured service could read and adopt a 0600 credential owned by another account. Both the named precheck and post-open inode check now require `metadata.uid() == rustix::process::geteuid().as_raw()`, matching the repository's other secret stores. The exact rustix version already used by the workspace is pinned with only the process feature.
+
+Evidence
+
+Rustfmt and focused structural checks pass; existing owner-only/symlink/hardlink/canonical-material tests exercise the accepted current-owner path. A foreign-owner fixture requires privileges and is represented by the direct UID predicate; full Cargo compilation remains queued until the active RandomX proof releases memory. No readiness fact or external operation is claimed.
+
+No push, commit, deployment, signing, transaction, funds action or proof mutation occurred.

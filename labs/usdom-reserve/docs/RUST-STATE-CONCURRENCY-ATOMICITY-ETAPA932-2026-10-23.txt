@@ -1,0 +1,53 @@
+ETAPA932 — concorrência e atomicidade do state/wallet Rust USDOM
+Data: 2026-10-23
+
+Inventário exato
+===============
+
+Nos 59 fontes Rust do escopo foram inventariados:
+
+- 5 aquisições exclusivas de file lock: snapshot e dois backends TPM;
+- 4 critical sections completas `SnapshotLock::acquire`;
+- 6 construções clone-then-validate e 5 commits `*self = candidate` (a sexta
+  cópia é estado intermediário de comparação, não publicação);
+- 33 chamadas de atomic_publish, 3 atomic_write e 5 save_private_bytes;
+- 1 snapshot LMDB read-only que fixa a visão completa do checkpoint;
+- 1 put_metadata para sync attestation, já verificada/canônica antes da escrita.
+
+Resultado
+=========
+
+Nenhum gap concreto foi confirmado. `apply_block` faz todas as operações
+falíveis em estruturas staged antes de tocar `self`; o trecho de publicação é
+formado apenas por mutações infalíveis de coleções. As duas APIs multi-bloco
+guardam tip/identidade originais e desfazem cada bloco por um undo que primeiro
+reconstrói e valida integralmente a árvore restaurada, só depois alterando o
+estado. Assim, o rollback de um estado produzido por `apply_block` não possui
+uma fronteira falível após a primeira mutação. Clonar `WalletState` inteiro não
+seria uma melhoria segura: duplicaria payloads privados e note openings que são
+deliberadamente não clonáveis no tipo agregado.
+
+Foi fechada a lacuna de regressão observada: antes não havia um gate único que
+inventariasse locks/publicações e exigisse staging, restore ao tip original e
+clone-then-commit do estado nativo.
+
+Outras conclusões
+=================
+
+`NativeUsdomState` exige `&mut self` e usa clone-then-commit em apply,
+apply_batch, revert e revert_batch; duplicatas concorrentes são serializadas
+pelo dono do estado e rechecadas contra o candidato atual. O checkpoint lê toda
+a cadeia em uma única transação LMDB. Snapshot wallet mantém lock desde a
+validação do predecessor por prepare/write/commit da autoridade externa, com
+reconciliação de crash. TPM mantém leitura/alteração dentro de um único lock e
+ordem única, sem locks aninhados.
+
+Validação leve
+===============
+
+- `node --test labs/usdom-reserve/test/node/rust-state-concurrency-atomicity.test.mjs` — 4/4;
+- `rustfmt --edition 2021 --check crates/dom-usdom-wallet/src/lib.rs`;
+- `git diff --check` nos arquivos da etapa e duas continuações.
+
+Nenhum Cargo pesado, prova, RPC, deploy, assinatura, transmissão, commit ou push
+foi executado.

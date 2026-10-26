@@ -1,0 +1,16 @@
+ETAPA967 — NODE SAFE TARGET BUFFER CLEANUP
+Date: 2026-10-23
+
+The 11 remaining actual private reads were classified. Eight belonged to one
+homogeneous boundary in the recoverable-Safe target preflight: package, plan,
+transaction package and envelope, each captured initially and again for the
+post-observation TOCTOU comparison.
+
+All eight reads now pass through one helper that records each Buffer as soon as
+the read resolves. The outer finally erases every capture on success or error,
+including reads that resolved before a Promise.all sibling failed. RPC source
+redaction, observation consensus and byte-for-byte TOCTOU checks are unchanged.
+
+Exact residual: 38 signals = 3 actual Buffer reads plus 35 path/helper/metadata
+signals. Focused test 1/1, Node syntax and git diff --check passed. No RPC,
+recovery, signing or external operation was executed.

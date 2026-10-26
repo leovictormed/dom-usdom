@@ -1,0 +1,33 @@
+ETAPA 819 — readiness pinned-child execution boundary
+Date: 2026-10-23
+
+Finding
+
+Forge and Cargo were checked only after execution, Git was checked only at the
+end of all repository queries, and Python validation scripts were launched by a
+PATH-resolved string without any identity snapshot. A tool replacement between
+snapshot and spawn, or between individual Git children, could affect a readiness
+fact before the later aggregate check detected it. Python substitution was not
+detected at all.
+
+Correction
+
+- Added one pinned-child executor that revalidates path/inode/metadata/hash
+  immediately before spawn and in `finally` immediately after every child.
+- Forge, Cargo and every Git invocation now use this boundary, including
+  signature and raw NUL-delimited diff queries.
+- Python 3 is snapshotted and all eight boolean validation children use its exact
+  path through the same boundary.
+- Every child has an explicit byte encoding and bounded output buffer. Existing
+  strict UTF-8/framing checks remain for authoritative Git/Cargo output; boolean
+  Python results consume only exit status.
+- Final Forge/Git/Python identity checks and the ETAPA816 authority-byte barrier
+  remain immediately before the readiness result.
+
+Validation
+
+- Syntax check passes.
+- Focused child-boundary tests: 8/8 pass.
+- Aggregate/adversarial release/preflight/readiness suite: 82/82 pass.
+- Diff check passes.
+- No RPC, build execution, deployment, signature, commit, push or funds action ran.

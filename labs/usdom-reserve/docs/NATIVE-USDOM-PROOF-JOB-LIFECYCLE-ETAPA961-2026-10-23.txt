@@ -1,0 +1,25 @@
+ETAPA 961 — lifecycle do job global de prova USDOM
+Data: 2026-10-23
+
+Achado corrigido
+- O permit global da ETAPA956 vivia apenas no future async. `spawn_blocking` não pode ser cancelado depois de iniciado; se o peer/task/shutdown cancelasse o future enquanto a closure continuava, o permit seria liberado e outro job seria admitido, violando a capacidade global de 1.
+- O permit agora é `Arc<OwnedSemaphorePermit>` e cada closure v4/v2 captura uma cópia. Cancelar o owner async não libera capacidade enquanto o trabalho blocking real continua. O mesmo permit acompanha replay de descendentes orphan, sem reacquirir ou abrir uma janela entre provas relacionadas.
+
+Lifecycle auditado
+- Sucesso/erro: closure e owner soltam suas cópias por RAII.
+- Panic: unwind da closure destrói permit e locks; JoinError é convertido em DomError. Não há permit preso.
+- Cancel/shutdown: owner async pode sumir, mas a cópia blocking conserva exclusão até a CPU parar. Tokio não fornece cancelamento seguro para spawn_blocking já iniciado.
+- Trabalho máximo: bytes/count/transitions/proofs possuem tetos canônicos; orphan replay é limitado pelo pool (1024 global, 32/parent, 256 MiB). Cada filho readquire chain/runtime separadamente, permitindo fairness do mutex para blocos normais; não há fila de proof jobs.
+- Future retry: tick de 5 s com MissedTickBehavior::Skip; gate ocupado causa readmissão na fila de 64 MiB com eviction determinística, sem busy loop.
+- Dedup/reorg: runtime canônico decide AlreadyHave e valida tip sob chain->runtime; replay não usa cache de resultado criptográfico não autenticado.
+- Timeout de consenso não foi adicionado: duração de Groth16 depende do hardware e matar spawn_blocking não é suportado; um deadline criaria divergência/liveness falsa sem interromper CPU. Limites estruturais + capacidade 1 são determinísticos.
+
+Regressões
+- Gate fail-fast/release existente.
+- Novo `native_proof_permit_survives_async_owner_cancellation_pattern` mantém uma cópia no worker, derruba o owner async, comprova rejeição enquanto worker vive e readmissão após término.
+- Gate estrutural exige captura do permit nas duas closures e propagação pelo orphan replay.
+
+Validação leve
+- rustfmt --check, gate estrutural e git diff --check: aprovados.
+- Cargo pendente para suíte agregada pós-prova.
+- Sem rede/node/operação externa.

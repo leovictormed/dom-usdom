@@ -1,0 +1,26 @@
+ETAPA 812 — readiness evidence snapshot completeness audit
+Date: 2026-10-23
+
+Scope and result
+
+Re-ran the configured/unconfigured release, preflight and readiness structural
+suite after ETAPA806. All 76 tests passed. Compared every document slot in the
+pure assessor's `evidenceDocuments` policy with the operational checker's
+hash-addressed `documents` snapshot. No further omitted mandatory document was
+found; nested trusted-setup, control-plane and optional audit collections are
+also present in the operational snapshot.
+
+Hardening
+
+Added a structural completeness regression that derives the mandatory document
+names from `sdk/mainnet-readiness.mjs` and requires every one to be admitted by
+`scripts/check-mainnet-readiness.mjs` before parsing. This prevents a future
+schema addition from silently recreating the configured-readiness false blocker
+fixed in ETAPA806.
+
+Validation
+
+- Aggregate release/preflight/readiness suite: 76/76 pass.
+- Focused byte-strict/snapshot completeness suite: 7/7 pass.
+- Diff check passes.
+- No RPC, build, deployment, signature, commit, push or funds operation ran.

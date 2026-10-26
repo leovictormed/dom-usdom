@@ -1,0 +1,57 @@
+ETAPA920 — inventário de domínios criptográficos Rust USDOM
+Data: 2026-10-23
+
+Escopo
+======
+
+Foram auditados os 59 fontes Rust sob crates/dom-usdom-* (excluídos diretórios
+tests/ e target/ e módulos unitários cfg(test)) para construções SHA-256,
+Keccak-256, Blake2b-256 e commitments Hash256/Poseidon usados em estado,
+privacidade, checkpoints, receipts, carteiras e handoffs Ethereum.
+
+Inventário reproduzível
+======================
+
+Foram encontrados 71 pontos sintáticos de construção criptográfica:
+
+- 4 Sha256::new;
+- 10 Keccak256::new;
+- 4 Sha256::digest;
+- 14 Keccak256::digest;
+- 34 blake2b_256_tagged;
+- 5 blake2b_256 sem tag, todos para o identificador de header DOM cuja função
+  de consenso já define a semântica do preimage.
+
+Os quatro Sha256::digest são identidades de bytes de artefatos nos proof hosts,
+e não commitments de protocolo. Foram encontrados 48 literais de domínio
+`DOM:...`, todos distintos.
+
+Resultado adversarial
+=====================
+
+Não foi confirmado defeito criptográfico que justificasse alterar commitments
+de consenso nesta etapa. As construções com componentes variáveis usam framing
+canônico terminal ou vinculam comprimento/contagem; as árvores usam tags
+separadas para empty/leaf/node e identidade de árvore; os commitments de estado
+incluem versão, domínio/rede e contagens; e os hashes destinados à Ethereum usam
+typehash mais palavras ABI de largura fixa. Receipts de tipos diferentes também
+permanecem vinculados pelo ImageID/verificador, além dos domínios de journal.
+
+Foi acrescentada a regressão estrutural
+`test/node/rust-crypto-domain-inventory.test.mjs`. Ela congela o universo de 59
+fontes e 71 construções para que um novo hash exija revisão explícita, rejeita
+reuso dos 48 literais de domínio, e verifica as propriedades de maior risco:
+length binding no hash-to-field, count binding no receipt set, domínio e framing
+canônico dos aggregates/packages, e ABI typed/fixed-width nos três hashes
+Ethereum-facing. Isso corrige a lacuna real de processo encontrada: antes não
+havia um gate que tornasse visível a introdução futura de commitment sem domínio
+ou sem cardinalidade.
+
+Validação leve
+===============
+
+- `node --test labs/usdom-reserve/test/node/rust-crypto-domain-inventory.test.mjs`
+- `git diff --check -- labs/usdom-reserve/test/node/rust-crypto-domain-inventory.test.mjs labs/usdom-reserve/docs/CRYPTO-DOMAIN-INVENTORY-ETAPA920-2026-10-23.txt docs/CONTINUATION-STATE.md labs/usdom-reserve/docs/CONTINUATION-STATE.md`
+
+Nenhum Cargo, prova, RPC, deploy, assinatura, transmissão, commit ou push foi
+executado.

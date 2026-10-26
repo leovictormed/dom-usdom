@@ -1,0 +1,55 @@
+Etapa 545 — auditoria de custódia wallet, TPM e recovery
+
+Escopo
+
+- bootstrap-closed-mainnet-tpm-authority.sh
+- provision-closed-mainnet-tpm-keystore.sh
+- drill-closed-mainnet-wallet-recovery.sh
+- configure-release-signing-key.sh
+- dom-usdom-wallet-tpm-keystore e dom-usdom-recover-wallet-at-checkpoint
+- dom-wallet-crypto e dom-usdom-wallet/tpm2_keystore
+
+Evidência
+
+1. Os scripts exigem HOME da conta atual, raízes privadas 0700 e inputs secretos
+   regulares, não symlink, owner 0600 e nlink 1. Outputs sensíveis preexistentes,
+   inclusive symlinks quebrados, são recusados. A chave de release aplica as
+   mesmas regras ao par privado/público e ao allowed-signers.
+
+2. Senhas de recovery/estado e owner authorization não aparecem em argv nem em
+   variáveis de ambiente. São lidas sem echo para arquivos 0600 numa pasta 0700
+   criada aleatoriamente em /dev/shm. O trap remove a árvore em sucesso, erro e
+   sinais usuais. Os logs imprimem somente commitments, índices, fingerprints,
+   hashes, paths públicos e flags de não-broadcast; nenhum plaintext é impresso.
+
+3. Os binários Rust recebem somente paths. dom-wallet-crypto abre/captura
+   arquivos privados com política owner-only, teto explícito e proteção contra
+   objetos indiretos. Passwords, recovery seeds, autorização NV, segredos TPM e
+   passphrases operacionais usam Zeroizing. A autorização passada ao tpm2-tools
+   vai por SecretMemfd e argumento file:, não pelo valor secreto em argv.
+
+4. O registro TPM liga índice fixo, wallet binding e commitment. Credential e
+   evidence são conferidos por SHA-256 e identidade antes do unlock. A senha
+   operacional é criada somente numa filha direta de /dev/shm, com create-only;
+   o caminho de recuperação também exige parent owner-only e não substitui uma
+   saída existente.
+
+5. Material público e privado permanece separado. Public identity contém apenas
+   commitment/endereço e vínculo do backup; o backup e credential cifrados
+   continuam 0600. Relatórios publicados carregam hashes/commitments, não seed,
+   recovery password, autorização TPM ou passphrase operacional.
+
+Risco residual
+
+Bash armazena temporariamente as duas respostas interativas em variáveis e
+`unset` não oferece uma garantia verificável de sobrescrita da heap do processo.
+Mover a coleta para um helper Rust Zeroizing reduziria essa exposição, mas não é
+uma correção leve demonstrável sem compilar/testar o caminho de hardware. O
+processo é curto, não exporta essas variáveis, não as registra e remove os únicos
+arquivos plaintext de um tmpfs privado. Essa limitação não produz um bypass
+reproduzível no modelo local atual e fica registrada explicitamente.
+
+Resultado
+
+Nenhum achado concreto reproduzível foi identificado. Não houve alteração de
+código, criação de fact ou execução de TPM/hardware/Cargo.

@@ -1,0 +1,21 @@
+ETAPA1047 — OBSERVADOR DE CANDIDATO CONSCIENTE DO FECHAMENTO
+Data: 2026-10-23
+
+Falha concreta
+
+O pacote UDCPST06 já vinculava `issuanceClosed`, mas o observador operacional ainda usava a antiga assinatura de `checkpointStatementHash`, não lia os totais do candidato nem o storage separado `candidateIssuanceClosed`. Assim, ele não conseguia provar que o candidato instalado abria exatamente o bit de fechamento do pacote, e sua chamada read-only usaria seletor incompatível com o Registry V4.
+
+Correção
+
+- Atualizada a tupla ABI para incluir issued, burned e issuanceClosed.
+- O coletor lê, no mesmo block tag finalizado, terminalidade do Registry, closure/totais finalizados, totais do candidato e `candidateIssuanceClosed`.
+- O assessor rejeita Registry já encerrado, booleanos inválidos, resultado final cujo closure diverge do pacote e candidato cujo closure diverge mesmo quando o statementHash coincide.
+- O caminho canônico do statement foi atualizado de v5 para v6.
+- O processo permanece somente leitura e nunca autoriza broadcast.
+
+Validação
+
+- Testes Node explícitos: 17/17 passaram em checkpoint submission/observer e finalized-event collector/report.
+- Regressão dedicada rejeita candidato com statementHash correto e bit closure incorreto.
+- Gate `check-closure-aware-candidate-observer-stage1047.py`, py_compile e diff-check passaram.
+- Nenhuma rede, push, deploy, assinatura ou movimentação de fundos ocorreu.

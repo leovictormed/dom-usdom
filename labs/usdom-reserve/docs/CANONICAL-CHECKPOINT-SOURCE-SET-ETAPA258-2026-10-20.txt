@@ -1,0 +1,90 @@
+USDOM stage 258 — authenticated rolling checkpoint source set
+Date: 2026-10-20
+
+Target
+
+This stage prepares proof inputs for a privately controlled test on the public
+Ethereum mainnet. It does not create a private Ethereum network and does not
+authorize deployment, broadcast or fund movement.
+
+The stage removes the first exporter’s restriction that the DOM tip must be
+exactly the first candidate-v2 block. A hash-pinned candidate-v2 native runtime
+manifest now selects all four checkpoint cadence identities:
+
+* first candidate-v2 height;
+* nonzero RandomX receipt ImageID;
+* checkpoint interval in DOM blocks; and
+* work-confirmation depth in DOM blocks.
+
+The interval is 1..360, confirmation is 1..interval, total span is at most 720,
+and the worst-case rewind from any later tip must fit the authenticated
+1,000-block native-state rewind policy. The Rust manifest checker prints these
+values. The release gate requires a candidate schedule to equal the exact
+release configuration and rejects schedule fields on a legacy-v1 manifest.
+
+Canonical selection
+
+Given the current canonical tip, the builder selects the latest checkpoint
+target for which the complete confirmation suffix is already present. It
+derives the previous checkpoint height from the same cadence. A node-owned API
+retains both canonical-chain and native-runtime locks for the whole operation.
+The builder also rechecks the persisted tip before returning.
+
+For every boundary it derives the authenticated candidate-v2 state by
+rewinding persisted records from the restored tip. It reconstructs economic
+state from canonical block bodies, loads exact packages and native witness
+bundles, derives each eleven-header context and RandomX seed-anchor set, and
+uses the manifest-selected immutable policies and spend verifying key.
+
+The target phase and confirmation phase are partitioned independently into
+consecutive segments of at most 32 blocks. Therefore no segment can cross the
+checkpoint target that the outer proof must identify exactly. Every resulting
+UDCSTN02/UDCSPI01/UDCSPOL1/UDCSNS01 group executes through the complete
+portable segment relation before export.
+
+Fixed operator command
+
+The production-shaped command has no arguments or placeholders:
+
+  npm run --silent export:canonical-checkpoint-source-set
+
+It reads only the fixed hash-pinned native manifest and fixed mainnet node data
+directory. The node starts with mining disabled and no wallet path or password.
+Missing evidence fails before node access.
+
+Publication
+
+The exporter writes numbered fixed files such as
+`checkpoint-segment-0000-transition.bin`. It removes stale files only within
+its exact namespace and preserves unrelated operator files. Each source file
+is written mode 0600, flushed and renamed. The final
+`checkpoint-source-set-index.json` is published last and acts as the completed
+set marker. It binds the manifest SHA-256, ImageID, cadence, previous/target/
+confirmation heights, segment count, every filename, block range and SHA-256.
+Consumers must reject a missing index or any hash mismatch.
+
+Regtest evidence
+
+The authorized deterministic Regtest fixture mined twelve local DOM blocks:
+ten native-v1 blocks, the first candidate-v2 checkpoint target and one separate
+confirmation block. Empty USDOM batches issued no USDOM reward. The test used
+distinct ordinary DOM coinbase commitments per height, reopened the persisted
+runtime, constructed both segments in memory, launched the actual offline
+source-set binary and compared every exported source byte. It also verified
+the index endpoints, removed a stale namespaced file and preserved an unrelated
+operator file. Result: 1 pass, 0 failures.
+
+A pure boundary test additionally partitions a 65-block target phase and a
+33-block confirmation phase as 32/32/1 and 32/1, proving the 32-block cap and
+the exact target boundary without expensive mining.
+
+Current limit
+
+This stage exports authenticated sources; it does not yet iterate the RandomX
+statement export and zkVM receipt generation over every numbered segment, nor
+does it aggregate those segment receipts into the outer checkpoint proof.
+Positive production receipts, measured proving capacity and EVM verification
+gas remain objective blockers. Mainnet node data, final release identities and
+operator-controlled deployment signatures are also still absent.
+
+No public network, deployment, funds, commit or push occurred.

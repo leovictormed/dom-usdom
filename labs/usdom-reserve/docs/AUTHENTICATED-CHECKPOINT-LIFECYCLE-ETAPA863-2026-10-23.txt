@@ -1,0 +1,33 @@
+ETAPA 863 — AUTHENTICATED CHECKPOINT OBSERVER LIFECYCLE
+Date: 2026-10-23
+
+Scope coordination
+------------------
+The requested signer files were being modified concurrently by ETAPA 862, so
+this stage did not edit them. Its code and regression changes were restricted
+to `observe-authenticated-checkpoint.sh`, its Node observer and existing
+lifecycle tests.
+
+Negative audit result
+---------------------
+No orphan or unbounded child-process gap exists in this observer path. The
+credential-bearing shell authenticates Node and env, clears the environment,
+then replaces itself with one final `exec`; it launches no background job and
+there is no shell parent left to strand the observer. The Node collector uses
+`BoundedMainnetPreflightProvider`: each HTTP RPC is aborted by an
+AbortController, timeout configuration is limited to 1..120,000 ms, response
+bytes are bounded, and all instantiated providers are destroyed in `finally`.
+
+Regression
+----------
+The live-hardening test now explicitly requires final exec, forbids background,
+coproc/wait/kill lifecycle constructs in the launcher, requires provider
+destruction, and binds the collector to the provider timeout and response-size
+guards.
+
+Validation
+----------
+- Observer Bash syntax passed.
+- Observer, credential-launcher and bounded-provider tests passed 13/13.
+- Diff whitespace validation passed.
+- No RPC, Ledger, signing, build, deployment or fund operation ran.

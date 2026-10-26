@@ -1,0 +1,67 @@
+USD + DOM — propriedade dos bloqueios de release
+Etapa 312 — 2026-10-22
+
+Leitura correta dos totais
+
+O gate atual informa 159 bloqueios para mainnet fechada e 170 para fundos
+reais. Esses números não representam 159 ou 170 defeitos independentes. A
+maior parte é consequência fail-closed da ausência de uma release final:
+endereços e parâmetros ausentes geram, em cascata, hashes indisponíveis,
+planos inválidos, artefatos sem vínculo, evidências ausentes e assinaturas que
+ainda não podem existir.
+
+Trabalho que o agente consegue realizar autonomamente
+
+- implementar e endurecer contratos, guests, adaptadores, SDKs, parsers,
+  carteira e integração DOM/Ethereum;
+- criar vetores positivos e negativos locais, fuzzing, análise estática,
+  testes de fork quando existir RPC somente leitura e ensaios EVM isolados;
+- produzir builds determinísticos, ImageIDs, hashes de runtime/initcode,
+  manifestos, medições locais de gas e pacotes de deploy sem assinatura;
+- automatizar geração, verificação e coleta de recibos RISC Zero;
+- preparar todos os comandos completos para criação local de identidades,
+  Safes, cerimônias, assinaturas e deploy sem receber segredos;
+- gerar relatórios e materializar evidências públicas depois que os eventos
+  reais correspondentes existirem.
+
+Trabalho autônomo condicionado a capacidade ou dados externos
+
+- gerar os recibos criptográficos não-dev e medir capacidade dos guests de
+  queima, RandomX, economia, segmento e composição externa. O software pode ser
+  corrigido sem intervenção, mas este host já encerrou uma prova longa sem
+  produzir recibo; a conclusão depende de memória/tempo suficientes ou de um
+  prover remoto autenticado;
+- medir/verificar contra estado Ethereum finalizado e ensaiar fork mainnet,
+  o que exige pelo menos duas RPCs independentes somente leitura;
+- derivar os artefatos e endereços finais, que depende dos parâmetros públicos,
+  nonce e identidades de controle escolhidos para a release.
+
+Trabalho que exige ato exclusivo do operador ou terceiros
+
+- criar, custodiar e usar chaves de hardware; fornecer apenas identidades
+  públicas e assinaturas, nunca seeds ou chaves privadas;
+- escolher e aprovar parâmetros econômicos, política de finalidade, alturas e
+  prazos finais;
+- ratificar bootstrap, aceitar o risco residual e autorizar deploy ou fundos;
+- executar a cerimônia multiparte Groth16 com contribuições independentes;
+- estabelecer controladores e fontes RPC operacionalmente independentes;
+- assinar commit/tag/evidências com a chave da release;
+- transmitir transações públicas, realizar o deploy e produzir eventos reais
+  finalizados de depósito, checkpoint, recuperação e resgate.
+
+Fronteira de autorização
+
+O agente pode preparar e validar tudo antes desses atos. Não pode transformar
+ausência de autorização, assinatura, custódia, evento on-chain ou cerimônia em
+`true`, porque isso criaria uma evidência falsa. Auditoria externa e promessa
+de risco zero não fazem parte do gate e não serão reintroduzidas como
+bloqueadores.
+
+Estado usado para esta classificação
+
+- regressão Node: 240/240;
+- proveniência: 1.040 fontes;
+- mainnet fechada: 159 bloqueios, NOT READY esperado;
+- fundos reais: 170 bloqueios, NOT READY esperado;
+- nenhuma mineração, prova longa, mainnet, fundo, assinatura, commit, tag ou
+  push foi executado nesta etapa.

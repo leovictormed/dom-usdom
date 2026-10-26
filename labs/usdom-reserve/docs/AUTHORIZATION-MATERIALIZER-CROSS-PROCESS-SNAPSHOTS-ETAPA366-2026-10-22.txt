@@ -1,0 +1,40 @@
+USD + DOM — snapshots entre validador e publicador de autorizações
+Etapa 366 — 2026-10-22
+
+Problema corrigido
+
+Os validadores JavaScript já reliam todos os inputs após a observação Ethereum,
+mas devolviam o envelope a um shell separado. Configuração, intenção, pedido ou
+assinatura ainda podiam mudar no curto intervalo entre a saída do validador e a
+publicação pelo shell.
+
+Correções
+
+- o materializador da autorização captura release, configuração, intenção,
+  pedido e assinatura antes de executar o validador;
+- o materializador das atestações captura metadado, configuração, pedido e as
+  quatro assinaturas antes de executar o validador;
+- cada conjunto é relido após a validação, imediatamente antes do primeiro
+  artefato imutável e novamente antes do marcador mutável de conclusão;
+- documentos públicos usam o leitor direto 0644 e documentos privados o leitor
+  direto 0600;
+- o próximo metadado é construído do snapshot, sem reabrir a origem;
+- a intenção e o metadado instalados são relidos e comparados byte a byte;
+- artefatos imutáveis continuam usando criação atômica sem substituição; uma
+  falha intermediária não autoriza produção porque o marcador final não muda.
+
+Validação focada
+
+- sintaxe Bash e ShellCheck dos dois materializadores: passaram;
+- contrato estrutural dos escritores: passou;
+- lint de produção e compilação forçada dos 44 fontes Solidity: passaram;
+- regressão Node completa: 302/302 passaram;
+- proveniência completa: 169 importados, 45 fontes de programas de prova e
+  manifesto determinístico com 1.146 fontes passaram;
+- gate de mainnet não configurado: recusou como esperado com `ready=false` e
+  161 condições derivadas abertas;
+- `git diff --check`: passou.
+
+Nenhuma assinatura foi criada ou usada e nenhuma chamada RPC de produção foi
+executada. Nenhuma transação, fundo, push, commit, tag, deploy ou mineração
+ocorreu. A prova real de queima finalizada permaneceu ativa e não foi reiniciada.

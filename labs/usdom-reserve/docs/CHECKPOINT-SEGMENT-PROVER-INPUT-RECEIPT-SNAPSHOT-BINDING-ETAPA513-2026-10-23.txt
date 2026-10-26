@@ -1,0 +1,29 @@
+USDOM stage 513 — checkpoint segment-prover snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The checkpoint segment prover rebuilt its plan and then reopened live source,
+inner-receipt and resumable output paths while each long proof ran. Concurrent
+replacement could mix filesystem generations despite the host's hash checks.
+
+Correction
+==========
+
+The command captures the five upstream indexes and the segment job index into
+one owner-only replica. It validates bounded, nonempty, duplicate-free canonical
+catalogs before copying all four source classes, RandomX receipts, economic
+block receipts, existing resumable segment receipts and the pinned segment
+ELF/program/ImageID. Cargo runs from the replica only. Verified receipts are
+durably installed first and the verified receipt-set index is installed last.
+Any prior completion index is removed and its directory synchronized before
+proving, so interruption cannot leave a false completion marker.
+
+Evidence and scope
+==================
+
+The operator-runbook regression checks canonical catalog rejection, replica-only
+proving and publication order. Readiness requires
+production_checkpoint_segment_prover_inputs_and_receipts_snapshotted=true.
+No proof, network, signing, deployment or funds operation was executed.

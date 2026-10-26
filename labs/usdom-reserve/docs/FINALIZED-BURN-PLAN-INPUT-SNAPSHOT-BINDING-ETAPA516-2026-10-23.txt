@@ -1,0 +1,29 @@
+USDOM stage 516 — finalized-burn planner input snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The finalized-burn planner opened its canonical UDFINL04 source, guest program
+and ImageID only after Cargo compilation. Replacement during that window could
+make the copied proof input and authenticated guest identity span filesystem
+generations.
+
+Correction
+==========
+
+The fixed command captures the exact finalized-burn-input.bin,
+usdom-finalized-burn.elf and usdom-finalized-burn.iid names into one owner-only
+replica before invoking Cargo. The source and guest program are nonempty and
+bounded to 64 MiB and 4 MiB respectively; the ImageID is exactly 32 bytes.
+Planning runs only from the replica. The verified copied input is durably
+installed before the job index completion marker, and any prior pair is
+invalidated only after the replica has successfully produced both outputs.
+
+Evidence and scope
+==================
+
+The operator-runbook regression checks fixed paths, bounds, replica-only
+execution and output-last publication. Readiness requires
+production_finalized_burn_plan_inputs_snapshotted=true. No proof, network,
+signature, deployment or funds operation is performed.

@@ -1,0 +1,61 @@
+ETAPA689 — autoridade de fee quote e gas estimate em deployment/Safe
+Data: 2026-10-23
+
+Escopo
+
+- Cerimônia de deployment CREATE em Ethereum mainnet.
+- Envelope EIP-1559 de recuperação dos Safes.
+- Somente leitura, validação e testes locais; nenhum RPC real, assinatura,
+  transmissão, deploy ou materialização foi executado.
+
+Achado corrigido
+
+A cerimônia de deployment agregava o maior estimateGas e base fee entre RPCs,
+mas não exigia que cada observação de saldo finalizado cobrisse gasLimit *
+maxFeePerGas. Além disso, valores RPC eram convertidos para aritmética Bash
+antes de um teto explícito, permitindo overflow de configuração/retorno hostil.
+O saldo também não era revalidado após a autorização final de transmissão.
+
+Correção
+
+- estimateGas é consultado com tag `finalized`, agregado pelo máximo entre as
+  fontes e limitado a 16.000.000 antes de entrar na aritmética Bash; o limite
+  assinado continua em 20.000.000 após a margem de 125%.
+- Base fee é validada como quantidade hexadecimal e limitada a 249 gwei antes
+  da conversão; maxFee é limitado a 500 gwei e priority fee permanece exatamente
+  2 gwei.
+- Cada RPC deve reportar saldo finalizado suficiente para o pior custo
+  gasLimit * maxFeePerGas. Estimate, fee e saldo são repetidos depois da
+  autorização de assinatura e devem reproduzir os campos do envelope.
+- Depois da autorização de transmissão, cada RPC volta a provar nonce
+  finalizado/pending, endereço CREATE vazio, saldo finalizado >= maximumCost e
+  ausência do transaction hash, antes de publicar.
+- O validador independente da transação raw mantém binding exato a type 2,
+  chainId 1, nonce, remetente, CREATE (`to == null`), value zero, initcode,
+  access list vazia, gas, max fee, priority fee e hash.
+
+Safe
+
+- O envelope de recuperação usa nonce, estimateGas, saldo, código do relayer e
+  calldata num snapshot finalizado fixado por número/hash; `pending` serve só
+  para colisão de nonce e `latest` só para sugestão limitada de base fee.
+  ETAPA695 substituiu esta sugestão por base fee finalizada e schema v2.
+- Duas a cinco fontes catalogadas devem concordar em snapshot e nonce. O maior
+  estimate e maior base fee determinam o envelope, sujeito a 500.000 gas,
+  249 gwei de base fee, 500 gwei de max fee e saldo >= pior custo.
+- A cerimônia recompõe e reconcilia o envelope depois da autorização/assinatura,
+  imediatamente antes da publicação.
+
+Regressões e validação
+
+- Novas regressões rejeitam estimateGas acima do teto, base fee acima do teto,
+  saldo insuficiente, divergência de nonce/snapshot e mudança durante recheck.
+- Node focado: 20/20 testes aprovados.
+- `bash -n` dos executores de deployment e recuperação: aprovado.
+- `git diff --check`: aprovado.
+
+Risco residual operacional
+
+Os valores reais dependerão dos RPCs catalogados e do saldo do relayer/deployer
+na cerimônia autorizada. A etapa tornou essas condições fail-closed; ela não é
+evidência de saldo real nem autorização para assinar ou transmitir.

@@ -1,0 +1,28 @@
+ETAPA 950 — privacidade P2P/Dandelion e telemetria pública
+Data: 2026-10-23
+
+Escopo
+- Relay local e recebido, stem/fluff channels, timeout/embargo, replay, seleção/exclusão de peers e logs/metrics observáveis.
+
+Achado corrigido
+- Os warnings de lag dos receivers stem/fluff expunham endereço exato do peer e número exato de envelopes perdidos no instante do log. No stem, isso revela qual conexão participa do hop de privacidade; a contagem e timestamp oferecem um sinal de tráfego correlacionável. Agora ambos emitem somente uma classe fixa, sem peer, quantidade, hash ou payload.
+- O caminho RPC interno do nó ainda imprimia o hash quando uma transação aceita não encontrava subscriber. Ele agora registra somente a classe operacional fixa.
+
+Invariantes confirmados
+- `process_stem_tx` exclui explicitamente o peer de ingresso antes da nova seleção.
+- Seleção usa `rand::thread_rng`; não deriva rota do hash/peer e não utiliza PRNG determinístico do módulo legado não conectado ao Node.
+- Fluff por hop é 10%; embargo monotônico tem teto de 30 s; coleta periódica usa missed-tick Skip e promove entradas expiradas.
+- Replay exato durante o stem retorna Suppressed sem reiniciar o relógio; replay expirado promove a fluff.
+- Ausência/falha de lock/target cai para fluff, preservando liveness; fila e mempool já possuem limites auditados.
+- Métricas públicas de timing/mempool foram removidas na ETAPA939; contadores internos permanecem atrás da fronteira autenticada.
+
+Gate
+- `relay_logs_do_not_link_valid_transactions_to_ingress_peers` agora também rejeita o log do hash sem subscriber e os dois formatos antigos `lagged by ... for peer`, exigindo as classes redigidas.
+
+Validação
+- rustfmt --check: aprovado.
+- Gate estrutural independente: 8 formatos vinculáveis ausentes e 5 formatos redigidos presentes.
+- git diff --check: aprovado.
+- Sem Cargo pesado ou rede; teste Rust incluído para a suíte agregada pós-prova.
+
+Sem commit, push, deploy, assinatura ou fundos.

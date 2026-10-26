@@ -1,0 +1,35 @@
+ETAPA 996 — otimização de memória da prova RandomX RISC Zero
+
+Observação autoritativa
+======================
+O processo v5 permaneceu vivo, mas seu working set de aproximadamente 7 GiB
+estava quase todo em swap: 6.88 GiB em memory.swap.current, apenas cerca de
+68 MiB residentes no cgroup e 97–99% de espera por I/O observada pelo vmstat.
+O cgroup tinha MemoryHigh=3 GiB e MemoryMax=4 GiB, limites inferiores ao working
+set e incompatíveis com progresso eficiente nesta máquina de 7.7 GiB de RAM.
+
+Correção operacional reversível
+===============================
+Sem reiniciar ou sinalizar o provador, os limites runtime-only do unit de usuário
+`usdom-randomx-pinned-v5.service` foram elevados para MemoryHigh=5.5 GiB e
+MemoryMax=6.5 GiB. CPUWeight=10 foi preservado. Após eliminar as buscas órfãs, IOWeight foi
+elevado de 10 para 50 (metade do peso padrão) para reduzir a espera de page-in
+sem dar prioridade dominante à prova. A alteração permite page-in gradual e não modifica binário,
+entradas, hashes, ImageID, ProgramBinary, receipt ou semântica da prova.
+
+Também foram enviados sinais de término somente a buscas `find`/`rg` e `git
+status` de leitura que ficaram órfãs por timeouts anteriores. Nenhum processo do
+provador, instalação externa, arquivo de projeto ou evidência foi removido.
+
+Estado após a alteração
+=======================
+O unit continuou `active/running`, MainPID 2400602, e o provador PID 2400779
+permaneceu vivo. O resultado criptográfico ainda não estava terminal nesta etapa.
+
+2026-10-23 follow-up
+The pinned v5 prover remained live with its only working thread blocked on
+folio_wait_bit_common while approximately 6.52 GiB stayed swapped. After the
+system remained responsive under IOWeight=50, the runtime-only cgroup IOWeight
+was raised to the system default 100. CPUWeight=10, MemoryHigh=5.5G and
+MemoryMax=6.5G remain unchanged. The service was not restarted and all proof
+inputs, hashes, PID lineage and status remain unchanged.

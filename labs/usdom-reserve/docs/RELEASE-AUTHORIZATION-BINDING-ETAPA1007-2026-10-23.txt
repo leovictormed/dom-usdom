@@ -1,0 +1,42 @@
+ETAPA 1007 — release authorization and artifact signature binding — 2026-10-23
+
+Scope
+- Production release EIP-712/EIP-1271 authorization, offline signing request,
+  finalized multi-RPC approval, Safe recovery signatures and Git provenance.
+- Cross-chain/release replay, signer uniqueness, canonical recovery, threshold,
+  source commit/tag and artifact hash binding.
+
+Concrete findings and corrections
+- Release authorization bound releaseId/source commit/config hashes and the risk
+  report, but did not bind the signed source tag or the remaining hash-addressed
+  release artifacts. An authorization could survive a tag or artifact-manifest
+  substitution when config hashes stayed unchanged.
+- EIP-712 domain version is now 3. The message includes sourceTag and a
+  releaseEvidenceCommitment: keccak256 of canonical recursively key-sorted JSON
+  for the complete release-evidence manifest. This commits every artifact path
+  and SHA-256 without creating a signature/evidence cycle.
+- Builder derives both values; offline request validation recomputes them; the
+  readiness gate rejects tag or complete-evidence commitment mismatch. Artifact
+  mutation and cross-tag regressions change/reject the digest.
+- Release control-plane owners are now numerically sorted before hashing, in
+  agreement with the canonical Safe owner-set identity introduced in ETAPA1004;
+  permutations cannot create distinct authorization domains.
+
+Audit conclusions
+- EIP-712 domain binds name, bumped version, Ethereum chain and governance Safe.
+  Message also binds release/config/risk/timestamp and all three authorization
+  booleans. Finalized EIP-1271 observation pins governance runtime and requires
+  identical multi-RPC finalized snapshots.
+- Safe enforces the actual 2-of-3 threshold and owner uniqueness. Recovery
+  assembly independently recovers canonical direct EIP-712 signatures, sorts
+  signers and requires exactly the two surviving owners; persisted calldata is
+  re-recovered and checked.
+- Git source commit, evidence commit and annotated tag signatures are checked
+  against the operator-pinned signing fingerprint, while the new EIP-712 tag
+  and evidence commitment prevent their provenance from being swapped later.
+
+Checks
+- Lightweight Python structural gate: 27/27 assertions passed.
+- git diff --check passed for all ETAPA1007 files.
+- Permanent Node gate: test/node/release-authorization-binding.test.mjs.
+- Node is unavailable; no Cargo/Forge, network, push, deployment or funds.

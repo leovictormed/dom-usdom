@@ -31,13 +31,14 @@ use dom_serialization::DomSerialize;
 pub use dom_usdom_checkpoint_statement::{
     checkpoint_compact_target, checkpoint_hash_meets_target, checkpoint_randomx_seed_height,
     CheckpointRandomXStatement, CheckpointRandomXStatementError, CheckpointStatementV4,
-    CHECKPOINT_RANDOMX_BLOCK_VERSION, CHECKPOINT_RANDOMX_PREIMAGE_BYTES,
-    CHECKPOINT_RANDOMX_PREIMAGE_HEIGHT_OFFSET, CHECKPOINT_RANDOMX_PREIMAGE_TARGET_OFFSET,
-    CHECKPOINT_RANDOMX_STATEMENT_BYTES, CHECKPOINT_STATEMENT_V4_BYTES,
+    CheckpointStatementV5, CheckpointStatementV6, CHECKPOINT_RANDOMX_BLOCK_VERSION,
+    CHECKPOINT_RANDOMX_PREIMAGE_BYTES, CHECKPOINT_RANDOMX_PREIMAGE_HEIGHT_OFFSET,
+    CHECKPOINT_RANDOMX_PREIMAGE_TARGET_OFFSET, CHECKPOINT_RANDOMX_STATEMENT_BYTES,
+    CHECKPOINT_STATEMENT_V4_BYTES, CHECKPOINT_STATEMENT_V5_BYTES, CHECKPOINT_STATEMENT_V6_BYTES,
 };
 use dom_usdom_checkpoint_statement::{
     checkpoint_economic_state_root, CheckpointContext, CHECKPOINT_CONTEXT_BYTES,
-    CHECKPOINT_NATIVE_STATE_VERSION, CHECKPOINT_TRANSITION_BATCH_VERSION,
+    CHECKPOINT_NATIVE_STATE_VERSION, CHECKPOINT_TRANSITION_BATCH_V5_VERSION,
 };
 #[cfg(any(feature = "host-reference", feature = "segment-portable-policy"))]
 use dom_usdom_privacy::verifier::SpendVerifier;
@@ -45,13 +46,18 @@ use sha3::{Digest, Keccak256};
 use thiserror::Error;
 #[cfg(any(feature = "host-reference", feature = "segment-portable-policy"))]
 use usdom_ethereum_finality_experiment::{
-    checkpoints::StaticCheckpointTrustPolicy, deposits::StaticDepositTrustPolicy,
+    checkpoints::StaticCheckpointTrustPolicy, closures::StaticIssuanceClosureTrustPolicy,
+    deposits::StaticDepositTrustPolicy,
 };
 
 #[cfg(feature = "economic-chunks")]
 mod economic_chunks;
 #[cfg(feature = "economic-chunks")]
 pub use economic_chunks::execute_economic_chunk_portable;
+#[cfg(feature = "host-reference")]
+pub use economic_chunks::{
+    build_economic_block_proof_source, EconomicBlockProofSource, EconomicChunkProofSource,
+};
 #[cfg(feature = "economic-chunks")]
 pub use economic_chunks::{
     economic_chunk_package_commitment, EconomicBlockTransition, EconomicChunkExecution,
@@ -83,7 +89,9 @@ mod outer;
 pub use outer::verify_checkpoint_segment_receipts_in_guest;
 #[cfg(feature = "outer-execution")]
 pub use outer::{
-    validate_checkpoint_outer_chain, CheckpointOuterChain, CheckpointOuterChainError,
+    derive_checkpoint_statement_v4, derive_checkpoint_statement_v5, derive_checkpoint_statement_v6,
+    validate_checkpoint_outer_chain, validate_checkpoint_outer_chain_v5,
+    validate_checkpoint_outer_chain_v6, CheckpointOuterChain, CheckpointOuterChainError,
     CheckpointOuterExecution, CheckpointSegmentReceiptAssumption, MAX_CHECKPOINT_OUTER_CHAIN_BYTES,
     MAX_CHECKPOINT_OUTER_SEGMENTS,
 };
@@ -91,10 +99,24 @@ pub use outer::{
 #[cfg(feature = "host-reference")]
 mod reference;
 #[cfg(feature = "host-reference")]
+mod source;
+mod sync_attestation;
+#[cfg(feature = "host-reference")]
 pub use reference::{
     execute_checkpoint_extension, execute_checkpoint_extension_v2_with_witnesses,
     execute_checkpoint_extension_with_economic_witnesses, CheckpointProgramError,
     CheckpointProgramPolicy, CheckpointProgramPolicyV2, CheckpointPublicOutput,
+};
+#[cfg(feature = "host-reference")]
+pub use source::{
+    authenticated_checkpoint_bootstrap_anchor, build_first_v2_checkpoint_source,
+    build_latest_v2_checkpoint_sources, AuthenticatedCheckpointBootstrapAnchor,
+    AuthenticatedCheckpointSourceBundle, AuthenticatedCheckpointSourceSet,
+};
+pub use sync_attestation::{
+    SyncAttestation, SyncAttestationCollector, SyncAttestationPolicy, SyncPeerObservation, SyncTip,
+    MAX_SYNC_ATTESTATION_PEERS, MAX_SYNC_OBSERVATION_GAP_SECONDS, MAX_SYNC_TIP_CLOCK_SKEW_SECONDS,
+    MIN_SYNC_ATTESTATION_PEERS,
 };
 
 const SMT_DOMAIN: &[u8] = b"DOM:checkpoint-smt:v1";
@@ -142,10 +164,10 @@ const CHECKPOINT_SEGMENT_STATE_MAGIC: &[u8; 8] = b"UDCSEG02";
 const CHECKPOINT_SEGMENT_STATE_VERSION: u16 = 2;
 const CHECKPOINT_SEGMENT_STATE_PREFIX_BYTES: usize = 410;
 const CHECKPOINT_SEGMENT_STATE_DOMAIN: &[u8] = b"DOM:checkpoint-segment-state:v2";
-const CHECKPOINT_SEGMENT_TRANSITION_MAGIC: &[u8; 8] = b"UDCSTN02";
-const CHECKPOINT_SEGMENT_TRANSITION_VERSION: u16 = 2;
-const CHECKPOINT_SEGMENT_TRANSITION_PREFIX_BYTES: usize = 44;
-const CHECKPOINT_SEGMENT_TRANSITION_DOMAIN: &[u8] = b"DOM:checkpoint-segment-transition:v2";
+const CHECKPOINT_SEGMENT_TRANSITION_MAGIC: &[u8; 8] = b"UDCSTN04";
+const CHECKPOINT_SEGMENT_TRANSITION_VERSION: u16 = 4;
+const CHECKPOINT_SEGMENT_TRANSITION_PREFIX_BYTES: usize = 110;
+const CHECKPOINT_SEGMENT_TRANSITION_DOMAIN: &[u8] = b"DOM:checkpoint-segment-transition:v4";
 const CHECKPOINT_SEGMENT_PRIVATE_INPUT_MAGIC: &[u8; 8] = b"UDCSPI01";
 const CHECKPOINT_SEGMENT_PRIVATE_INPUT_VERSION: u16 = 1;
 const CHECKPOINT_SEGMENT_PRIVATE_INPUT_HEADER_BYTES: usize = 12;
@@ -153,6 +175,8 @@ const CHECKPOINT_SEGMENT_PRIVATE_BLOCK_HEADER_BYTES: usize = 12;
 const CHECKPOINT_SEGMENT_PRIVATE_INPUT_DOMAIN: &[u8] = b"DOM:checkpoint-segment-private-input:v1";
 const CHECKPOINT_SEGMENT_POLICY_INPUT_MAGIC: &[u8; 8] = b"UDCSPOL1";
 const CHECKPOINT_SEGMENT_POLICY_INPUT_VERSION: u16 = 1;
+const CHECKPOINT_SEGMENT_POLICY_INPUT_V2_MAGIC: &[u8; 8] = b"UDCSPOL2";
+const CHECKPOINT_SEGMENT_POLICY_INPUT_V2_VERSION: u16 = 2;
 const CHECKPOINT_SEGMENT_POLICY_INPUT_DOMAIN: &[u8] = b"DOM:checkpoint-segment-policy-input:v1";
 const CHECKPOINT_SEGMENT_POLICY_INPUT_HEADER_BYTES: usize = 12;
 const CHECKPOINT_SEGMENT_NATIVE_OPENING_MAGIC: &[u8; 8] = b"UDCSNS01";
@@ -214,6 +238,8 @@ pub const CHECKPOINT_SEGMENT_ACTIVATION_SCHEDULE_BYTES: usize = 154;
 pub const CHECKPOINT_SEGMENT_CHECKPOINT_POLICY_BYTES: usize = 362;
 /// Exact immutable Ethereum deposit policy bytes supplied to a segment guest.
 pub const CHECKPOINT_SEGMENT_DEPOSIT_POLICY_BYTES: usize = 302;
+/// Exact immutable issuance-closure policy bytes supplied to a v2 segment guest.
+pub const STATIC_ISSUANCE_CLOSURE_POLICY_BYTES: usize = 422;
 /// Maximum canonical compressed BN254 spend verifying key accepted by a segment guest.
 pub const MAX_CHECKPOINT_SEGMENT_SPEND_VERIFYING_KEY_BYTES: usize = 4 * 1024;
 /// Maximum canonical bytes accepted for the previous candidate-v2 state
@@ -227,6 +253,7 @@ pub const MAX_CHECKPOINT_SEGMENT_POLICY_INPUT_BYTES: usize =
         + CHECKPOINT_SEGMENT_ACTIVATION_SCHEDULE_BYTES
         + CHECKPOINT_SEGMENT_CHECKPOINT_POLICY_BYTES
         + CHECKPOINT_SEGMENT_DEPOSIT_POLICY_BYTES
+        + STATIC_ISSUANCE_CLOSURE_POLICY_BYTES
         + MAX_CHECKPOINT_SEGMENT_SPEND_VERIFYING_KEY_BYTES;
 
 /// Failure while executing the native RandomX reference relation.
@@ -414,7 +441,7 @@ impl CheckpointSegmentState {
         bytes[..8].copy_from_slice(CHECKPOINT_SEGMENT_STATE_MAGIC);
         bytes[8..10].copy_from_slice(&CHECKPOINT_SEGMENT_STATE_VERSION.to_be_bytes());
         bytes[10..12].copy_from_slice(&CHECKPOINT_NATIVE_STATE_VERSION.to_be_bytes());
-        bytes[12..14].copy_from_slice(&CHECKPOINT_TRANSITION_BATCH_VERSION.to_be_bytes());
+        bytes[12..14].copy_from_slice(&CHECKPOINT_TRANSITION_BATCH_V5_VERSION.to_be_bytes());
         bytes[14..18].copy_from_slice(&self.network_magic.to_be_bytes());
         bytes[18..50].copy_from_slice(&self.chain_id);
         bytes[50..82].copy_from_slice(&self.activation_schedule_commitment);
@@ -439,7 +466,8 @@ impl CheckpointSegmentState {
             || bytes.get(..8) != Some(CHECKPOINT_SEGMENT_STATE_MAGIC.as_slice())
             || u16::from_be_bytes(segment_array(bytes, 8)?) != CHECKPOINT_SEGMENT_STATE_VERSION
             || u16::from_be_bytes(segment_array(bytes, 10)?) != CHECKPOINT_NATIVE_STATE_VERSION
-            || u16::from_be_bytes(segment_array(bytes, 12)?) != CHECKPOINT_TRANSITION_BATCH_VERSION
+            || u16::from_be_bytes(segment_array(bytes, 12)?)
+                != CHECKPOINT_TRANSITION_BATCH_V5_VERSION
         {
             return Err(CheckpointSegmentStateError::InvalidFraming);
         }
@@ -495,6 +523,7 @@ pub struct CheckpointSegmentPolicyInput {
     activation_schedule: [u8; CHECKPOINT_SEGMENT_ACTIVATION_SCHEDULE_BYTES],
     checkpoint_policy: [u8; CHECKPOINT_SEGMENT_CHECKPOINT_POLICY_BYTES],
     deposit_policy: [u8; CHECKPOINT_SEGMENT_DEPOSIT_POLICY_BYTES],
+    issuance_closure_policy: Option<[u8; STATIC_ISSUANCE_CLOSURE_POLICY_BYTES]>,
     spend_verifying_key: Vec<u8>,
 }
 
@@ -529,6 +558,28 @@ impl CheckpointSegmentPolicyInput {
             activation_schedule,
             checkpoint_policy,
             deposit_policy,
+            issuance_closure_policy: None,
+            spend_verifying_key,
+        };
+        input.validate()?;
+        Ok(input)
+    }
+
+    /// Construct policy input v2 with the immutable issuance-closure verifier.
+    pub fn new_with_issuance_closure(
+        dom_genesis_hash: [u8; 32],
+        activation_schedule: [u8; CHECKPOINT_SEGMENT_ACTIVATION_SCHEDULE_BYTES],
+        checkpoint_policy: [u8; CHECKPOINT_SEGMENT_CHECKPOINT_POLICY_BYTES],
+        deposit_policy: [u8; CHECKPOINT_SEGMENT_DEPOSIT_POLICY_BYTES],
+        issuance_closure_policy: [u8; STATIC_ISSUANCE_CLOSURE_POLICY_BYTES],
+        spend_verifying_key: Vec<u8>,
+    ) -> Result<Self, CheckpointSegmentPolicyInputError> {
+        let input = Self {
+            dom_genesis_hash,
+            activation_schedule,
+            checkpoint_policy,
+            deposit_policy,
+            issuance_closure_policy: Some(issuance_closure_policy),
             spend_verifying_key,
         };
         input.validate()?;
@@ -553,6 +604,13 @@ impl CheckpointSegmentPolicyInput {
     /// Exact immutable Ethereum deposit trust-policy bytes.
     pub fn deposit_policy_bytes(&self) -> &[u8; CHECKPOINT_SEGMENT_DEPOSIT_POLICY_BYTES] {
         &self.deposit_policy
+    }
+
+    /// Immutable closure policy bytes; absent only in historical v1 inputs.
+    pub fn issuance_closure_policy_bytes(
+        &self,
+    ) -> Option<&[u8; STATIC_ISSUANCE_CLOSURE_POLICY_BYTES]> {
+        self.issuance_closure_policy.as_ref()
     }
 
     /// Exact compressed BN254 spend verifying-key bytes.
@@ -582,15 +640,27 @@ impl CheckpointSegmentPolicyInput {
                 + CHECKPOINT_SEGMENT_ACTIVATION_SCHEDULE_BYTES
                 + CHECKPOINT_SEGMENT_CHECKPOINT_POLICY_BYTES
                 + CHECKPOINT_SEGMENT_DEPOSIT_POLICY_BYTES
+                + self
+                    .issuance_closure_policy
+                    .as_ref()
+                    .map_or(0, |_| STATIC_ISSUANCE_CLOSURE_POLICY_BYTES)
                 + self.spend_verifying_key.len(),
         );
-        bytes.extend_from_slice(CHECKPOINT_SEGMENT_POLICY_INPUT_MAGIC);
-        bytes.extend_from_slice(&CHECKPOINT_SEGMENT_POLICY_INPUT_VERSION.to_be_bytes());
+        if self.issuance_closure_policy.is_some() {
+            bytes.extend_from_slice(CHECKPOINT_SEGMENT_POLICY_INPUT_V2_MAGIC);
+            bytes.extend_from_slice(&CHECKPOINT_SEGMENT_POLICY_INPUT_V2_VERSION.to_be_bytes());
+        } else {
+            bytes.extend_from_slice(CHECKPOINT_SEGMENT_POLICY_INPUT_MAGIC);
+            bytes.extend_from_slice(&CHECKPOINT_SEGMENT_POLICY_INPUT_VERSION.to_be_bytes());
+        }
         bytes.extend_from_slice(&key_length.to_be_bytes());
         bytes.extend_from_slice(&self.dom_genesis_hash);
         bytes.extend_from_slice(&self.activation_schedule);
         bytes.extend_from_slice(&self.checkpoint_policy);
         bytes.extend_from_slice(&self.deposit_policy);
+        if let Some(policy) = &self.issuance_closure_policy {
+            bytes.extend_from_slice(policy);
+        }
         bytes.extend_from_slice(&self.spend_verifying_key);
         Ok(bytes)
     }
@@ -602,16 +672,19 @@ impl CheckpointSegmentPolicyInput {
             + CHECKPOINT_SEGMENT_ACTIVATION_SCHEDULE_BYTES
             + CHECKPOINT_SEGMENT_CHECKPOINT_POLICY_BYTES
             + CHECKPOINT_SEGMENT_DEPOSIT_POLICY_BYTES;
+        let v1 = bytes.get(..8) == Some(CHECKPOINT_SEGMENT_POLICY_INPUT_MAGIC.as_slice())
+            && bytes.get(8..10).is_some_and(|value| {
+                u16::from_be_bytes(value.try_into().unwrap())
+                    == CHECKPOINT_SEGMENT_POLICY_INPUT_VERSION
+            });
+        let v2 = bytes.get(..8) == Some(CHECKPOINT_SEGMENT_POLICY_INPUT_V2_MAGIC.as_slice())
+            && bytes.get(8..10).is_some_and(|value| {
+                u16::from_be_bytes(value.try_into().unwrap())
+                    == CHECKPOINT_SEGMENT_POLICY_INPUT_V2_VERSION
+            });
         if bytes.len() <= FIXED_BYTES
             || bytes.len() > MAX_CHECKPOINT_SEGMENT_POLICY_INPUT_BYTES
-            || bytes.get(..8) != Some(CHECKPOINT_SEGMENT_POLICY_INPUT_MAGIC.as_slice())
-            || u16::from_be_bytes(
-                bytes
-                    .get(8..10)
-                    .ok_or(CheckpointSegmentPolicyInputError::InvalidFraming)?
-                    .try_into()
-                    .map_err(|_| CheckpointSegmentPolicyInputError::InvalidFraming)?,
-            ) != CHECKPOINT_SEGMENT_POLICY_INPUT_VERSION
+            || !(v1 || v2)
         {
             return Err(CheckpointSegmentPolicyInputError::InvalidFraming);
         }
@@ -624,7 +697,14 @@ impl CheckpointSegmentPolicyInput {
         ));
         if key_length == 0
             || key_length > MAX_CHECKPOINT_SEGMENT_SPEND_VERIFYING_KEY_BYTES
-            || bytes.len() != FIXED_BYTES + key_length
+            || bytes.len()
+                != FIXED_BYTES
+                    + key_length
+                    + if v2 {
+                        STATIC_ISSUANCE_CLOSURE_POLICY_BYTES
+                    } else {
+                        0
+                    }
         {
             return Err(CheckpointSegmentPolicyInputError::InvalidFraming);
         }
@@ -639,21 +719,34 @@ impl CheckpointSegmentPolicyInput {
             cursor = end;
             Ok(value)
         };
-        let input = Self::new(
-            take(32)?
-                .try_into()
-                .map_err(|_| CheckpointSegmentPolicyInputError::InvalidFraming)?,
-            take(CHECKPOINT_SEGMENT_ACTIVATION_SCHEDULE_BYTES)?
-                .try_into()
-                .map_err(|_| CheckpointSegmentPolicyInputError::InvalidFraming)?,
-            take(CHECKPOINT_SEGMENT_CHECKPOINT_POLICY_BYTES)?
-                .try_into()
-                .map_err(|_| CheckpointSegmentPolicyInputError::InvalidFraming)?,
-            take(CHECKPOINT_SEGMENT_DEPOSIT_POLICY_BYTES)?
-                .try_into()
-                .map_err(|_| CheckpointSegmentPolicyInputError::InvalidFraming)?,
-            take(key_length)?.to_vec(),
-        )?;
+        let genesis = take(32)?
+            .try_into()
+            .map_err(|_| CheckpointSegmentPolicyInputError::InvalidFraming)?;
+        let schedule = take(CHECKPOINT_SEGMENT_ACTIVATION_SCHEDULE_BYTES)?
+            .try_into()
+            .map_err(|_| CheckpointSegmentPolicyInputError::InvalidFraming)?;
+        let checkpoint = take(CHECKPOINT_SEGMENT_CHECKPOINT_POLICY_BYTES)?
+            .try_into()
+            .map_err(|_| CheckpointSegmentPolicyInputError::InvalidFraming)?;
+        let deposit = take(CHECKPOINT_SEGMENT_DEPOSIT_POLICY_BYTES)?
+            .try_into()
+            .map_err(|_| CheckpointSegmentPolicyInputError::InvalidFraming)?;
+        let closure = if v2 {
+            Some(
+                take(STATIC_ISSUANCE_CLOSURE_POLICY_BYTES)?
+                    .try_into()
+                    .map_err(|_| CheckpointSegmentPolicyInputError::InvalidFraming)?,
+            )
+        } else {
+            None
+        };
+        let key = take(key_length)?.to_vec();
+        let input = match closure {
+            Some(policy) => Self::new_with_issuance_closure(
+                genesis, schedule, checkpoint, deposit, policy, key,
+            )?,
+            None => Self::new(genesis, schedule, checkpoint, deposit, key)?,
+        };
         if cursor != bytes.len() || input.to_bytes()?.as_slice() != bytes {
             return Err(CheckpointSegmentPolicyInputError::InvalidFraming);
         }
@@ -909,7 +1002,7 @@ impl CheckpointSegmentV2ActivationSchedule {
                 bytes[12..14]
                     .try_into()
                     .map_err(|_| CheckpointSegmentPolicyInputError::InvalidPolicy)?,
-            ) != CHECKPOINT_TRANSITION_BATCH_VERSION
+            ) != CHECKPOINT_TRANSITION_BATCH_V5_VERSION
         {
             return Err(CheckpointSegmentPolicyInputError::InvalidPolicy);
         }
@@ -967,7 +1060,7 @@ impl CheckpointSegmentV2ActivationSchedule {
         bytes[..8].copy_from_slice(CHECKPOINT_SEGMENT_V2_ACTIVATION_MAGIC);
         bytes[8..10].copy_from_slice(&CHECKPOINT_SEGMENT_V2_ACTIVATION_VERSION.to_be_bytes());
         bytes[10..12].copy_from_slice(&CHECKPOINT_NATIVE_STATE_VERSION.to_be_bytes());
-        bytes[12..14].copy_from_slice(&CHECKPOINT_TRANSITION_BATCH_VERSION.to_be_bytes());
+        bytes[12..14].copy_from_slice(&CHECKPOINT_TRANSITION_BATCH_V5_VERSION.to_be_bytes());
         bytes[14..18].copy_from_slice(&self.network_magic.to_be_bytes());
         bytes[18..50].copy_from_slice(&self.chain_id);
         bytes[50..58].copy_from_slice(&self.first_v2_height.to_be_bytes());
@@ -1023,6 +1116,7 @@ pub struct ValidatedPortableCheckpointSegmentPolicy {
     previous_native_state: dom_usdom_state::StateCommitmentV2,
     checkpoint_policy: StaticCheckpointTrustPolicy,
     deposit_policy: StaticDepositTrustPolicy,
+    issuance_closure_policy: Option<StaticIssuanceClosureTrustPolicy>,
     spend_verifier: SpendVerifier,
 }
 
@@ -1058,6 +1152,11 @@ impl ValidatedPortableCheckpointSegmentPolicy {
         &self.deposit_policy
     }
 
+    /// Immutable closure verifier, absent only for historical policy input v1.
+    pub const fn issuance_closure_policy(&self) -> Option<&StaticIssuanceClosureTrustPolicy> {
+        self.issuance_closure_policy.as_ref()
+    }
+
     /// Bridge-committed private-spend verifier.
     pub const fn spend_verifier(&self) -> &SpendVerifier {
         &self.spend_verifier
@@ -1084,6 +1183,12 @@ impl CheckpointSegmentPolicyInput {
         let checkpoint_policy = StaticCheckpointTrustPolicy::from_bytes(&self.checkpoint_policy)
             .map_err(|_| CheckpointSegmentPolicyInputError::InvalidPolicy)?;
         let deposit_policy = StaticDepositTrustPolicy::from_bytes(&self.deposit_policy)
+            .map_err(|_| CheckpointSegmentPolicyInputError::InvalidPolicy)?;
+        let issuance_closure_policy = self
+            .issuance_closure_policy
+            .as_ref()
+            .map(|bytes| StaticIssuanceClosureTrustPolicy::from_bytes(bytes))
+            .transpose()
             .map_err(|_| CheckpointSegmentPolicyInputError::InvalidPolicy)?;
         let spend_verifier = SpendVerifier::from_bytes(&self.spend_verifying_key)
             .map_err(|_| CheckpointSegmentPolicyInputError::InvalidPolicy)?;
@@ -1134,6 +1239,13 @@ impl CheckpointSegmentPolicyInput {
                 != &previous_native_state.privacy_verifier_config_hash
             || dom_usdom_privacy::privacy_policy_hash().as_bytes()
                 != &previous_native_state.privacy_policy_hash
+            || issuance_closure_policy.as_ref().is_some_and(|policy| {
+                state.network_magic != dom_core::NETWORK_MAGIC_MAINNET
+                    || policy.closure().ethereum_genesis_validators_root.as_slice()
+                        != previous_native_state.ethereum_genesis_validators_root
+                    || policy.closure().reserve.as_slice() != previous_native_state.reserve
+                    || policy.closure().bridge_domain.as_slice() != previous_native_state.domain
+            })
         {
             return Err(CheckpointSegmentPolicyInputError::PolicyMismatch);
         }
@@ -1144,6 +1256,7 @@ impl CheckpointSegmentPolicyInput {
             previous_native_state,
             checkpoint_policy,
             deposit_policy,
+            issuance_closure_policy,
             spend_verifier,
         })
     }
@@ -1299,6 +1412,18 @@ pub struct CheckpointSegmentTransition {
     pub block_count: u16,
     /// Keccak commitment to the canonical private block and witness input.
     pub private_input_commitment: [u8; 32],
+    /// Deposit-backed issuance before the first batch in this segment.
+    pub previous_total_issued: u128,
+    /// Native burns before the first batch in this segment.
+    pub previous_total_burned: u128,
+    /// Deposit-backed issuance after the final batch in this segment.
+    pub new_total_issued: u128,
+    /// Native burns after the final batch in this segment.
+    pub new_total_burned: u128,
+    /// Whether authenticated issuance closure was present before this segment.
+    pub previous_issuance_closed: bool,
+    /// Whether authenticated issuance closure is present after this segment.
+    pub new_issuance_closed: bool,
     /// State before the first proved block.
     pub previous: CheckpointSegmentState,
     /// State after the final proved block.
@@ -1326,6 +1451,9 @@ pub enum CheckpointSegmentTransitionError {
     /// The committed private input is missing.
     #[error("invalid checkpoint segment private input commitment")]
     InvalidPrivateInput,
+    /// Economic totals regress or imply burned supply greater than issuance.
+    #[error("invalid checkpoint segment economic totals")]
+    InvalidEconomicTotals,
 }
 
 impl CheckpointSegmentTransition {
@@ -1339,6 +1467,16 @@ impl CheckpointSegmentTransition {
             .map_err(|_| CheckpointSegmentTransitionError::InvalidState)?;
         if self.private_input_commitment == [0; 32] {
             return Err(CheckpointSegmentTransitionError::InvalidPrivateInput);
+        }
+        if self.previous_total_burned > self.previous_total_issued
+            || self.new_total_burned > self.new_total_issued
+            || self.new_total_issued < self.previous_total_issued
+            || self.new_total_burned < self.previous_total_burned
+        {
+            return Err(CheckpointSegmentTransitionError::InvalidEconomicTotals);
+        }
+        if self.previous_issuance_closed && !self.new_issuance_closed {
+            return Err(CheckpointSegmentTransitionError::InvalidEconomicTotals);
         }
         if self.block_count == 0 || self.block_count > MAX_CHECKPOINT_SEGMENT_BLOCKS {
             return Err(CheckpointSegmentTransitionError::InvalidSpan);
@@ -1369,7 +1507,7 @@ impl CheckpointSegmentTransition {
         Ok(())
     }
 
-    /// Encode the unique fixed-width `UDCSTN02` representation.
+    /// Encode the unique fixed-width `UDCSTN04` representation.
     pub fn to_bytes(
         &self,
     ) -> Result<[u8; CHECKPOINT_SEGMENT_TRANSITION_BYTES], CheckpointSegmentTransitionError> {
@@ -1387,12 +1525,18 @@ impl CheckpointSegmentTransition {
         bytes[8..10].copy_from_slice(&CHECKPOINT_SEGMENT_TRANSITION_VERSION.to_be_bytes());
         bytes[10..12].copy_from_slice(&self.block_count.to_be_bytes());
         bytes[12..44].copy_from_slice(&self.private_input_commitment);
-        bytes[44..44 + CHECKPOINT_SEGMENT_STATE_BYTES].copy_from_slice(&previous);
-        bytes[44 + CHECKPOINT_SEGMENT_STATE_BYTES..].copy_from_slice(&next);
+        bytes[44..60].copy_from_slice(&self.previous_total_issued.to_be_bytes());
+        bytes[60..76].copy_from_slice(&self.previous_total_burned.to_be_bytes());
+        bytes[76..92].copy_from_slice(&self.new_total_issued.to_be_bytes());
+        bytes[92..108].copy_from_slice(&self.new_total_burned.to_be_bytes());
+        bytes[108] = u8::from(self.previous_issuance_closed);
+        bytes[109] = u8::from(self.new_issuance_closed);
+        bytes[110..110 + CHECKPOINT_SEGMENT_STATE_BYTES].copy_from_slice(&previous);
+        bytes[110 + CHECKPOINT_SEGMENT_STATE_BYTES..].copy_from_slice(&next);
         Ok(bytes)
     }
 
-    /// Decode, validate and canonically re-encode one `UDCSTN02` statement.
+    /// Decode, validate and canonically re-encode one `UDCSTN04` statement.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, CheckpointSegmentTransitionError> {
         if bytes.len() != CHECKPOINT_SEGMENT_TRANSITION_BYTES
             || bytes.get(..8) != Some(CHECKPOINT_SEGMENT_TRANSITION_MAGIC.as_slice())
@@ -1417,6 +1561,32 @@ impl CheckpointSegmentTransition {
             private_input_commitment: bytes[12..44]
                 .try_into()
                 .map_err(|_| CheckpointSegmentTransitionError::InvalidFraming)?,
+            previous_total_issued: u128::from_be_bytes(
+                segment_array(bytes, 44)
+                    .map_err(|_| CheckpointSegmentTransitionError::InvalidFraming)?,
+            ),
+            previous_total_burned: u128::from_be_bytes(
+                segment_array(bytes, 60)
+                    .map_err(|_| CheckpointSegmentTransitionError::InvalidFraming)?,
+            ),
+            new_total_issued: u128::from_be_bytes(
+                segment_array(bytes, 76)
+                    .map_err(|_| CheckpointSegmentTransitionError::InvalidFraming)?,
+            ),
+            new_total_burned: u128::from_be_bytes(
+                segment_array(bytes, 92)
+                    .map_err(|_| CheckpointSegmentTransitionError::InvalidFraming)?,
+            ),
+            previous_issuance_closed: match bytes[108] {
+                0 => false,
+                1 => true,
+                _ => return Err(CheckpointSegmentTransitionError::InvalidFraming),
+            },
+            new_issuance_closed: match bytes[109] {
+                0 => false,
+                1 => true,
+                _ => return Err(CheckpointSegmentTransitionError::InvalidFraming),
+            },
             previous: CheckpointSegmentState::from_bytes(
                 bytes
                     .get(CHECKPOINT_SEGMENT_TRANSITION_PREFIX_BYTES..previous_end)
@@ -1522,7 +1692,7 @@ impl CheckpointSegmentBlockInput {
     }
 }
 
-/// Exact bounded private input committed by one `UDCSTN02` transition.
+/// Exact bounded private input committed by one `UDCSTN04` transition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckpointSegmentPrivateInput {
     blocks: Vec<CheckpointSegmentBlockInput>,
@@ -1640,6 +1810,16 @@ impl CheckpointSegmentPrivateInput {
         if count == 0 || count > usize::from(MAX_CHECKPOINT_SEGMENT_BLOCKS) {
             return Err(CheckpointSegmentPrivateInputError::InvalidBlockCount);
         }
+        let minimum = CHECKPOINT_SEGMENT_PRIVATE_INPUT_HEADER_BYTES
+            .checked_add(
+                count
+                    .checked_mul(CHECKPOINT_SEGMENT_PRIVATE_BLOCK_HEADER_BYTES)
+                    .ok_or(CheckpointSegmentPrivateInputError::SizeLimit)?,
+            )
+            .ok_or(CheckpointSegmentPrivateInputError::SizeLimit)?;
+        if bytes.len() < minimum {
+            return Err(CheckpointSegmentPrivateInputError::InvalidFraming);
+        }
         let mut blocks = Vec::with_capacity(count);
         let mut cursor = CHECKPOINT_SEGMENT_PRIVATE_INPUT_HEADER_BYTES;
         for _ in 0..count {
@@ -1705,7 +1885,7 @@ impl CheckpointSegmentPrivateInput {
         Ok(input)
     }
 
-    /// Keccak commitment stored in the matching `UDCSTN02` statement.
+    /// Keccak commitment stored in the matching `UDCSTN04` statement.
     pub fn commitment(&self) -> Result<[u8; 32], CheckpointSegmentPrivateInputError> {
         let bytes = self.to_bytes()?;
         let mut hasher = Keccak256::new();
@@ -1714,11 +1894,18 @@ impl CheckpointSegmentPrivateInput {
         Ok(hasher.finalize().into())
     }
 
-    /// Build the exact public transition statement for these private bytes.
-    pub fn transition_statement(
+    /// Build the exact public transition statement and its authenticated
+    /// economic endpoints for these private bytes.
+    pub fn transition_statement_with_totals(
         &self,
         previous: CheckpointSegmentState,
         next: CheckpointSegmentState,
+        previous_total_issued: u128,
+        previous_total_burned: u128,
+        new_total_issued: u128,
+        new_total_burned: u128,
+        previous_issuance_closed: bool,
+        new_issuance_closed: bool,
     ) -> Result<CheckpointSegmentTransition, CheckpointSegmentTransitionError> {
         let block_count = u16::try_from(self.blocks.len())
             .map_err(|_| CheckpointSegmentTransitionError::InvalidSpan)?;
@@ -1728,11 +1915,26 @@ impl CheckpointSegmentPrivateInput {
         let transition = CheckpointSegmentTransition {
             block_count,
             private_input_commitment,
+            previous_total_issued,
+            previous_total_burned,
+            new_total_issued,
+            new_total_burned,
+            previous_issuance_closed,
+            new_issuance_closed,
             previous,
             next,
         };
         transition.validate()?;
         Ok(transition)
+    }
+
+    /// Test-only constructor for fixtures whose economic state is empty.
+    pub fn transition_statement(
+        &self,
+        previous: CheckpointSegmentState,
+        next: CheckpointSegmentState,
+    ) -> Result<CheckpointSegmentTransition, CheckpointSegmentTransitionError> {
+        self.transition_statement_with_totals(previous, next, 0, 0, 0, 0, false, false)
     }
 
     /// Parse every component through its consensus-owned canonical decoder.
@@ -1791,7 +1993,7 @@ impl CheckpointSegmentRandomXBinding {
 ///
 /// This statement proves only that the exact headers committed by one segment
 /// transition each have a matching receipt under the state-pinned RandomX
-/// ImageID. It deliberately has a distinct domain from UDCSTN02 and cannot be
+/// ImageID. It deliberately has a distinct domain from UDCSTN04 and cannot be
 /// used as a complete checkpoint transition proof.
 #[cfg(feature = "segment-bindings")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1808,7 +2010,7 @@ impl CheckpointSegmentRandomXAggregate {
         self.block_count
     }
 
-    /// Commitment of the exact UDCSTN02 transition whose packages were parsed.
+    /// Commitment of the exact UDCSTN04 transition whose packages were parsed.
     pub fn transition_commitment(&self) -> &[u8; 32] {
         &self.transition_commitment
     }
@@ -1898,7 +2100,7 @@ pub enum CheckpointSegmentRandomXAggregateError {
     /// Exact per-block receipt requirements could not be derived.
     #[error("invalid checkpoint RandomX segment binding: {0}")]
     Binding(CheckpointSegmentRandomXBindingError),
-    /// The UDCSTN02 transition commitment could not be recomputed.
+    /// The UDCSTN04 transition commitment could not be recomputed.
     #[error("invalid checkpoint transition commitment")]
     InvalidTransition,
 }
@@ -4184,6 +4386,12 @@ mod tests {
         CheckpointSegmentTransition {
             block_count,
             private_input_commitment: [0x61; 32],
+            previous_total_issued: 0,
+            previous_total_burned: 0,
+            new_total_issued: 0,
+            new_total_burned: 0,
+            previous_issuance_closed: false,
+            new_issuance_closed: false,
             previous,
             next,
         }
@@ -4841,7 +5049,7 @@ mod tests {
         let transition = segment_transition();
         let bytes = transition.to_bytes().expect("encode");
         assert_eq!(bytes.len(), CHECKPOINT_SEGMENT_TRANSITION_BYTES);
-        assert_eq!(&bytes[..8], b"UDCSTN02");
+        assert_eq!(&bytes[..8], b"UDCSTN04");
         assert_eq!(
             CheckpointSegmentTransition::from_bytes(&bytes).unwrap(),
             transition
@@ -4858,12 +5066,14 @@ mod tests {
             malformed[index] ^= 1;
             assert!(CheckpointSegmentTransition::from_bytes(&malformed).is_err());
         }
-        let mut legacy = bytes;
-        legacy[..8].copy_from_slice(b"UDCSTN01");
-        assert_eq!(
-            CheckpointSegmentTransition::from_bytes(&legacy),
-            Err(CheckpointSegmentTransitionError::InvalidFraming)
-        );
+        for magic in [b"UDCSTN01", b"UDCSTN02"] {
+            let mut legacy = bytes;
+            legacy[..8].copy_from_slice(magic);
+            assert_eq!(
+                CheckpointSegmentTransition::from_bytes(&legacy),
+                Err(CheckpointSegmentTransitionError::InvalidFraming)
+            );
+        }
     }
 
     #[test]
@@ -4880,6 +5090,20 @@ mod tests {
         assert_eq!(
             changed.validate(),
             Err(CheckpointSegmentTransitionError::InvalidSpan)
+        );
+        changed = transition;
+        changed.new_total_issued = 1;
+        changed.new_total_burned = 2;
+        assert_eq!(
+            changed.validate(),
+            Err(CheckpointSegmentTransitionError::InvalidEconomicTotals)
+        );
+        changed = transition;
+        changed.previous_total_issued = 2;
+        changed.new_total_issued = 1;
+        assert_eq!(
+            changed.validate(),
+            Err(CheckpointSegmentTransitionError::InvalidEconomicTotals)
         );
         changed = transition;
         changed.block_count -= 1;
@@ -5583,6 +5807,24 @@ mod tests {
         let (effects, _) = economic_block_effects(&candidate).expect("effects");
         assert_eq!(effects.len(), 601);
         assert_eq!(MAX_ECONOMIC_BLOCK_CHUNKS, 80);
+        let package = UsdomV4BlockPackage::new(candidate.clone(), UsdomV4ProofEnvelope::empty())
+            .expect("package")
+            .to_bytes()
+            .expect("package bytes");
+        let recursive = build_economic_block_proof_source(
+            &EconomicState::default(),
+            &candidate,
+            &package,
+            dom_core::NETWORK_MAGIC_REGTEST,
+            10,
+        )
+        .expect("recursive economic source");
+        assert_eq!(recursive.chunks().len(), 3);
+        let recursive_transition =
+            EconomicBlockTransition::from_bytes(recursive.transition_bytes())
+                .expect("recursive block transition");
+        assert_eq!(recursive_transition.utxo_effects, 601);
+        assert_eq!(recursive_transition.kernel_effects, 1);
 
         let first =
             EconomicChunkWitness::from_state(&proving_state, &candidate, 0).expect("first chunk");

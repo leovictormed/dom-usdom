@@ -1,0 +1,35 @@
+USDⓄM RESERVE — REAL-FUNDS, WALLET AND DEPOSIT AUTHORITY PATHS (STAGE 420)
+Date: 2026-10-22
+
+Finding
+
+The final real-funds decision, public native receiving identity and unsigned
+first-deposit package were written through predictable `/tmp` paths. The latter
+two determine the private destination commitment and exact USDT/reserve calls;
+pathname replacement must not change what is reviewed or later authorized.
+
+Correction
+
+- The real-funds report now uses a fresh owner-only temporary file, is accepted
+  only after the checker exits successfully and reports zero blockers, and is
+  removed immediately.
+- The receiving-wallet public identity is staged only after the interactive
+  command succeeds and installed idempotently as an immutable private file.
+  Revalidation must produce byte-identical public identity.
+- The randomized unsigned first-deposit package is staged only after complete
+  generation, then installed create-only in the private control-plane
+  directory. It cannot be silently regenerated with another salt.
+- Both persistent artifacts are consumed through the strict direct private-file
+  reader. Runbook regression rejects the former paths.
+
+Validation
+
+- all 37 runbook Bash blocks parse;
+- operator/runbook suite: 65/65 passed.
+- complete Node regression: 307/307 passed.
+- source-integrity manifest: 1,204/1,204 files passed;
+- imported provenance: 169 files, including 16 explicit modifications, passed;
+- repository whitespace checks passed.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

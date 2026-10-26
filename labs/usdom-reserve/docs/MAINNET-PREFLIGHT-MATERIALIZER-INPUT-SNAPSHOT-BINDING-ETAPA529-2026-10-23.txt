@@ -1,0 +1,30 @@
+Etapa 529 — vínculo de snapshot dos insumos do materializador de preflight mainnet
+
+Constatação
+
+O materializador lia o relatório privado e quatro arquivos de configuração para
+buffers independentes e depois reabria as origens durante a publicação. Embora
+as comparações detectassem alterações persistentes, não havia uma réplica única,
+privada e durável que definisse o conjunto exato analisado durante toda a janela.
+
+Correção
+
+O catálogo fixo contém exatamente relatório, release, evidência, requisitos e
+identidade RISC Zero. Todos precisam de caminhos absolutos e limites explícitos;
+o relatório privado exige modo 0600. Os cinco arquivos são copiados para uma
+única réplica temporária 0700, com arquivos duráveis 0600. Validação e construção
+usam somente os bytes relidos dessa réplica. As cinco origens são comparadas byte
+a byte antes de instalar o relatório, antes de atualizar a evidência e antes de
+publicar o fato final em requisitos. A evidência continua precedendo o fato final,
+portanto uma interrupção não declara conclusão sem o documento correspondente.
+
+Teste
+
+Um teste determinístico altera a configuração de release entre captura e
+rechecagem e exige rejeição. Outro rejeita catálogo incompleto. Checks sintáticos
+leves são executados durante a prova RandomX; Cargo e readiness completo aguardam
+liberação do operador para evitar concorrência de I/O.
+
+Fato de prontidão
+
+production_mainnet_preflight_materializer_inputs_snapshotted_and_origins_rechecked=true.

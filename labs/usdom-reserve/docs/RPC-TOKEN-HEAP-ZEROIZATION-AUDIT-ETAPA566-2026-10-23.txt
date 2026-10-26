@@ -1,0 +1,20 @@
+Stage 566 — RPC bearer-token transient-copy zeroization audit
+Date: 2026-10-23
+
+Finding
+
+The long-lived middleware credential already implemented ZeroizeOnDrop, but several preceding copies did not. `serve_with_token_until_shutdown` received an owned plain String and cloned it into the middleware token, leaving the caller copy to ordinary deallocation. File parsing similarly cloned from an ordinary raw String. The desktop node host retained its process-lifetime RPC token in a plain String, and both generators left their 32 random source bytes in ordinary stack arrays. These are post-use secret-remanence defects; they do not grant remote authentication by themselves but unnecessarily widen disclosure after memory inspection or crash handling.
+
+Correction
+
+- The server wraps the owned configured credential in `Zeroizing<String>` immediately; the validated copy moves into the existing `BearerToken` ZeroizeOnDrop type.
+- File-backed raw credential buffers are wrapped before canonical parsing and cloning.
+- dom-rpc random source bytes use `Zeroizing<[u8; 32]>`.
+- The desktop NodeHost retains its credential in `Zeroizing<String>` and its random source bytes are zeroized after hexadecimal encoding.
+- No token is logged, serialized or added to wire/state formats; authentication and restart-based rotation semantics are unchanged.
+
+Evidence
+
+Rustfmt checks and focused structural assertions pass for all three changed sources. Cargo tests remain queued while the RandomX proof owns the constrained compilation budget. The existing compile-time ZeroizeOnDrop assertion for BearerToken remains in place; full workspace compilation will additionally cover the new wrappers after the proof.
+
+The active proof remained active/running under main PID 2262600. No push, commit, deployment, signature, transaction, funds action or proof mutation occurred.

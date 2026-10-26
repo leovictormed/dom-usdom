@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
+const names=['prepare-recoverable-safe-release-evidence.mjs','check-recoverable-safe-recovery-transactions.mjs','assemble-recoverable-safe-recovery.mjs','check-recoverable-safe-recovery-envelope.mjs'];
+test('ten Safe JSON reads share four erasing readers',async()=>{let calls=0;for(const n of names){const s=await readFile(new URL(`../../scripts/${n}`,import.meta.url),'utf8');assert.match(s,/finally \{ bytes\.fill\(0\); \}/);calls+=(s.match(/strictFile\(/g)||[]).length-1;}assert.equal(calls,10)});

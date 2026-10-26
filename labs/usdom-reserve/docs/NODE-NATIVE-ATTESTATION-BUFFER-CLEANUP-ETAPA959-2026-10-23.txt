@@ -1,0 +1,17 @@
+ETAPA959 — NODE NATIVE ATTESTATION BUFFER CLEANUP
+Date: 2026-10-23
+
+The 23 actual private reads remaining after ETAPA957 were grouped by lifecycle.
+The largest homogeneous family was six owner-only wallet evidence captures in
+the native release-attestation request preparer: identity, TPM custody and
+recovery evidence, each captured initially and again for the TOCTOU recheck.
+
+All six reads now enter through one scoped capture helper that records each
+Buffer immediately after the read resolves. An outer finally erases every
+recorded Buffer, including the subset already resolved when a concurrent
+Promise.all sibling rejects. Hash, strict parsing and byte-for-byte TOCTOU
+comparison semantics remain unchanged.
+
+Exact residual: 52 signals = 17 actual Buffer reads plus 35 path/helper/metadata
+signals. Focused test 1/1, Node syntax and git diff --check passed. No Cargo,
+RPC, signing, attestation, deployment or other external operation was run.

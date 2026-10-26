@@ -1,0 +1,58 @@
+ETAPA 1086 — OUTFLOW BUCKET / TIMESTAMP ARITHMETIC AUDIT
+Date: 2026-10-26
+
+Scope
+-----
+Adversarial review of USDOMProofReserve's global outflow bucket, fractional
+refill, withdrawal delay, lease expiry, pause/resume time, multiple permanent
+debts, execution order and every uint64/uint256 timestamp conversion. No deploy,
+broadcast, signing, funds, network access, commit or push was performed.
+
+Findings
+--------
+No rate-limit bypass, arithmetic truncation or debt-ordering loss was found.
+
+* Bucket balance and capacity are uint64, and every narrowing assignment is
+  preceded by an explicit bound. `availableOutflow` returns early once elapsed
+  time reaches one day, so its only multiplication has elapsed < 86,400 and a
+  uint64 capacity and cannot overflow uint256.
+* Successful execution checkpoints the computed balance and current timestamp.
+  Failed verifier, token-policy, solvency, transfer or post-transfer checks
+  revert the complete bucket update.
+* Fractional refill rounds down and resetting its timestamp after a withdrawal
+  can only discard a sub-unit remainder; it cannot mint capacity.
+* Queue and administrative deadlines use `_timestampAfter` and fail closed
+  before uint64 overflow. Exact readyAt and expiresAt boundaries are inclusive
+  in the intended direction; pruning starts only after expiry.
+* Pause invalidates queue leases but does not edit bucket state. Ethereum time
+  continues to refill the bucket at the same one-day rate, capped at capacity;
+  pause/resume therefore cannot manufacture more than the normal burst cap.
+* Debts share one global bucket. Permissionless execution can choose which
+  ready debt consumes available capacity, but changing order cannot increase
+  aggregate payout. Permanent debt accounting prevents expiry or pause from
+  freeing collateral.
+* An old `validUntil` is intentionally admissible after native consensus has
+  made the burn irreversible. Native admission already bounds that deadline to
+  its authenticated Ethereum anchor; the EVM queue uses a separate seven-day
+  renewable lease. Treating the original deadline as permanent debt erasure
+  would strand collateral rather than improve solvency.
+
+Regressions prepared
+--------------------
+Three focused tests were added:
+
+1. two half-capacity debts in adversarial execution order after a full-capacity
+   payout, proving exact fractional refill and that a failed attempt consumes no
+   bucket;
+2. pause immediately after bucket exhaustion, proving pause neither resets nor
+   freezes the normal refill clock; and
+3. resume scheduling at uint64 max, proving custom fail-closed overflow and no
+   partial administrative state.
+
+Validation status
+-----------------
+Static diff check passes. Foundry execution is intentionally pending because a
+serialized Cargo proof test is active; the parent required that Forge must not
+run concurrently. The focused commands must be run with the pinned Forge and
+solc default pipeline after Cargo exits; via-ir is not required or permitted as
+a workaround.

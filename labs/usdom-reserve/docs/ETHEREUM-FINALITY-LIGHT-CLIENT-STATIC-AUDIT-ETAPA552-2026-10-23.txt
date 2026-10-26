@@ -1,0 +1,62 @@
+ETHEREUM FINALITY / LIGHT-CLIENT STATIC AUDIT — STAGE 552
+Date: 2026-10-23
+Result: no distinct exploitable defect established; no readiness fact added
+
+Scope
+-----
+- crates/dom-ethereum-consensus-core/src/{consensus_core,proof,utils,types/mod}.rs
+- labs/usdom-ethereum-finality/src/{checkpoints,ancestry,state,deposits}.rs
+- labs/usdom-reserve/sdk/ethereum-checkpoint-consensus.mjs
+
+Reviewed boundaries
+-------------------
+1. Chain/domain binding. Bootstrap acceptance requires the exact trusted Beacon
+   header root. Update signatures use DOMAIN_SYNC_COMMITTEE together with the
+   configured genesis validators root and the fork version selected at
+   signature_slot - 1. The production collector independently fixes mainnet
+   genesis time, genesis validators root and genesis fork version.
+2. Fork/type binding. Pre-Capella headers cannot carry an execution payload;
+   Capella through Fulu require the payload-header branch; Gloas requires its
+   distinct header form and block-hash branch. Finality/current/next-committee
+   generalized indices switch at Electra and Gloas. Branch normalization only
+   admits the zero prefixes needed by a newer fixed-width transport type.
+3. Committee lifetime. A signature period can only equal the stored period, or
+   the immediately following period when the next committee is already known.
+   The selected public keys follow that period, a conflicting known next
+   committee is rejected, and rotation occurs only with a proven finalized
+   header in the next period.
+4. Finalized execution binding. Both attested and finalized light-client
+   headers validate their execution inclusion. Finality branches authenticate
+   the finalized Beacon header under the attested state root. Execution
+   ancestry then preserves block hash, parent hash, number, state root and
+   receipts root through the selected target.
+5. Account/storage binding. Secure-trie keys derive from the requested address
+   or full 32-byte slot; proofs open the finalized execution state root and the
+   authenticated account storage root. Account RLP must be canonical and code
+   bytes must match both the authenticated code hash and the configured pin.
+6. Bounds. SSZ branch depths and committee bitvectors are fixed by their Rust
+   types; dynamic proof collections and RLP values have explicit limits. Slot
+   division keeps sync-period arithmetic far below u64 overflow, and signature
+   ordering excludes slot zero before the saturating subtraction used for fork
+   selection.
+
+Adversarial evidence
+--------------------
+Existing focused coverage rejects the wrong mainnet genesis identity,
+optimistic/noncanonical checkpoints, changing or disagreeing finalized roots,
+bootstrap/header substitution, a changed current-committee branch, unsupported
+fork labels, and stale/future weak-subjectivity checkpoints. Rust source tests
+also exercise fork-specific execution generalized indices and reject nonzero
+normalization prefixes, truncated branches and committee branches without a
+committee. Account/deposit tests cover wrong address/state root, altered proof
+nodes and mixed execution blocks.
+
+Conclusion and limits
+---------------------
+No cross-fork, stale-committee, wrong-chain/root or arithmetic acceptance was
+found in this review. The fork schedule remains release configuration and must
+be updated before a future fork activation; this is an operational availability
+constraint, not evidence that a proof for another chain or fork is accepted.
+Because the active RandomX proof reserved heavy resources, this stage ran only
+Node tests and static structural assertions. Cargo, Foundry, the full readiness
+suite and external operations were deliberately not run.

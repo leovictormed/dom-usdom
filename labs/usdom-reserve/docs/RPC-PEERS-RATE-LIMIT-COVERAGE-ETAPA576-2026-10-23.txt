@@ -1,0 +1,44 @@
+RPC authenticated-read governor coverage — stage 576
+Date: 2026-10-23
+Scope: crates/dom-rpc/src/lib.rs
+
+Finding corrected
+=================
+`GET /peers` required the bearer token but was added outside the
+`auth_read_routes` governor. It was consequently the only authenticated read
+capability that a caller could invoke without consuming the configured read
+bucket. The response is bounded indirectly by the node's peer policy and the
+listener is loopback-only, but the exception still bypassed the explicit RPC
+resource policy and allowed a credential-holding local client or proxy to
+repeatedly clone and serialize the peer inventory.
+
+Correction
+==========
+`/peers` now belongs to `auth_read_routes` and shares that router's read
+GovernorLayer. It therefore uses the same validated burst policy and
+kernel-observed peer identity as mempool, transaction, wallet balance, chain
+scan, build-information and shutdown reads. Authentication remains outside the
+protected route group, so an unauthenticated request cannot reach the handler.
+
+Coverage audit
+==============
+Every public confirmed-chain read except the deliberately constant-time
+`/health` liveness probe belongs to the public read governor. Every
+credentialed read now belongs to the authenticated read governor or a
+capability-specific read governor. Every mutation has its own submit governor;
+proof-verifying and mining mutations additionally retain their body, timeout
+and concurrency controls.
+
+Light validation
+================
+* rustfmt for lib.rs and middleware.rs: PASS
+* git diff --check for both Rust files: PASS
+* structural route assertion (`/peers` appears before the
+  `.layer(rate_limit_auth_read)` boundary): PASS
+* Added a router-level regression with an injected one-request read policy:
+  the first authenticated `/peers` call must return 200 and the immediate
+  second call 429.
+
+Cargo execution remains queued while the pinned RandomX proof owns shared
+compiler/memory resources. No readiness fact, push, deploy, signature,
+transaction, mining or funds action occurred.

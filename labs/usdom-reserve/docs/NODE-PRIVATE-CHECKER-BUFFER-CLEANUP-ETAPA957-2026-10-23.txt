@@ -1,0 +1,18 @@
+ETAPA957 — NODE PRIVATE CHECKER BUFFER CLEANUP
+Date: 2026-10-23
+
+ETAPA955 left an exact residual of 27 actual private Buffer reads plus 35
+path/helper/metadata signals. Grouping those 27 reads identified four
+standalone private-authority checkers as the next largest homogeneous family:
+generic strict private JSON, private RPC proxy readiness, reviewed deployment
+package and mainnet deployment raw transaction.
+
+Each checker now keeps the direct-file capture in an explicit outer Buffer and
+erases it with fill(0) in finally. Cleanup therefore runs after success and
+after argument, framing, digest, strict-JSON, schema or derivation failure.
+No authority semantics, hashes or output were changed.
+
+Exact residual after this stage: 58 signals = 23 actual Buffer reads plus 35
+path/helper/metadata signals. Focused structural test 1/1, Node syntax for all
+four checkers and git diff --check passed. No RPC, signing, deployment or other
+external operation was executed.

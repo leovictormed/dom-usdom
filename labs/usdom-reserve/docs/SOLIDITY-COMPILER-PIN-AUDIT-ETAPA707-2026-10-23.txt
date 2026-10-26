@@ -1,0 +1,59 @@
+ETAPA 707 — Solidity compiler pin and reproducible-build audit
+Date: 2026-10-23
+
+Question
+--------
+The original USDOMReserve candidate supplied for this project declared exact
+Solidity 0.8.24, while current build evidence reports 0.8.37. This stage checked
+whether production sources were accidentally being compiled by a compiler that
+violated their exact pragma.
+
+Result
+------
+No active mismatch exists. The 0.8.24 candidate was superseded by the explicit
+reproducible compiler policy introduced in ETAPA96. The current production
+source set itself declares exact `pragma solidity 0.8.37`; `foundry.toml` pins
+`solc_version = "0.8.37"`; and `sdk/compiled-runtime.mjs` rejects artifact
+metadata other than `0.8.37+commit.f401782d`.
+
+The canonical production build was run for the reserve, checkpoint registry
+and both RISC Zero adapters. All four emitted metadata with:
+
+* compiler `0.8.37+commit.f401782d`;
+* Cancun EVM target;
+* optimizer enabled with 200 runs;
+* metadata bytecode hash `none`; and
+* via-IR disabled.
+
+Therefore changing only Foundry to 0.8.24 would not repair a mismatch: exact
+0.8.37 pragmas would reject it. Rewriting the source pragmas and accepting new
+bytecode would reverse the audited ETAPA96 compiler policy and invalidate all
+runtime/initcode hashes without a demonstrated security benefit. A dual-0.8.24
+build is likewise incompatible with the intentional exact 0.8.37 source
+language boundary. No compiler, source, vector or release artifact was changed.
+
+Reproducible-build semantics
+----------------------------
+Each report preparer invokes the project-pinned Forge build, reads compiler
+metadata from the resulting artifact, derives runtime/initcode from verified
+sources, and requires two isolated observations to agree. The compiled-runtime
+validator independently pins the full compiler commit and settings. Canonical
+artifacts remain hash-addressed release inputs and were not manually replaced.
+
+`results/build-identity.json` is a dated 2026-10-15 prototype result mentioning
+Shanghai. No source, script, gate or current report consumes it; Cancun in
+Foundry and compiler-authenticated artifacts is authoritative. It was not
+rewritten as if it were current release evidence.
+
+Validation
+----------
+
+* canonical four-contract production build: pass with solc 0.8.37;
+* independent Python metadata/pragma assertions for all four artifacts: pass;
+* configuration-commitment focused Forge tests: 4/4 pass;
+* production lint with unused suppressions and warnings denied: pass;
+* `forge fmt --check`: pass;
+* `git diff --check`: pass.
+
+No Rust, Cargo, Node or RISC Zero command was run. No commit, push, deployment,
+signature, transmission or funds operation occurred.

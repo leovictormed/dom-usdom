@@ -1,0 +1,47 @@
+Stage 458 — RandomX positive-receipt evidence boundary
+Date: 2026-10-23
+
+Finding
+
+The Rust proof host verifies each succinct RandomX receipt against the pinned
+per-block ImageID and exact UDCRXST1 commitment before publishing its receipt
+index. The capacity collector later checked index schemas and artifact hashes,
+but trusted boolean execution claims in that index. It did not bind the bytes
+it collected to the proof host's post-verification summary. Replacement of an
+index and its receipt files between proving and collection could therefore
+produce internally consistent but non-cryptographic RandomX layer evidence.
+The recursively verified outer proof would remain valid, so this was an
+evidence-integrity flaw rather than a consensus bypass.
+
+Correction
+
+The capacity executor now captures and strictly parses the proof host's exact,
+bounded terminal summary. The accepted grammar requires proved-and-verified,
+one to 720 receipts, nonzero job and receipt-index SHA-256 values, succinct
+receipts, development mode disabled and no mining. Extra, duplicate or altered
+lines are rejected.
+
+The collector now returns the exact job-index hash, receipt-index hash and
+receipt count observed with the receipt graph. It also includes the receipt
+index itself in the RandomX capacity input-set commitment. Before any later
+proof layer is credited to the report, the executor requires those three
+observations to equal the cryptographic proof-host summary. Release inputs are
+rechecked immediately before report construction and again after durable
+publication.
+
+Verification
+
+- summary/collector/capacity focused tests: 12/12 passed;
+- mutations cover status, count, both hashes, receipt kind, development mode,
+  mining, trailing data and post-verification graph substitutions;
+- JavaScript syntax, production requirements JSON and diff checks pass.
+
+Status
+
+The structural evidence boundary is complete and recorded by
+`production_checkpoint_randomx_verified_summary_bound_to_capacity_evidence`.
+`production_checkpoint_randomx_complete_guest_positive_receipt_executed`
+remains false until the final release-bound guest actually executes and its
+verified artifacts are materialized. No proof was executed in this stage. No
+network operation, signing, transaction, deployment, funds, mining, commit or
+push occurred.

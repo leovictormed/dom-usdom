@@ -1,0 +1,18 @@
+USD0M stage 447 - failure rehearsal and bootstrap ratification evidence
+
+The release gate now parses and reconstructs the mainnet fork rehearsal report
+and every referenced raw fault/recovery document. Six ordered scenarios cover
+Ethereum and DOM reorganizations, both-network unavailability, censorship and
+recovery. Passing requires the exact fail-closed decision, unchanged protected
+state, zero unsafe transitions, zero fund loss and evidenced recovery.
+
+Checkpoint bootstrap ratification is also reconstructed from the release,
+authenticated Ethereum checkpoint and native pre-activation facts. The report
+binds the exact EIP-1271 digest, governance code hash, finalized snapshot and
+distinct hash-addressed RPC observations. A future live collection ceremony
+must produce those observations; the implementation does not fabricate them.
+
+Focused canonical and mutation tests cover forged status, release drift,
+missing raw evidence, unsafe state changes, RPC disagreement and rejected
+EIP-1271 results. No live RPC, signature, deployment, transaction or funds
+were used in this stage.

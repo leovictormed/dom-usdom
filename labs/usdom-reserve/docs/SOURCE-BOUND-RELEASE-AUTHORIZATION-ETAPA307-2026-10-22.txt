@@ -1,0 +1,67 @@
+Stage 307 — source-bound native evidence and governance release authorization
+Date: 2026-10-22
+Status: implementation validated locally; no production ceremony or publication
+
+Findings
+
+The release gate validated four release-bound native attestations through
+EIP-1271, but it did not provide a fixed way to derive, sign and materialize
+those documents. The residual-risk object also named governance without proving
+that the governance Safe had approved production, deployment, real funds and
+the exact report. Manual JSON editing could therefore claim authorization.
+
+Corrections
+
+One shared finalized EIP-1271 collector now checks chain identity, pins one
+finalized block, authenticates governance runtime code, requires the exact ABI
+bytes4 magic value and re-reads the pinned block hash. Native attestations keep
+their existing interface but use this shared primitive.
+
+The release authorization is EIP-712 domain-separated by Ethereum chain ID and
+the exact governance contract. Its message binds release ID, source commit,
+reserveConfigHash, checkpointRegistryConfigHash, residual-risk report SHA-256,
+acceptance timestamp, governance and three explicit true bits for production,
+deployment and real-funds authorization. Readiness recomputes this digest and
+requires a successful finalized EIP-1271 observation whose code hash and time
+match the release.
+
+The deterministic risk-report writer binds the release identity, immutable
+configurations, operating limits, approved finality, the complete pre-acceptance
+evidence envelope and all twelve documented risk classes. It labels every risk
+unaccepted; only the later Safe signature changes operator authorization.
+
+Fixed commands now derive four native signing requests from the source-built
+runtime checker and the reconciled TPM custody/public-identity/recovery records.
+Two governance Safe owners sign each raw digest on Ledger, in canonical owner
+order. Finalized EIP-1271 validation occurs before four immutable attestation
+documents and their metadata are published. The same two-owner ceremony signs
+the final release authorization only after the native documents and risk report
+exist. Filesystem writers use owner-only directories, exclusive locks, direct
+files, fsync, immutable replacement checks and completion metadata last.
+
+Authorization boundary
+
+No command invents a signer or lowers the production 2-of-3 Safe threshold.
+The signing scripts require an interactive phrase and two matching hardware
+owners. Request generation, validation and materialization contain no Ethereum
+transaction publication, deployment, fund movement, Git commit, tag or push.
+This implementation does not authorize a release by itself.
+
+Validation
+
+- Solidity production lint and forced compilation passed.
+- The full Node suite passed 229/229 after the final runbook split.
+- Focused operator checks pass 54/54.
+- Focused native, release-authorization and report checks pass 10/10.
+- Native and release authorization digests reject field, domain, report,
+  authority, time, scope and chain substitutions.
+- External audit and an impossible zero-risk promise remain nonrequirements.
+- Complete provenance passed for 169 imports/16 declared changes, the pinned
+  proof graph and all panic/input boundaries; the lab manifest covered 1,032
+  sources before this assessment's final hash refresh.
+- The checked-in unconfigured candidate remained fail-closed at 163 unique
+  closed-mainnet blockers and 174 unique real-funds blockers, with no stage-307,
+  external-audit or zero-risk blocker.
+
+No live writer, RPC query, Safe signature, transaction, deployment, funds,
+mining, proof generation, project commit, tag or push was performed.

@@ -1,0 +1,22 @@
+ETAPA970 — NATIVE USDOM STARTUP/PUBLIC-NETWORK FILE LOADING
+Date: 2026-10-23
+
+Audited native USDOM manifest, verifying-key, restart-checkpoint, checkpoint
+witness, wallet activation and preactivation policy loaders outside
+native_usdom_config.rs (which was concurrently owned by the root task). The
+manifest bundle centralizes manifest/VK/restart parsing there; the deposit,
+burn, checkpoint recovery and wallet loaders already use the shared
+descriptor-bound captured/private readers.
+
+One concrete gap remained in the preactivation anchor exporter. Its sync
+attestation policy is activation authority, but was loaded with std::fs::read:
+symlinks were followed and file identity/owner/link/parent replacement was not
+bound during capture. It now uses dom_wallet_crypto::read_captured_bytes with a
+16 KiB allocation bound. That helper retains and rechecks the parent, opens the
+child relative to the descriptor with no-follow semantics, and enforces current
+owner, regular file, one link, size and stable inode. The public policy need
+not be mode 0600. Errors no longer interpolate its local path.
+
+Focused structural gate 2/2, rustfmt and git diff --check passed. Heavy Cargo
+was intentionally not run while the proof job is active. No node, proof, RPC,
+signing, deployment or external operation was executed.

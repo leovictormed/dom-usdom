@@ -32,7 +32,10 @@ use dom_usdom_state::{
     TransitionPublicEffects, VerifiedTransition, MAX_INPUT_NULLIFIERS, MAX_OUTPUT_NOTES,
     MAX_TRANSITIONS_PER_BATCH,
 };
-use dom_wallet_crypto::{load_envelope_bytes, save_envelope_bytes_noclobber, EnvelopeError};
+use dom_wallet_crypto::{
+    decrypt_envelope_bytes, load_envelope_bytes, save_envelope_bytes_noclobber,
+};
+pub use dom_wallet_crypto::{save_private_bytes_noclobber, EnvelopeError};
 use hkdf::Hkdf;
 use rand_core::{CryptoRng, RngCore};
 use sha2::Sha256;
@@ -45,6 +48,10 @@ mod burn_builder;
 #[cfg(feature = "rpc-client")]
 mod rpc_client;
 mod snapshot;
+#[cfg(feature = "tpm2-seal-authority")]
+mod tpm2_authority;
+#[cfg(feature = "tpm2-seal-authority")]
+mod tpm2_keystore;
 
 pub use builder::{BuiltPrivateTransfer, PendingPrivateTransferSummary, PrivateTransferBuildError};
 pub use burn_builder::{
@@ -65,6 +72,13 @@ pub use snapshot::{
     WalletSnapshotError, WalletSnapshotSeal, WalletSnapshotSealAuthority,
     MAX_WALLET_PASSPHRASE_BYTES, MIN_WALLET_PASSPHRASE_BYTES, WALLET_SNAPSHOT_SEAL_BYTES,
 };
+#[cfg(feature = "tpm2-seal-authority")]
+pub use tpm2_authority::{
+    Tpm2AuthorityBinding, Tpm2NvAuthorization, Tpm2NvSealAuthority, Tpm2SealAuthorityError,
+    USDOM_TPM2_NV_INDEX,
+};
+#[cfg(feature = "tpm2-seal-authority")]
+pub use tpm2_keystore::{Tpm2WalletKeystore, USDOM_TPM2_KEYSTORE_NV_INDEX};
 
 const ADDRESS_MAGIC: &[u8; 8] = b"USDADR01";
 const RECOVERY_ENVELOPE_MAGIC: &[u8; 14] = b"USD-RECOVERY1\0";
@@ -227,6 +241,34 @@ impl WalletRecoverySeed {
             RECOVERY_PLAINTEXT_BYTES,
             passphrase.expose(),
         )?;
+        Self::from_backup_plaintext(&plaintext, expected_chain)
+    }
+
+    /// Authenticate and restore one chain-bound seed from an already captured
+    /// encrypted backup. The caller can bind evidence and restoration to the
+    /// same bytes without a second pathname lookup.
+    pub fn load_encrypted_backup_bytes(
+        envelope: &[u8],
+        expected_chain: Scalar,
+        passphrase: &WalletPassphrase,
+    ) -> Result<Self, WalletRecoveryError> {
+        if expected_chain.is_zero() {
+            return Err(WalletRecoveryError::InvalidBackup);
+        }
+        let plaintext = decrypt_envelope_bytes(
+            envelope,
+            RECOVERY_ENVELOPE_MAGIC,
+            RECOVERY_ENVELOPE_VERSION,
+            RECOVERY_PLAINTEXT_BYTES,
+            passphrase.expose(),
+        )?;
+        Self::from_backup_plaintext(&plaintext, expected_chain)
+    }
+
+    fn from_backup_plaintext(
+        plaintext: &[u8],
+        expected_chain: Scalar,
+    ) -> Result<Self, WalletRecoveryError> {
         if plaintext.len() != RECOVERY_PLAINTEXT_BYTES {
             return Err(WalletRecoveryError::InvalidBackup);
         }
@@ -745,7 +787,8 @@ pub fn scan_private_burn_payload(
 
 /// Wallet observation tied to public effects extracted from one verified
 /// native transition. Private spends require the exact transported payload;
-/// issuance and checkpoint transitions carry no recipient memo here.
+/// issuance, checkpoint, and lifecycle transitions carry no recipient memo
+/// here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalletTransitionObservation {
     effects: TransitionPublicEffects,
@@ -821,7 +864,10 @@ impl WalletTransitionObservation {
                     )),
                 )
             }
-            TransitionKind::Issue | TransitionKind::EthereumCheckpoint => {
+            TransitionKind::Issue
+            | TransitionKind::EthereumCheckpoint
+            | TransitionKind::IssuanceClose
+            | TransitionKind::GracefulShutdown => {
                 if private_payload.is_some() {
                     return Err(WalletError::ObservationMismatch);
                 }
@@ -1857,6 +1903,19 @@ mod tests {
                 .unwrap(),
             address
         );
+        let restored_from_captured =
+            WalletRecoverySeed::load_encrypted_backup_bytes(&encrypted, chain, &password).unwrap();
+        assert_eq!(
+            WalletSecrets::from_recovery_seed(chain, &restored_from_captured)
+                .unwrap()
+                .address()
+                .unwrap(),
+            address
+        );
+        assert!(matches!(
+            WalletRecoverySeed::load_encrypted_backup_bytes(&encrypted, other_chain, &password),
+            Err(WalletRecoveryError::WrongChain)
+        ));
         assert!(matches!(
             seed.save_encrypted_backup(chain, &path, &password),
             Err(WalletRecoveryError::Envelope(

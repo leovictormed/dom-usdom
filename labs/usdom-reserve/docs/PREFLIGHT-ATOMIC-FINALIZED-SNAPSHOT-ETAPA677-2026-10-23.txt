@@ -1,0 +1,44 @@
+ETAPA677 — ATOMIC FINALIZED-SNAPSHOT MAINNET PREFLIGHT
+Date: 2026-10-23
+
+Scope
+- Audited every state-sensitive JSON-RPC operation used by predeployment and
+  postdeployment preflight for block pinning, reorganization detection and
+  cross-provider agreement.
+- No live RPC, materialization or external operation was performed.
+
+Finding and correction
+The collector passed a finalized block number to current calls, but this was a
+call-site convention: the bounded provider itself did not prevent a later or
+refactored eth_call/getCode/getStorageAt/getTransactionCount from silently using
+latest, pending or another height. Such a single unpinned read could mix state
+from different blocks while producing an otherwise well-shaped observation.
+
+BoundedMainnetPreflightProvider now has a one-time finalized snapshot pin. It
+canonicalizes the block number, binds it to the observed nonzero block hash and
+rejects repinning. After that boundary, every state-sensitive method is checked
+at the transport layer and must carry the exact canonical block-number tag:
+- eth_call parameter 1;
+- eth_getCode parameter 1;
+- eth_getStorageAt parameter 2;
+- eth_getTransactionCount parameter 1.
+A state request before pinning, a latest/default/mixed-height tag or a different
+snapshot fails before network I/O. The collector pins immediately after reading
+`finalized`, then performs all contract, Safe, token, storage, code and nonce
+reads through this enforcement.
+
+Reorganization and provider consistency
+- The block hash at the pinned height is fetched again after all reads and must
+  equal the initial finalized hash.
+- Deployment receipts are reconciled with their canonical block hashes and
+  cannot be newer than the pinned finalized height.
+- Two independently operated RPC sources must return byte-for-byte identical
+  observations, including finalized number/hash and the post-read hash.
+- The assessor and materializer independently recheck this identity.
+
+Validation
+- Provider mixed-block/repinning regression plus RPC policy tests: 6/6 passed.
+- Complete preflight assessment/materialization suite: 6/6 passed.
+- Existing regressions reject a changed post-read block hash and cross-RPC
+  observation divergence.
+- Node syntax and repository whitespace checks passed.

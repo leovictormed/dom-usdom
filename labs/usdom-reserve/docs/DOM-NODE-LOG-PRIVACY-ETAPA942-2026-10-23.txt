@@ -1,0 +1,26 @@
+ETAPA 942 — auditoria de privacidade de tracing/logging DOM
+Data: 2026-10-23
+Escopo: crates/dom-node, crates/dom-rpc e superfícies de execução USDOM nativa.
+
+Achado corrigido
+- O relay Dandelion registrava, no mesmo evento, o hash de uma transação válida e o endereço do peer de ingresso antes do fluff. Essa correlação local reduz a proteção de origem que o stem pretende fornecer. Os caminhos de timeout, replay duplicado, aceitação, rejeição e payload inválido agora usam mensagens de classe fixa, sem hash, peer, motivo detalhado ou bytes da transação.
+- submit_tx não registra mais o hash quando a transação foi aceita sem peer de relay.
+- startup não imprime lista de seeds, caminho da wallet ou caminho do arquivo Bearer. O token e a senha nunca são impressos.
+
+Classificação
+1. Identificadores públicos de consenso: hash de bloco/tip, checkpoint, altura e IDs explicitamente retornados por comandos de operador. Podem permanecer quando necessários para auditoria da cadeia.
+2. Identidade operacional de rede: peer em conexão, ban, IBD e violação de protocolo. Pode permanecer isolada de transação válida/wallet/nota e com retenção operacional controlada.
+3. Eventos locais vinculáveis: tx hash + peer de ingresso; wallet/token path; lista de seeds; nota/nullifier/amount/deposit/burn/request ID privado. Devem ser omitidos ou reduzidos a classe fixa. A busca focada não encontrou logging daemon de nota, nullifier, amount, deposit, burn ou request ID na execução USDOM nativa.
+4. Segredos: Bearer e senha não são emitidos; a senha continua marcada [REDACTED]. Erros públicos RPC permanecem redigidos pela fronteira existente.
+
+Barreira de regressão
+- Teste estrutural `relay_logs_do_not_link_valid_transactions_to_ingress_peers` rejeita as antigas formas que uniam tx/hash/peer e exige as mensagens redigidas.
+
+Validação leve
+- rustfmt --check nos quatro fontes alterados: aprovado.
+- git diff --check nos quatro fontes alterados: aprovado.
+- busca focada de tracing por wallet/note/nullifier/amount/deposit/burn/request/bearer/path/tx_hash/peer: nenhuma correlação de transação válida com peer e nenhum identificador privado USDOM encontrado.
+- gate estrutural independente: aprovado.
+- Cargo não executado durante a prova longa concorrente; o teste Rust fica incluído na próxima suíte agregada.
+
+Operações externas: nenhuma. Sem node/RPC, commit, push, deploy, assinatura ou fundos.

@@ -1,0 +1,47 @@
+ETAPA1056 — RESERVE / CHECKPOINT REGISTRY IMMUTABLE IDENTITY
+Date: 2026-10-23
+
+Finding
+=======
+USDOMProofReserve already binds the checkpoint Registry address, runtime code hash
+and configuration hash. The SDK's reserve identity, initcode derivation, release
+materializer and readiness recomputation still used the older constructor/config
+shape. A release could therefore be hashed or reconstructed under an identity that
+did not describe the deployed reserve.
+
+Correction
+==========
+- Added all three Registry fields to the exact ReserveIdentity and pre-activation
+  identity encodings, validation and immutable-runtime patch map.
+- Added checkpointRegistry to the reserve constructor ABI used for initcode hashing.
+- Readiness and finalized-burn release projection now recompute the same exact
+  Registry-bound reserve configuration.
+- Release materialization now derives and installs the Registry artifact identity
+  before deriving the reserve identity. The deferred path is explicitly three-step:
+  Registry config, Registry artifact, then reserve config/artifact. It cannot invent
+  a reserve config while the Registry runtime pin is unknown.
+- Updated deterministic artifact hashes/sizes and regressions for Registry field
+  substitution.
+
+Evidence
+========
+Explicit Node v24.19.0 focused suites: 20/20 passed.
+  configuration.test.mjs
+  compiled-runtime.test.mjs
+  finalized-burn-submission.test.mjs
+  production-release-core.test.mjs
+
+The broad mainnet-readiness suite passed 62/62 after reconciling its canonical
+evidence fixture. Both RISC Zero adapters explicitly share the same Groth16
+verifying-key artifact, just as they already share the upstream ceremony evidence;
+all other duplicate paths/content remain forbidden and a substituted checkpoint key
+has a dedicated fail-closed regression. The residual-risk mutation also recomputes
+its release-evidence commitment after replacing the report hash.
+
+Gate
+====
+python3 labs/usdom-reserve/scripts/check-reserve-registry-identity-stage1056.py
+
+Scope
+=====
+No Cargo/Forge rebuild, network access, deployment, signing, push or funds.

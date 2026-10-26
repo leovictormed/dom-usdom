@@ -1,0 +1,59 @@
+USDOM — native burn timing and redemption-window audit
+Stage 568 — 2026-10-23
+
+Scope
+=====
+
+This audit traced the production redemption clock from the authenticated
+Ethereum anchor through native wallet construction, DOM consensus admission,
+checkpoint/finalized-burn proof construction, the JavaScript submission package
+and USDOMProofReserve queue admission. It specifically looked for a deadline
+that could be extended by the DOM clock, an old/future Ethereum anchor, unchecked
+u64 arithmetic, a policy value that was not release-bound, or different
+inclusive/exclusive relations across implementations.
+
+Result
+======
+
+No distinct exploitable defect was established.
+
+* Wallet construction derives valid_until only by checked addition of the
+  authenticated Ethereum timestamp and the seven-day certificate lifetime.
+* DOM consensus rejects an Ethereum anchor that is too old after accounting for
+  the permitted DOM clock lead. The lower execution bound uses the later of DOM
+  and Ethereum time, while the upper bound uses Ethereum time alone. A miner
+  therefore cannot extend the reserve admission deadline with a future DOM
+  timestamp.
+* Both native transition paths use checked additions for anchor age, withdrawal
+  delay, execution window, relay margin and certificate lifetime. The burn
+  timing policy validates that every component is nonzero, that the immutable
+  one-hour/seven-day reserve constants match, that relay margin covers anchor
+  age and that the complete lower window fits below the upper window even at
+  maximum permitted DOM clock lead.
+* The Rust manifest checker exports every timing value. Mainnet readiness binds
+  withdrawal delay to the reserve, binds relay/anchor/clock margins to the
+  release, and independently pins the one-hour and seven-day constants.
+* The finalized statement preserves valid_until and finalityBeaconSlot as u64
+  through Rust encoding, JavaScript BigInt normalization and Solidity ABI
+  encoding. Every public burn field, chain, reserve and activation schedule is
+  statement-bound.
+* USDOMProofReserve intentionally permits proofing an already elapsed native
+  admission deadline because a consensus-final irreversible burn is reserve
+  debt. It computes a fresh seven-day queue lease, still rejects any native
+  deadline beyond its present maximum and independently enforces a recent,
+  non-future Beacon finality slot. Queue expiry releases reservation only; it
+  does not erase the burn or replay protection.
+
+Validation
+==========
+
+Eleven lightweight Node regressions passed covering native pre-activation
+facts, private burn identity, uint64 statement precision, every finalized-burn
+field and every authenticated submission handoff. An initially overbroad Node
+selection was stopped after four passing checks when it entered the large
+mainnet-readiness file; no assertion failed and no child remained. No Cargo or
+Foundry work ran, so the active RandomX proof was left with its existing memory
+budget.
+
+No source change was required by this second audit. No readiness fact,
+signature, transaction, deployment, mining job, push or funds state changed.

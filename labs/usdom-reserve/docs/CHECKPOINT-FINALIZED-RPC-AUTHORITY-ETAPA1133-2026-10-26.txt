@@ -1,0 +1,19 @@
++# Stage 1133 — finalized checkpoint RPC chain/transport authority (2026-10-26)
+
+The finalized checkpoint event collector already required 2–5 observations and compared receipt, event, runtime and registry state. Two authority gaps remained:
+
+- chain ID 1 alone did not prove canonical Ethereum mainnet;
+- runtime RPC URLs could contain paths, queries, embedded credentials, local names or IP literals while the public catalog committed only to the origin.
+
+Corrections:
+
+- Every source must now return the canonical Ethereum mainnet genesis block in addition to chain ID 1.
+- Runtime/catalog endpoints must be canonical public root HTTPS origins with no credentials, path routing, query, fragment, local hostname or IP literal.
+- The existing finalized receipt, reorg recheck and exact cross-source state/event consensus remain fail closed.
+
+Validation:
+
+- Collector and report focal suites pass 11/11.
+- Syntax check passes.
+- No Cargo, Forge, real network, signing, deployment, commit or push ran.
+

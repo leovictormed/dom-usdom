@@ -1,0 +1,60 @@
+ETAPA 974 — CONSENSUS AND NATIVE USDOM NUMERIC BOUNDS
+Date: 2026-10-23
+Scope: production Rust consensus, chain, node, store and dom-usdom-* paths.
+
+Method
+======
+
+Reviewed 392 explicit production cast sites and 1,507 arithmetic candidates after
+excluding test/fuzz/target trees. Followed attacker-controlled values from wire,
+persisted indexes and proof manifests through time, height, count, cursor,
+capacity and allocation operations. Existing checked/saturating operations were
+evaluated by semantics; saturation was retained only where it is the intended
+fail-closed policy (for example immature future-height UTXOs).
+
+Concrete defects corrected
+==========================
+
+1. Peer clock drift narrowed two untrusted u64 timestamps to i64 before
+   subtraction. Values above i64::MAX could wrap, appear close to local time, or
+   overflow. Handshake and PeerScorer now use total u64::abs_diff and widened
+   positive policy limits. A u64::MAX regression proves disconnect.
+
+2. Sparse locator construction narrowed the canonical u64 tip to i64. Above
+   i64::MAX the loop produced no locator. It now retains u64 and terminates with
+   checked_sub, including the genesis boundary.
+
+3. SNTP drift arithmetic narrowed SystemTime/NTP u64 values to i64. It now uses
+   i128 signed differences and unsigned_abs, clamping only the diagnostic i64
+   value after classification. The 32-bit NTP field is unfolded to the era
+   nearest the local clock with checked operations, covering the 2036 rollover.
+
+4. RandomX statement planning/export and portable checkpoint execution relied
+   on prior span invariants before usize-to-u64 casts and additions. Offsets now
+   use try_from plus checked_add. Confirmation offset, height and segment
+   successor arithmetic also return explicit errors on overflow.
+
+5. The outer checkpoint guest compared next height with an unchecked addition.
+   It now computes expected_next_height with checked_add and rejects overflow as
+   InvalidChain before comparing the authenticated transition.
+
+Closed inventory result
+=======================
+
+The only remaining production `as i64` occurrences in scope are four intentional
+RandomX two's-complement instruction/VM operations. They reproduce specified
+wrapping machine arithmetic and are not height, time, length, capacity or
+allocation conversions. No former vulnerable expression remains.
+
+Evidence
+========
+
+- consensus-numeric-conversion-bounds.test.mjs: 4/4 passed.
+- rust-monetary-arithmetic-inventory.test.mjs: 4/4 passed; frozen production
+  inventory updated to 157 checked_add and 68 `as u64` sites.
+- rustfmt --check passed for all seven modified Rust files.
+- git diff --check passed for all scoped files.
+- Cargo/heavy builds were deferred while the pinned long RISC0 proof remained
+  authoritatively active (systemd MainPID 2400602).
+
+No commit, push, deploy, signing, broadcast, mining or funds action occurred.

@@ -1,0 +1,24 @@
+ETAPA 752 — executor journal installation readback
+Date: 2026-10-23
+
+Finding
+=======
+The deploy and Safe-recovery executors journal raw transactions, hashes, validation and anchors
+before publication with a create-once durable installer. Their caller-side persistence helpers,
+however, only checked final metadata. They did not independently reread the installed pathname and
+compare it with the draft before continuing to the next journal entry or broadcast boundary.
+
+Correction
+==========
+Both persistence helpers now revalidate pinned Node immediately before every install, invoke the
+create-once durable installer, reread the installed pathname with the strict private reader and
+compare exact bytes using pinned Node. A mismatch stops before subsequent persistence or publish.
+Journal-before-publish ordering, no-clobber behavior and existing input/RPC rechecks remain.
+
+Validation
+==========
+Executor structural and durable-writer suites pass 8/8, covering fd-pinned/fsynced exclusive
+creation and indirect-link/unsafe-directory attacks plus the new caller readback requirement.
+Both scripts pass `bash -n`; Node syntax and diff checks pass. No executor or RPC ran.
+
+No Ledger, signing, deploy, transmission, commit, push or funds were used.

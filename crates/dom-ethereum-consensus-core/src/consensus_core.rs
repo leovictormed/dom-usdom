@@ -141,8 +141,10 @@ pub fn apply_generic_update<S: ConsensusSpec>(
     let committee_bits = get_bits::<S>(&update.sync_aggregate.sync_committee_bits);
 
     // update best valid update
-    if store.best_valid_update.is_none()
-        || is_better_update(update, store.best_valid_update.as_ref().unwrap())
+    if store
+        .best_valid_update
+        .as_ref()
+        .is_none_or(|best| is_better_update(update, best))
     {
         store.best_valid_update = Some(update.clone());
     }
@@ -214,7 +216,8 @@ fn apply_update_no_quorum_check<S: ConsensusSpec>(
             .clone_from(&update.next_sync_committee);
     } else if update_finalized_period == store_period + 1 {
         info!(target: "helios::consensus", "sync committee updated");
-        store.current_sync_committee = store.next_sync_committee.clone().unwrap();
+        let next_sync_committee = store.next_sync_committee.clone()?;
+        store.current_sync_committee = next_sync_committee;
         store
             .next_sync_committee
             .clone_from(&update.next_sync_committee);
@@ -223,7 +226,8 @@ fn apply_update_no_quorum_check<S: ConsensusSpec>(
     }
 
     if update_finalized_slot > store.finalized_header.beacon().slot {
-        store.finalized_header = update.finalized_header.clone().unwrap();
+        let finalized_header = update.finalized_header.clone()?;
+        store.finalized_header = finalized_header;
 
         if store.finalized_header.beacon().slot > store.optimistic_header.beacon().slot {
             store.optimistic_header = store.finalized_header.clone();
@@ -353,7 +357,12 @@ pub fn verify_generic_update<S: ConsensusSpec>(
     let sync_committee = if update_sig_period == store_period {
         &store.current_sync_committee
     } else {
-        store.next_sync_committee.as_ref().unwrap()
+        // `valid_period` above permits the next period only when this value exists.
+        // Keep the dependency boundary fallible even if that invariant changes later.
+        store
+            .next_sync_committee
+            .as_ref()
+            .ok_or(ConsensusError::InvalidPeriod)?
     };
 
     let agg_pk = get_participating_aggregate_pubkey(
@@ -583,10 +592,55 @@ mod tests {
     }
 
     #[test]
+    fn rejects_next_period_without_next_committee_without_panicking() {
+        let signature_slot = MinimalConsensusSpec::slots_per_sync_committee_period();
+        let mut update = GenericUpdate::<MinimalConsensusSpec> {
+            attested_header: LightClientHeader::Bellatrix(LightClientHeaderBellatrix {
+                beacon: BeaconBlockHeader {
+                    slot: signature_slot - 1,
+                    ..Default::default()
+                },
+            }),
+            signature_slot,
+            ..Default::default()
+        };
+        update
+            .sync_aggregate
+            .sync_committee_bits
+            .set(0, true)
+            .unwrap();
+        let forks = Forks {
+            capella: crate::types::Fork {
+                epoch: u64::MAX,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let err = verify_generic_update(
+            &update,
+            signature_slot,
+            &LightClientStore::default(),
+            B256::ZERO,
+            &forks,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<ConsensusError>(),
+            Some(ConsensusError::InvalidPeriod)
+        ));
+    }
+
+    #[test]
     #[ignore = "set CONSENSUS_SPEC_TESTS to the extracted tests directory"]
     fn official_update_ranking() {
         use ssz::Decode;
         use std::path::PathBuf;
+
+        #[derive(serde::Deserialize)]
+        struct RankingMetadata {
+            updates_count: u64,
+        }
 
         let root =
             PathBuf::from(std::env::var("CONSENSUS_SPEC_TESTS").expect("CONSENSUS_SPEC_TESTS"));
@@ -595,10 +649,10 @@ mod tests {
                 .join("minimal")
                 .join(fork)
                 .join("light_client/update_ranking/pyspec_tests/update_ranking");
-            let meta: serde_yaml::Value =
-                serde_yaml::from_str(&std::fs::read_to_string(case.join("meta.yaml")).unwrap())
+            let meta: RankingMetadata =
+                serde_saphyr::from_str(&std::fs::read_to_string(case.join("meta.yaml")).unwrap())
                     .unwrap();
-            let count = meta["updates_count"].as_u64().unwrap();
+            let count = meta.updates_count;
             assert!(count > 0);
             let updates: Vec<GenericUpdate<MinimalConsensusSpec>> = (0..count)
                 .map(|index| {

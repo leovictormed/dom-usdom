@@ -224,6 +224,7 @@ pub fn test_config(name: &str, port: u16, _mine: bool) -> NodeConfig {
         disable_dns_seeds: false,
         seed_peers: vec![],
         mine: false,
+        closed_mainnet_test: false,
         miner_throttle: Default::default(),
         miner_threads: 1,
         miner_address: None,

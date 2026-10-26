@@ -1,0 +1,48 @@
+ETAPA701 — integração do snapshot atômico e paginação da fila pendente
+Data: 2026-10-23
+
+Escopo
+
+Integração de `pendingQueueSnapshot()` e `pendingBurnPage()` da ETAPA694 no
+artefato compilado, ABI do coletor, preflight/cold-start e identidades de
+runtime/initcode consumidas por release, preactivation, deployment e readiness.
+
+Correção de observação
+
+- O cold-start deixou de fazer cinco chamadas independentes a `queueEpoch`,
+  `pendingCount`, `totalPendingAmount`, `firstPendingBurn` e `lastPendingBurn`.
+- Uma única chamada `pendingQueueSnapshot()` retorna epoch/count/amount/head/
+  tail no mesmo `blockTag` finalizado já fixado pelo provider.
+- O schema autoritativo contém o objeto exato `pendingQueue`. Cold-start exige
+  epoch 1, count/amount zero e head/tail zero, além de outstanding e collateral
+  zero. Campos antigos ou snapshot incompleto falham pelo schema exato.
+- `pendingBurnPage()` foi incorporado ao ABI como interface operacional
+  limitada. O cold-start vazio não percorre a lista: a tupla atômica basta.
+  O contrato limita a página a `MAX_PRUNE_BATCH`, vincula epoch/cursor e rejeita
+  cursor desconhecido, limite zero/acima do máximo e geração antiga.
+
+Identidades regeneradas
+
+Build determinístico atual (`solc 0.8.37`, Cancun, optimizer 200, metadata hash
+none) produziu para a reserve da fixture diferencial:
+
+- runtime: `0x8d00a296475d54a6d0bfafc07dc3466b081647eb9a84264d64786753d943e419`
+  (18.232 bytes);
+- initcode: `0xbf95ead725910b814d37c5a9ad7e38f4edd7952d91248bb16012744605776a3f`
+  (25.073 bytes).
+
+Os pins anteriores `0x1d2a...2498` e `0xe471...9fe0` são explicitamente
+rejeitados nos testes. Os derivadores compartilhados alimentam materialização
+de release/preactivation, plano de deployment e readiness; a busca nos
+consumidores ativos não encontrou cópia restante dos pins antigos.
+
+Validação
+
+- Forge build completo: aprovado.
+- Node diferencial de compiled runtime + preflight: 10/10.
+- Readiness completa: 61/61.
+- Solidity focado de snapshot/paginação: 1/1.
+- `node --check` dos dois módulos alterados e `git diff --check`: aprovados.
+
+Nenhum RPC real, materialização, commit, push, deploy, assinatura, transmissão
+ou fundo foi usado.

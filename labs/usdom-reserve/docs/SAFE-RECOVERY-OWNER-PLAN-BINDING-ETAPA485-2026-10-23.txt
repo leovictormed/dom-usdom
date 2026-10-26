@@ -1,0 +1,21 @@
+Stage 485 — Safe recovery owner transition derived from plan
+Date: 2026-10-23
+
+The final Safe recovery collector consumed finalized execution artifacts but
+still accepted the lost and replacement owner addresses independently through
+environment variables. Those addresses already exist in the canonical recovery
+plan whose Safe transactions were signed and executed. Accepting a second source
+could detach the final report from the reviewed owner transition.
+
+The collector now requires the direct recovery-plan file, semantically validates
+the complete plan, and derives both owner addresses exclusively from it. It
+rereads the exact plan bytes after multi-RPC collection together with the Safe
+package, baseline and three finalized execution records. Loose lost-owner and
+replacement-owner collector inputs were removed.
+
+`production_safe_recovery_owner_transition_derived_from_plan` is a structural
+fact. No network access, signature, transaction, funds, mining, commit or push
+occurred while producing this evidence.
+
+Validation: direct operational inputs 13/13; operator runbook 71/71; readiness
+60/60.

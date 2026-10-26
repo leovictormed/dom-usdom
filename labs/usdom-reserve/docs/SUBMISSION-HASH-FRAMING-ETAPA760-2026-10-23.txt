@@ -1,0 +1,28 @@
+ETAPA760 — byte-exact deployment submission-hash evidence
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+Recovery previously obtained the persisted submission hash through a generic
+line reader. Although that reader had recently become stricter, the hash
+artifact did not have a shared format-specific writer/reader validator.
+
+A bounded private-file helper now accepts exactly 67 bytes: lowercase `0x`, 64
+lowercase hexadecimal digits and one LF. It rejects CRLF, missing/final extra
+newline, additional lines, whitespace, uppercase, wrong length and nonhex
+bytes. The writer validates the temporary artifact before create-once install;
+current rereads and partial recovery use the same helper.
+
+The extracted hash remains linked to raw-validation transaction hash, queried
+transaction/receipt, normalized receipt projection and completion manifest.
+All evidence files remain snapshotted and byte-rechecked around RPC activity.
+
+Verification
+============
+
+- Exact positive framing passes; eight alternate/malformed framings fail.
+- Focused Node tests: 17/17 passed.
+- Bash/Node syntax and `git diff --check`: passed.
+
+No real RPC, signature, deployment, funds action, commit or push occurred.

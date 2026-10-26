@@ -1,0 +1,39 @@
+MAINNET TOOLCHAIN CHECKER TOCTOU HARDENING — STAGE 1148
+Date: 2026-10-26
+
+Finding
+
+The closed-mainnet toolchain checker used pathname `realpathSync/statSync/readFileSync`
+sequences. A tool or locked file could change between those operations. The
+lock's `versionContains` values were only type-checked and never compared with
+actual tool output. The lock was decoded from a permissive UTF-8 string and its
+arrays allowed duplicate/omitted named entries as long as their aggregate shape
+looked plausible.
+
+Correction
+
+- The lock and repository files are read through `readDirectProjectFile`, with
+  direct-descriptor inode/owner/link/mode/size/TOCTOU protections.
+- The lock is parsed from bytes by duplicate-key/UTF-8/depth/size-strict JSON.
+- Tool and file inventories are closed, exact, duplicate-free sets (8 tools,
+  3 files), with exact object schemas and SHA-256 formats.
+- Each tool is captured by `snapshotExecutablePath`, binding safely owned and
+  non-writable executable/directory identity plus bytes.
+- Its bounded `--version` command runs only via `runPinnedExecutable`; output is
+  bounded, fatal-UTF-8 decoded and matched to the exact policy version.
+- Every executable, including pinned solc, is re-attested after all checks.
+- Locked project files are mapped to three fixed repository-relative targets;
+  arbitrary path input is no longer resolved.
+
+Validation
+
+- Node syntax: PASS.
+- New structural toolchain authority tests: PASS, 2/2.
+- Direct-project-file and closed-mainnet command generator regressions: PASS, 2/2.
+- Combined focused result: PASS, 4/4.
+
+The operational checker itself was not executed because it intentionally invokes
+Cargo, rustc and Forge version commands while the full Cargo workspace suite is
+active and this task was constrained not to invoke those tools. No production
+fact changed. No Cargo, Rust, Forge, network, signing, deployment, funds, commit
+or push ran.

@@ -1,0 +1,28 @@
+ETAPA 733 — Safe recovery executor JQ executable pinning
+Date: 2026-10-23
+
+Finding
+=======
+The recoverable-Safe executor pinned Cast and Node but resolved JQ through PATH. JQ extracts the
+Safe target/value/calldata, transaction nonce and fee fields, derived transaction hash, target
+consensus state and pre-publication observations. Replacement after operator consent could change
+the authority used to create or transmit a recovery transaction.
+
+Correction
+==========
+JQ is now resolved once to a canonical absolute path. The executor verifies executable/regular
+file status, single-link count, root/current ownership, safe file and parent-directory modes,
+device/inode/size/mtime/ctime identity and SHA-256. Every JQ invocation uses the captured path.
+
+JQ is rechecked with Cast and Node before initial authority use, immediately after the exact TTY
+authorization, before Ledger transaction construction and immediately before every publication.
+Strict JSON checks, private snapshots, complete Safe-state re-observation, envelope byte equality,
+multi-RPC observation and create-once evidence remain unchanged.
+
+Validation
+==========
+Focused structural test passes 1/1 and rejects raw JQ invocations. Node syntax, shell `bash -n`
+and git diff checks pass. No executor, child, RPC, Ledger, signing or publication ran.
+
+No deployment, transmission, funds, build, Cargo, Rust, Solidity, RISC0 proof, staging, commit,
+tag or push was performed.

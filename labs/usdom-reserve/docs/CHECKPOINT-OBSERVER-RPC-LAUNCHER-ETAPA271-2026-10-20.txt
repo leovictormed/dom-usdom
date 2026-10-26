@@ -1,0 +1,19 @@
+USD DOM — secret-free checkpoint observer launcher (stage 271)
+Date: 2026-10-20
+Status: implemented and locally verified; no public RPC contacted
+
+The fixed command is now complete:
+
+  npm run --silent observe:authenticated-checkpoint
+
+It accepts no positional arguments. If ETHEREUM_RPC_URL is absent, the launcher
+requests it through hidden terminal input. The value is held only in the child
+process environment, is never written by the launcher and is redacted by the
+observer if an exception contains it. An empty, malformed or noninteractive
+missing value fails closed.
+
+The launcher contains no signing, transaction-send, proof, compression or mining
+operation. It invokes only the stage-270 finalized-snapshot observer. Operator
+tests check shell syntax, argument rejection, hidden input, absence of command
+substitution markers and noninteractive failure. During this stage no endpoint
+was entered and no public network was contacted.

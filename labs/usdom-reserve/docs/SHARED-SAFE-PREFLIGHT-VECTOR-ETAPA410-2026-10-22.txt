@@ -1,0 +1,39 @@
+USDⓄM RESERVE — SHARED SAFE PREFLIGHT VECTOR (STAGE 410)
+Date: 2026-10-22
+
+Problem
+
+Stage 409 made the contract, finalized preflight and recoverable Safe package
+agree that three distinct role Safe addresses may use one exact 2-of-3 recovery
+set. The valid preflight fixture still used nine different owner addresses, so
+the operational shared-custody path was allowed but not directly exercised by
+the principal predeployment vector.
+
+Change
+
+The canonical valid preflight observation now models the output of the actual
+recoverable deployment package: governance, reserve guardian and checkpoint
+guardian remain three distinct Safe addresses and all use the same three
+distinct, nonzero, code-free owner EOAs with threshold two.
+
+The readiness integration fixture uses the same model. The Stage 408 coverage
+record now states the current per-Safe owner invariant and explicitly points to
+Stage 409 for the superseded cross-role rule.
+
+A named regression proves both properties together and requires the complete
+predeployment assessment to accept the observation. Existing mutations still
+reject duplicate owners within one Safe, contract owners, wrong thresholds,
+modules, guards, handler drift, singleton drift and finalized-snapshot drift.
+
+Validation
+
+- focused Safe deployment/observation/recovery/preflight suite: 26/26 passed;
+- focused readiness suite: 46/46 passed;
+- complete Node regression: 305/305 passed;
+- source manifest: 1,191 ordered SHA-256 entries;
+- imported provenance: 169 files and 16 declared modifications;
+- no production policy was weakened and no release fact was marked complete;
+- the real non-development finalized-burn proof remained active and unchanged.
+
+No push, deployment, signing, transaction broadcast, funds, or mining was
+performed.

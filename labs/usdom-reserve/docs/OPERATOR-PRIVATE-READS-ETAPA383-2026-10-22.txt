@@ -1,0 +1,52 @@
+USDOM stage 383 — operator private reads
+Date: 2026-10-22
+
+Finding and correction
+======================
+
+Four production operator binaries still duplicated check-then-open logic for
+owner-only snapshots, seals, credentials, authorization, proving keys,
+observations and evidence. Their generic public-input readers remain bounded
+captured-handle readers. Every owner-only branch now uses the shared retained-
+parent, descriptor-relative private reader introduced in stage 382.
+
+An explicit empty-payload variant was added only for TPM owner authorization,
+where empty authorization is a valid deliberate configuration. It preserves
+all directory, file, ownership, mode, link and no-follow checks.
+
+Migrated binaries
+=================
+
+- dom-usdom-bootstrap-tpm-wallet-authority
+- dom-usdom-build-private-burn
+- dom-usdom-submit-private-burn
+- dom-usdom-wallet-tpm-keystore
+
+Validation
+==========
+
+- all four binaries compile together with usdom-wallet-operator and one job
+- focused operator/runbook regression passes 63/63
+- formatting and repository whitespace checks pass
+
+Source SHA-256
+=============
+
+05e83ae80db4e8471ba51be744c057eed7cf858b6b331e80f86f62fe5ff23775  crates/dom-wallet-crypto/src/lib.rs
+cc7ee4858e7f9508c30a97ddd97d35d13ada075abcbaadad9e68c3bc14da0ea4  crates/dom-node/src/bin/dom-usdom-bootstrap-tpm-wallet-authority.rs
+402b40e55049c143982b0ade7edfe00f15da2e2f217943efcd48781466732573  crates/dom-node/src/bin/dom-usdom-build-private-burn.rs
+a50e5b3c5a6f1e26a102f3dbb7bf77d48a36ca7f7e4101e046c2d2592198ab91  crates/dom-node/src/bin/dom-usdom-submit-private-burn.rs
+983dec10ed643f86f552c18933ed89a77630625bda6743f40917c2e96c89ff73  crates/dom-node/src/bin/dom-usdom-wallet-tpm-keystore.rs
+
+Operational boundary
+====================
+
+No actual credential, TPM, RPC, wallet, signature, transaction, deployment,
+funds, mining, commit, tag or push was used. The detached capacity proof was
+left intact.
+
+Next action
+===========
+
+Audit the remaining register/observe/recovery operator readers and the shared
+secret-file module for equivalent descriptor anchoring.

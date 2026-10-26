@@ -1,0 +1,35 @@
+ETAPA 715 — Ledger signing Cast executable pinning
+Date: 2026-10-23
+
+Finding
+=======
+The unified release/native attestation signing ceremony checked `cast` availability but resolved
+it through PATH for every Ledger address, sign and verify operation. A tool replacement after the
+operator's TTY authorization could substitute the executable that communicates with the Ledger
+or verifies the produced signature.
+
+Correction
+==========
+The ceremony now resolves Cast once to a canonical absolute path. It requires a regular executable
+with one hard link, safe root/current ownership, non-group/world-writable file and containing
+directory, then snapshots device/inode/size/mtime/ctime and SHA-256.
+
+Every Ledger address/sign/verify invocation uses that captured absolute path. The path, metadata
+and hash are rechecked immediately after the exact mode-specific TTY phrase, before each connected
+Ledger address query, immediately before every signature and before every verification. Existing
+input snapshot comparisons, finalized-network rechecks, signer ordering, digest validation,
+no-transmission behavior and create-new output installation remain.
+
+Scope note
+==========
+The checkpoint-ratification and Safe-recovery ceremonies have the same Cast pattern and remain the
+next candidates. This stage fixed the shared production release/native ceremony first because one
+script covers both real-funds authorization and all native release attestations.
+
+Validation
+==========
+Structural test passes 1/1. `bash -n` passes for the shared script and both public wrappers; git
+diff check passes. No signing script, Cast, Ledger or child process was executed.
+
+No child process, build, Cargo, Rust, Solidity, RISC0 proof, RPC, signing, transmission,
+deployment, funds, staging, commit, tag, publication or push was performed.

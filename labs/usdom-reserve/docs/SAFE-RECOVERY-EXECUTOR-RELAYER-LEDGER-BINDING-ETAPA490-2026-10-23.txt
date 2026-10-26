@@ -1,0 +1,20 @@
+Stage 490 — Safe recovery executor relayer-Ledger binding
+Date: 2026-10-23
+
+The Safe recovery executor previously accepted USDOM_SAFE_RELAYER_OWNER from
+the environment, used it to construct the durable EIP-1559 envelopes, and only
+later compared it with the connected Ledger. That duplicated a semantic value
+already controlled by the hardware identity and allowed an avoidable mismatch
+before the ceremony reached its signing boundary.
+
+The executor now derives the relayer directly from the Ledger, repeats the
+address read to reject an unstable device selection, and verifies the address
+is one of the canonical plan's two surviving required signers before preparing
+any envelope. It repeats the hardware check after presign network
+reobservation. The caller can no longer supply or substitute the relayer.
+
+`production_safe_recovery_executor_relayer_derived_from_ledger` is a structural
+fact. No network access, hardware signature, transaction, funds, mining,
+commit or push occurred while producing this evidence.
+
+Validation: shell syntax and complete operator runbook 71/71; readiness 60/60.

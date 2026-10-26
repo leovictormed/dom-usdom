@@ -1,0 +1,21 @@
+ETAPA 799 — release provenance crash atomicity closure
+Date: 2026-10-23
+
+Audit result
+Release provenance was the last of the seven multi-file release materializers. Its two outputs are both mutable aggregates, so it intentionally uses replaceable durable installers rather than immutable create-once files:
+1. release evidence is installed first;
+2. the installed evidence is exact-read back;
+3. the still-unmodified operator intent is re-read and compared to its snapshot;
+4. operator intent is installed last as the logical completion marker;
+5. both aggregates are re-read and exact-compared with their prepared documents.
+
+This ordering is crash-retryable. A crash before the first write is clean. A crash after release-evidence replacement but before intent replacement leaves a fail-closed mixed prefix; retry derives/reinstalls the same deterministic aggregates because neither write is create-once. A successful return proves both exact final documents. No production defect remained.
+
+Regression
+Added a focused ordering/liveness test that requires every boundary above, prohibits immutable/new create-once publication for the replaceable intent completion, and complements the fixed seven-materializer inventory.
+
+Validation
+Inventory/provenance tests: 2/2 passed.
+`bash -n scripts/materialize-release-provenance.sh`: passed.
+`git diff --check`: passed.
+No signing, Git mutation, RPC, commit, push, broadcast or funds operation ran.

@@ -1,0 +1,19 @@
+USDOM — ETAPA 1153 — LIMITES PRÉ-ASSINATURA DE NONCE, GAS E TAXA
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+Nonce, estimativa de gas e base fee vinham de RPCs não confiáveis e entravam em comparações/aritimética Bash antes de validação explícita. Uma resposta extrema podia causar overflow ou levar o Ledger a assinar uma transação que só seria rejeitada pelo validador posterior.
+
+Implementação
+
+- Cada fonte precisa devolver inteiros decimais canônicos e limitados antes de qualquer cálculo: nonce representável com segurança pelo envelope, estimativa até 1.000.000 e base fee até 100 gwei.
+- A escolha do maior base fee e os cálculos do gas com margem e da taxa EIP-1559 usam `BigInt`, sem expansão aritmética recursiva do shell.
+- O gas já acrescido de 25% precisa permanecer entre 1 e 1.000.000; a taxa projetada para doze blocos continua limitada a 100 gwei antes do prompt e da assinatura.
+- A política compartilhada de caminhos da Stage1147 foi incorporada ao inventário crítico. O fechamento do grafo local agora passa e a verificação avança até um hash Rust concorrente fora deste escopo.
+
+Validação
+
+- Sintaxe Bash aprovada; testes focais Safe/recibo/CREATE2: 7/7; diff-check aprovado.
+- O inventário não relata mais dependências locais ausentes.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

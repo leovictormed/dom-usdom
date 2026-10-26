@@ -1,0 +1,20 @@
+ETAPA1054 — terminal pilot evidence idempotence
+
+Concrete gap
+------------
+After a fully successful pilot, rerunning either executor reconstructed the same
+output-last evidence but always invoked the create-new installer. Because the target
+already existed, a healthy completed rerun failed instead of proving idempotence.
+
+Correction
+----------
+Each executor now writes its deterministic terminal JSON to an already trapped
+private temporary file. If terminal evidence exists, the candidate must byte-match
+it; otherwise it is installed atomically as a new mode-0600 file. Changed/stale
+terminal evidence still fails closed, while an exact completed rerun succeeds.
+
+Validation
+----------
+Pinned Node 24.19.0 full generated-command and pilot operational set passed 26/26,
+zero failures. Bash syntax and focused diff check passed. No heavy build or external
+action occurred.

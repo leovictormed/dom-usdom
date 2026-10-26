@@ -1,0 +1,27 @@
+ETAPA 829 — release/native authorization Ledger timeout
+Date: 2026-10-23
+
+Finding
+
+The release and native-attestation authorization signer authenticated Cast but
+left both Ledger owner discovery and every digest signature without a deadline.
+A stalled device call could retain private request snapshots and block the
+release ceremony indefinitely.
+
+Correction
+
+- Added the same safely owned timeout identity boundary used by Safe recovery:
+  exact resolved path, owner/mode/link/directory, stat identity and SHA-256.
+- Ledger address and signature calls run through the exact timeout binary with a
+  five-minute deadline, foreground semantics, TERM and KILL after five seconds.
+- Cast and timeout identities are rechecked immediately around every call.
+- Timeout/signal failure propagates into the existing status-preserving cleanup;
+  no partial signature set is published.
+
+Validation
+
+- Bash syntax passes.
+- Timeout, signing-tool, environment, descriptor, crash and cleanup tests:
+  18/18 pass.
+- Diff check passes.
+- No Ledger/device, signature, RPC, deployment, commit, push or funds action ran.

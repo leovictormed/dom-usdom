@@ -1,0 +1,32 @@
+ETAPA 636 — ÍNDICE DE PROVA DE CHECKPOINT COM UTF-8 ESTRITO
+Data: 2026-10-23
+
+Escopo
+
+Foi auditado o índice JSON da prova EVM externa do checkpoint. Esse artefato
+vincula ImageID, statement hash, journal digest, parâmetros Groth16, tamanhos e
+hashes do recibo e do seal. O mesmo SDK é usado ao preparar o pacote de
+submissão e ao reconstruí-lo antes da observação em mainnet.
+
+Achado e correção
+
+`parseProofIndex` já aplicava parser JSON com rejeição de chaves duplicadas e
+validação exata de schema, mas antes convertia os bytes por `Buffer.toString`,
+que substitui sequências UTF-8 inválidas. Agora a conversão usa `TextDecoder`
+com `fatal:true` e retorna erro explícito antes do parser e de qualquer hash ou
+decisão de autoridade.
+
+O pacote e a observação já eram gravados por `writePrivateFileDurableNew`, com
+diretório privado, sem substituição, e o observador já reconstruía o pacote e
+rechecava todos os bytes depois dos RPCs. Essas proteções foram preservadas.
+
+Validação
+
+- regressão adversarial injeta chave `schema` duplicada e byte UTF-8 0xff;
+- teste adversarial do binding passou 1/1;
+- testes de produtor/observador create-once e TOCTOU passaram 3/3;
+- `node --check` passou no SDK e nos dois consumidores;
+- `git diff --check` passou.
+
+Nenhuma prova foi gerada, nenhum RPC foi chamado e nenhuma assinatura,
+transmissão, deploy, staging, commit, push ou movimentação de fundos ocorreu.

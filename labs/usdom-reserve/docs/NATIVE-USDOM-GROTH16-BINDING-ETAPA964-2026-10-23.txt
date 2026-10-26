@@ -1,0 +1,28 @@
+ETAPA 964 — native USDOM Groth16 key/proof binding audit
+Date: 2026-10-23
+
+Scope
+- SpendVerifier verifying-key and proof decoding.
+- Offline SpendProver ceremony-key decoding and embedded verifier binding.
+- Frozen public-input count/order, policy/version/domain commitment, startup network binding.
+- Trusted-setup provenance boundary.
+
+Correction
+All three authoritative Arkworks decode sites now call deserialize_with_mode with Compress::Yes and Validate::Yes explicitly. This makes on-curve/subgroup validation a source-visible invariant for the verifying key, proving key and proof. Canonical reserialization, exact proof length, no trailing bytes, exact gamma_abc length and expected verifier-config hash remain mandatory.
+
+Binding findings
+- privacy_policy_hash commits policy v3, BN254-Fr, tree depth, note origins, all Poseidon domains/parameters and the literal ordered public-input schema.
+- verifier config v1 commits privacy_policy_hash plus exact canonical VK bytes.
+- the VK requires exactly 9 public inputs; SpendStatement emits chain, anchor, nf0, nf1, out0, out1, burn, effect, memo in that order.
+- chain is a public circuit input derived from DOM domain plus privacy policy. The hash-pinned, deny-unknown manifest independently requires a supported schema (1 or 2), selected network, Ethereum chain identity, DOM domain, exact VK SHA-256 and the same verifier config hash. Other manifest versions fail closed.
+- proof bytes are exactly 128 bytes, checked-decoded, trailing-free and canonical-roundtrip unique before pairing verification. Every public input is passed to verify_proof; no verification boolean is ignored.
+- production exposes no setup API. The proving key is only accepted offline when canonical, shape-compatible and its embedded VK equals the expected bridge commitment; every generated proof self-verifies.
+
+Trusted setup
+Runtime consensus correctly binds the resulting exact VK, not a mutable transcript path. Ceremony transcript/provenance remains release evidence and a real-funds operational prerequisite; it cannot substitute for the cryptographic key commitment and was not synthesized in this stage.
+
+Validation
+- native-usdom-groth16-binding-stage964.test.mjs: 3/3 pass.
+- rustfmt --check for both changed Rust files: pass after formatting.
+- git diff --check on changed code/test: pass.
+- No proving, setup, heavy Cargo, RPC, deployment, signing, funds, commit or push.

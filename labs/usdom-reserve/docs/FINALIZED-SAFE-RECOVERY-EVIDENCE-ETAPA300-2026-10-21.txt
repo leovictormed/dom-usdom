@@ -1,0 +1,86 @@
+USDOM — evidência finalizada de configuração e recuperação Safe (etapa 300)
+Data: 2026-10-21
+Escopo: observação e verificação somente leitura; nenhum deploy, assinatura ou
+broadcast executado
+
+PROBLEMA
+
+O pacote 2-de-3 da etapa 299 prevê endereços recuperáveis, mas o estado real de
+uma Safe pode divergir depois do deploy: singleton, owners, threshold, fallback,
+guard ou módulos podem ser alterados. Além disso, um relatório humano de
+recuperação não prova que as duas chaves sobreviventes, sem a chave simuladamente
+perdida, conseguiram substituir o owner nos três controles.
+
+CORREÇÃO
+
+Foram implementados dois coletores sem qualquer método de envio:
+
+- `collect:recoverable-safe-controls` recompõe o pacote CREATE2 a partir do
+  bytecode Safe 1.4.1 fixado e observa governança, guardião da reserva e guardião
+  do checkpoint em um único bloco Ethereum `finalized`;
+- `collect:recoverable-safe-recovery` verifica a transição finalizada dos três
+  controles após um ensaio de perda de uma chave.
+
+O snapshot inicial cruza chamadas ABI com storage bruto e exige:
+
+- proxy implantado e mesmo hash de runtime nos três papéis;
+- singleton fixado, `VERSION()` 1.4.1 e fallback handler fixado;
+- exatamente os três owners esperados, na ordem canônica, e threshold 2;
+- nonce inicial 0, guard zero e nenhum módulo;
+- reconstrução byte a byte do pacote fonte, hashes de configuração separados
+  por papel e revalidação do hash canônico do bloco ao final.
+
+O verificador de recuperação exige, para cada papel:
+
+- exatamente um incremento de nonce e a troca do mesmo owner perdido pelo mesmo
+  novo owner EOA;
+- chamada externa `execTransaction` com valor, safeTxGas, baseGas, gasPrice,
+  gasToken e refundReceiver zerados, operação `Call` e chamada interna exata
+  `swapOwner(prevOwner, oldOwner, newOwner)`;
+- exatamente duas assinaturas ECDSA canônicas, ordenadas, pertencentes às duas
+  chaves sobreviventes. Assinatura da chave perdida, assinatura contratual e
+  aprovação prévia são recusadas;
+- recibo bem-sucedido e finalizado, bloco ainda canônico, eventos exatos
+  `RemovedOwner`, `AddedOwner` e `ExecutionSuccess`, pagamento zero e hash Safe
+  recalculado pela própria implementação fixada;
+- singleton, fallback, threshold, guard, módulos e runtime inalterados após a
+  rotação.
+
+ARQUIVOS
+
+- `sdk/safe-control-observation.mjs`
+- `scripts/collect-recoverable-safe-controls.mjs`
+- `scripts/collect-recoverable-safe-recovery.mjs`
+- `test/node/safe-control-observation.test.mjs`
+- `docs/CLOSED-MAINNET-LINUX-RUNBOOK.md`, seção 3.4
+
+VALIDAÇÃO FOCADA
+
+- 13/13 testes de implantação, snapshot e recuperação passaram;
+- pacote, calldata, owner order, guard, módulo, nonce e visão finalizada
+  adulterados falham fechados;
+- pagamento, eventos extras/alterados, chave perdida, assinatura pré-aprovada e
+  recibo fora da cadeia canônica falham fechados;
+- os scripts dos coletores não contêm chave, assinatura, `sendTransaction`,
+  `cast send` nem `eth_sendRawTransaction`.
+
+VALIDAÇÃO COMPLETA
+
+- lint dos quatro contratos de produção e build Foundry completo passaram;
+- regressão Node completa passou 196/196 testes, incluindo EVM local;
+- proveniência passou 169 arquivos importados/16 modificações declaradas, 45
+  fontes de programas de prova, 7 fontes da carteira e 976 arquivos-fonte do
+  laboratório autenticados;
+- os gates permanecem intencionalmente fechados com 161 bloqueios no modo
+  Mainnet fechado e 172 no modo de fundos reais. Nenhuma das três capacidades
+  implementadas nesta etapa aparece como bloqueio. Não há requisito de
+  auditoria externa nem de garantia de risco zero.
+
+LIMITES HONESTOS
+
+Nenhuma Safe existe neste ambiente e nenhuma cerimônia real foi executada.
+Somente as capacidades de coleta e verificação são marcadas como implementadas.
+`production_control_plane_recovery_drill_passed` permanece falso até que três
+Safes reais, três seeds de hardware independentes, os três `swapOwner` e os
+recibos finalizados produzam evidência válida. Auditoria externa e garantia de
+risco zero não são requisitos. Nenhum push foi realizado.

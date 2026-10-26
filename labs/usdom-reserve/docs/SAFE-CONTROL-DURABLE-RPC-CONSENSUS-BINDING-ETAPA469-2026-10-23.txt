@@ -1,0 +1,18 @@
+Stage 469 — Safe-control durable RPC-consensus binding
+Date: 2026-10-23
+
+Finding: Safe snapshot, recovery, plan and finalized-execution consensus
+reconciled cataloged RPC results but returned only the first result, discarding
+the ordered operator/origin identity set.
+
+Remediation: all four consensus outputs now carry canonical RPC-consensus
+evidence with count, ordered distinct operator/origin entries and a
+domain-separated source-set commitment. Hash-bearing snapshot, recovery and
+plan objects are rehashed after binding. Their validators require and recompute
+the evidence. Omission, substitution, duplicate origins and reordering fail.
+
+`production_safe_control_durable_objects_bind_rpc_consensus` is a structural
+fact; no live recovery is claimed. No network, signing, deployment, funds,
+mining, commit or push occurred.
+
+Validation: focused consensus tests pass 9/9; readiness passes 60/60.

@@ -1,0 +1,27 @@
+USDOM — ETAPA 1150 — EXECUTOR RETOMÁVEL DOS TRÊS SAFES
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+A implantação dos três Safes existia apenas como um bloco manual no runbook. Ele dependia de variáveis nunca definidas, passava RPCs diretamente em argv, não isolava ambiente/descritores/core dumps como os demais executores e podia interpretar erro de consulta como transação já conhecida. A retomada também recalculava o nonce atual em vez de usar o nonce autenticado do raw já assinado.
+
+Implementação
+
+- Criado `execute-safe-control-deployment.sh` e a fase completa `execute-safe-controls-deployment-secret`; o runbook não contém mais o bloco de broadcast manual.
+- O executor limpa loader/proxy/debug env, fecha descritores herdados, desabilita core dumps, fixa e reatesta ferramentas e opera em temporários 0700 de `/dev/shm`.
+- Pacote, identidades e nove provas de custódia são fotografados e comparados durante toda a cerimônia; o deployer é derivado do bundle autenticado.
+- O pacote fotografado é reconstruído independentemente das identidades autenticadas no início e imediatamente antes de cada assinatura e publicação; divergência byte a byte encerra a cerimônia.
+- A entrada direta do executor fixa `PATH`, locale e fuso antes de descobrir ferramentas e exige que `HOME` seja o diretório real, direto, privado e pertencente à conta do sistema operacional.
+- URLs/credenciais RPC ficam em um proxy loopback autenticado. Seus canais são UTF-8, vazios e limitados; respostas de consulta são JSON estritas.
+- Cada Safe exige quórum de classificação CREATE2 exata. Estado, nonce finalized/pending, estimate, taxas, calldata e pacote são rechecados antes de assinar e publicar.
+- Raw e validação são primeiro unidos em journal create-once. Queda entre journal e arquivos expandidos recupera-os byte a byte; retomada usa o nonce assinado, não o nonce móvel da conta.
+- Consulta de transação distingue estritamente `null` de objeto com hash exato; falha RPC encerra a execução. Publicação só ocorre após autorização literal por papel.
+- O loop termina somente quando todos os RPCs classificam a configuração finalizada exata; recibos são persistidos create-once.
+
+Validação
+
+- Suíte focal de implantação/CREATE2/partial recovery: 13/13 após o endurecimento final.
+- Seleção ampla combinada do runbook, gerador e implantação: 97/97.
+- Os dois mocks antigos do configurador de assinatura agora fornecem o Node pinado exigido pelo código de produção; regressões 2/2.
+- Bash syntax e diff-check aprovados. O inventário crítico só aguarda a dependência concorrente legítima `sdk/release-evidence-document-paths.mjs` da Stage1147.
+- Nenhuma rede real, Ledger, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

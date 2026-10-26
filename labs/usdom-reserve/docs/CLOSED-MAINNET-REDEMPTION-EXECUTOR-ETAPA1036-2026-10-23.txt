@@ -1,0 +1,22 @@
+ETAPA1036 — closed mainnet redemption executor
+
+Implemented the missing operational bridge from authenticated native burn proof to
+the reserve payout. The canonical package accepts only Ethereum chain 1 and exactly
+1,000,000 base units, derives immutable queue/execute calldata, and keeps
+broadcastAuthorized=false.
+
+The interactive executor uses Ledger only, zero-value EIP-1559 transactions, exact
+nonces and calldata, bounded gas/fees/maximum cost, separate literal authorization
+for signing and publishing each operation, and two independent public RPCs. Queue
+receipt finality precedes readyAt observation. Early execution exits retryably;
+stored raw transactions and receipts are revalidated on rerun. Both receipts require
+matching finalized block/hash observations and terminal paidBurns/paidRequests state.
+The evidence record is written last.
+
+Validation performed without network or signer:
+- bash -n scripts/execute-closed-mainnet-redemption.sh
+- pinned Node 24.19.0: 3/3 focused tests passed
+- package canonicalization, mutation and signed-raw binding regressions
+- git diff --check
+
+No network, proof generation, signing, publication, deployment, push or funds were used.

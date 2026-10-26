@@ -1,0 +1,37 @@
+ETAPA 697 — mainnet preflight snapshot byte-strict authority
+Date: 2026-10-23
+
+Audit and finding
+=================
+The mainnet preflight already retained initial Buffers and compared fresh reads after RPC
+observation, so its semantic object and final TOCTOU comparison were tied to one initial
+snapshot. However, deployment raw-validation snapshots and the three preflight authority
+inputs were decoded with Buffer.toString('utf8') before strict JSON parsing. Node replaces
+invalid UTF-8 during that conversion, so malformed bytes could cease to be distinguishable
+from literal replacement characters before authority validation.
+
+Correction
+==========
+Both boundaries now call parseStrictJsonBytes directly: each deployment raw-validation
+Buffer and each release/RISC Zero/RPC-catalog snapshot. Fatal UTF-8 and decoded duplicate-key
+rejection therefore happen before semantic use. The existing second reads and exact Buffer
+comparisons remain and detect mutation during RPC observation.
+
+Related checker audit
+=====================
+- Release-authorization signing-request checker already reads each private artifact once,
+  parses that exact Buffer with parseStrictJsonBytes, and hashes the same bundle Buffer.
+- Production implementation-claims checker has no secondary hash/object pair or child
+  process output; it reads its single project authority once before validation.
+- Mainnet preflight has no child-process stdout authority. RPC responses remain bounded by
+  BoundedMainnetPreflightProvider and require two complete identical finalized observations.
+
+Validation
+==========
+Focused Node test: 2/2 pass. It requires byte-strict parsing at deployment and project
+snapshot boundaries and attacks invalid UTF-8 plus escaped duplicate keys.
+Node syntax checks pass for implementation and test. git diff --check passes.
+The RPC-capable preflight itself was not executed.
+
+No heavy build, Cargo, Rust, Solidity, RISC0 proof, RPC, signing, transmission, deployment,
+fund movement, staging, commit or push was performed.

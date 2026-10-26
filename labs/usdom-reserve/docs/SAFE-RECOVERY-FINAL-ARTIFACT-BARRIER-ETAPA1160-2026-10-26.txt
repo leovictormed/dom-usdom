@@ -1,0 +1,20 @@
+USDOM — ETAPA 1160 — BARREIRA FINAL DOS ARTEFATOS DE RECUPERAÇÃO
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+O executor de recuperação autenticava os candidatos e usava persistência create-once, mas emitia o resultado final imediatamente após instalar o bundle. Não relia relatório e bundle do armazenamento nem reatestava todas as fontes após a janela completa de materialização.
+
+Implementação
+
+- O relatório final instalado é relido pelo leitor privado direto e precisa ser byte a byte idêntico ao consenso final candidato.
+- O bundle instalado recebe a mesma releitura e comparação com seu candidato autenticado.
+- Pacote, baseline, plano e transações são re-snapshotados depois dessas leituras e precisam continuar idênticos.
+- O proxy privado precisa continuar vivo e autenticado antes da única saída final destinada ao operador.
+
+Validação
+
+- Testes focais de recuperação/pinagem/barreira: 3/3.
+- Suíte ampla completa do runbook: 84/84.
+- Sintaxe Bash e diff-check direcionado aprovados.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

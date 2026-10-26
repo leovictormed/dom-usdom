@@ -1,0 +1,48 @@
+ETAPA1034 — specific closed-mainnet pilot deposit executor
+Date: 2026-10-23
+
+Capability added
+----------------
+The canonical package remains unsigned and `broadcastAuthorized:false`.
+`execute-closed-mainnet-deposit.sh` is the only specific authority path for the
+three fixed operations: USDT approve(0), approve(1,000,000), and reserve
+deposit(1,000,000). It accepts no argument or override and requires a terminal.
+
+Authorization boundaries
+------------------------
+For each operation the executor:
+1. validates the exact package/current release and green real-funds readiness;
+2. derives the canonical transaction, nonce, bounded estimate and fee from two
+   fixed independent public RPCs;
+3. asks separately to sign on Ledger;
+4. validates the signed raw transaction offline and persists raw+validation;
+5. rechecks package hash, nonce and both RPCs;
+6. asks separately to publish;
+7. requires both RPCs to agree on the receipt block/hash and requires that block
+   to be finalized before accepting the post-state.
+
+Exact raw validation binds chain 1, Ledger funder, sequential nonce, token or
+reserve target, zero ETH value, exact calldata hash, empty access list, EIP-1559,
+gas <=500,000, max fee <=100 gwei, fixed 2-gwei priority and cost <=0.05 ETH.
+
+State and replay controls
+-------------------------
+- allowance is checked as zero before exact approval, 1,000,000 before deposit,
+  and zero after transferFrom;
+- current release SHA-256 must equal the package commitment;
+- raw transaction and validation are immutable per index;
+- completed receipt records are authenticated/finality-checked and skipped on
+  rerun rather than republished;
+- if publication consumed a nonce but crashed before receipt persistence, the
+  executor fails closed at nonce reconciliation and cannot accidentally replay;
+- the final execution evidence is output last, after three receipts and final
+  zero allowance across both sources.
+
+Validation
+----------
+Pinned Node focused tests pass 6/6, including field mutation and executor-order
+gates. Both Node CLIs pass syntax, the shell passes `bash -n`, and focused
+diff-check passes.
+
+The executor was not run. No RPC, Ledger, signature, publication, deployment,
+push or movement of funds occurred.

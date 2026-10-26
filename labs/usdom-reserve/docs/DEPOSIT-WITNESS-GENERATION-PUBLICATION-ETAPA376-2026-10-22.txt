@@ -1,0 +1,22 @@
+USDOM stage 376 — finalized-deposit witness generation publication
+
+The finalized-deposit witness builder previously published its binary witness
+and JSON index as two independent path-based renames. A crash or path swap
+between them could expose a mixed generation.
+
+It now hands both files to the retained private-directory authority as one
+validated generation. Both mode-0600 files are fully staged and synced before
+publication, every final byte is reread and compared, and any mid-publication
+failure invalidates both target names under the retained descriptor.
+
+Validation:
+
+- retained directory authority tests: 3/3 pass
+- finalized-deposit witness binary compilation/test target: pass
+- all native-only bins compile with --locked and one build job
+- proof inventory remains complete at 46 sources
+- cargo fmt --check and git diff --check pass
+
+No live RPC, secret, signing, transaction, deployment, funds, mining, commit,
+tag or push was used. The detached finalized-burn proof remained active and
+was not restarted.

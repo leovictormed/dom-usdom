@@ -1,0 +1,31 @@
+ETAPA 676 — RISCO RESIDUAL COM JSON DE BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O preparador do relatório de risco residual decodificava release evidence,
+release config e production requirements com Buffer.toString('utf8') antes do
+parser estrito. Esses documentos definem a release, política, limites, finalidade
+e evidências cuja aceitação de risco será apresentada ao operador.
+
+Correção
+O helper `parse` agora chama parseStrictJsonBytes diretamente nos três snapshots.
+O rascunho de aceitação é texto não-JSON e permanece lido como bytes, vinculado
+exclusivamente pelo SHA-256.
+
+Garantias preservadas
+- 4 MiB/profundidade 64 para os três JSONs;
+- caminhos fixos e leitura direta no projeto;
+- relatório determinístico sem ciclo de hash e vínculo ao draft SHA-256;
+- campos mainnet, compromissos, limites, finalidade e source tag validados;
+- todos os quatro inputs são relidos e comparados byte a byte antes da saída;
+- apresentação de risco não concede autorização de fundos por si mesma;
+- writer/aceitação existentes mantêm locks e instalação create-once.
+
+Testes leves
+- chave duplicada por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige parser de bytes nos três JSONs e proíbe toString;
+- mutações semânticas, inputs incompletos, rechecks TOCTOU e separação de
+  realFundsAuthorized continuam cobertos;
+- 7/7 testes em <0,8 s; node --check e git diff --check passaram.
+
+Nenhum RPC, Cargo/Rust, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

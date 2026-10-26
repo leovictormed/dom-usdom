@@ -1,0 +1,43 @@
+Stage 457 — RandomX ImageID cross-layer binding
+Date: 2026-10-23
+
+Finding
+
+The checkpoint capacity validator required the RandomX aggregate guest ImageID
+in `randomxReceiptImageId`. That field is carried by UDCSEG02 and is consumed by
+the authoritative segment guest for each direct per-block RandomX receipt. The
+aggregate guest is an optional component receipt and is not that authority.
+This mismatch failed closed, but a correctly configured release could never
+satisfy both the segment proof path and the capacity report.
+
+Correction
+
+The capacity validator now requires the checked-in per-block RandomX guest
+ImageID. The release gate also compares the source-built native-manifest
+checker output with the canonical checkpoint verifier manifest whenever
+candidate V2 is enabled. A mismatch has its own stable blocker.
+
+A static cross-layer audit now proves that:
+
+1. candidate V2 rejects a missing or zero ImageID in the hash-pinned native
+   runtime manifest;
+2. UDCSEG02 preserves that ImageID and derives each receipt assumption from it
+   and the exact UDCRXST1 commitment;
+3. the segment guest verifies those state-derived assumptions;
+4. the checkpoint verifier protocol hash commits `randomxReceiptImageId`;
+5. readiness reconciles the native and verifier-manifest values;
+6. the proof-host constant, capacity-evidence constant and checked-in `.iid`
+   artifact contain the same per-block guest ImageID.
+
+Mutation coverage removes each boundary independently and substitutes the
+aggregate ImageID at the capacity boundary. Every mutation fails closed.
+
+Status
+
+The implementation binding is complete. The existing
+`production_checkpoint_randomx_receipt_image_id_pinned` release fact remains
+false because the unconfigured release has no ratified native runtime and
+checkpoint verifier manifests. It may become true only after those exact
+release artifacts are materialized and cross-validated. No ImageID was
+invented or changed. No guest build, proof, signing, transaction, deployment,
+funds, mining, network operation, commit or push occurred.

@@ -1,0 +1,55 @@
+Etapa 553 — auditoria de amplificação nos verificadores ZK/native USDOM
+
+Escopo
+
+Foram revisados o parser e verificador Groth16, a autenticação de envelopes v4,
+candidate-v2, ingresso direto e side-branch, promoção/reorg, IBD, auditoria de
+startup, paralelismo Rayon e interação com a contenção RPC da etapa 551.
+
+Evidência
+
+1. Framing e forma precedem criptografia: package/envelope impõem tamanho total,
+   tamanhos por classe, contagem e encoding canônico; transfer/burn validam
+   nullifiers, outputs, memo, burn tuple, bridge/verifier identity e proof exata
+   de 128 bytes antes do pairing Groth16. Verifying keys são preparados uma vez
+   na construção do runtime, limitados, canônicos e ligados ao bridge.
+
+2. O ingresso de bloco verifica duplicidade conhecida, parent/height, progressão
+   temporal, median-time-past, future bound, RandomX PoW, target, dificuldade
+   acumulada e fork choice antes de autenticar o envelope. Side branches e
+   promoção repetem esses checks; IBD valida headers em lote/step antes dos
+   packages. Orphans/future blocks retêm somente material limitado e revalidam
+   quando reapresentados.
+
+3. Envelopes admitem no máximo 16 spends privados. Com dois ou mais, Rayon
+   paraleliza somente esse conjunto já limitado, preserva slots canônicos e
+   propaga qualquer falha. A admissão RPC v1/v2 mantém locks chain-before-runtime
+   e `spawn_blocking`; a etapa 551 aplica backpressure compartilhada a transfer e
+   burn antes de seus handlers, enquanto issuance e candidate-v2 já eram
+   concorrência 1.
+
+4. Candidatos idênticos são reconhecidos por compromisso antes de nova prova no
+   pool de mineração. Cada candidato aceito é revalidado no timestamp do template
+   e novamente no ingresso final. Essa repetição é intencional: prevalidation
+   não concede autoridade de consenso e caches positivos desligados do estado,
+   timestamp, schedule ou verifying key seriam inseguros.
+
+5. Reorg e startup reexecutam provas a partir do estado autenticado no ancestral
+   e comparam state/undo/receipt persistidos. Não há cache negativo persistente:
+   uma falha dependente de estado ou timestamp não contamina outra branch. O
+   custo é limitado pela janela máxima de reorg e executado serialmente durante
+   restore/promote, não por proof bytes arbitrários sem PoW/contexto.
+
+Resultado
+
+Nenhum bypass adicional reproduzível de CPU/memória foi encontrado além da
+contenção RPC já corrigida na etapa 551. Não foi adicionado cache, fact ou código
+de produção nesta etapa. Caches desligados do contexto ou a remoção das
+revalidações reduziriam a segurança do consenso.
+
+Validação
+
+Checks estruturais leves confirmaram a ordem dos checks contextuais antes da
+verificação do package, limites de 16 spends, deduplicação antes de proof work,
+Rayon somente sobre o conjunto limitado e revalidação em template/final ingress.
+`git diff --check` passou. Cargo, Foundry, readiness e provas não foram executados.

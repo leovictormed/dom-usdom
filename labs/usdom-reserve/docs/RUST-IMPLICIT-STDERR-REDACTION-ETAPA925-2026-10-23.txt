@@ -1,0 +1,20 @@
+ETAPA925 — RUST IMPLICIT STDERR REDACTION
+Date: 2026-10-23
+
+Inventory and classification
+- Nineteen USDOM production entrypoints returned `Result` directly from main,
+  causing the Rust runtime to print the complete Debug/error chain on failure.
+- Eleven DOM wallet/deposit/burn/TPM/source-export commands are private/path-bearing.
+- Six proof-host commands consume staged proof inputs and private artifact
+  paths. The remaining manifest and preactivation commands handle public
+  configuration, but still exposed local path topology.
+- Result: 17 private/path-bearing entrypoints and two public-config/path
+  entrypoints; all 19 required an explicit error boundary.
+
+Correction
+- Each former Result-returning main, including three async Tokio mains, is now a `run()` function behind a non-Result main wrapper. Failure emits one fixed operation-specific line and
+  exits with status 1; the internal error is never formatted.
+- Together with ETAPA924, all explicit and implicit stderr entrypoint families
+  from the ETAPA918 scope now have fixed diagnostics.
+- Structural regression passes 1/1; rustfmt and diff checks pass. No Cargo
+  build, proof, secret, wallet, TPM, RPC or external operation was executed.

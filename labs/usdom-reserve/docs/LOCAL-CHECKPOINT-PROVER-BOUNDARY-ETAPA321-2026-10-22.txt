@@ -1,0 +1,60 @@
+USD + DOM — limite local e privado dos provers de checkpoint
+Etapa 321 — 2026-10-22
+
+Achado
+
+Os lançadores de prova RandomX, agregado RandomX, economic e segmento removiam
+`RISC0_SERVER_PATH`, mas preservavam `RISC0_SERVER_ADDR` herdado. Esse endereço
+não era necessário para a execução local declarada e podia encaminhar a entrada
+privada a um serviço definido fora do comando. Os mesmos lançadores não fixavam
+o número de workers Rayon. Os cinco binários fixos de planejamento, prova e
+empacotamento do checkpoint também aceitavam e ignoravam argumentos extras,
+criando uma interface ambígua fora dos wrappers.
+
+Correção
+
+Todos os seis lançadores que executam prova ou compressão na cadeia de
+checkpoint agora:
+
+- removem `BONSAI_API_URL`, `BONSAI_API_KEY`, `RISC0_SERVER_PATH` e
+  `RISC0_SERVER_ADDR` do ambiente;
+- removem `RISC0_EXECUTOR`, que no RISC Zero 3.0.6 pode selecionar execução
+  IPC separadamente de `RISC0_PROVER`;
+- removem os controles não fixados de perfil, Keccak, GPU, diagnóstico, Redis
+  e polling Bonsai; `RISC0_PPROF_OUT` não pode gravar fora do diretório de
+  evidência e `RISC0_KECCAK_PO2` não pode alterar o envelope medido;
+- exigem `RISC0_PROVER=local` e `RISC0_DEV_MODE=0`;
+- fixam `RAYON_NUM_THREADS=1` para não disputar memória de maneira implícita;
+- mantêm o comando sem argumentos ou substituições manuais.
+
+Os cinco binários de checkpoint agora negam código inseguro e rejeitam qualquer
+argumento ou override direto antes de ler artefatos ou iniciar trabalho.
+As próprias bibliotecas RandomX, aggregate RandomX, economic e checkpoint
+também rejeitam qualquer variável Bonsai/servidor presente. Assim, um chamador
+Rust direto não contorna a proteção do wrapper. A alegação ampla
+`consensus_proof_implemented` depende dos quatro fatos, de modo que a proteção
+não pode ser removida mantendo a alegação verdadeira.
+
+Todos os comandos que exportam, planejam ou produzem dados de prova usam
+`umask 077`. Os writers RandomX, economic e checkpoint passaram de `0644` para
+`0600`, inclusive quando chamados diretamente fora dos wrappers. Diretórios,
+índices, recibos e metadados ficam acessíveis somente ao proprietário.
+
+Validação
+
+- sintaxe Bash dos seis lançadores: aprovada;
+- formatação Rust do pacote `dom-usdom-checkpoint-proof-host`: aprovada;
+- suíte leve do runbook após a cobertura de ambiente e permissões: 58/58 testes
+  aprovados;
+- o checker de 45 fontes críticas exige a guarda em cada biblioteca e
+  lançador, e seu autoteste remove cada variável para provar falha fechada;
+- nenhum guest, minerador, nó, deploy, transação, fundo, commit ou push foi
+  iniciado nesta etapa;
+- a prova de queima finalizada já ativa não foi reiniciada nem alterada.
+
+Limite preservado
+
+Esta etapa fecha vazamento/configuração implícita e pressão de recursos nos
+lançadores. Ela não declara recibos, custos ou ImageIDs de produção: esses fatos
+continuam falsos até as provas criptográficas correspondentes terminarem e
+forem verificadas.

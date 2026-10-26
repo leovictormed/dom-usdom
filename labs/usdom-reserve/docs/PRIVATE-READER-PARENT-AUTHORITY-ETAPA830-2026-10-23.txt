@@ -1,0 +1,35 @@
+ETAPA 830 — private reader parent-directory authority
+Date: 2026-10-23
+
+Finding
+=======
+`readDirectFile(...,{privateMode:true})` enforced a current-user, single-link,
+mode-0600 file, size bounds, O_NOFOLLOW, opened-path equality and unchanged
+inode/timestamps after reading. It did not pin or require mode 0700 on the
+parent directory. A mode-0755 parent exposed credential/signature/raw/witness
+names, and parent replacement was outside the reader's snapshot boundary.
+
+Correction
+==========
+Private-mode reads now open the parent using O_DIRECTORY|O_NOFOLLOW, require
+current-user ownership and exact 0700 mode, resolve the pinned descriptor to the
+exact canonical parent, and open the basename through `/proc/self/fd/<dirfd>`.
+They compare the pinned parent against a newly opened named parent both before
+and after the bounded file read. Existing file owner/mode/link/size/inode and
+post-read metadata checks remain intact.
+
+The raw reader intentionally returns bytes. JSON consumers continue to apply
+fatal UTF-8 and duplicate-key/schema validation at their typed boundary; binary
+witnesses/backups must not be forced through text decoding.
+
+Validation
+==========
+- Private reader succeeds in a direct 0700 parent and rejects the same 0600 file
+  after its parent becomes 0755 or is reached through a symlink.
+- Focused durable/private/submission/signing suites: 15/15 pass.
+- Node syntax and git diff checks pass.
+- A broader concurrent inventory run was 30/32; its two failures were unrelated
+  pre-existing structural expectations in mainnet-readiness and proxy-source
+  tests, while all reader/runtime-secret cases relevant to this change passed.
+
+No secret, RPC, signing, deployment, push or fund operation ran.

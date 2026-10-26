@@ -1,0 +1,17 @@
+USDOM hardening stage 385 — finalized-burn source captured reads
+
+Date: 2026-10-22
+
+The finalized-burn source exporter previously inspected an input pathname and
+then reopened that pathname through fs::read. A concurrent replacement could
+therefore make validation and consumption refer to different files.
+
+The exporter now opens each bounded checkpoint-witness and burn-ID input once,
+compares the opened device, inode and length with the named object, requires a
+current-user-owned single-link regular file, reads through a strict maximum+1
+bound, and verifies the exact captured length. Parsing and hashing consume only
+those captured bytes.
+
+Focused binary tests pass 6/6, including canonical burn-ID parsing, symbolic
+link rejection, hard-link rejection, stale-output invalidation and failed
+multi-file publication behavior. The active capacity proof was not restarted.

@@ -1,0 +1,49 @@
+USD + DOM — construtor autenticado da testemunha de depósito finalizado
+Etapa 284 — 2026-10-21
+
+Resultado
+
+Foi implementado o handoff completo entre a fonte pública não confiável e o
+formato canônico UDOMDPW1 já consumido pelo consenso DOM. O novo binário carrega
+o manifesto nativo somente quando seus bytes correspondem ao SHA-256 aprovado,
+reconstrói todas as provas e reexecuta a testemunha pronta sob a mesma política
+antes de publicá-la.
+
+Verificações executadas
+
+- bootstrap e atualizações Beacon BLS/SSZ, com slot de assinatura como relógio
+  mínimo determinístico e round trip do transcript;
+- cronograma Fulu/mainnet, genesis validators root e checkpoint de confiança do
+  manifesto nativo;
+- hash RLP de cada cabeçalho, continuidade pai/filho e término exato no header
+  de execução autenticado pela finalidade Beacon;
+- reconstrução do trie completo de recibos e igualdade com receiptsRoot;
+- inclusão do recibo pelo índice e decodificação EIP-658 canônica;
+- reconstrução RLP da conta retornada por eth_getProof, prova contra stateRoot e
+  keccak256 do bytecode contra o codeHash autenticado;
+- evento Deposited, reserva, domínio, valor, funder, depositId e compromisso
+  BN254 sob a política imutável do manifesto;
+- codificação UDOMDPW1 limitada a 4 MiB e replay imediato por
+  verify_deposit_witness;
+- igualdade entre a identidade pública coletada e o VerifiedDeposit opaco.
+
+O hash da transação aparece no índice como source_transaction_hash porque um
+recibo Ethereum não autentica, por si só, o hash da transação. A autorização
+monetária usa o evento incluído no receiptsRoot, sua posição, o depositId e a
+política da reserva. Essa nomenclatura evita ampliar a alegação criptográfica.
+
+Comando fixo
+
+  npm run --silent build:finalized-deposit-witness
+
+O comando é local, não acessa RPC, não transmite, não minera e não produz prova
+RISC Zero. Ele emite finalized-deposit-witness.bin e um índice hash-addressed.
+
+Evidência local
+
+- checagem do novo binário dom-node com a feature nativa: aprovada;
+- source_builders.rs: 2/2, incluindo transcript Fulu real e raízes MPT locais;
+- inventário de programas: 38 fontes sem primitivas de pânico e com SHA-256.
+
+O requisito de vetor real permanece false até uma implantação e um depósito
+reais passarem por este caminho e entrarem em um bloco DOM válido.

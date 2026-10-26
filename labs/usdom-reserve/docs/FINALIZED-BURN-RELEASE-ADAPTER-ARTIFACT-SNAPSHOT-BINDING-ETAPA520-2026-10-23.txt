@@ -1,0 +1,31 @@
+USD0M stage 520 — finalized-burn release adapter-artifact snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The release-specific finalized-burn E2E executor opened its compiled adapter
+artifact from the live project only after long proof and compression work and
+after isolated Anvil had started. Replacement during that window could select
+a different artifact generation for the EVM evidence.
+
+Correction
+==========
+
+After compression and before runtime observation or Anvil, the executor reads
+the bounded direct artifact once, parses those bytes, and durably installs them
+under an owner-only input-snapshots directory. It rereads the installed bytes,
+checks exact byte equality and SHA-256 equality, and passes only the parsed
+snapshot into isolated deployment and verification. The Anvil phase no longer
+opens the live artifact. The validated E2E report remains durable before the
+succeeded run-status completion marker.
+
+Evidence and scope
+==================
+
+Focused tests enforce snapshot-before-observation/Anvil ordering, private
+durable installation, byte/hash reread, absence of the live artifact path in
+the isolated verifier, and report-before-completion publication. Readiness
+requires `production_finalized_burn_release_adapter_artifact_snapshotted=true`.
+No proof, Anvil, network, signing, deployment, funds operation, commit or push
+was run.

@@ -1,0 +1,52 @@
+Stage 655 — Safe combined drift and owner returndata audit (2026-10-23)
+
+Scope
+
+Audited the stage-651 checkpoint guardian owner commitment under simultaneous
+owner/module/guard drift, restoration in different orders, malformed owner-list
+ABI, revert and return-data bombs. Reviewed all production Safe authority
+boundaries for fields checked only by shape and checked retryability after an
+accepted candidate.
+
+Result
+
+No additional production-contract defect was confirmed.
+
+- Registry and proof-reserve Safe identities bind proxy code, singleton address
+  and code, exact ordered owner commitment, exact 2-of-3 threshold, empty module
+  set, empty guard and the required mainnet fallback handler/code identity.
+- Modules and guard are constrained to the single accepted empty state, so no
+  additional identity exists to bind. Fallback is likewise an exact address and
+  code hash on mainnet, rather than a shape-only check.
+- Simultaneous drift cannot be repaired partially. Restoring the module while
+  owners and guard remain changed still fails; restoring owners while guard
+  remains changed also fails. Only the complete committed state reopens
+  checkpoint actions.
+- `getOwners()` is a gas-bounded static call into a fixed five-word output area.
+  The decoder requires exactly 160 bytes, canonical offset/count, clean address
+  words, distinct nonzero EOA owners and the immutable ordered commitment.
+  Revert, 159-byte, 161-byte and one-megabyte responses fail closed without
+  copying or allocating attacker-selected returndata.
+- Finalize and permanent halt both fail before state mutation while identity is
+  unhealthy. Candidate hash, original ready time, anchors and halt state remain
+  unchanged, and exact restoration permits the original candidate to finalize.
+
+Material regression
+
+`testCombinedSafeDriftMalformedOwnersAndArbitraryRestoreRemainFailClosed`
+combines owner, module and guard changes, restores them in a different order,
+then exercises reverting, short, trailing and one-megabyte owner responses.
+Every intermediate finalize/halt attempt fails, the candidate remains intact,
+and complete restoration finalizes it.
+
+Validation
+
+- new combined-drift regression: 1/1 passed;
+- focused registry/reserve/control suites: 73/73 passed, including the registry
+  invariant campaign;
+- constructor/config/vector plus new regression: 3/3 passed after final merge;
+- complete Solidity campaign: 162/162 passed across 14 suites;
+- production lint, formatting and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit,
+push, deployment, signature, transmission or funds operation was performed.

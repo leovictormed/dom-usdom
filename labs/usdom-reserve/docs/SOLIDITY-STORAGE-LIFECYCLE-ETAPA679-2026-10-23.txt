@@ -1,0 +1,91 @@
+Stage 679 — Solidity storage lifecycle and cleanup audit (2026-10-23)
+
+Scope
+
+Audited lifetime storage growth, cleanup gas and state consistency across
+`USDOMReserve`, `USDOMProofReserve` and `DOMCheckpointRegistry`: deposits,
+paid/proved burn and request identities, linked pending queues, pause/rotation
+generations, checkpoint candidates, notary epochs and permanent revocations.
+The review distinguished protocol anti-replay evidence from removable runtime
+indexes and tombstones.
+
+Confirmed defect and correction
+
+Ordinary prototype rotations retained `notaryEpoch` entries for every historical
+notary forever. A stale epoch has no security value because authorization
+requires equality with the exact current epoch, while emergency non-reuse is
+separately enforced by permanent `revokedNotary`.
+
+`_installNotaries` now deletes the previous active set's epoch entries before
+incrementing the epoch and installing the replacement. Both loops are bounded
+by `MAX_NOTARIES` (16). Overlapping/reinstalled ordinary keys are safely written
+back with the new current epoch, while emergency-revoked keys remain rejected by
+`revokedNotary` and are never made reusable.
+
+Storage classification
+
+Permanent anti-replay/security state:
+
+- Deposit records must retain their domain-separated deposit ID so one Ethereum
+  deposit event cannot be reused as a distinct native issuance instruction.
+  Each new entry also requires a real token transfer and is constrained by
+  credited exposure at admission.
+- Proof-reserve `provedBurnStatements` and `provedRequestBurns` bind the exact
+  finalized native debt permanently. They enable safe lease renewal and prevent
+  burn/request substitution after expiry, pause or cleanup. `paidBurns` and
+  `paidRequests` permanently forbid a second payout.
+- Prototype `paidBurns`/`paidRequests` retain payment replay protection.
+  `revokedNotary` is intentionally permanent after emergency compromise.
+- Registry checkpoint history is emitted as logs; contract storage retains only
+  the latest checkpoint, monotonic count and one candidate. It does not grow an
+  on-chain candidate/checkpoint array.
+
+Removable operational state:
+
+- Successful proof-reserve payment deletes the pending struct and request index
+  while retaining proved/paid bindings. Discard does the same without deleting
+  proof admission. The linked-list splice is O(1).
+- A proof-reserve pause invalidates the active queue in O(1). Old-generation
+  tombstones can be collected individually or by `pruneDiscardable` in batches
+  capped at 256, including entries behind a live head. Conditional request-index
+  deletion prevents old cleanup from erasing a current replacement.
+- Prototype payment/discard deletes pending structs and request indexes. Rotation
+  invalidates counters/head/tail in O(1); each old tombstone remains individually
+  discardable and all certificates have a maximum seven-day lifetime. This is a
+  prototype-only operational limitation, not a production mainnet path.
+- Registry candidate replacement is one storage overwrite; finalization deletes
+  the candidate. Losing candidates never create persistent entries.
+- Cancelled rotation/resume proposals delete their transient slots.
+
+Economic/storage-DoS assessment
+
+No permissionless zero-cost route to persistent production storage was found.
+Deposits require exact collateral movement; proof queues require a valid fixed
+proof for a distinct finalized burn and are bounded by unreserved collateral;
+checkpoint submissions replace a single candidate. Cleanup work is O(1) or
+explicitly capped. Permanent mappings grow with legitimate lifetime protocol
+history, which is necessary to preserve replay safety and must not be swept by
+an administrator.
+
+Material regressions
+
+- `testNewNotarySetRemovesOldKeys` now proves old ordinary notary epoch slots are
+  zero after rotation and every replacement key is tagged with the current epoch;
+  old signatures remain invalid and new signatures still pay correctly.
+- `testProofAuthorizedWithdrawalPaysExactlyOnce` now proves successful payment
+  deletes the pending struct/request index while retaining the exact proved
+  burn/request bindings and paid flags.
+- Existing mixed-generation and batch-prune tests prove stale cleanup cannot
+  erase a live replacement or corrupt head/tail/count/amount.
+
+Validation
+
+- focused storage lifecycle regressions: 4/4 passed;
+- complete Solidity campaign: 168/168 passed across 14 suites, including all
+  invariant campaigns;
+- `forge lint` completed on all five production contracts; only the previously
+  inventoried prototype heuristic warnings remain;
+- `forge fmt --check` and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit, push,
+deployment, signature, transmission or funds operation was performed.

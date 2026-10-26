@@ -1,0 +1,32 @@
+ETAPA 724 — mainnet deployment Node executable pinning
+Date: 2026-10-23
+
+Finding
+=======
+The mainnet deployment executor pinned Cast in ETAPA720 but still resolved Node through PATH for
+package/transaction derivation, raw transaction validation, strict RPC JSON checking, arithmetic
+bounds, private RPC proxy and durable evidence installation. Replacement after TTY consent could
+change the bytes validated immediately before broadcast.
+
+Correction
+==========
+Node is now resolved once to a canonical absolute path and required to be a regular executable
+with one link, safe root/current ownership, non-group/world-writable file and parent directory.
+Device/inode/size/mtime/ctime and SHA-256 are snapshotted. Every Node invocation, including the
+private proxy, validators, derivation and installers, uses the captured path.
+
+Node is rechecked with Cast after signing consent, after transmission consent and immediately
+before `rpc publish`; it is also rechecked before the initial Ledger/transaction planning section.
+Existing package/identity snapshots, raw derivation equality, multi-RPC nonce/CREATE/fee/balance,
+strict response validation, final source snapshots and durable no-clobber evidence remain.
+
+JQ and remaining core utilities are still independently auditable. Node was prioritized because
+it derives and validates transaction authority and installs evidence.
+
+Validation
+==========
+Updated executor structural test passes 1/1. Node syntax, `bash -n` and git diff checks pass. No
+executor, child, Node operational script, RPC, Ledger or Cast operation ran.
+
+No signing, transmission, deployment, funds, build, Cargo, Rust, Solidity, RISC0 proof, staging,
+commit, tag, publication or push was performed.

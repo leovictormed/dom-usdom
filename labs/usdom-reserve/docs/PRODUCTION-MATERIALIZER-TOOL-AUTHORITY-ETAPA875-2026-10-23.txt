@@ -1,0 +1,8 @@
+ETAPA875 — PRODUCTION MATERIALIZER TOOL AUTHORITY
+Date: 2026-10-23
+
+Four production/preactivation materializers ran Node/jq and cleanup via PATH.
+They now pin bounded 1..512 MiB tools, hashes and canonical parent identities,
+recheck before use, and clean temporary authority through authenticated Node.
+Focused tool/ordering tests pass 3/3; Bash syntax/diff pass. No build or
+materialization ran.

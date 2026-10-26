@@ -1,0 +1,44 @@
+RISC ZERO IMAGEID / VK / TRUSTED-SETUP AUTHORITY — ETAPA999
+Date: 2026-10-23
+
+Authority chain
+---------------
+The checked ProgramBinary is canonically decoded to its ImageID by the
+repository proof-program gate. Hosts hash-check the selected program/ImageID,
+verify every receipt against that ImageID and exact journal, and require the
+pinned RISC Zero Groth16 verifier-parameter digest before publishing a seal.
+Adapter initcode embeds that same manifest ImageID; the adapter passes it
+immutably to the direct verifier. Compiled initcode/runtime derivation and
+reserve/registry config hashes bind the deployed adapter.
+
+The cryptographic verifying-key authority is the reviewed direct RISC Zero
+runtime code hash together with the receipt's pinned verifier-parameter digest,
+not a replaceable manifest file. `verifyingKeySha256` and the trusted-setup
+transcript are release provenance: their content hashes, canonical manifests,
+decision report and shared transcript are required by readiness, while proof
+acceptance remains pinned to direct verifier code.
+
+Concrete gap fixed
+------------------
+Finalized-burn and checkpoint manifests point to the same direct verifier and
+the same upstream Groth16 setup. Core materialization already required their
+direct address/runtime/selector and trusted-setup transcript to match, but did
+not require `verifyingKeySha256` equality. Readiness likewise compared only the
+three direct-verifier fields at that cross-manifest boundary. Two different VK
+provenance artifacts could therefore describe the same proof authority and
+still pass those cross-manifest checks.
+
+Production core materialization now rejects differing VK hashes. Mainnet
+readiness independently requires both `verifyingKeySha256` and
+`trustedSetupTranscriptSha256` to agree across finalized-burn and checkpoint
+manifests, in addition to the direct address/runtime/selector.
+
+Validation
+----------
+`python3 scripts/check-risc0-image-vk-setup-authority.py`: PASS. The permanent
+gate covers manifest equality, initcode ImageID embedding, host receipt
+ImageID/journal/verifier-parameter verification and immutable adapter ImageID
+forwarding. Python syntax and whitespace checks passed. Heavy Cargo/Forge/Node
+tests were not run while the long RISC0 proof occupied the machine.
+
+No network, push, deploy, signing, broadcast, mining or funds action occurred.

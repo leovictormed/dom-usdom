@@ -1,0 +1,24 @@
+ETAPA 758 — deployment derivation child protocol
+Date: 2026-10-23
+
+Finding
+=======
+The authoritative deployment transaction derivation initially used unbounded Node command
+substitution, and later rederivations redirected stdout but accepted arbitrary stderr. A helper
+could emit ambiguous/tolerant JSON, diagnostics or unbounded data while controlling deployer,
+nonce, initcode and expected contract identity.
+
+Correction
+==========
+All five derivations now use one protocol: pinned Node under a 120-second timeout, stdout and
+stderr in private files, successful exit required, stderr exactly empty, stdout validated by the
+bounded fatal-UTF8/duplicate-key strict JSON checker, then semantic extraction from that same file.
+Every later derivation remains byte-compared to the initial snapshot.
+
+Validation
+==========
+Adversarial framing, executor structural and durable-writer suites pass 11/11. Structural checks
+prohibit the prior command substitution and require timeout, separate stderr and strict JSON.
+Shell/Node syntax and diff checks pass. No helper, executor, RPC or Ledger command ran.
+
+No signing, deploy, transmission, commit, push or funds were used.

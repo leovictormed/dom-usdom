@@ -1,0 +1,34 @@
+ETAPA 958 — integridade/rollback de backup, snapshot e TPM USDOM
+Data: 2026-10-23
+
+Achado corrigido
+O envelope compartilhado gerava salt Argon2 e nonce AEAD por `thread_rng().fill_bytes`.
+Embora ThreadRng seja criptográfico, falha de reseed/OS era tratada por panic e os dois
+valores vinham de handles implícitos separados. Agora um único `OsRng` chama
+`try_fill_bytes` para salt e nonce e propaga `EnvelopeError::RandomnessUnavailable` antes
+de KDF, cifra ou escrita.
+
+Invariantes confirmados (12)
+1. Envelope rejeita magic/version desconhecidos, sem fallback/downgrade.
+2. Argon2id v1 fixa 64 MiB, 3 iterações, p=1 e versão 0x13.
+3. HKDF pós-Argon2 usa info versionado; key material é zeroized.
+4. Cada save recebe salt 256-bit e nonce ChaCha20-Poly1305 96-bit do OS CSPRNG.
+5. AEAD autentica corrupção/password errado antes de interpretar plaintext.
+6. Recovery seed plaintext inclui chain scalar e load exige expected chain exata.
+7. Recovery backup é create-only/noclobber e escrita temp+fsync+rename+dir-fsync.
+8. Snapshot seal vincula generation+digest; generation deve avançar exatamente um.
+9. Snapshot inclui predecessor seal; rollback de arquivo falha contra autoridade atual.
+10. Duas fases prepare/commit/abort deixam crash recovery explícito e CAS-bound.
+11. TPM authority binding inclui network magic, chain id, release manifest e wallet address.
+12. TPM credential/record fixa version/index/binding, rejeita corrupção e não sobrescreve
+    credential existente; estado monotônico reside no NV, não no filesystem.
+
+Limite operacional
+O recovery seed deliberadamente recupera chaves, mas não substitui o seal monotônico da
+última carteira: após disaster recovery, histórico canônico deve ser reescaneado. Um
+backup antigo isolado não prova freshness.
+
+Validação
+- `native-usdom-backup-integrity-stage958.test.mjs`: 3/3 passou.
+- rustfmt --check e git diff --check: passaram.
+- Sem Cargo pesado/TPM real/escrita externa.

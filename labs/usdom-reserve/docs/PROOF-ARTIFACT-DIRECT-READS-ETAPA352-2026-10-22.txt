@@ -1,0 +1,41 @@
+USD + DOM — leitura direta de artefatos e materialização durável
+Etapa 352 — 2026-10-22
+
+Problema corrigido
+
+O coletor de capacidade do checkpoint validava cada artefato com `lstat` e o
+reabria por nome com `readFile`. Um arquivo poderia ser trocado entre essas duas
+operações. O coletor de queima finalizada e os dois materializadores tinham
+implementações próprias de leitura que comparavam inodes, mas não exigiam um
+único hard link nem usavam `O_NOFOLLOW`. Os materializadores também duplicavam
+o protocolo de escrita durável.
+
+Correção
+
+- os coletores de checkpoint e queima finalizada usam o leitor central pelo
+  descritor aberto com `O_NOFOLLOW`;
+- cada artefato precisa ser arquivo regular direto, pertencer ao usuário atual,
+  ter exatamente um link, modo 0600 e tamanho dentro do limite específico;
+- o descritor é vinculado ao caminho absoluto por `/proc/self/fd`, e tamanho,
+  inode, timestamps e conteúdo são rechecados sem reabrir o nome;
+- os materializadores leem status e relatórios pelo mesmo limite direto;
+- suas gravações agora usam o gravador durável comum: temporário aleatório com
+  O_EXCL/O_NOFOLLOW, fsync do arquivo, rename, fsync do diretório e releitura
+  exata do destino instalado.
+
+Validação
+
+- ataques com conteúdo válido por symlink e hard link foram adicionados aos
+  dois coletores e são rejeitados;
+- testes focados de leitores, escritores, coletores e materializadores: 13/13;
+- lint de produção, build Solidity forçado de 44 arquivos e regressão Node
+  completa: 295/295 aprovados;
+- proveniência completa aprovada para 169 arquivos importados, 45 fontes dos
+  programas de prova e manifesto determinístico de 1.126 fontes;
+- o gate permanece deliberadamente fechado em 161 fatos derivados da release
+  ainda não configurada, sem bloqueio de integridade de fonte, auditoria externa
+  ou garantia impossível de risco zero.
+
+A prova RISC Zero ativa permaneceu em execução e não foi reiniciada. Nenhuma
+chave, assinatura, publicação, implantação, mineração, transmissão ou
+movimentação de fundos foi realizada.

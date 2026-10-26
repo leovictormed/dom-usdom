@@ -42,10 +42,27 @@ use tempfile::TempDir;
 use usdom_ethereum_finality_experiment::{
     checkpoints::{CheckpointPolicy, CheckpointTrustPolicy, StaticCheckpointTrustPolicy},
     deposits::{DepositTrustPolicy, ReserveDepositPolicy, StaticDepositTrustPolicy},
-    EthereumForks,
+    EthereumFork, EthereumForks,
 };
 
 const DOMAIN: [u8; 32] = [0x11; 32];
+
+fn supported_forks() -> EthereumForks {
+    let fork = |epoch, version| EthereumFork {
+        epoch,
+        fork_version: [version, 0, 0, 0].into(),
+    };
+    EthereumForks {
+        genesis: fork(0, 0),
+        altair: fork(74_240, 1),
+        bellatrix: fork(144_896, 2),
+        capella: fork(194_048, 3),
+        deneb: fork(269_568, 4),
+        electra: fork(364_032, 5),
+        fulu: fork(411_392, 6),
+        gloas: fork(u64::MAX, 7),
+    }
+}
 
 fn bridge() -> BridgeIdentity {
     let mut chain_id = [0; 32];
@@ -75,7 +92,7 @@ fn unused_policy() -> StaticCheckpointTrustPolicy {
     let dynamic = CheckpointTrustPolicy {
         trusted_checkpoint: [0x41; 32].into(),
         ethereum_genesis_validators_root: [0x22; 32].into(),
-        forks: EthereumForks::default(),
+        forks: supported_forks(),
         max_current_slot: 1,
         checkpoint: CheckpointPolicy {
             ethereum_chain_id: 1,
@@ -95,7 +112,7 @@ fn unused_deposit_policy() -> StaticDepositTrustPolicy {
     let dynamic = DepositTrustPolicy {
         trusted_checkpoint: [0x41; 32].into(),
         ethereum_genesis_validators_root: [0x22; 32].into(),
-        forks: EthereumForks::default(),
+        forks: supported_forks(),
         max_current_slot: 1,
         deposit: ReserveDepositPolicy {
             ethereum_chain_id: 1,
@@ -523,9 +540,14 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
 
     let mut chain =
         ChainState::open_with_utxo_repair(store, canonical.hash, NETWORK_MAGIC_REGTEST).unwrap();
-    let activation_runtime =
-        NativeUsdomV4Runtime::restore(&chain, bridge(), unused_policy(), unused_deposit_policy())
-            .unwrap();
+    let activation_runtime = NativeUsdomV4Runtime::restore(
+        &chain,
+        bridge(),
+        unused_policy(),
+        unused_deposit_policy(),
+        None,
+    )
+    .unwrap();
     assert_eq!(activation_runtime.startup_audit().audited_blocks, 0);
     assert!(
         activation_runtime
@@ -563,6 +585,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             &unused_policy(),
             &unused_deposit_policy(),
             None,
+            None,
         )
         .is_err());
     assert_eq!(chain.tip_hash, canonical.hash);
@@ -582,6 +605,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             &unused_policy(),
             &unused_deposit_policy(),
             None,
+            None,
         )
         .is_err());
     assert_eq!(chain.tip_hash, canonical.hash);
@@ -596,6 +620,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
                 bridge(),
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 None,
             )
             .unwrap(),
@@ -612,6 +637,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
                 bridge(),
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 None,
             )
             .unwrap(),
@@ -640,6 +666,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
                 bridge(),
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 None,
             )
             .unwrap(),
@@ -694,6 +721,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             &unused_policy(),
             &unused_deposit_policy(),
             None,
+            None,
         )
         .unwrap();
     assert_eq!(chain.tip_hash, second_v4_hash);
@@ -727,6 +755,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             bridge(),
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             None,
         )
         .unwrap();
@@ -807,6 +836,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             &unused_policy(),
             &unused_deposit_policy(),
             None,
+            None,
         )
         .is_err());
     assert_eq!(chain.tip_hash, second_v4_hash);
@@ -837,6 +867,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             bridge(),
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             None,
         )
         .unwrap()
@@ -899,6 +930,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
                 bridge(),
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 None,
             )
             .unwrap(),
@@ -968,9 +1000,14 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
     )
     .is_ok());
 
-    let mut restarted_runtime =
-        NativeUsdomV4Runtime::restore(&chain, bridge(), unused_policy(), unused_deposit_policy())
-            .unwrap();
+    let mut restarted_runtime = NativeUsdomV4Runtime::restore(
+        &chain,
+        bridge(),
+        unused_policy(),
+        unused_deposit_policy(),
+        None,
+    )
+    .unwrap();
     assert_eq!(restarted_runtime.startup_audit().audited_blocks, 3);
     assert_eq!(
         restarted_runtime.state().state_root(),
@@ -1034,6 +1071,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             &unused_policy(),
             &unused_deposit_policy(),
             None,
+            None,
         )
         .unwrap();
     let competing_four = mine_v4_child(
@@ -1058,6 +1096,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             &unused_policy(),
             &unused_deposit_policy(),
             None,
+            None,
         )
         .unwrap();
     let tip_before_rejected_reorg = chain.tip_hash;
@@ -1069,6 +1108,7 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             bridge(),
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             None,
         )
         .unwrap_err();
@@ -1142,6 +1182,7 @@ fn scheduled_ingress_requires_exact_schedule_and_atomically_promotes_heavier_bra
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             wrong_height,
         )
@@ -1158,6 +1199,7 @@ fn scheduled_ingress_requires_exact_schedule_and_atomically_promotes_heavier_bra
                 selected_bridge,
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 &verifier,
                 schedule,
             )
@@ -1190,6 +1232,7 @@ fn scheduled_ingress_requires_exact_schedule_and_atomically_promotes_heavier_bra
                 selected_bridge,
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 &verifier,
                 schedule,
             )
@@ -1219,6 +1262,7 @@ fn scheduled_ingress_requires_exact_schedule_and_atomically_promotes_heavier_bra
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             schedule,
         )
@@ -1248,6 +1292,7 @@ fn scheduled_ingress_requires_exact_schedule_and_atomically_promotes_heavier_bra
                 selected_bridge,
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 &verifier,
                 schedule,
             )
@@ -1324,6 +1369,7 @@ fn v1_parent_and_v2_activation_commit_atomically_then_accept_v2_child() {
         selected_bridge,
         &unused_policy(),
         &unused_deposit_policy(),
+        None,
         &verifier,
         v1_schedule,
         3,
@@ -1349,6 +1395,7 @@ fn v1_parent_and_v2_activation_commit_atomically_then_accept_v2_child() {
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             v1_schedule,
             2,
@@ -1369,6 +1416,7 @@ fn v1_parent_and_v2_activation_commit_atomically_then_accept_v2_child() {
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             v2_schedule,
         )
@@ -1384,6 +1432,7 @@ fn v1_parent_and_v2_activation_commit_atomically_then_accept_v2_child() {
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             v1_schedule,
             2,
@@ -1417,6 +1466,7 @@ fn v1_parent_and_v2_activation_commit_atomically_then_accept_v2_child() {
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             v1_schedule,
         )
@@ -1429,6 +1479,7 @@ fn v1_parent_and_v2_activation_commit_atomically_then_accept_v2_child() {
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             v1_schedule,
         )
@@ -1440,6 +1491,7 @@ fn v1_parent_and_v2_activation_commit_atomically_then_accept_v2_child() {
         selected_bridge,
         unused_policy(),
         unused_deposit_policy(),
+        None,
         &key_bytes,
         v2_schedule,
     )
@@ -1569,6 +1621,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             wrong_schedule,
         )
@@ -1585,6 +1638,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
                 selected_bridge,
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 &verifier,
                 v2_schedule,
             )
@@ -1607,6 +1661,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
                 selected_bridge,
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 &verifier,
                 v2_schedule,
             )
@@ -1623,6 +1678,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
         selected_bridge,
         &unused_policy(),
         &unused_deposit_policy(),
+        None,
         &verifier,
         v2_schedule,
     )
@@ -1654,6 +1710,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
                 selected_bridge,
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 &verifier,
                 v2_schedule,
             )
@@ -1693,6 +1750,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
                 selected_bridge,
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 &verifier,
                 v2_schedule,
             )
@@ -1737,6 +1795,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             v2_schedule,
         )
@@ -1772,6 +1831,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             v2_schedule,
         )
@@ -1804,6 +1864,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             v2_schedule,
         )
@@ -1858,6 +1919,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
             selected_bridge,
             &unused_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             v2_schedule,
         )
@@ -1874,6 +1936,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
                 selected_bridge,
                 &unused_policy(),
                 &unused_deposit_policy(),
+                None,
                 &verifier,
                 v2_schedule,
             )
@@ -1890,6 +1953,7 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
         selected_bridge,
         &unused_policy(),
         &unused_deposit_policy(),
+        None,
         &verifier,
         v2_schedule,
     )

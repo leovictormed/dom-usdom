@@ -1,0 +1,22 @@
+FINAL PROVENANCE/PUBLICATION AUDIT — STAGE 1113 (2026-10-26)
+
+Scope
+- Reviewed the release-critical sources introduced or materially used through Stage 1111 for the V3 rebuild, Safe v2 control/recovery, closed-mainnet pilot, deterministic deployment, reserve artifact/immutable binding, and Ethereum-mainnet USDT identity policy.
+- No MANIFEST.sha256 regeneration was attempted because the shared workspace was not quiescent.
+
+Finding and correction
+- The original eight-entry V3 inventory covered the rebuild tools but omitted later Safe, pilot, deployment, artifact and token-policy controls. A release could therefore pass the focused boundary checker while one of those operational sources was absent from its explicit critical set (although the broad source manifest still covered ordinary source files).
+- Expanded the sorted, duplicate-free critical inventory to 80 direct single-link files, including package/source-manifest integration, the operational runbook, USDT configuration/policy report, Safe v2 materializers/signers/recovery SDK, pilot execution/evidence controls, deterministic deployment controls, artifact/immutable validators and their audit records.
+- Added `--inventory-only` to the publication checker. It validates schema, order, uniqueness, forbidden generated prefixes, direct regular single-link files, and source-manifest exclusion policy without consulting a potentially stale MANIFEST. Default behavior remains unchanged and still requires every critical source hash to match MANIFEST.sha256.
+- Updated the focused Node regression to derive the expected count and assert representative controls from every critical class. It deliberately uses inventory-only mode until a quiescent final manifest regeneration.
+
+Validation
+- Inventory-only checker: PASS, 80/80 direct unique critical sources.
+- Python compilation: PASS.
+- Bash syntax for mainnet deployment/deposit/redemption executors: PASS.
+- Diff whitespace check: PASS.
+- Node execution was unavailable in the current shell (`node: command not found`); the test source was updated but not claimed as executed.
+
+Publication status
+- Default hash binding remains fail closed until MANIFEST.sha256 is regenerated once the workspace is quiescent and the default checker plus Node regression are rerun.
+- No network, Rust/Solidity edit, Cargo, Forge, deploy, signing, funds, commit or push occurred.

@@ -1,0 +1,22 @@
+CRITICAL PUBLICATION SNAPSHOT AUDIT — STAGE 1114 (2026-10-26)
+
+Scope
+- Audited the current critical publication inventory without regenerating MANIFEST.sha256.
+- Covered path traversal/escape, symlink and hardlink substitution, unsafe owner/mode, unbounded files, generated/binary artifacts, executable framing and probable embedded secrets.
+
+Finding and correction
+- The focused boundary checker previously used pathname `stat`/`read_bytes`, had no source-size ceiling, did not validate executable framing or modes, and did not screen the explicit critical set for generated binaries or high-confidence secret forms. The broad source manifest closed some link attacks but did not make these publication-source properties explicit at this gate.
+- Critical paths are now canonical relative POSIX paths and are opened component-by-component using O_NOFOLLOW beneath a stable root descriptor.
+- Each source must be an euid-owned, direct, single-link, nonempty regular file no larger than 1 MiB. Group/world-writable and special permission bits are rejected.
+- Descriptor identity and terminal pathname identity are rechecked after a bounded read.
+- ELF/archive/compressed magic and NUL-bearing content are rejected as generated/binary artifacts. Executable source must start with a shebang.
+- Private-key PEM framing, credential-bearing URLs, literal private-key/mnemonic/seed/secret-key JSON values and secret file suffixes/names are rejected.
+- Default MANIFEST hash binding remains unchanged and fail closed. Inventory-only mode performs all new checks without accepting a stale manifest.
+
+Validation
+- Python adversarial self-test: PASS (path escape, ELF, executable without shebang, private key and >1 MiB rejected).
+- Live inventory: PASS, 83 direct/bounded/secret-free critical sources (the inventory increased concurrently from the prior 80).
+- Pinned Node 24.19.0 focused suite: 2/2 PASS.
+- Python compilation and diff integrity: PASS.
+
+No MANIFEST regeneration, network, Rust/Solidity edit, Cargo, Forge, deploy, signing, funds, commit or push occurred.

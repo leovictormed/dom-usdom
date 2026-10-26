@@ -1,0 +1,63 @@
+USDOM — reconciliação semântica da evidência Safe (etapa 303)
+Data: 2026-10-21
+Escopo: implementação local; nenhum relatório mainnet real foi fabricado
+
+RISCO TRATADO
+
+O gate anterior verificava SHA-256 e presença dos relatórios do plano de
+controle, mas não interpretava o conteúdo desses arquivos. Um arquivo
+arbitrário, desde que corretamente hasheado, poderia ocupar um slot de
+configuração, separação ou recovery drill.
+
+IMPLEMENTAÇÃO
+
+- o relatório persistido do coletor é revalidado offline contra package e
+  baseline, incluindo hashes, três Safes, owners, nonces, configuração,
+  signatários, transações e limites de bloco finalizado;
+- um único bundle canônico deriva relatórios distintos para governance,
+  reserve guardian e checkpoint guardian, além de separação e recovery drill;
+- cada configurationHash é recomputado independentemente dos campos do
+  relatório com o typehash Safe de produção;
+- todos os documentos se prendem ao mesmo packageHash, baselineSnapshotHash,
+  afterSnapshotHash e recoveryHash;
+- singleton e fallback Safe 1.4.1 são os pins de produção; guard e modules
+  permanecem vazios; endereços e representação decimal são canônicos;
+- o writer sem argumentos usa caminhos fixos, diretórios 0700, arquivos 0600,
+  lock exclusivo, fsync, rename atômico e recusa substituir conteúdo diferente;
+- o fragmento de configuração é publicado por último e contém os SHAs exatos;
+- o readiness CLI parseia estritamente os seis documentos e o gate exige
+  igualdade semântica entre bundle, arquivos individuais e release config.
+
+ARQUIVOS PRINCIPAIS
+
+- `sdk/safe-control-release-evidence.mjs`
+- `sdk/safe-control-observation.mjs`
+- `scripts/prepare-recoverable-safe-release-evidence.mjs`
+- `scripts/check-recoverable-safe-release-evidence.mjs`
+- `scripts/write-recoverable-safe-release-evidence.sh`
+- `sdk/mainnet-readiness.mjs`
+- `scripts/check-mainnet-readiness.mjs`
+
+VALIDAÇÃO LOCAL
+
+- 14/14 testes focados do validador/bundle Safe passam;
+- 101/101 testes focados de Safe, runbook e readiness passam;
+- lint dos contratos de produção, rebuild Foundry e 208/208 testes Node passam;
+- owner, configurationHash, relatório individual, separação e signatários
+  substituídos rejeitam mesmo após recomputação de hashes internos;
+- o candidato sem evidência real retorna NOT READY sem exceção e inclui
+  bloqueios explícitos para bundle ausente e conteúdo semântico ausente;
+- proveniência passa 169 imports/16 mudanças declaradas, 45 fontes de programas
+  de prova, 7 fontes de carteira/8 arquivos de crate e 997 fontes do laboratório;
+- os gates permanecem esperadamente fechados com 163 bloqueios únicos no
+  closed-mainnet e 174 no real-funds; não há bloqueio de implementação da etapa
+  303, auditoria externa ou garantia impossível de risco zero;
+- nenhum RPC, hardware, assinatura, transação, deploy, fundo, prova ou push foi
+  usado.
+
+LIMITES
+
+Os documentos reais só podem existir depois do deploy e do drill finalizado.
+O flag `production_control_plane_recovery_drill_passed` permanece falso. O
+writer não edita a configuração de release; o fragmento será consumido por um
+materializador completo posterior para evitar qualquer cópia manual.

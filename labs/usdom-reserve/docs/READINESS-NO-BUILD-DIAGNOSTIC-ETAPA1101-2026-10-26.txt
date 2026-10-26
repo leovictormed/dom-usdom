@@ -1,0 +1,36 @@
+USD0M readiness no-build diagnostic — Stage 1101 — 2026-10-26
+
+Scope
+
+The canonical readiness command rebuilds Solidity and, when configured, runs
+the native Rust manifest checker. Those operations were prohibited while the
+workspace build was coordinated elsewhere. Previously this made it impossible
+to obtain a complete diagnostic report without starting Forge/Cargo.
+
+Change
+
+`check-mainnet-readiness.mjs` now accepts the explicit
+`--diagnostic-no-build` suffix. It skips the Forge build and native Cargo
+checker, retains all authority-byte snapshots, Git/Python repository checks,
+pure readiness assessment and fail-closed blockers, and labels the result with
+`usdom-readiness-diagnostic/v1`. It never treats a skipped compiled/native fact
+as satisfied. The normal command and its canonical output are unchanged.
+
+Observed diagnostic
+
+Closed-mainnet diagnosis returned ready=false and 194 blocker facts. The main
+root-cause groups were: release configuration 76, evidence/attestations 40,
+requirements/authorization 36, repository/provenance 9, checkpoint/finality 6,
+operator authorization 5, control plane 4, verifier configuration 4, native
+runtime/attestations 3, and compiled bindings 2. The dominant release group is
+the expected cascade from the deliberately unconfigured release manifest. It
+cannot be honestly removed until public deployment identities, Safe controls,
+limits and canonical build hashes are materialized.
+
+Validation
+
+- pinned Node diagnostic: exit 1, ready=false, blockerCount=194
+- focused Node tests: 10/10 passed
+- git diff --check: passed
+
+No Forge, Cargo, RPC, signing, key generation, deployment, commit or push ran.

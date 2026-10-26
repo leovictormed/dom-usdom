@@ -1,0 +1,20 @@
+Stage 494 — Wallet registration manifest-snapshot binding
+Date: 2026-10-23
+
+The finalized-deposit wallet registration ceremony checked the native runtime
+manifest and its SHA-256 pin at startup, then later passed their original
+paths independently to the TPM keystore and registration binaries after a
+build and human password entry. Rehash checks reduced drift but left a
+check/open pathname window between the shell and each binary.
+
+The ceremony now copies both files through the direct public-file reader into
+its owner-only private temporary directory before validating the pin. The
+fixed input commitment, TPM unlock and wallet registration all consume those
+same snapshots. Replacing, redirecting or removing the original manifest paths
+after startup cannot alter the policy observed by either binary.
+
+`production_wallet_registration_manifest_snapshotted` is a structural fact.
+No compilation, TPM access, network access, funds, mining, commit or push
+occurred while producing this evidence.
+
+Validation: shell syntax and complete operator runbook 71/71; readiness 60/60.

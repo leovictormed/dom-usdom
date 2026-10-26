@@ -1,0 +1,54 @@
+USDOM — supervisão autenticada dos vetores release-validation
+ETAPA 1092 — 2026-10-26
+
+Achados
+=======
+
+Os executores iniciais da ETAPA1091 usavam `-j1`, `--locked` e `--offline`,
+mas ainda não tinham limite de tempo, reserva mínima de disco, teto de log,
+identidade autenticada dos fontes, nem evidência create-once vinculada ao log.
+Além disso, um filtro Cargo incorreto poderia retornar sucesso com zero testes.
+
+Correções
+=========
+
+O supervisor existente agora aceita o manifesto v2, preservando compatibilidade
+com v1. O v2 autentica:
+
+- executável exato e SHA-256, argv, cwd e ambiente;
+- arquivos de entrada relativos com SHA-256 e tamanho máximo, verificados antes
+  e depois da execução;
+- tempo máximo, tamanho máximo do log e reserva mínima de disco;
+- marcadores de saída que precisam ocorrer exatamente uma vez.
+
+O supervisor monitora esses limites durante o processo. Timeout, crescimento do
+log ou cruzamento da reserva de disco enviam TERM ao grupo, aplicam o grace já
+existente e terminam com status 124. Drift de fonte, ausência/duplicação do nome
+exato do teste ou do resumo `1 passed; 0 failed; 0 ignored` convertem um exit 0
+do child em falha 125. Sinais e descendentes continuam impedindo sucesso.
+
+`terminal.json` passou a vincular SHA-256 de `process.log` e `events.jsonl`.
+Ambos são create-once por tentativa, fsyncados e revalidados pelo controlador;
+alteração posterior é recusada.
+
+`prepare-usdom-release-validation-jobs.sh` gera duas identidades independentes
+no supervisor autenticado. Ele usa Cargo/Rustc fixados pelo lock mainnet e liga
+Cargo.toml, Cargo.lock, rust-toolchain, lock da toolchain e os fontes críticos.
+O checkpoint recebe 12 horas; RandomX, 4 horas. Ambos usam 64 MiB de log, reserva
+de 20 GiB, `-j1`, uma thread de teste e target dentro do state root gravável. A
+unit existente mantém CPUWeight=10, MemoryHigh=5,5 GiB, MemoryMax=6,5 GiB,
+TasksMax=256, OOMPolicy=stop e isolamento de rede/dispositivos. Não há timeout
+global da unit capaz de apagar evidência antes do supervisor.
+
+Validação leve
+==============
+
+- suíte Node do supervisor: 10/10 PASS, incluindo v2 success, missing marker,
+  source drift, sinais e descendentes;
+- regressão focal de adulteração do process log: 1/1 PASS;
+- preparação dos dois manifests v2 em HOME temporário: PASS;
+- gate de testes obrigatórios: PASS;
+- `bash -n`, `py_compile` e `git diff --check`: PASS.
+
+Nenhum Cargo/Forge, vetor longo, serviço systemd, prova, rede, deploy, push ou
+fundos foi iniciado. A suíte Cargo do workspace permaneceu intocada.

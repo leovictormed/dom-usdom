@@ -1,0 +1,44 @@
+ETAPA 706 — child-process authority inventory and candidate verifier boundary
+Date: 2026-10-23
+
+Inventory classification
+========================
+Production/release semantic authorities:
+- deployment transaction derivation: bounded canonical byte JSON, empty stderr, fixed Node
+  executable and source/package equality (ETAPA700);
+- native signing checker, native request preparer and aggregate readiness native validation:
+  safely snapshotted/rechecked Cargo, bounded fatal/exact line output, empty stderr
+  (ETAPAS702–704);
+- candidate snapshot verifier: concrete remaining finding corrected in this stage;
+- security-validation tools and four Forge reproducible builders: executable snapshots and
+  post-execution rechecks exist; stdout/stderr are hashed evidence or non-semantic build logs,
+  while artifact files are parsed byte-strict and independently bound;
+- git provenance/readiness/materializers: outputs are purpose-specific textual refs/signature
+  records or bounded NUL/path streams, not JSON child authority.
+
+Local-only/test children:
+- E2E Anvil/prover runners and local fixture generator are non-production test harnesses;
+  their outputs do not authorize release/signing/mainnet actions.
+
+Finding and correction
+======================
+Candidate monitor snapshotReader accepted an operator-supplied absolute verifier path but did
+not snapshot/recheck its identity. Its stdout used Node's tolerant string decoding, stderr was
+ignored and JSON framing was not canonical, even though the result drives burn consistency and
+emergency pause decisions.
+
+Added snapshotExecutablePath with the same owner/mode/link/directory/hash/inode/metadata checks
+as PATH-resolved tools. The monitor snapshots the absolute verifier on first use, invokes its
+resolved path, rechecks it after every execution, rejects any stderr, parses bounded stdout bytes
+with fatal UTF-8/duplicate-key protection and requires exact compact JSON plus one newline.
+The fetched snapshot remains an exclusive 0600 file in a private temporary directory.
+
+Validation
+==========
+Focused stable-executable and structural child-boundary tests pass 5/5. They cover absolute-path
+identity, mutation rejection, non-absolute rejection, resolved execution, post-child recheck,
+bounded Buffer stdout, empty stderr and canonical JSON. Node syntax and diff checks pass.
+The candidate monitor integration/EVM suite and all child processes were deliberately not run.
+
+No heavy build, Cargo, Rust, Solidity, RISC0 proof, RPC, signing, transmission, deployment,
+fund movement, staging, commit or push was performed.

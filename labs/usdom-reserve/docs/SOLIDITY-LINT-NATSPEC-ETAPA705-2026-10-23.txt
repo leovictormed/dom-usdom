@@ -1,0 +1,37 @@
+ETAPA 705 — Solidity strict lint and queue getter NatSpec
+Date: 2026-10-23
+
+Scope
+-----
+Resolve the two remaining unused Solidity lint suppressions and audit the
+stage-694/699 queue getters' public ABI documentation. No Rust, Cargo, Node,
+RISC Zero, deployment, signing, transmission or funds were used.
+
+Finding and correction
+----------------------
+The `incorrect-strict-equality` suppressions immediately before the deposit
+and release balance-delta postconditions no longer matched any diagnostic from
+the current Foundry linter. The exact equality checks remain required security
+postconditions: they reject fee, rebase and dishonest token behavior. Removing
+only the obsolete directives preserves those checks and exposes future lint
+diagnostics rather than masking them.
+
+The queue getters had correct concise notice text, but generated ABI docs did
+not describe every return value or the complete cursor contract. NatSpec now
+documents snapshot generation/count/amount/head/tail; page epoch, cursor,
+maximum, IDs and continuation cursor; structural failure; the absence of
+external calls; and the requirement to pin snapshot and pages to one block.
+
+Validation
+----------
+
+* production contracts with `--report-unused-suppressions -D warnings`: pass;
+* focused getter and 256-entry pagination regressions: 3/3 pass;
+* `forge fmt --check`: pass;
+* `git diff --check`: pass.
+
+Only comments/NatSpec and obsolete lint directives changed in this stage, so
+the stage-699 full Solidity result of 171/171 remains the applicable logic
+baseline; a redundant full run was not required.
+
+No commit or publication was performed.

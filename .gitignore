@@ -66,6 +66,7 @@ testnet/local-deploy/
 sidecar-gpl/
 
 # Internal working log — local only, never published.
+/docs/CONTINUATION-STATE.md
 docs/interop/DOM-INTEROP-IMPLEMENTATION-LOG.md
 
 # Signed ratification packets — local only, never published.
@@ -74,25 +75,3 @@ docs/interop/ratifications/e13-executadas/
 
 # Harness agent worktrees — never part of the tree.
 .claude/worktrees/
-
-# Public snapshot safety
-**/CONTINUATION-STATE.md
-.env
-.env.*
-!.env.example
-!*.env.example
-**/node_modules/
-**/target/
-**/out/
-**/out-fork/
-**/cache/
-**/cache-fork/
-**/broadcast/
-**/results/
-**/results-stage*/
-*.pem
-*.key
-*.p12
-*.pfx
-*.jks
-*.keystore

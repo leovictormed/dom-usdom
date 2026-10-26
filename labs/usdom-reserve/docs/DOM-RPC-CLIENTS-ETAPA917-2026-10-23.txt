@@ -1,0 +1,21 @@
+ETAPA 917 — inventário de clientes RPC DOM/native
+Data: 2026-10-23
+
+Inventário exato
+- 3 clientes operacionais mutáveis: inicialização genesis fechada, submissão de issuance e mineração do primeiro bloco de issuance.
+- 3/3 fixam `127.0.0.1:33372`; nenhum aceita host/porta de input.
+- 3/3 exigem launcher secreto, token de arquivo privado canônico, Bearer somente na mutação, response <=64 KiB, UTF-8 fatal, strict JSON e timeout.
+- 3/3 revalidam arquivos/token antes da ação e zeram buffers secretos no finally.
+- Chamadas são sequências finitas sem retry; máximo estático de 5 requests em cada cliente.
+
+Gap corrigido
+- Genesis e mine faziam double-read de identity antes/depois da mutação; submission lia somente uma vez em cada lado.
+- Submission agora exige duas identidades idênticas antes da admissão e duas idênticas depois, além de preservar chain/genesis entre lados.
+- Os 3 parsers agora aplicam também 10.000 nodes, 4.096 object entries, 4.096 array entries e string <= response budget.
+
+Cleanup e limites
+- Cada request encerra via `req.end`, timeout destrói o socket e erros rejeitam a operação; não há conexão persistente criada pelo client.
+- O token vira string apenas para o header HTTP durante o processo curto; buffers de origem e rereads são zerados. A runtime JS não oferece zeroização garantida de strings imutáveis, mitigada pelo launcher isolado e saída imediata.
+
+Validação
+- Teste estrutural parametrizado cobre os 3 clientes e double-read específico da submission.

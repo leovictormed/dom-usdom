@@ -1,0 +1,43 @@
+USD/DOM stage 432 — Safe-evidence byte binding through release authorization
+Date: 2026-10-22
+
+Finding
+=======
+
+The release-signing validator fully checked the semantic Safe recovery bundle,
+its governance address and ordered owner set. It did not compare the exact
+bundle bytes with the SHA-256 document identity stored in the release evidence.
+An internally valid historical or substituted bundle retaining those public
+identities could therefore reach the Ledger boundary. The final EIP-1271
+materializer also rebuilt the authorization without repeating the full bundle
+validation or retaining that bundle in its shell-level input snapshot.
+
+Correction
+==========
+
+The fixed offline helper now hashes the direct 0600 bundle snapshot and passes
+that identity to the validator. The validator requires the exact release
+evidence document path, exact SHA-256, matching Ethereum chain, complete Safe
+recovery semantics, current release governance and exact ordered owners. It
+also rejects malformed or noncanonical finalized-anchor block fields.
+
+The final authorization materializer reads the same direct Safe artifact,
+repeats the complete request validation before querying finalized EIP-1271
+state, rereads it as part of its fixed input set and keeps a separate byte
+snapshot through every output publication. Deletion and replacement during
+materialization therefore fail closed.
+
+Validation
+==========
+
+- Focused authorization/readiness/operator tests: 115/115 pass.
+- Complete Node regression: 310/310 pass.
+- Production Solidity lint and forced 44-file build pass.
+- JavaScript syntax and shell syntax checks pass.
+- Complete provenance passes for 169 imports, all proof and panic boundaries,
+  and 1,217 source files.
+- Closed-mainnet and real-funds gates remain intentionally closed at 169 and
+  176 blockers respectively; neither contains a stage-432 failure.
+
+No signing, public RPC write, transaction, deployment, funds, mining, commit,
+tag or push occurred.

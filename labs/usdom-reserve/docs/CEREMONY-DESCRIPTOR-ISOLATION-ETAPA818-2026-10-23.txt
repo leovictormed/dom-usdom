@@ -1,0 +1,35 @@
+ETAPA 818 — deployment, Safe and signer descriptor isolation
+Date: 2026-10-23
+
+Finding
+=======
+Deployment, Safe recovery and the three Ledger signing ceremonies sanitized the
+environment but still accepted caller-owned descriptors above stderr. They also
+kept interactive stdin attached after the last consent/device-selection prompt,
+including while raw transactions and signature bundles were validated and
+installed.
+
+Correction
+==========
+The two executors, the release/native shared signer, checkpoint signer, Safe
+recovery signer and both release/native wrappers now close caller-owned fds >2
+before resolving or executing a child. TTY stdin remains available only through
+the final required consent/Ledger-selection prompt. Immediately afterward it is
+replaced by /dev/null before raw/signature validation, installation or publish.
+The executors' later fd 9 is ceremony-owned and intentionally remains open to
+hold the evidence-directory flock; it never carries raw/signature bytes.
+
+Shell authorization/signature variables are not exported. Explicit installer
+redirections continue to carry only their intended immutable draft file.
+
+Validation
+==========
+- Local /proc/fd harness injects fd 9 plus unread consent bytes and proves that
+  an authority child receives neither.
+- Structural checks bind closure before command resolution and stdin revocation
+  after every final prompt, with no later interactive read.
+- Focused descriptor/environment/pinning/durability/cleanup suites: 18/18 pass.
+- bash -n: seven changed entrypoints pass.
+- git diff --check: pass.
+
+No Ledger, RPC, signing, deployment, transmission or fund operation ran.

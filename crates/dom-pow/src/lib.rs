@@ -574,6 +574,13 @@ fn fast_regtest_mining_requested() -> bool {
     )
 }
 
+fn real_regtest_randomx_requested() -> bool {
+    matches!(
+        env::var("DOM_REGTEST_REAL_RANDOMX"),
+        Ok(value) if value == "1" || value.eq_ignore_ascii_case("true")
+    )
+}
+
 fn pow_validation_mode_for_network_inner(
     network_magic: u32,
     test_mode: bool,
@@ -625,6 +632,9 @@ const fn classify_pow_validation_mode(
 /// Fast mining is only available in test builds or when the explicit
 /// `DOM_REGTEST_FAST_MINING=1` override is set on regtest.
 pub fn pow_validation_mode_for_network(network_magic: u32) -> Result<PowValidationMode, DomError> {
+    if network_magic == NETWORK_MAGIC_REGTEST && real_regtest_randomx_requested() {
+        return Ok(PowValidationMode::RandomX);
+    }
     pow_validation_mode_for_network_inner(
         network_magic,
         cfg!(test),

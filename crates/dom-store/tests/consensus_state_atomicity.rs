@@ -122,6 +122,43 @@ fn canonical_consensus_snapshot_cannot_mix_atomic_commits() {
 }
 
 #[test]
+fn selected_metadata_and_consensus_entries_share_one_bounded_snapshot() {
+    let dir = TempDir::new().unwrap();
+    let store = open_test_store(dir.path());
+    store.put_metadata(b"restart/floor", b"external").unwrap();
+    store
+        .commit_block_with_consensus_state(
+            &hash(9),
+            1,
+            b"header-1",
+            b"body-1",
+            &[],
+            &[],
+            &[],
+            &[put(b"consensus/floor", b"canonical")],
+        )
+        .unwrap();
+
+    let (metadata, consensus) = store
+        .read_atomic_state_entries(&[b"restart/floor", b"missing"], &[b"consensus/floor"])
+        .unwrap();
+    assert_eq!(metadata, vec![Some(b"external".to_vec()), None]);
+    assert_eq!(consensus, vec![Some(b"canonical".to_vec())]);
+
+    let too_many = vec![b"key".as_slice(); 17];
+    assert!(store
+        .read_atomic_state_entries(&too_many, &[])
+        .unwrap_err()
+        .to_string()
+        .contains("exceeds key bounds"));
+    assert!(store
+        .read_atomic_state_entries(&[b""], &[])
+        .unwrap_err()
+        .to_string()
+        .contains("exceeds key bounds"));
+}
+
+#[test]
 fn invalid_or_ambiguous_batch_is_rejected_before_block_mutation() {
     let dir = TempDir::new().unwrap();
     let store = open_test_store(dir.path());

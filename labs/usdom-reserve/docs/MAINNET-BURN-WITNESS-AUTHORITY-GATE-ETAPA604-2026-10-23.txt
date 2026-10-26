@@ -1,0 +1,44 @@
+Stage 604 — mainnet burn-witness authority gate (2026-10-23)
+
+Problem confirmed
+
+The current `check:mainnet` report contained 179 blockers. One was
+`requirement_native_burn_state_witness_authorizes_consensus_or_payout`, produced
+because the closed-mainnet gate required that field to be `true` while the
+authoritative requirements ledger correctly kept it `false`.
+
+That was a gate defect, not an unfinished consensus feature. `BurnStateWitness`
+is an intermediate inclusion witness against an independently supplied native
+state root. Its documented security boundary explicitly denies independent DOM
+consensus, fork-choice, finality or Ethereum payout authority. Those properties
+come from the later authenticated block/checkpoint/finalized-proof composition.
+Changing the ledger value to `true` would erase a trust boundary and permit a
+misleading implementation claim.
+
+Correction
+
+- Removed the positive standalone-witness authority claim from the list of
+  closed-mainnet requirements.
+- Added the inverse fail-closed invariant: the value must be exactly `false`.
+  Missing, malformed or `true` values now produce
+  `requirement_native_burn_state_witness_scope_invalid`.
+- Kept the independent finality, recursive checkpoint, verifier, capacity,
+  operational authorization and release-evidence gates unchanged.
+
+Regression and validation
+
+- Added a focused regression proving a fully ready synthetic release passes
+  with the witness marked non-authoritative and fails with the exact scope
+  blocker if that value is changed to `true`.
+- The focused regression passes 1/1.
+- The complete mainnet-readiness suite passes 61/61.
+- The real checked-in `closed-mainnet` gate was run before and after the change:
+  it remains fail-closed and moves from 179 to 178 blockers. The false positive
+  is absent, and no scope blocker appears because the checked-in ledger retains
+  the required `false` value.
+- Node syntax and `git diff --check` pass.
+
+This stage does not assert mainnet readiness. It makes the gate stricter about
+the witness's limited authority while removing one logically impossible
+positive requirement. No RISC Zero proof script, commit, push, deployment,
+signature or funds operation was performed.

@@ -1,0 +1,19 @@
+USDOM — ETAPA 1154 — CICLO DE VIDA DO PROXY PRIVADO
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+Os três executores de implantação de Safes, implantação dos contratos e recuperação de Safes enviavam TERM/KILL a `-$rpc_proxy_pid`, mas o proxy era iniciado como job comum e não recebia um grupo próprio. Em shells sem job control, o grupo negativo não existia; a limpeza podia deixar o proxy com credenciais vivo e bloquear indefinidamente em `wait`.
+
+Implementação
+
+- `setsid` agora é descoberto, autenticado e reatestado como as demais ferramentas críticas nos três executores.
+- O proxy privado inteiro (`timeout` e Node) nasce em uma sessão/grupo próprio cujo PGID é o PID durável registrado.
+- A limpeza testa e encerra o grupo real por TERM, espera limitada e KILL, e só então coleta o líder.
+
+Validação
+
+- Sintaxe Bash e seleção ampla inicial do runbook/Safe/recibo/CREATE2: 91/91.
+- Seleção específica dos dois executores legados, inventário de processos e runbook: 89/89.
+- Diff-check direcionado aprovado.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

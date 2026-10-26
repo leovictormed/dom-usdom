@@ -1,0 +1,6 @@
+ETAPA 857 — invalidacao do estado observado do deposito
+Data: 2026-10-23
+
+O observer mantinha `observed-state-v1` antigo antes de senha, TPM e RPC. O removedor duravel novo prende pai 0700 por descritor, exige alvo direto 0700 do usuario, renomeia para tombstone, faz fsync, remove e sincroniza novamente. O observer o chama antes do terminal/senha/RPC. `registered-state-v1`, fonte persistente, permanece intacto. Nao existe observer private-burn separado no inventario focado.
+
+Validacao: 3/3 testes, sintaxe Bash/Node e diff-check aprovados. Sem build/RPC/operação externa.

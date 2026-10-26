@@ -1,0 +1,19 @@
+USD0M stage 449 - authenticated DOM synchronization attestation
+
+The pre-activation anchor now reads one LMDB snapshot for tip, indices, headers
+and bodies, validates the full canonical ancestry and accumulated work, and
+derives replay/context from the same transaction. This closes the previous
+tip-change TOCTOU/ABA window.
+
+A canonical UDSYNC01 attestation and UDSYNP01 policy bind network, chain, tip
+height/hash, total difficulty, observation window and an ordered allowlist of
+3..16 Noise peer identities. Acceptance requires distinct stable observations,
+freshness and a quorum strictly above two thirds. Verified receipts are written
+atomically and the exporter rejects IBD, missing/stale receipts, policy drift or
+snapshot mismatch.
+
+The current P2P Hello does not carry accumulated difficulty, so live collection
+remains fail-closed until the authenticated protocol extension is implemented.
+Tests pass 4/4 for the exporter and 43/43 for the checkpoint library; the
+minimal no-default-features build passes. No live network, mining, commit, push,
+deployment, signature, transaction or funds were used.

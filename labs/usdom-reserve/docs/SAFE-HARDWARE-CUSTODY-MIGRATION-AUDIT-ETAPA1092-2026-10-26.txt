@@ -1,0 +1,56 @@
+USDOM Stage 1092 — Safe v2 hardware custody migration and recovery gate
+Date: 2026-10-26
+Scope: generated commands and lightweight static tests only; no key access, signing, network, deployment, Forge, Cargo, commit or push
+
+Result
+------
+The command generator now separates software staging identities from active
+Safe identities. `prepare-safe-controls` accepts only the active hardware
+identity file plus a matching nine-signature custody proof bundle. A software
+keystore bundle alone can no longer derive the deployable Safe package through
+the supported ceremony.
+
+Hardware proof ceremony
+-----------------------
+The new `migrate-safe-owners-hardware-secret` phase reads each Ledger address
+twice and requires nine globally distinct addresses. It derives the exact three
+Safe CREATE2 addresses and package hash before signing. Every device signs an
+offline EIP-712 SafeOwnerCustodyProof bound to:
+- Ethereum chain ID 1;
+- its governance/reserveGuardian/checkpointGuardian Safe domain;
+- role and primary/secondary/recovery slot;
+- exact owner address and Safe package hash.
+
+Every signature is locally recovered against its public owner. The preparation
+phase rechecks all nine signatures and all typed-data fields before accepting
+the package. This proves control of the corresponding public keys. It cannot
+cryptographically prove that devices or seed backups are physically independent;
+that remains an operational custody assertion.
+
+Rollback and recovery
+---------------------
+All addresses, target package and signatures are built under a mode-0700
+`/dev/shm` directory. The active identity is published only after every role and
+slot succeeds. Any earlier failure removes candidates and leaves software
+staging identities inactive. The recovery slot of every Safe signs its own
+proof, demonstrating current key possession before deployment.
+
+The native-wallet TPM tooling is not silently reused as an Ethereum signer. It
+does not currently provide the audited secp256k1 EIP-712 interface required for
+Safe owners. Safe custody therefore fails closed to the pinned Ledger path;
+adding TPM-backed Safe owners requires a dedicated signer implementation and
+review.
+
+Limit gate
+----------
+The supported `prepare-safe-controls` command requires both the hardware owner
+identity and its custody proof bundle, rederives the package, checks the package
+hash and verifies every signature. Software staging identities cannot advance
+to deployment or limit materialization through this command.
+
+Checks
+------
+- generator and emitted hardware/preparation programs: bash -n pass;
+- command-generator and pilot DAG suites: 6/6 pass;
+- no unsafe password, private-key, mnemonic or seed argument was introduced;
+- no hardware access or real signature was performed.

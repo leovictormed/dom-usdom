@@ -1,0 +1,20 @@
+CRITICAL DEPENDENCY CLOSURE AUDIT — STAGE 1115 (2026-10-26)
+
+Scope
+- Audited transitive local dependencies of the critical publication entrypoints without regenerating MANIFEST.sha256.
+- Covered static JavaScript imports/re-exports/dynamic literal imports, local Python imports, sourced shell helpers and the Rust/Cargo source of the RISC Zero verify-only executable.
+
+Finding and correction
+- The prior 83-entry inventory named operational entrypoints but did not close their local import graph. A helper could change or be omitted from the explicit critical set while its entrypoint remained listed.
+- Expanded the lab inventory to the complete discovered closure of 133 sources. This includes 49 imported/sourced helpers plus the directly sourced pinned-shell helper identified by the shell audit.
+- Migrated the inventory schema to `usdom-critical-publication-inventory-v2` and added three repository-level source pins for the verify-only receipt executable: its Cargo.toml, library source and binary source. Their exact SHA-256 values are committed inside the lab inventory, which itself is subject to the final source manifest.
+- The checker now resolves every relative JavaScript import to exactly one local file, parses local Python imports with the Python AST, resolves static shell `source`/`.` dependencies, rejects root escapes or ambiguity, and fails if any resolved dependency is absent from `criticalSources`.
+- Repository-level verifier sources are read through the same bounded O_NOFOLLOW publication boundary and must match their inventory SHA-256 pins.
+
+Validation
+- Live inventory closure: PASS, 133 lab sources plus 3 pinned repository sources.
+- Adversarial self-test proves rejection of an omitted JavaScript helper, omitted Python helper and changed externally pinned source.
+- Pinned Node 24.19.0 focused suite: 2/2 PASS.
+- Python and diff integrity checks: PASS.
+
+MANIFEST.sha256 was not regenerated. No network, Cargo, Forge, deploy, signing, funds, commit or push occurred.

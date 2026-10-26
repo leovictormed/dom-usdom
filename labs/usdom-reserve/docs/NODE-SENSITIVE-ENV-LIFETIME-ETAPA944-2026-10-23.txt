@@ -1,0 +1,13 @@
+ETAPA944 — NODE SENSITIVE ENV LIFETIME
+Date: 2026-10-23
+
+Inventory found 119 process.env sites. The largest sensitive inline family was
+seven endpoint-bearing reads: one finalized-deposit source JSON plus three
+Beacon URLs in each of two checkpoint scripts. Other reads are public paths,
+hashes, addresses, HOME/PATH/tool controls, or file paths to owner-only secrets.
+
+Correction: the seven endpoint values are snapshotted once and immediately
+deleted from process.env before parsing/network helpers or any child could
+inherit them. Error exits redact every captured endpoint. Values remain JS
+strings (not reliably zeroizable); lifetime and inheritance are bounded. Test
+1/1, Node syntax and diff-check pass; no RPC/operation executed.

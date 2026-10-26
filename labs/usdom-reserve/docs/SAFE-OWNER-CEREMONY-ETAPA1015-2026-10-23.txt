@@ -1,0 +1,49 @@
+ETAPA 1015 — closed-mainnet Safe owner ceremony — 2026-10-23
+
+Scope
+- Complete first-test owner enrollment, 2-of-3 Safe preparation/deployment,
+  release authorization and loss-of-key recovery rehearsal for one human
+  operator controlling physically independent devices.
+
+Concrete findings and corrections
+- Safe preparation consumed three independent environment variables even after
+  the ceremony wrote one owner-identity record. A shell mismatch could derive a
+  package for identities different from the reviewed durable record.
+- Preparation now requires USDOM_SAFE_OWNER_IDENTITIES, reads the direct 0600
+  file, enforces its exact four-key schema, uses only those three addresses and
+  byte-rechecks the file after every multi-RPC derivation. Individual owner
+  environment variables no longer authorize package construction.
+- The deployment runbook relied on Ledger/provider implicit nonce selection.
+  Each Safe deployment now requires identical latest/pending nonce, passes that
+  nonce explicitly, then reads the finalized transaction and verifies its nonce
+  and sender before continuing. An ambiguous pending transaction stops the
+  ceremony rather than being silently skipped.
+- The runbook previously launched two obsolete per-URL preparations although
+  the implementation already requires catalog-bound multi-RPC consensus. It
+  now materializes/uses the complete catalog and invokes one internally
+  replicated preparation, avoiding a command path that ignored its URL override.
+- A historical ETAPA252 document describing threshold 1 is marked superseded
+  and points to the current mandatory 2-of-3 ceremony.
+
+Security properties
+- Commands require no operator-edited placeholders. They prompt only to switch
+  physical devices and for explicit irreversible authorization. Public owner
+  addresses are read twice from each Ledger and stored owner-only; no seed,
+  mnemonic or private key enters shell arguments, stdout or project files.
+- Three distinct EOAs from independent seeds are required. One human may operate
+  them, but no one key authorizes governance: all Safes remain exact 2-of-3,
+  without module/guard/delegatecall/payment and with pinned Safe identities.
+- Fixed role salt nonces 1/2/3, Ethereum chain 1, factory/singleton/runtime,
+  initializer, threshold and CREATE2 addresses are derived and checked across
+  independent cataloged RPC sources.
+- Recovery rehearsal declares the primary lost, introduces a fourth independent
+  device, requires signatures from the two surviving owners, recovers/sorts
+  both signatures and validates all three swapOwner transactions without
+  allowing the lost key. Broadcast remains separately authorized.
+
+Checks
+- Lightweight Python structural gate: 32/32 assertions passed.
+- git diff --check passed for all ETAPA1015 files.
+- Permanent Node gate: test/node/safe-owner-ceremony.test.mjs.
+- Node/Forge/Cargo were not run; no secrets generated, signatures requested,
+  network used, transaction deployed, push made or funds touched.

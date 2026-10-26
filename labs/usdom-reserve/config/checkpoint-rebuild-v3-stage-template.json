@@ -1,0 +1,26 @@
+{
+  "schema": "usdom-checkpoint-rebuild-v3-stage-template-v1",
+  "materializable": false,
+  "reason": "receipt verifier and aggregator sources exist but their executables are not yet built, validated and pinned",
+  "stages": [
+    {"name":"segment","artifactRoles":["elf","programBinary","imageId","provenance"],"requiredVerifications":["programBinaryDecode","imageIdRecompute","elfProgramPair"]},
+    {"name":"pin-segment","artifactRoles":["outerSource","segmentImageId"],"requiredVerifications":["predecessorHash","sourceImageIdParse"]},
+    {"name":"outer","artifactRoles":["elf","programBinary","imageId","provenance","segmentImageId"],"requiredVerifications":["programBinaryDecode","imageIdRecompute","segmentImageIdParse","journalSchemaParse"]},
+    {"name":"pin-outer","artifactRoles":["burnSource","outerImageId"],"requiredVerifications":["predecessorHash","sourceImageIdParse"]},
+    {"name":"finalized-burn","artifactRoles":["elf","programBinary","imageId","provenance","outerImageId"],"requiredVerifications":["programBinaryDecode","imageIdRecompute","outerImageIdParse","journalSchemaParse"]},
+    {"name":"pin-finalized-burn","artifactRoles":["solidityVerifierSource","burnImageId"],"requiredVerifications":["predecessorHash","solidityImageIdParse"]},
+    {"name":"receipts","artifactRoles":["receiptIndex","receipts","methodImageIds","expectedJournals"],"requiredVerifications":["receiptCryptographicVerify","methodImageIdCompare","journalExactCompare","elfReceiptPair"]},
+    {"name":"gate","artifactRoles":["artifactChainAudit","solidityVerifierSource","allVerificationRecords"],"requiredVerifications":["completeGraphParse","solidityConstantsParse","allRecordsHash"]}
+  ],
+  "availableConcreteCheckers": {
+    "programBinaryDecode": "labs/usdom-reserve/scripts/check-risc0-proof-program-binary.py",
+    "artifactChainParse": "labs/usdom-reserve/scripts/check-checkpoint-v5-artifact-chain-stage1040.py",
+    "journalSourceBoundary": "labs/usdom-reserve/scripts/check-risc0-journal-canonicality.py",
+    "receiptSourceBoundary": "labs/usdom-reserve/scripts/check-risc0-receipt-chain.py",
+    "receiptCryptographicVerifierSource": "crates/dom-usdom-checkpoint-proof-host/src/bin/verify-rebuild-receipt.rs",
+    "receiptAggregatorSource": "labs/usdom-reserve/scripts/aggregate-checkpoint-rebuild-receipts.py"
+  },
+  "receiptCryptographicVerifierExecutable": null,
+  "receiptAggregatorExecutable": null,
+  "receiptVerificationOrder": ["producer","verify-only-per-receipt","aggregate"]
+}

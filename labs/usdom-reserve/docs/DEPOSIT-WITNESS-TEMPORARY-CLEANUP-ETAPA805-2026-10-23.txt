@@ -1,0 +1,21 @@
+ETAPA805 — DEPOSIT WITNESS TEMPORARY CLEANUP
+Date: 2026-10-23
+
+Finding and correction
+----------------------
+The finalized-deposit witness builder snapshots the private deposit source and
+native runtime inputs in `/dev/shm`, but removed them with PATH-resolved `rm`
+under one ambiguous EXIT/HUP/INT/TERM trap.
+
+Node is now pinned by path, owner, link count, mode, trusted directory, inode
+metadata and SHA-256. Snapshot readers use that pinned path with identity
+rechecks. Cleanup disarms traps, erases the complete snapshot tree through
+pinned Node, preserves EXIT status and maps HUP/INT/TERM to 129/130/143. Cargo
+runs in the foreground; there is no detached or unawaited child.
+
+Validation
+----------
+Witness, observation, registration, recovery, TPM and burn cleanup suites pass
+12/12 and reject PATH deletion or ambiguous traps. `bash -n` and `git diff
+--check` pass. No witness generation, Cargo, RPC, issuance or funds operation
+ran.

@@ -1,0 +1,26 @@
+USD + DOM — compromisso canônico dos conjuntos da prova de checkpoint
+Etapa 327 — 2026-10-22
+
+Implementação
+
+Foi adicionado um codificador único para os compromissos de conjuntos usados no
+relatório de capacidade. O domínio inclui versão, camada e tipo do artefato. O
+preimage inclui quantidade, índice de cada item, tamanho u64 big-endian e seu
+SHA-256 bruto. A ordem, o tamanho e a camada passam a fazer parte do hash.
+
+O esquema é `sha256-domain-length-indexed-artifact-set-v1`. São aceitas apenas
+as seis camadas conhecidas, os tipos `input`, `journal` e `receipt`, entre um e
+4.096 itens, hashes canônicos não nulos e tamanhos positivos limitados. Itens de
+journal devem ter exatamente 32 bytes.
+
+Validação
+
+- vetor conhecido fixado para dois journals RandomX;
+- troca de ordem altera o compromisso;
+- troca da camada ou do tipo altera o compromisso;
+- tamanho incorreto de journal, domínio desconhecido e registros não canônicos
+  são rejeitados;
+- testes do relatório e claims passam 6/6.
+
+O materializador deverá usar exclusivamente esta função. O esquema declarado no
+relatório é validado e não pode ser substituído por concatenação ambígua.

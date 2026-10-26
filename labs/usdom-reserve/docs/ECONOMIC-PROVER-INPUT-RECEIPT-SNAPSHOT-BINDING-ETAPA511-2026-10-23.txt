@@ -1,0 +1,28 @@
+USD0M stage 511 — economic prover input and receipt snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The economic prover reopened live plan/source indexes, private package inputs,
+chunk and block transitions, witnesses, six guest artifacts and resumable
+receipts throughout a long multi-job proving run. This allowed different jobs
+or recursive block composition to observe different filesystem generations.
+
+Correction
+==========
+
+The wrapper captures all three indexes, derives bounded canonical source and
+receipt catalogs, captures every private source and existing resumable receipt,
+and copies both pinned guest artifact triplets into one owner-only layout
+replica. The complete proving run operates there. Verified chunk and block
+receipts are durably installed before the final economic receipt-set index, so
+an interrupted handoff cannot present a mixed receipt generation as complete.
+
+Evidence and scope
+==================
+
+The operator-runbook suite asserts isolated capture, both guest families,
+durable receipt publication and index-last ordering. Readiness requires
+`production_economic_prover_inputs_and_receipts_snapshotted=true`. This stage
+does not execute proofs, access a network, sign, deploy or move funds.

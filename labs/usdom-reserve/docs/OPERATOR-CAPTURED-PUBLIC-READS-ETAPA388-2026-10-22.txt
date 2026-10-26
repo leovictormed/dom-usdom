@@ -1,0 +1,26 @@
+USDOM hardening stage 388 — operator captured public reads
+
+Date: 2026-10-22
+
+The seven closed-mainnet operator commands for finalized-deposit registration
+and observation, checkpoint recovery, private-burn preparation and submission,
+TPM keystore operation and TPM authority bootstrap no longer carry local
+pathname-inspect/open/read implementations.
+
+Owner-only files continue through the shared zeroizing private reader. Public
+witnesses, indexes and node identity artifacts now go through the shared
+descriptor-captured reader, which retains and authenticates the exact parent,
+opens the child with openat/no-follow, enforces owner/single-link/bounds, and
+reauthenticates all identities after reading. The explicit allow-empty variant
+is available only for formats that intentionally permit an empty payload; the
+TPM owner authorization remains the only operational use.
+
+Validation completed:
+
+- shared captured-reader test passes 1/1, including distinct empty rejection
+  and explicit allow-empty acceptance;
+- all seven affected operator binaries compile together, offline and with one
+  build job, under native-usdom-v4-poc plus usdom-wallet-operator;
+- the final combined check is warning-free.
+
+The detached capacity proof was not restarted and retains its pre-stage binary.

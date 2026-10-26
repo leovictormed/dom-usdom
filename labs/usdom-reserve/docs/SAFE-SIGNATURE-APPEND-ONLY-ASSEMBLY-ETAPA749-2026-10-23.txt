@@ -1,0 +1,21 @@
+ETAPA 749 — append-only Safe signature assembly
+Date: 2026-10-23
+
+Finding
+=======
+Safe-recovery signing used PATH-resolved `mv` to replace the accumulating signature JSON after
+each Ledger result. This subprocess controlled the exact signatures delivered to final transaction
+assembly and could substitute or redirect the authority artifact.
+
+Correction
+==========
+Every accumulator version now has a unique private filename derived from signer index and role.
+Pinned JQ writes the next version create-once in practice, mode is set owner-only, and the shell
+advances its reference without renaming or replacing prior versions. External `mv` is absent.
+
+Validation
+==========
+Signing and durable-writer suites pass 10/10. Structural tests require versioned accumulator paths
+and reject PATH-resolved `mv`. Shell syntax and diff checks pass. No ceremony or signing ran.
+
+No Ledger, RPC, commit, push, deploy, transmission or funds were used.

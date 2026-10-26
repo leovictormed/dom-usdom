@@ -1,0 +1,25 @@
+ETAPA785 — PRIVATE BURN TEMPORARY CLEANUP
+Date: 2026-10-23
+
+Finding
+-------
+The closed-mainnet private-burn submitter holds recovery/state passwords, TPM
+material, RPC bearer data and raw burn state in an owner-only `/dev/shm` tree.
+Its trap deleted that tree with PATH-resolved `find` and shared one handler for
+EXIT/HUP/INT/TERM. Substitution could retain secrets, and signal exit status was
+not explicit.
+
+Correction
+----------
+Node is now pinned by absolute path, owner, hardlink count, mode, trusted parent
+directory, inode metadata and SHA-256; its other authority calls were migrated
+to that path with identity rechecks. Cleanup disarms traps, unsets the in-memory
+password, removes the complete tree through pinned Node `fs.rmSync`, preserves
+normal EXIT status, and maps HUP/INT/TERM to 129/130/143. The flow launches no
+background child requiring a separate wait protocol.
+
+Validation
+----------
+Two structural/adversarial tests pass and reject PATH deletion or ambiguous
+signal traps. Shell syntax and `git diff --check` pass. No TPM, wallet, RPC,
+signature, burn submission or funds operation ran.

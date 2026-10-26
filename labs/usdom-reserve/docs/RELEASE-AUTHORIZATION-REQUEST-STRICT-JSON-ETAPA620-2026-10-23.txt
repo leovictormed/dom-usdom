@@ -1,0 +1,40 @@
+DOM / USDOM — pedido privado de autorização com JSON estrito
+Etapa 620 — 2026-10-23
+
+Escopo e catálogo
+=================
+
+Foram catalogadas 27 invocações do instalador privado imutável em 24 scripts.
+Elas se dividem em documentos JSON (pedidos, observações, relatórios,
+identidade, intenção e evidência), textos deliberadamente não JSON (SHA-256 e
+assinaturas hex) e publicadores genéricos de conjuntos já validados. Leitores
+tipados como `readRuntimeSecretJsonFile` já usam `parseStrictJson`; o leitor
+privado genérico permanece byte-oriented porque também serve hashes,
+assinaturas e provas. Scripts RISC0 ficaram fora das alterações.
+
+Fronteira migrada
+=================
+
+`release-authorization-request.json` ainda atravessava o modo binário após uma
+checagem `jq`. Esse documento contém o digest e typed data que serão mostrados
+aos dois Ledger signers e depois transformados em autorização de deploy e
+fundos reais. Aceitar duplicate keys ou UTF-8 inválido nessa fronteira poderia
+fazer ferramentas discordarem sobre o objeto que o digest autoriza.
+
+`write-release-authorization-request.sh` agora instala esse pedido com
+`install-private-file-immutable-stdin.mjs --json`. O modo exige UTF-8 fatal e
+JSON sem chaves duplicadas antes de qualquer acesso ao alvo, mantendo
+create-once/identical, owner 0600, single-link, O_NOFOLLOW, inode estável e
+fsync. Arquivos `.sha256` e assinaturas continuam no modo binário correto.
+
+Validação
+=========
+
+O teste comportamental primeiro instala JSON válido, tenta substituí-lo por um
+objeto com `chainId` duplicado via escape Unicode e confirma que a tentativa
+falha sem alterar um byte do alvo existente. A estrutura do writer confirma
+uso obrigatório de `--json`. Testes focados passaram 2/2; Node/shell syntax e
+diff integrity passaram.
+
+Nenhum Rust/Cargo, staging, commit, push, deploy, assinatura, transmissão ou
+uso de fundos foi executado.

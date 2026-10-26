@@ -1,0 +1,20 @@
+USDOM hardening stage 386 — commit-last multi-file publication
+
+Date: 2026-10-22
+
+PrivateDirectoryAuthority multi-file replacement now requires an explicit,
+nonempty set of commit filenames. It validates that every declared commit is a
+canonical, unique member of the staged generation, publishes every data file
+first, and publishes commit files last in the caller-declared dependency order.
+
+The finalized-burn source, checkpoint source, finalized-deposit witness,
+checkpoint source set and RandomX statement set exporters declare their JSON
+indexes as commit files. The checkpoint source set declares its checkpoint
+index followed by the economic index because the latter hash-binds the former.
+
+Publication still fails closed: if a data file is installed and the later
+commit rename fails, cleanup removes every generation target. A focused test
+forces exactly that condition by blocking the commit target with a directory;
+the already-published data target is removed and the pre-existing blocker is
+preserved. The authority tests pass 3/3, and all five migrated exporter bins
+compile together.

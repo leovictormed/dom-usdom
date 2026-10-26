@@ -1,0 +1,40 @@
+USD + DOM — diretório fixado no gravador durável
+Etapa 355 — 2026-10-22
+
+Problema corrigido
+
+O gravador durável comum já rejeitava symlink no diretório e no destino, usava
+temporário aleatório, fsync e verificação posterior. Entretanto, ele validava o
+diretório pelo nome e depois criava o temporário usando novamente esse nome.
+Um processo concorrente do mesmo usuário poderia tentar renomear o diretório e
+substituí-lo entre essas operações, redirecionando a criação para outro inode.
+
+Correção
+
+- o diretório pai é aberto uma única vez com O_DIRECTORY e O_NOFOLLOW;
+- o caminho `/proc/self/fd/<dirfd>` fixa o inode usado tanto para criar o
+  temporário quanto para executar o rename final;
+- proprietário, inode, modo e caminho canônico do diretório nomeado são
+  comparados novamente depois do fsync;
+- o destino instalado ainda é relido pelo descritor direto e comparado byte a
+  byte;
+- um temporário só é removido na limpeza quando esta invocação conseguiu criá-lo,
+  evitando apagar um arquivo concorrente que tenha vencido O_EXCL;
+- ELOOP e ENOTDIR são normalizados como rejeição explícita de diretório indireto.
+
+Validação
+
+- teste estrutural exige criação e rename relativos ao descritor e impede o
+  retorno ao rename pelo caminho absoluto;
+- campanha focada de gravador, leitor, coletores e fluxos operacionais: 68/68;
+- lint de produção, build Solidity forçado de 44 arquivos e regressão Node
+  completa: 296/296 aprovados;
+- proveniência completa aprovada para 169 arquivos importados, 45 fontes dos
+  programas de prova e manifesto determinístico de 1.129 fontes;
+- o gate permanece deliberadamente fechado em 161 fatos derivados da release
+  ainda não configurada, sem bloqueio de integridade de fonte, auditoria externa
+  ou garantia impossível de risco zero.
+
+A prova RISC Zero ativa permaneceu em execução e não foi reiniciada. Nenhuma
+chave, assinatura, publicação, implantação, mineração, transmissão ou
+movimentação de fundos foi realizada.

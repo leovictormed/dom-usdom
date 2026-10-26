@@ -1,0 +1,30 @@
+ETAPA 727 — signing ceremony Node executable pinning
+Date: 2026-10-23
+
+Finding
+=======
+Release/native attestation, checkpoint ratification and Safe-recovery signing pinned Cast but
+still resolved Node through PATH for snapshot readers, signing-request/network/envelope/plan
+validators, transaction assembly and signed-artifact installation. Replacement after TTY consent
+could change what was validated or persisted around Ledger signatures.
+
+Correction
+==========
+All three ceremonies now resolve Node once to a canonical absolute path and require a regular
+executable with one link, safe root/current ownership, non-group/world-writable file and parent
+directory. Device/inode/size/mtime/ctime and SHA-256 are snapshotted. Every Node invocation uses
+the captured path.
+
+Node rechecks accompany Cast immediately after each exact TTY phrase and before Ledger address/
+sign operations. Both are rechecked again before installing final signature bundles and assembled
+Safe transactions. Existing private/public snapshots, network re-observation, request/digest and
+signer validation, create-new/immutable installation and no-transmission controls remain.
+
+Validation
+==========
+Combined structural suite passes 3/3 across the shared release/native, checkpoint and Safe signing
+scripts. Node syntax, `bash -n` for all three and git diff checks pass. No ceremony, child, RPC,
+Ledger, Cast or operational Node command ran.
+
+No signing, transmission, deployment, funds, build, Cargo, Rust, Solidity, RISC0 proof, staging,
+commit, tag, publication or push was performed.

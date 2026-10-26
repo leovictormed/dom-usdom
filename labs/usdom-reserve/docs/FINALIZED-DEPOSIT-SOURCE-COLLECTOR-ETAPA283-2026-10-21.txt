@@ -1,0 +1,45 @@
+USD + DOM — coletor de fonte do depósito Ethereum finalizado
+Etapa 283 — 2026-10-21
+
+Resultado
+
+Foi implementado o coletor somente leitura que prepara os dados públicos para
+construir a testemunha UDOMDPW1 do primeiro depósito fechado. Ele não confia
+nesses dados como autorização de emissão: a autenticação BLS/SSZ, cabeçalhos,
+tries de recibos/estado, código e evento ainda será repetida pelo verificador
+Rust e, depois, por cada nó DOM.
+
+O coletor exige a release exata autorizada, o manifesto nativo preso por
+SHA-256 e um hash público de transação em arquivo fixo. As URLs HTTPS dos RPCs
+de execução e consenso são lidas sem eco em terminal interativo, mantidas em
+memória e não aparecem na fonte persistida.
+
+Dados coletados e vínculos antecipados
+
+- chain ID 1 e transação bem-sucedida destinada à reserva exata;
+- exatamente um evento Deposited canônico, no valor fixo de 1 USDT;
+- compromisso BN254 canônico e identidades públicas do depósito;
+- bootstrap e até 128 atualizações do cliente leve a partir do checkpoint do
+  manifesto, mais a atualização de finalidade;
+- sequência de até 256 cabeçalhos de execução, do bloco do depósito ao bloco
+  autenticado pela finalidade Beacon;
+- conjunto completo e ordenado de recibos do bloco, com fallback por transação;
+- prova eth_getProof da conta da reserva e bytecode cujo keccak256 coincide;
+- hashes SHA-256 da release e do manifesto nativo.
+
+As respostas HTTP são lidas em fluxo com limite anterior à alocação completa.
+JSON duplicado, respostas excessivas, gaps/reordenação, divergência Beacon/RPC,
+provas ou endereços trocados e receipt sets incompletos são rejeitados.
+
+Comando fixo
+
+  npm run --silent collect:finalized-deposit-source
+
+O comando não assina, não transmite, não minera e não move fundos. Ele falha
+fechado até existirem a release, o manifesto e uma transação real finalizada.
+Por isso, o requisito de vetor real permanece false.
+
+Evidência local
+
+- finalized-deposit-source.test.mjs: 3/3;
+- execução focada com política operacional: 32/32.

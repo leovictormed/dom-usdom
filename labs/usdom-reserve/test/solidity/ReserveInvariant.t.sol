@@ -145,6 +145,10 @@ contract ReserveHandler is TestBase {
         if (observedRequests[b.requestId]) assertTrue(reserve.paidRequests(b.requestId));
     }
 
+    function prune(uint16 maximum) external {
+        try reserve.pruneExpired(uint256(maximum) % reserve.MAX_PRUNE_BATCH() + 1) {} catch {}
+    }
+
     function unauthorized(uint8 action) external {
         bytes memory data;
         if (action % 4 == 0) data = abi.encodeCall(reserve.pause, ());
@@ -231,7 +235,7 @@ contract USDOMReserveInvariantTest is ReserveFixture {
     }
 
     function targetSelectors() public view returns (FuzzSelector[] memory result) {
-        bytes4[] memory selectors = new bytes4[](15);
+        bytes4[] memory selectors = new bytes4[](16);
         selectors[0] = handler.deposit.selector;
         selectors[1] = handler.queue.selector;
         selectors[2] = handler.execute.selector;
@@ -247,11 +251,13 @@ contract USDOMReserveInvariantTest is ReserveFixture {
         selectors[12] = handler.unauthorized.selector;
         selectors[13] = handler.alteredSignature.selector;
         selectors[14] = handler.hostileTokenDeposit.selector;
+        selectors[15] = handler.prune.selector;
         result = new FuzzSelector[](1);
         result[0] = FuzzSelector(address(handler), selectors);
     }
 
     function invariantAccountingMatchesIndependentLedger() public view {
+        assertEq(uint256(reserve.tokenCodeHash()), uint256(address(token).codehash));
         assertEq(reserve.totalDeposited(), handler.ghostDeposited());
         assertEq(reserve.totalReleased(), handler.ghostPaid());
         assertEq(token.balanceOf(BOB), handler.ghostPaid());

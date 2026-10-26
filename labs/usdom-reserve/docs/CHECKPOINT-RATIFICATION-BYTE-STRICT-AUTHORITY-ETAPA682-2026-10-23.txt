@@ -1,0 +1,29 @@
+ETAPA 682 — RATIFICAÇÃO BOOTSTRAP COM JSON DE BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O checker pré-assinatura da ratificação bootstrap do checkpoint decodificava
+cinco documentos com Buffer.toString('utf8'): request privado, release evidence,
+release config, consenso Ethereum de checkpoint e fatos nativos preactivation.
+Esses documentos formam o digest de governança e o finalized anchor ratificado.
+
+Correção
+O helper único `parse` agora usa parseStrictJsonBytes. Os quatro inputBytes e o
+requestBytes passam por ele, garantindo UTF-8 fatal e rejeição de chaves
+duplicadas antes da validação do digest.
+
+Garantias preservadas
+- máximo 4 MiB/profundidade 64;
+- modos exatos: release/config 0644, consenso/fatos/request 0600;
+- caminhos fixos para os quatro inputs de protocolo;
+- SHA-256 calculado sobre bytes originais e entregue ao validador;
+- vínculo entre request, release, consenso, fatos, finalized anchor e digest;
+- request e quatro inputs são relidos e comparados byte a byte contra TOCTOU;
+- o checker não assina, transmite ou concede autorização por si só.
+
+Testes leves
+- chave duplicada por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige bytes strict em todos os cinco documentos e os rechecks;
+- 2/2 testes em <0,1 s; node --check e git diff --check passaram.
+
+Nenhum RPC, Cargo/Rust, Solidity, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

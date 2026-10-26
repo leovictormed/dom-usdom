@@ -1,0 +1,40 @@
+Stage 571 — RPC internal-error redaction and capability status
+Date: 2026-10-23
+
+Scope
+
+- Audited error serialization at the untrusted DOM HTTP RPC boundary and the
+  wallet client's handling of optional scan capabilities.
+
+Finding
+
+- `RpcError::Internal` serialized its complete inner diagnostic into JSON.
+  Those strings can originate in storage, decoding and runtime backends and
+  may contain implementation details unsuitable for a remote response.
+- One existing regression explicitly pinned this behavior as an unresolved
+  information-leak finding.
+- Unsupported chain scan/identity capabilities were represented as internal
+  failures, forcing a wallet to inspect a 500 response body for the phrase
+  `not supported`.
+
+Correction
+
+- Internal errors retain their detailed server-side log but return the fixed
+  body `internal server error`. The alternate transaction-submission response
+  shape uses the same redaction function.
+- Added a distinct `Unsupported` error class mapped to HTTP 501. Default chain
+  scan, full scan, identity and ancestry methods use it.
+- The wallet recognizes 501 without interpreting diagnostic text and retains a
+  bounded legacy 500 check only for compatibility with older nodes.
+
+Validation
+
+- Updated RPC tests require the fixed generic body for both wallet and scan
+  internal failures and require the original diagnostic to be absent.
+- Updated wallet mock coverage exercises HTTP 501 capability detection.
+- Formatting, structural assertions and `git diff --check` pass. Cargo tests
+  remain queued until the active RandomX proof releases the shared build and
+  memory budget.
+
+No commit, push, deployment, signature, broadcast, mining or funds action was
+performed.

@@ -1,0 +1,30 @@
+ETAPA 720 — mainnet deployment Cast executable pinning
+Date: 2026-10-23
+
+Finding
+=======
+The mainnet deployment executor checked Cast availability, then resolved it through PATH for
+Ledger identity/signing, all RPC observations, raw transaction construction, broadcast and code
+hashing. A replacement after either TTY authorization could redirect signing or transmission.
+
+Correction
+==========
+The executor now resolves Cast once to a canonical absolute path. It requires a regular executable
+with one hard link, safe root/current ownership, non-group/world-writable file and parent directory,
+then snapshots device/inode/size/mtime/ctime and SHA-256.
+
+The bounded RPC wrapper and every wallet/keccak operation invoke the captured path. Cast is
+rechecked before initial Ledger identity, immediately after signing consent, immediately before
+Ledger raw-transaction creation, immediately after transmission consent and immediately before
+`rpc publish`. Existing package/observation snapshots, multi-RPC finalized/pending nonce, CREATE
+address/code, fee/balance, raw validation, re-derived transaction, evidence snapshots and exact
+transaction-hash checks remain.
+
+Validation
+==========
+Structural test passes 1/1 and requires absolute Cast in the bounded wrapper plus post-consent,
+pre-sign and pre-broadcast rechecks. `bash -n`, Node syntax and git diff checks pass. The executor,
+Cast, Ledger and RPC were not run.
+
+No child/RPC/Ledger action, signing, transmission, deployment, funds, build, Cargo, Rust,
+Solidity, RISC0 proof, staging, commit, tag, publication or push was performed.

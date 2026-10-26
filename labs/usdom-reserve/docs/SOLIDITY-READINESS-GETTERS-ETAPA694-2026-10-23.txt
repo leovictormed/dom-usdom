@@ -1,0 +1,82 @@
+Stage 694 — Solidity readiness getters and bounded queue pagination (2026-10-23)
+
+Scope
+
+Audited every public/explicit view used by off-chain readiness and incident
+monitoring in the proof reserve and checkpoint registry: ABI types and tuple
+layout, mapping semantics, derived accounting, external-health probes, temporal
+values, consistency across calls and queue enumeration. Assessed whether added
+observability would create authority or expose private DOM data.
+
+Confirmed observability defect and correction
+
+The active proof-reserve queue exposed count/amount/head/tail as separate public
+getters and individual linked-list records, but no atomic header or bounded
+enumeration API. A collector either inferred membership from events or issued an
+unbounded number of ad hoc mapping calls, and could accidentally combine fields
+from different blocks or cross an emergency queue-generation reset.
+
+Two read-only APIs were added:
+
+- `pendingQueueSnapshot()` returns `(queueEpoch, pendingCount,
+  totalPendingAmount, firstPendingBurn, lastPendingBurn)` in one atomic `eth_call`.
+- `pendingBurnPage(expectedQueueEpoch, cursor, maximum)` traverses at most 256
+  active entries. Zero cursor starts at the head; the returned `nextCursor` is
+  the first ID of the next page and zero means completion. Zero/over-limit page
+  sizes, stale generations and unknown/stale cursors fail closed.
+
+The pagination loop is bounded by the existing `MAX_PRUNE_BATCH`; it performs no
+external call and changes no state. Consumers must pin the snapshot and every
+page to the same finalized block tag. The expected epoch catches emergency reset
+mixups, while a removed cursor fails instead of silently returning a partial or
+wrong generation.
+
+Getter semantics inventory
+
+- `deposits`, pending records, permanent proved burn/request bindings and paid
+  flags have ABI layouts matching their declared Solidity fields. They expose
+  only Ethereum-public deposit/payout identities, amounts and commitments.
+- `outstanding = totalDeposited - totalReleased` and `unreservedCollateral =
+  outstanding - totalPendingAmount` are canonical credited-accounting views;
+  donations and raw token balance are intentionally excluded. Invariants make
+  subtraction safe or fail closed if storage were inconsistent.
+- `availableOutflow` is a timestamp-relative preview, not a reservation. Its
+  value is canonical only for the queried block. `resumeReadyAt`, `queueEpoch`
+  and `paused` define the corresponding control generation/state.
+- `controlPlaneHealthy` and registry `guardianControlHealthy` are bounded live
+  probes of immutable code/config/Safe policy. A false value is a readiness
+  failure, not authority to mutate or recover.
+- Registry `candidate()` is one atomic fixed tuple containing statement, height,
+  ready time, block/state/context/work and confirmation fields. Latest checkpoint
+  fields and count are fixed-width public state; collectors must query one block
+  tag when joining them.
+- Verifier adapters expose immutable chain, codehash, selector, ImageID and
+  configuration commitments. Digest/hash helpers are deterministic and bind the
+  calling deployment/chain where required.
+
+Privacy and authority
+
+The new APIs expose only burn IDs and queue aggregates already available through
+public mappings and events. They do not return proof bytes, note data, openings,
+DOM sender history, private recipient history or secrets. They are `view`, make
+no mutable external calls, and grant no queue, payout, pause or governance power.
+
+Material regression
+
+`testQueueSnapshotAndPaginationAreBoundedAndGenerationConsistent` proves an
+atomic three-entry header, deterministic 2+1 pagination order/cursors, exact
+amount/count/head/tail, rejection of page sizes 0 and 257, rejection of unknown
+cursor, stale-epoch rejection after emergency pause, and the new empty header for
+the incremented generation.
+
+Validation
+
+- new focused getter/pagination regression: 1/1 passed;
+- complete Solidity campaign: 170/170 passed across 14 suites, including all
+  invariant campaigns;
+- `forge lint` completed on all five production contracts with only previously
+  inventoried prototype heuristic warnings;
+- `forge fmt --check` and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit, push,
+deployment, signature, transmission or funds operation was performed.

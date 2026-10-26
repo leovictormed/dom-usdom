@@ -1,0 +1,52 @@
+Stage 1079 — deployment/constructor/bytecode/storage boundary audit
+Date: 2026-10-26
+
+Scope
+- Statically audited ProofReserve and Registry constructor ABI ordering,
+  configuration commitments, immutable runtime patching, initcode derivation,
+  nonce-bound deployment identity, cold-start getters and storage assumptions
+  after permanent debt and graceful-shutdown state additions.
+- No Forge or Cargo command was executed in this stage.
+
+Findings
+1. The postdeployment preflight still declared DOMCheckpointRegistry.candidate()
+   with the retired 11-field ABI. The live getter has 13 tuple fields because
+   totalIssued and totalBurned precede confirmationHeight. ABI decoding could
+   consequently assign economic totals to later fields and invalidate the
+   intended empty-candidate attestation.
+2. Cold-start observation omitted new terminal/economic state: reserve
+   depositsClosed and gracefullyShutdown; registry gracefullyShutdown,
+   latestIssuanceClosed, current/previous issued and burned totals; and candidate
+   issued/burned totals plus candidateIssuanceClosed.
+3. The source-verified reserve artifact KAT was stale after the audited contract
+   hardening. The checked artifact was newer than and source-matched the current
+   contract, but the expected runtime hash, initcode hash and sizes still named
+   the prior build.
+4. Permanent proved-debt storage occupies a new full word without altering the
+   packed closure bit offset. Under the current declaration order totalDeposited
+   is slot 11, while the queueEpoch/paused/depositsClosed word is slot 18 and
+   depositsClosed remains bit 72. Any future issuance-closure manifest must use
+   those release-specific slots and the exact runtime hash.
+
+Corrections
+- Updated the Registry candidate ABI to all 13 fields and cold-start observation
+  to collect and reject nonzero/nonfalse economic, closure and terminal state.
+- Updated exact observation schemas and negative mutation tests for every new
+  field.
+- Updated the source-verified reserve runtime/initcode KAT to the current exact
+  artifact: runtime hash 38b6c842...6d970, runtime size 22150, initcode hash
+  f7cb8613...b538f and initcode size 29712. Added ABI assertions for permanent
+  debt and terminal getters.
+- Added static regressions binding both Solidity Config orders to the SDK tuple
+  encoders, documenting/deriving the closure slots and rejecting CREATE2
+  substitution. Deployment remains four dependency-ordered CREATE transactions
+  from reviewed nonce identities; configuration and initcode hashes bind every
+  constructor argument.
+
+Evidence
+- Focused constructor/storage/preflight/runtime suite: 15/15 passed.
+- Broader deployment/preflight/RPC/package suite: 36/36 passed after KAT repair.
+- Deployment executor and identity materializer bash syntax checks passed.
+- Diff integrity passed.
+
+No commit, push, deploy, signature, broadcast or funds operation occurred.

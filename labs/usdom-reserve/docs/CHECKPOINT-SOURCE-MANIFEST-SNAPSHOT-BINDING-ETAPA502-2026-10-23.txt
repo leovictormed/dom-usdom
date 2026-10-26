@@ -1,0 +1,18 @@
+Stage 502 — Checkpoint-source manifest snapshot
+Date: 2026-10-23
+
+The canonical checkpoint-source exporter validated the native runtime manifest
+and pin, then invoked Cargo. After compilation, the exporter binary reopened
+the original paths, leaving a shell-to-binary check/open window for the runtime
+policy.
+
+The command now copies both files through the direct public-file reader into a
+private temporary directory before validating the pin. The exporter consumes
+only those snapshots. Cargo is no longer exec-replaced, allowing the temporary
+directory to be removed after completion.
+
+`production_checkpoint_source_manifest_snapshotted` is a structural fact. No
+compilation, source export, network access, funds, mining, commit or push
+occurred while producing this evidence.
+
+Validation: shell syntax and complete operator runbook 71/71; readiness 60/60.

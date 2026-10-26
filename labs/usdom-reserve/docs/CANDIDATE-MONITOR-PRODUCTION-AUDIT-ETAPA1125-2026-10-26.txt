@@ -1,0 +1,45 @@
+CANDIDATE MONITOR PRODUCTION AUDIT — STAGE 1125 — 2026-10-26
+
+Scope
+-----
+Adversarial review of restart/crash behavior, event overlap and duplication,
+reorganizations, source disagreement, resource bounds, rate limiting and
+pause/continue classification. No network, signature, deployment, Cargo, Forge
+or publication action was performed.
+
+Implemented controls
+--------------------
+* Ethereum logs are fetched in 512-block pages. A cycle is limited to 256 pages
+  and 10,000 events per event family. Removed, out-of-range, malformed,
+  duplicated or non-canonically ordered logs fail closed, including duplicates
+  crossing page boundaries.
+* Withdrawal queue, certificate and release identities cannot repeat. Verified
+  private views and records use exact schemas and globally unique request IDs.
+* Two to five distinct source IDs are required. Source timeout and cycle
+  interval have bounded policies. Calls made before the next interval return
+  `throttled`, never `healthy`.
+* Durable state, private/Ethereum checkpoints and incident records use exact
+  schemas. Restart bindings are canonicalized through the strict JSON parser;
+  unexpected or corrupted state causes an operational pause.
+* Guardian/persistence/source failures expose fixed diagnostic categories and
+  cannot be mistaken for a successful pause or a healthy cycle.
+* Active-key installation lookup now uses the same bounded, paged, canonical
+  event validation as withdrawal history.
+
+Validation
+----------
+Pinned Node syntax validation passed. Pure candidate-monitor regressions passed
+3/3. Focused EVM batches passed before the concurrently generated `out/`
+artifacts were removed (prior batches: 6/6, 5/5 and 4/4; the latest affected
+batch passed 7/9 and both expectation/schema failures were corrected). A final
+EVM rerun is pending artifact regeneration by the coordinated Forge owner; this
+audit did not run Forge.
+
+Remaining production limits
+---------------------------
+The monitor deliberately fails closed once more than 131,072 Ethereum blocks
+must be scanned. A durable incremental event cursor is therefore still required
+for long-lived production operation. Ethereum reads currently use one pinned
+provider rather than two independently checked RPCs. An orphaned lock after
+SIGKILL also needs supervised operator recovery. These limits cannot produce a
+healthy result, but they can stop monitoring and availability.

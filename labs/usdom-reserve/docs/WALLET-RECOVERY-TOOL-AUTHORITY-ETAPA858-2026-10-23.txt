@@ -1,0 +1,10 @@
+ETAPA858 — WALLET RECOVERY TOOL AUTHORITY
+Date: 2026-10-23
+
+Receiving-wallet preparation and recovery drill used partially pinned Node and
+bare Cargo. Both now bound Node/Cargo to 1..512 MiB, canonical safe parent
+identity and post-hash/final rechecks. Builds use `$CARGO_BIN` only with checks
+immediately before/after; secret cleanup authenticates Node before deletion.
+
+Focused wallet cleanup/recovery/descriptor tests pass 7/7; Bash syntax and diff
+checks pass. No build, wallet recovery, TPM, RPC, funds, commit or push ran.

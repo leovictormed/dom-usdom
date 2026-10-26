@@ -1,0 +1,6 @@
+ETAPA 756 — Checkpoint outer prover TOCTOU closure
+Date: 2026-10-23
+
+The future outer runner now pins/rechecks Cargo/Node/JQ/cp/env, rebuilds its job/statement/chain package with the verify-only planner and requires byte-identical job authority. Its final manifest binds source, RandomX, economic and segment job/receipt catalogs, policy/source files, all selected inner receipts, both segment and outer ELF/BIN/IID triples, statement/chain payloads and resumed outer receipt immediately before proof. The prior valid completion index remains throughout proving and is removed only after a complete new private output exists; receipt is installed first and new index last. Bare Node publication was also removed.
+
+Validation: structural/adversarial/liveness tests 3/3, bash -n and diff-check pass. No Cargo, proof, active build, RPC, commit or push.

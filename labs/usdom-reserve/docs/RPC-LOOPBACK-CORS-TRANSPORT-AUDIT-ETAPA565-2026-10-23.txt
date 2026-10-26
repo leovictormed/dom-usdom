@@ -1,0 +1,56 @@
+Stage 565 — RPC loopback transport and browser-origin boundary
+Date: 2026-10-23
+
+Scope
+
+- Audited the production DOM RPC bind path, standalone configuration, bearer
+  transport, browser CORS surface, closed-Mainnet mining capability and native
+  USDOM issuance/transfer/burn/history routes.
+- This stage made no deployment, signature, broadcast, mining or funds action.
+
+Finding and correction
+
+1. The `dom-node` executable already required an explicit RPC enablement, an
+   owner-only token file and a loopback address. The lower-level `dom-rpc`
+   library still accepted a public-interface listener, however. An embedder or
+   later startup path could therefore expose the reusable bearer credential
+   over native cleartext HTTP without passing through the executable's guard.
+2. `dom-rpc::bind` now rejects every non-loopback IPv4 or IPv6 address. Every
+   `serve*` entrypoint also revalidates the actual address of its already-bound
+   listener before token initialization and the accept loop, so constructing a
+   Tokio listener directly cannot bypass the invariant. Remote administration must use an
+   independently authenticated TLS tunnel/proxy whose backend is the loopback
+   listener; forwarded headers remain untrusted and do not affect rate-limit or
+   shutdown identity.
+3. CORS was globally permissive for GET, POST and the Authorization header.
+   CORS is now attached only to the already-public confirmed-chain GET router,
+   advertises only GET and does not allow the Authorization header. Wallet,
+   shutdown, closed-Mainnet mining and every private USDOM route emit no
+   cross-origin permission.
+4. Successful bearer-authenticated responses now carry `Cache-Control:
+   no-store`, covering wallet state and private USDOM scan results as well as
+   mutating operations.
+
+Preserved behavior
+
+- Mainnet, testnet and regtest RPC remain opt-in and usable on both IPv4 and
+  IPv6 loopback.
+- Public confirmed-chain GET endpoints remain browser-readable.
+- Closed-Mainnet and USDOM operations remain available through the exact
+  authenticated loopback client used by the operational runbook.
+
+Validation
+
+- Added Rust regressions for IPv4/IPv6 loopback acceptance, wildcard/public-IP
+  refusal at both `bind` and an independently pre-bound `serve` listener,
+  public-only CORS, absence of CORS on authenticated routes and `no-store` on
+  authenticated responses.
+- `rustfmt` on both modified sources, structural assertions and
+  `git diff --check` pass. Cargo execution is queued until the active RandomX
+  proof releases the shared compiler/memory budget.
+
+Result
+
+The production RPC cannot be directly exposed as bearer-authenticated
+cleartext HTTP, and browser-origin permission no longer crosses from public
+chain reads into authenticated administration or private USDOM operations.

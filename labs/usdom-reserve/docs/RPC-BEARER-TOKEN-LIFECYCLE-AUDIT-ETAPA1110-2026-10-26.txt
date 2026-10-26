@@ -1,0 +1,31 @@
+USDOM — auditoria adversarial do bearer token RPC (Etapa 1110)
+Data: 2026-10-26
+
+Achados e correções
+- O claim por rename era seguro contra overwrite normal, mas duas inicializações
+  podiam observar o arquivo vazio e disputar o ciclo completo. Foi introduzido
+  lock estável separado, 0600, owner-only, nlink=1, com identidade pós-open e
+  flock exclusivo envolvendo leitura, reparo e criação.
+- O diretório pai é criado 0700 e revalidado como diretório direto, proprietário
+  do euid, sem acesso de grupo/outros e com identidade estável após open.
+- Uma queda após mover o arquivo para tombstone podia deixar o caminho principal
+  ausente. A inicialização agora procura exatamente um artifact com nome canônico,
+  valida tipo/owner/mode/nlink e restaura material não vazio antes de criar.
+- Tombstone vazio é removido e sincronizado; múltiplos, nome malformado, conflito
+  entre token vivo e tombstone não vazio, symlink ou hardlink falham fechados.
+- Se persistir a substituição falhar, o único exemplar movido não é mais apagado:
+  ele é restaurado quando o caminho está ausente, ou preservado para recuperação.
+- Conteúdo e inode do token são fsyncados, bem como a entrada do diretório após
+  criação, restauração ou limpeza.
+- Token configurado explicitamente continua sem fallback: inválido é zeroizado e
+  rejeitado; válido move a alocação para o wrapper ZeroizeOnDrop sem logar o valor.
+
+Regressões adicionadas
+- Duas threads reparando o mesmo vazio convergem no mesmo token persistido.
+- Recovery de tombstone vazio e não vazio, conflito com token vivo e rejeição de
+  symlink/hardlink do lock de ciclo, diretório indireto ou não privado.
+
+Verificação
+- `rustfmt` direto e `git diff --check` passaram.
+- Cargo não foi executado porque o coordenador mantém um teste focado ativo.
+- Sem rede, Forge, assinatura, deploy, commit ou push.

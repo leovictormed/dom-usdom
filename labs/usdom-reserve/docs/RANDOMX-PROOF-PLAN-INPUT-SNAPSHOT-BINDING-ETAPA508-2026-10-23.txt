@@ -1,0 +1,27 @@
+USD0M stage 508 — RandomX proof-plan input snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The RandomX proof planner checked only the live statement-set index before
+`cargo run`. Its host reopened that index, every statement and all three RISC
+Zero guest artifacts after Cargo compilation, permitting a mixed input view.
+
+Correction
+==========
+
+The wrapper captures the index, derives a bounded unique canonical statement
+catalog, and captures every statement into an owner-only replica of the fixed
+laboratory layout. It also copies ELF, packaged program and ImageID into that
+replica; the host's existing hard-coded SHA-256 pins reject any copy-time
+substitution. Planning runs from the replica. Its single canonical job index is
+then captured and atomically installed at the production evidence path.
+
+Evidence and scope
+==================
+
+The operator-runbook suite asserts private capture, replicated working root,
+all three artifact names and durable publication. Readiness requires
+`production_randomx_proof_plan_inputs_snapshotted=true`. No proof generation,
+network access, signing, deployment or funds operation occurs in this stage.

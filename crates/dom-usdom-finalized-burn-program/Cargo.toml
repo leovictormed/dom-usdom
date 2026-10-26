@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 dom-core.workspace = true
+dom-usdom-checkpoint-statement = { path = "../dom-usdom-checkpoint-statement" }
 dom-usdom-privacy = { path = "../dom-usdom-privacy" }
 dom-usdom-state = { path = "../dom-usdom-state" }
 sha3 = { version = "0.10", default-features = false, features = ["std"] }
@@ -26,4 +27,3 @@ serde_json = "=1.0.151"
 sha2 = "=0.9.9"
 tree_hash = { path = "../dom-ethereum-tree-hash" }
 usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", features = ["unsafe-test-oracle"] }
-

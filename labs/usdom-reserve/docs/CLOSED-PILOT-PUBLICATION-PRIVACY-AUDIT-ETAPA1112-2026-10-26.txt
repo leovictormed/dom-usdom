@@ -1,0 +1,30 @@
+USDOM — privacidade de publicação do piloto fechado (Etapa 1112)
+Data: 2026-10-26
+
+Política aplicada
+- Pacotes e evidências operacionais completos continuam somente na árvore privada
+  excluída do manifesto público.
+- Um artefato público pode conter identidade da fase de depósito ou da fase de
+  resgate, nunca ambas. Assim nenhum arquivo cria uma associação adicional entre
+  depositId/funder/receiving commitment e burnId/requestId/recipient.
+- Witness, private witness, rho, nullifier secreto, memo plaintext e transação
+  assinada bruta são sempre proibidos em artefato público.
+- Hash de witness e compromissos opacos podem ser publicados quando necessários,
+  pois não carregam o preimage privado.
+
+Correções
+- O resultado público do gate financeiro deixou de incluir depositId, burnId e
+  requestId juntos. Ele expõe somente status de conservação e 1_000_000 unidades.
+- O retorno do validador transversal também foi reduzido a fatos financeiros sem
+  identificadores cruzados, diminuindo risco de uso acidental por outro relatório.
+- Novo checker audita JSON público direto e limitado, rejeita material secreto,
+  raw transaction e coexistência de identidades das duas fases.
+- O checker possui self-test e integra o gate de provenance; seus fontes estão no
+  inventário crítico. Evidence/out/results/cache continuam excluídos por diretório.
+
+Verificação
+- Node pinado: 5/5 testes focais passaram.
+- Self-test de privacidade passou.
+- Inventário público: 83 fontes críticas diretas, únicas e vinculadas.
+- Node syntax e `git diff --check` passaram.
+- Sem Cargo, Forge, rede, assinatura, deploy, commit ou push.

@@ -1,0 +1,41 @@
+USDⓄM RESERVE — DETERMINISTIC MAINNET PREFLIGHT MATERIALIZATION (STAGE 419)
+Date: 2026-10-22
+
+Finding
+
+The runbook generated predeployment and cold-start reports in `/tmp` and then
+required a later manual, hash-addressed incorporation into release
+configuration. That gap could bind the wrong report, enable an unsupported fact
+by hand, or leave the source and evidence files inconsistent after a crash.
+
+Correction
+
+- Added fixed predeployment and cold-start materializer commands.
+- Each command reads one direct owner-only 0600 report from its fixed path,
+  rejects duplicate-key/resource-ambiguous JSON, and independently recomputes
+  the complete preflight against the current release and pinned RISC Zero
+  identity.
+- Only an exact zero-blocker report for the requested phase is accepted.
+- The report is installed create-only under `evidence/`; an existing different
+  inode or content fails closed.
+- Release evidence receives the recomputed SHA-256 document reference and only
+  the corresponding production-requirement fact changes to true.
+- A directory lock, input snapshots, atomic durable writes and idempotent
+  recovery make partial completion resumable without silently replacing
+  evidence.
+- The runbook stages failed observations temporarily and installs the final
+  private input only after the checker succeeds, so a failed attempt cannot
+  consume the create-only authority path.
+- No materializer contains RPC, signing, broadcast or fund-moving capability.
+
+Validation
+
+- focused preflight/operator regressions: 71/71 passed;
+- all 37 runbook Bash blocks parse;
+- complete Node regression: 307/307 passed.
+- source-integrity manifest: 1,203/1,203 files passed;
+- imported provenance: 169 files, including 16 explicit modifications, passed;
+- repository whitespace checks passed.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

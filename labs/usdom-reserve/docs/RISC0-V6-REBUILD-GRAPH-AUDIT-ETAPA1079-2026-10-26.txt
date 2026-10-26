@@ -1,0 +1,45 @@
+RISC Zero V6 rebuild graph audit — Stage 1079 — 2026-10-26
+
+Scope
+Audited the current segment -> outer -> finalized-burn rebuild graph, its
+compile-time ImageID pins, Cargo feature split, V6/V4 journal schemas and the
+canonical outer input bound. No guest compilation, proof, deploy, push or funds
+were used.
+
+Concrete findings and corrections
+1. The former orchestrator built segment, outer and finalized-burn before a
+   single late propagation stage. A changed segment ImageID could therefore
+   leave outer compiled against the previous segment; the same flaw existed
+   between outer and finalized-burn.
+2. Orchestrator schema V3 now requires the interleaved order:
+   segment, pin-segment, outer, pin-outer, finalized-burn,
+   pin-finalized-burn, receipts, gate.
+3. Every stage must consume all outputs of its immediate predecessor in exact
+   order. Output paths are single-writer. The orchestrator hashes every input,
+   exposes the canonical authenticated digest map to the pinned stage command,
+   and rejects any input replacement or mutation after the command. This closes
+   the orchestration-level substitution/TOCTOU window; the pin commands remain
+   responsible for invoking the existing ProgramBinary `--verify` operation and
+   writing their binding record before the consumer build.
+4. The old 1,622,892-byte outer bound was stale. Canonical Rust leaves derive
+   a 2,320-byte UDCSTN04 transition and `12 + 720 * 2320 = 1,670,412` bytes.
+   The Rust regression and boundary checker now use 1,670,412. Stage 1040
+   independently derives the value from the Rust wire-format constants and
+   fails if production requirements drift.
+
+Checks
+- Python syntax checks passed for both modified gates.
+- A disposable Git fixture executed all eight V3 stages successfully and
+  authenticated every predecessor edge.
+- Stage 1040 audit executes and remains correctly fail-closed on seven stale
+  checked-in provenance fields pending the real authenticated rebuild.
+- `git diff --check` passed.
+- The JavaScript regression was updated, but the Node executable is currently
+  absent from PATH; no heavy build was started to compensate.
+
+Remaining blocker
+The current binaries/provenance are historical V5/V2 artifacts. The next
+technical action is the isolated V6/V4 rebuild using a reviewed V3 production
+manifest whose three pin stages run the packager verifier and publish exact
+consumer binding records. Positive segment, outer and finalized-burn receipts
+must then be generated and checked by the final gate.

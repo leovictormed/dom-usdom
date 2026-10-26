@@ -1,0 +1,48 @@
+ETAPA1025 — generated closed-mainnet phase DAG audit
+Date: 2026-10-23
+
+Concrete defects fixed
+----------------------
+1. `prepare-deployment` invoked the production deployment builder without the
+   required identity-observation path and SHA-256. A clean generated phase
+   therefore always failed. The common phase context now fixes the canonical
+   observation path; the deployment phase requires the file and derives its
+   exact SHA-256 immediately before invoking the builder.
+2. The checklist treated any nonempty path as READY. Foreign, stale, malformed,
+   linked or wrong-mode data could appear complete. It is replaced by an
+   executable semantic DAG checker.
+
+DAG enforcement
+---------------
+- owner identities: regular single-link mode-0600 file, strict JSON, exact
+  schema, three canonical distinct addresses;
+- Safe package: cannot precede identities; chain 1, threshold 2, exact owner
+  set and role order must bind to the identity producer. Offline validation
+  deliberately reports `bound-to-owners-awaiting-baseline`, not verified;
+- Safe baseline: cannot precede the package and must pass the existing complete
+  package hash, snapshot hash, role/configuration and canonical validation;
+- deployment identity: passes its existing observation hash, RPC consensus,
+  CREATE plan, release-before/after and current release-config validation;
+- deployment package: cannot precede identity, passes canonical package/CREATE
+  validation and binds the exact identity file SHA-256, observation hash and
+  current release-config SHA-256;
+- predeployment and cold-start attestations are never accepted by existence.
+  They remain `deferred-to-readiness`, whose existing checker validates them.
+
+Rerun behavior
+--------------
+Owner enrollment revalidates the existing artifact. Safe/deployment builders
+write a temporary candidate and byte-compare it with an existing artifact;
+they install only when absent. A changed producer input therefore fails closed
+instead of silently retaining or replacing stale state.
+
+Validation
+----------
+- Pinned Node syntax check passed for the new DAG checker.
+- Pinned Node executable generator test passed 1/1.
+- The checker ran locally with no artifacts and reported each missing input;
+  it did not claim readiness.
+- Generator Bash syntax and focused diff-check passed.
+
+No network, hardware, signing, deployment, broadcast, push or funds operation
+was performed.

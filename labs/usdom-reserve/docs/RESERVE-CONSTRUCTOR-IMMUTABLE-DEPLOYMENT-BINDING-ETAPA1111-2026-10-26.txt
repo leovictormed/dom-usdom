@@ -1,0 +1,34 @@
+RESERVE CONSTRUCTOR / IMMUTABLE / DEPLOYMENT BINDING — ETAPA 1111
+Date: 2026-10-26
+Scope: local derivation and release gates only. No network, signing, deployment, funds, Cargo, commit, or push.
+
+RESULT
+The reserve deployment path now proves the complete relation from the exact constructor tuple through all immutable patch locations to the runtime hash committed in the unsigned deployment package. Existing execution controls then require byte-identical finalized runtime from every configured RPC and the same committed hash before evidence is persisted.
+
+CHANGES
+- `deriveReserveInitcodeHash` now rejects constructor ABI drift. The artifact must expose exactly one Config tuple with all 11 fields in Solidity order and with exact address/bytes32/uint64 types.
+- Runtime derivation now requires every immutable compiler placeholder to be exactly 32 zero bytes before patching. This rejects stale or prepatched artifacts.
+- Every location is checked for safe integer offset, 32-byte length, runtime bounds, and overlap before writing. The patched bytes are read back and compared to the exact encoded word.
+- A deterministic immutable patch manifest records immutable name, release-config field, Solidity type, exact 32-byte encoded value, and sorted offsets. Its keccak256 commitment is returned with the runtime binding.
+- Address words are left-zero-padded, bytes32 words remain exact, and uint64 words are big-endian ABI integers with 24 leading zero bytes. The regression inspects every patched runtime slice and every one of the 11 constructor words independently.
+- The current canonical reserve has 23 immutable declarations represented by 68 non-overlapping compiler locations. Deployment preparation rejects any other count or a missing manifest commitment before building the unsigned package.
+
+PACKAGE AND POSTDEPLOYMENT CHAIN
+- `prepare-mainnet-deployment.mjs` derives initcode and patched runtime from the same source-verified artifact and release config, checks both against the reviewed release hashes, and places that exact initcode/runtime hash pair in the reserve transaction.
+- `buildMainnetDeploymentPackage` recomputes keccak256(initcode), binds it to the approved artifact and predicted CREATE address, and retains the patched runtime hash.
+- `execute-mainnet-deployment.sh` already requires all configured RPCs to return byte-identical nonempty finalized runtime, verifies its keccak256 against the package, repeats the check after receipt/finality stabilization, and repeats it at the final all-source barrier. The audit found no single-RPC acceptance path.
+
+NEGATIVE REGRESSIONS
+The focused suite now rejects:
+- overlapping immutable offsets;
+- nonzero compiler placeholders;
+- offsets with wrong size or outside runtime bounds;
+- constructor tuple reorder/type drift;
+- malformed address, bytes32, and uint64 values;
+- stale source bytes, linked creation bytecode, compiler setting drift, release/config hash divergence, package substitution, dependency/nonce/address substitution, and partial-generation substitution.
+
+VALIDATION
+- Focused Node tests: 14/14 passed.
+- Node syntax checks for derivation and deployment materializer: passed.
+- Shell syntax for deployment executor: passed.
+- `git diff --check`: passed.

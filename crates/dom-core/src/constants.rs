@@ -365,9 +365,14 @@ pub const fn required_block_version(height: u64) -> u32 {
 /// depending on the Mainnet activation height.
 pub const fn required_block_version_for_network(network_magic: u32, height: u64) -> u32 {
     let activation_height = match network_magic {
+        NETWORK_MAGIC_MAINNET => MAINNET_V3_ACTIVATION_HEIGHT,
         NETWORK_MAGIC_TESTNET => TESTNET_V3_ACTIVATION_HEIGHT,
         NETWORK_MAGIC_REGTEST => REGTEST_V3_ACTIVATION_HEIGHT,
-        _ => MAINNET_V3_ACTIVATION_HEIGHT,
+        // Callers that need a validation result must reject an unknown magic
+        // before consulting this selector.  Returning an impossible reserved
+        // sentinel keeps construction helpers from silently inheriting Mainnet's
+        // version schedule if an unchecked magic ever reaches them.
+        _ => return u32::MAX,
     };
     if height >= activation_height {
         BLOCK_VERSION_V3

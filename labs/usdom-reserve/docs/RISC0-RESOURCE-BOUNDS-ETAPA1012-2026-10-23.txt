@@ -1,0 +1,25 @@
+ETAPA1012 — RISC Zero host/guest resource-exhaustion audit
+Date: 2026-10-23
+
+Scope
+Finalized-burn, checkpoint segment/outer, RandomX and economic RISC0 guests/hosts; allocation before decode, receipt decoding, recursion/nesting, counts, length arithmetic and trailing input.
+
+Result
+No concrete remotely exploitable unbounded allocation or decompression-bomb path was found. A missing cross-component structural gate was added.
+
+Evidence
+- Every guest reads lengths as u32/usize, checks nonzero protocol maxima before Vec allocation, then passes bytes to canonical decoders.
+- UDFINL04, segment private input, policy/opening, outer chain, economic witnesses and statements have absolute byte limits. Dynamic offsets use checked_add/checked_mul; declared component sizes and counts are checked before capacity allocation; parsers require exact final cursor/length and canonical re-encoding.
+- Segment count and block/job/receipt counts are bounded by protocol maxima (720 blocks and the much smaller recursive segment policy), and receipt indexes must equal rebuilt plans. Recursion is fixed topology: per-block -> segment -> one outer -> one burn, rather than attacker-selected nesting.
+- All host receipt decoders first cap file bytes, then use bincode fixed integers, reject_trailing_bytes and with_limit. Receipt kind is restricted to the expected Succinct/Groth16 variant, journal is exactly 32 bytes and verification uses the pinned ImageID.
+- Extra bytes after a guest's host codec stream are not an authorization input: production hosts build the stream from canonical bounded components, while each relation parser consumes its complete inner frame. An alternate prover adding unused private transport bytes obtains the same existential relation and cannot change the journal, ImageID or accepted Solidity statement.
+- JSON indexes are captured with byte ceilings before serde and all authoritative counts/files are reconciled with a rebuilt canonical plan. They are local authenticated job metadata, not remotely supplied consensus messages.
+
+Permanent gate
+scripts/check-risc0-resource-bounds.py locks pre-allocation maxima, checked length arithmetic, exact framing, bincode limits/trailing rejection and job/receipt count ceilings across all production hosts/guests.
+
+Validation
+PASS check-risc0-resource-bounds.py
+PASS python3 -m py_compile check-risc0-resource-bounds.py
+PASS git diff --check for gate/report/continuations.
+No Cargo, Forge, proof generation, network, push, deploy, signing, broadcast or funds operation occurred.

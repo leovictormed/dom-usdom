@@ -1,0 +1,19 @@
+Stage 498 — TPM authority bootstrap manifest snapshot
+Date: 2026-10-23
+
+The TPM authority bootstrap ceremony validated the native runtime manifest and
+pin before compilation and recovery/owner authorization entry, then passed the
+original paths to the TPM keystore and authority bootstrap binaries. Rehash
+checks did not eliminate the shell-to-binary check/open window.
+
+The ceremony now copies both files through the direct public-file reader into
+its owner-only private temporary directory before pin validation. The fixed
+input commitment, TPM keystore unlock and authority provisioning all consume
+these exact snapshots. Source path replacement after startup cannot change the
+runtime policy bound to the new TPM authority.
+
+`production_tpm_authority_bootstrap_manifest_snapshotted` is a structural fact.
+No compilation, TPM access, authority provisioning, funds, mining, commit or
+push occurred while producing this evidence.
+
+Validation: shell syntax and complete operator runbook 71/71; readiness 60/60.

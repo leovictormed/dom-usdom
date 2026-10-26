@@ -1,0 +1,48 @@
+Remaining RISC Zero artifact-consumer audit — stage 584
+Date: 2026-10-23
+
+Scope
+=====
+
+Audited the remaining JavaScript capacity/release runners, materializers,
+health snapshots and submission adapters that read RISC Zero receipt, proof,
+seal or index artifacts after stages 577 and 581.
+
+Concrete finding and correction
+===============================
+
+The finalized-burn capacity runner copied a source receipt into a durable
+snapshot but retained its complete Buffer in the source-record map for the
+remainder of the run. Its proof-artifact check later used `Promise.all` to read
+the succinct and Groth16 receipts simultaneously, with a generic 512 MiB
+ceiling for each. A near-limit artifact set could therefore multiply resident
+memory on the constrained proof host even though the Rust decoders accept only
+256 MiB for these two receipt kinds.
+
+The runner now:
+
+- stores only source path, snapshot path, SHA-256, exact size and type-specific
+  maximum after durable snapshot installation;
+- rereads each snapshot just in time, with exact size and SHA-256 validation;
+- uses 1 MiB for the receipt index and 256 MiB for the succinct receipt;
+- reads succinct, index, Groth16, seal and proof index sequentially;
+- reduces each large receipt immediately to SHA-256 and length and drops its
+  Buffer reference before reading the next large artifact; and
+- continues to bind exact schemas, paths, ImageID, statement/journal, verifier
+  parameters, selector, execution flags, receipt hashes/sizes and the 260-byte
+  EVM seal before isolated-EVM verification.
+
+Other audited consumers already use bounded direct-file reads, strict JSON
+with depth/duplicate-key controls, immutable snapshot pairs or bounded total
+tree copies. No further concrete receipt-boundary defect was established in
+those paths.
+
+Validation
+==========
+
+- Finalized-burn capacity-runner suite: 6/6 passed.
+- Updated a stale structural assertion to require the fatal UTF-8 decoder that
+  replaced direct `Buffer.concat` parsing in stage 573.
+- Node syntax, five boundary assertions and `git diff --check` passed.
+- Heavy Cargo/Foundry tests remain queued until the active proof releases
+  memory. No proof result, release fact or external operation was produced.

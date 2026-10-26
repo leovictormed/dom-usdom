@@ -1,0 +1,32 @@
+ETAPA763 — closed finalized deployment fee-anchor schema
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+The persisted signing fee anchor contained only finalized block number/hash and
+was reread through jq without a duplicate-key-safe closed schema. It did not
+record the base-fee projection or ceremony context that authorized the signed
+fee caps.
+
+The exact twelve-key v1 anchor now binds role/index, mainnet chain, package,
+identity observation document/hash, finalized block number/hash, maximum base
+fee across sources, audited gas limit and resulting max fee. Its shared
+validator requires canonical uint64 block quantity, nonzero hashes, canonical
+bounded decimals and independently recomputes twelve worst-case 12.5% base-fee
+growth steps plus the fixed priority fee.
+
+Writer validates before create-once install. Current rerun and every predecessor
+recovery snapshot use the same private bounded fatal-UTF-8/duplicate-safe exact
+validator, reconcile role/package/observation and byte-recheck around RPC work.
+
+Verification
+============
+
+- Valid projected fee anchor passes.
+- Extra/missing/duplicate-safe schema, version/type/index/context, quantity,
+  decimal and projected-fee mutations fail.
+- Focused Node tests: 16/16 passed.
+- Bash syntax and `git diff --check`: passed.
+
+No real RPC, signature, deployment, funds action, commit or push occurred.

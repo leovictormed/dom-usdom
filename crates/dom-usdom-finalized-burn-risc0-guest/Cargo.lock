@@ -3521,6 +3521,7 @@ name = "dom-usdom-finalized-burn-program"
 version = "0.2.0"
 dependencies = [
  "dom-core",
+ "dom-usdom-checkpoint-statement",
  "dom-usdom-privacy",
  "dom-usdom-state",
  "hex",

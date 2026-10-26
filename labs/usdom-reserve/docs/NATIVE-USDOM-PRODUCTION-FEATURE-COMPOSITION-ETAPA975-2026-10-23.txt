@@ -1,0 +1,23 @@
+ETAPA975 — NATIVE USDOM PRODUCTION FEATURE COMPOSITION
+Date: 2026-10-23
+
+Audited the production node, chain, state, wallet, Ethereum-finality and four
+RISC0 proof-host manifests plus the closed-mainnet node build ceremony. Cargo
+resolver v2 prevents ordinary dev-dependencies from entering a package-scoped
+normal build, and both unsafe oracle crates independently compile-error in an
+optimized build. The proof hosts already use default-features=false plus
+disable-dev-mode on RISC0.
+
+One composition drift gap remained: core production crates relied on Cargo's
+implicit empty default set, and the node ceremony did not pass
+--no-default-features. A later harmless-looking default could therefore enter
+the mainnet binary without changing the reviewed command. Node, chain, state,
+wallet and finality manifests now declare default=[] explicitly; the mainnet
+build is package/bin scoped and passes --no-default-features with the one exact
+native-usdom-v4-poc feature.
+
+A permanent 3-part gate rejects unsafe-test-oracle outside feature declaration
+or dev-dependency sections, requires empty defaults throughout the production
+graph, requires disable-dev-mode in all four proof hosts, and rejects workspace
+or all-target builds in the node ceremony. Gate 3/3, bash syntax and diff-check
+passed. No Cargo build, proof or external operation was run.

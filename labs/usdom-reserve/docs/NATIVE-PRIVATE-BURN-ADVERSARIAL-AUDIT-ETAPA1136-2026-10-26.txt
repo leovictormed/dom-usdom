@@ -1,0 +1,51 @@
+NATIVE PRIVATE BURN — ADVERSARIAL AUDIT, STAGE 1136
+Date: 2026-10-26
+
+Scope
+-----
+TPM keystore provisioning, TPM authority bootstrap, private-burn preparation,
+authenticated loopback submission, identifier bindings and the finalized-burn
+proof handoff. This was a source/static audit only: no Cargo, TPM, Ledger, node,
+network, signing, mining, deployment or funds were used.
+
+Security properties confirmed
+-----------------------------
+- Burn ID is derived from the exact nullifiers, Ethereum recipient, amount and
+  deadline. The consensus transition rederives it.
+- Request ID uses a cryptographic RNG, excludes zero/burn-ID/existing pending
+  values, and consensus rejects request-ID replay.
+- Nullifiers bind chain, owner secret and note commitment; the proof payload
+  binds nullifiers and the exact burn record.
+- The prepared state binds its manifest, finalized deposit witness, proving key,
+  wallet snapshot generation/seal, transition, payload hash and exact one-USD
+  burn. TPM generations 2 -> 3 -> 4 durably separate observe, prepare and submit.
+- Submission is restricted to authenticated literal loopback and produces only a
+  queued DOM candidate. It does not mine or broadcast to Ethereum. A later proof
+  source requires a finalized DOM checkpoint, so a queued/reorganized candidate
+  cannot itself authorize Ethereum payout.
+
+Findings corrected
+------------------
+1. Private-burn preparation and TPM keystore provisioning inherited arbitrary
+   caller file descriptors and loader/debug/proxy/toolchain environment. Both
+   now close caller descriptors before resolving children and clear those
+   ambient variables before any credential-bearing child runs.
+2. Preparation used one ambiguous cleanup trap for EXIT/HUP/INT/TERM. It now
+   preserves explicit signal exit status and disables traps before erasing its
+   private /dev/shm directory.
+3. Preparation/provisioning left the interactive terminal on stdin after secret
+   entry. Stdin is now revoked before credential-bearing binaries run.
+4. Only the top prepared-state directory mode was checked. Preparation and
+   submission now walk every entry and reject symlinks, hard-linked files,
+   special files, foreign ownership and group/other permissions.
+5. The submit wrapper trusted process success without independently checking the
+   durable receipt. It now requires a direct owner-only 0600 receipt, validates
+   its manifest/TPM generation/transition/candidate/endpoint/result claims, and
+   binds transition and payload SHA-256 to the prepared index and payload bytes.
+
+Verification
+------------
+- Bash syntax passes for provision, bootstrap, prepare and submit scripts.
+- Focused identifier, cargo-boundary, secret-cleanup, executable-boundary, TPM
+  lifecycle and descriptor tests pass 17/17.
+- No Rust source or issuance flow was changed.

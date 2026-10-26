@@ -1,0 +1,21 @@
+ETAPA792 — DEPOSIT WALLET REGISTRATION CLEANUP
+Date: 2026-10-23
+
+Finding and correction
+----------------------
+Finalized-deposit wallet registration stores the recovery/state passwords,
+private wallet inputs, node identity observations and RPC-derived state in an
+owner-only `/dev/shm` tree. Cleanup used PATH-resolved `find` and one ambiguous
+EXIT/HUP/INT/TERM trap.
+
+Node is now pinned by path, ownership, link count, mode, trusted directory,
+inode metadata and SHA-256. All Node authority checks use that path with
+identity rechecks. Cleanup disarms traps, unsets the recovery password, erases
+the tree through pinned Node, preserves normal EXIT status and maps HUP/INT/TERM
+to 129/130/143. Registration starts no background child requiring a wait.
+
+Validation
+----------
+The registration, recovery, TPM bootstrap and burn cleanup suites pass 8/8 and
+reject PATH deletion or ambiguous traps. `bash -n` and `git diff --check` pass.
+No RPC, TPM, deposit registration or funds operation ran.

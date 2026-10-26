@@ -1,0 +1,61 @@
+USDOM recoverable Ethereum mainnet deployment — stage 436
+Date: 2026-10-22
+
+Problem closed
+--------------
+The operator runbook previously used `cast send` directly. A transaction could
+be accepted by an RPC and the process could then fail before its hash reached
+the receipt file. Recovery would depend on manually reconciling the sender
+nonce, which is an avoidable operational hazard during an irreversible mainnet
+deployment.
+
+Implementation
+--------------
+- `scripts/execute-mainnet-deployment.sh` rederives one of the four approved
+  CREATE transactions from the exact SHA-256-pinned deployment package.
+- Two chain-ID-1 RPC sources must agree that the approved sender has the exact
+  finalized and pending nonce and that the predicted address is empty before a
+  new Ledger signature is requested. Both endpoints must be distinct HTTPS
+  URLs.
+- Gas estimates from both sources receive a 25% ceiling-bound margin. The
+  transaction is EIP-1559 type 2 with a fixed 2 gwei priority fee, maximum fee
+  derived from the larger finalized base fee, a 500 gwei fee cap and a
+  20,000,000 gas cap.
+- `cast mktx --ledger` signs without broadcasting. The canonical raw
+  transaction, independent validation report and locally derived transaction
+  hash are installed as direct owner-only, single-link, fsync-backed files
+  before `cast publish` is reachable.
+- `sdk/mainnet-deployment-execution.mjs` independently decodes the signed bytes
+  using ethers, recovers the signer and rejects any change to chain ID, sender,
+  nonce, CREATE destination, value, initcode, access list, gas or fee policy.
+- Restarting revalidates and reuses the same durable raw transaction. It never
+  asks the Ledger to sign a replacement merely because receipt collection was
+  interrupted.
+- Publication still requires the exact interactive phrase for that index. The
+  executor checks the known hash on both RPCs, publishes only when the primary
+  has not seen it, verifies matching successful receipts, and waits for the
+  exact approved runtime bytecode to be visible at `finalized` on both sources.
+- The operator runbook invokes this executor for indices 0..3. It no longer
+  performs direct contract `cast send` calls.
+
+Validation
+----------
+- shell syntax and ShellCheck pass for the executor;
+- independent raw-transaction positive and adversarial tests pass;
+- focused deployment, operator and readiness regression passes 118/118 and
+  the final focused executor regression passes 70/70;
+- complete Node regression passes 316/316; Solidity passes 146/146, including
+  all configured fuzz and invariant campaigns;
+- complete provenance passes for 169 imported files, every proof and panic
+  boundary, and 1,227 source-manifest entries;
+- the expected fail-closed gates remain at 169 closed-mainnet and 176
+  real-funds blockers; this stage added no unresolved requirement;
+- no signing, publication, deployment or funds were performed by these tests.
+
+Remaining evidence
+------------------
+The long finalized-burn capacity proof remains an independent running job. A
+final release-bound proof rerun is required after the final source identity is
+frozen. Real deployment remains an operator-authorized ceremony requiring the
+actual Ledger, two independent mainnet RPCs, funded deployer and completed
+release configuration.

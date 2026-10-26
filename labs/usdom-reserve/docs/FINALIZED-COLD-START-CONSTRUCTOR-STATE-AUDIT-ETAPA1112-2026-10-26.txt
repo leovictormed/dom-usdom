@@ -1,0 +1,27 @@
+FINALIZED COLD-START CONSTRUCTOR STATE AUDIT — ETAPA 1112
+Date: 2026-10-26
+Scope: local collector/readiness logic and lightweight tests. No RPC was contacted, no signing/deployment/funds, no Forge/Cargo, no commit/push.
+
+RESULT
+The postdeployment cold-start gate already covered most Reserve and Registry constructor state and required complete observation equality across two to five independent finalized RPC sources. This audit closed the remaining adapter and outflow-bucket gaps. Real-funds readiness already requires a zero-blocker postdeployment cold-start attestation, so deposits cannot be released by readiness without this finalized multisource readback.
+
+ADDED CONTROLS
+- Both proof adapters now have exact-schema finalized observations containing their deployed address, RISC Zero verifier address/code hash, verifier selector, ImageID, deployment chain ID, verifier config hash, and proof-accepted capability.
+- Each adapter must match its distinct release address, the observed pinned RISC Zero authority, Ethereum chain ID 1, its reviewed config hash and exact capability. ImageID must be a canonical nonzero bytes32. The exact runtime hashes remain independently checked against the release.
+- Release validation now requires distinct addresses for reserve, USDT, both proof adapters, checkpoint registry, governance, guardian and checkpoint guardian.
+- Reserve observation now reads `availableOutflow()` at the same pinned finalized snapshot. A fresh reserve must expose the complete configured outflow capacity, proving the private bucket is not depleted at cold start.
+
+ALREADY PRESENT AND RECONFIRMED
+- Reserve: paused=true; depositsClosed=false; graceful shutdown=false; resumeReadyAt=0; total deposited/released/proved debt/outstanding/unreserved collateral zero; queue epoch=1; pending count/amount and endpoints zero; zero USDT balance; exact token/verifier/registry/domain/control roles/config hashes/delays/limits; healthy control plane.
+- Registry: exact immutable policy and guardian linkage; exactly one ratified bootstrap checkpoint; expected initial height/block/state/context/difficulty; zero issuance/burn totals; no candidate; not halted/terminal; healthy guardian; slot zero equals the approved config hash.
+- Deployment receipts and initcode hashes for both adapters, registry and reserve are finalized and canonical.
+- The collector pins one finalized number/hash, repeats the snapshot hash afterwards, and serializes the complete observation. Two to five catalog-bound RPC observations must be byte-identical before assessment/materialization.
+- Real-funds readiness requires the resulting independently materialized cold-start attestation. Runtime code is separately checked across all sources by deployment execution.
+
+LIMITS
+`bucketUpdatedAt` and `bucketBalance` are private. `availableOutflow()==outflowCapacity` is the public invariant that matters for release safety and detects any depleted bucket. Exact constructor runtime plus canonical deployment receipt excludes an alternate constructor implementation. Mapping emptiness cannot be enumerated on EVM; zero aggregate liabilities, empty queue and the exact constructor/runtime establish the actionable cold-start state.
+
+VALIDATION
+- Focused Node suites: 19/19 passed.
+- Node syntax checks: passed.
+- `git diff --check`: passed.

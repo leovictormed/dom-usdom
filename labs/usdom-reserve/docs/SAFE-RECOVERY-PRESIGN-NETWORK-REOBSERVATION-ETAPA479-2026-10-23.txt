@@ -1,0 +1,16 @@
+Stage 479 — Safe recovery per-signature network reobservation
+Date: 2026-10-23
+
+The Safe recovery signer previously rebuilt the multi-RPC recovery plan once
+after the initial human authorization. Connecting two hardware devices and
+approving three role signatures on each device could introduce an arbitrary
+delay after that observation. The signer now revalidates immutable local inputs,
+checks the stored plan, rebuilds the full multi-RPC plan and compares its
+normalized recovery transition immediately before every Ledger signature.
+Network, Safe state, source catalog or local-input drift fails closed.
+
+`production_safe_recovery_each_signature_network_reobserved` is a structural
+fact. No network access, signature, deployment, funds, mining, commit or push
+occurred while producing this evidence.
+
+Validation: complete operator runbook 71/71; readiness 60/60.

@@ -1,0 +1,45 @@
+ETAPA 638 — vínculo fail-closed dos insumos da prova RandomX fixada
+Data: 2026-10-23
+
+Problema confirmado
+===================
+O executor v3 da prova verificava o hash do binário instalado contra o status da compilação, mas os hashes do índice de jobs, ELF e arquivo ImageID eram apenas calculados e registrados. Eles não eram comparados com os valores canônicos da fixture. Uma alteração local acidental antes da execução poderia, portanto, produzir uma prova sobre insumos diferentes e ainda gerar um status aparentemente válido.
+
+Correção preparada
+==================
+Foi criado, fora da árvore publicável e sem alterar o processo de compilação ativo:
+
+  /home/leonardov/.local/share/dom-usdom/prover-inputs/udfinl04-pinned/randomx-proof-run/runner-v4.sh
+
+O executor v4:
+- exige arquivos regulares e não symlinks para o índice de jobs, ELF e ImageID;
+- compara os três hashes com os valores canônicos da fixture;
+- valida build-status.json com UTF-8 estrito e rejeição de chaves JSON duplicadas;
+- exige build terminal succeeded/exitCode 0;
+- vincula o build ao hash canônico do grafo de fontes, Cargo.lock e artefato de recursão;
+- compara o binário instalado com o hash emitido pelo build fixado;
+- grava status schema usdom-local-randomx-proof-run-v4;
+- preserva RISC0_DEV_MODE=0, RISC0_PROVER=local e RAYON_NUM_THREADS=1;
+- captura a saída não zero do prover e grava estado terminal failed em vez de sair prematuramente por errexit.
+
+Valores fixados
+===============
+job index: 793451dc2ad0a760161b6fea0350303e868b1f9c84cf4fdd9dadfb7cfdb1fe29
+ELF:       1a8e491304763477094da84ff0701ea18d935600a3b3a79eb1c1250facd6903f
+IID file:  57ec90732f703bd58efd1682ab608b1a1efc3c66dce65480384cf72db4891245
+source:    bee652653b307352839c7e5facfdac3b48b4cee742bd5d8a1c9a5fa54b1654ac
+Cargo.lock:0251523c21a24a13d83140341899c5c193ed4934dc27d4cb74140bf93d47cd95
+recursion: 744b999f0a35b3c86753311c7efb2a0054be21727095cf105af6ee7d3f4d8849
+runner v4: cc254d7568a40967636d6c41b3b1514ac37e053d14b9cbf50229b462d598534b
+
+Validação
+=========
+- bash -n runner-v4.sh: aprovado.
+- Os três hashes da fixture foram recalculados a partir dos arquivos regulares privados e coincidem com os valores canônicos.
+- O executor v4 não foi iniciado: a compilação fixada continua ativa e não foi interrompida.
+
+Limites
+=======
+Esta etapa fortalece a proveniência da prova. Ela não afirma que a prova foi gerada nem verificada. A prova só poderá começar após build-status.json terminar em succeeded e o binário instalado passar por todas as verificações do executor v4.
+
+Nenhum commit, push, deploy, assinatura, RPC, transação ou movimentação de fundos foi realizado.

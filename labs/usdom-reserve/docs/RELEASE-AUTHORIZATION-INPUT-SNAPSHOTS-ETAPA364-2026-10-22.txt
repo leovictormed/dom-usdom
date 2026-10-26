@@ -1,0 +1,44 @@
+USD + DOM — snapshots dos inputs de autorização e atestação
+Etapa 364 — 2026-10-22
+
+Problema corrigido
+
+Preparar ou materializar uma autorização consulta um bloco Ethereum finalizado e
+pode demorar. Os programas liam seus arquivos diretamente no início, mas não
+confirmavam que configurações, evidências, pedidos ou assinaturas permaneciam
+iguais antes de emitir a saída. Uma alteração local durante a consulta podia
+misturar a observação finalizada com uma geração de release diferente.
+
+Correções
+
+- pedido de autorização captura bytes exatos da release, configuração, intenção
+  e relatório de risco; todos são relidos após a observação RPC;
+- materialização da autorização captura release, configuração, intenção, pedido
+  e assinatura; todos são relidos após validar EIP-1271 em estado finalizado;
+- pedido de atestação nativa captura release, configuração, manifesto, identidade
+  da carteira, custódia TPM e ensaio de recuperação; todos são relidos após o
+  checker nativo e a observação Ethereum;
+- materialização das atestações captura release, configuração, pedido e as
+  quatro assinaturas; todos são relidos após as validações EIP-1271;
+- arquivos públicos exigem modo 0644 exato e arquivos privados exigem 0600,
+  proprietário atual, link único e leitura `O_NOFOLLOW`;
+- qualquer byte, inode indireto, modo ou tamanho diferente aborta antes de
+  escrever um pedido, autorização ou atestação.
+
+Validação focada
+
+- sintaxe JavaScript dos quatro comandos: passou;
+- limites operacionais de arquivos: 4/4 passaram;
+- autorização EIP-712/EIP-1271: 3/3 passaram;
+- atestação nativa EIP-712/EIP-1271: 5/5 passaram;
+- lint de produção e compilação forçada dos 44 fontes Solidity: passaram;
+- regressão Node completa: 301/301 passaram;
+- proveniência completa: 169 importados, 45 fontes de programas de prova e
+  manifesto determinístico com 1.143 fontes passaram;
+- gate de mainnet não configurado: recusou como esperado com `ready=false` e
+  161 condições derivadas abertas;
+- `git diff --check`: passou.
+
+Nenhuma consulta de produção, assinatura ou transação foi executada por esta
+validação. Nenhum fundo, push, commit, tag, deploy ou mineração foi usado. A
+prova real de queima finalizada permaneceu ativa e não foi reiniciada.

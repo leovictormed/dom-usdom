@@ -1,0 +1,34 @@
+ETAPA 780 — closed deployment Ledger handoff schema
+Date: 2026-10-23
+
+Inventory
+
+The durable signed raw transaction was already strongly closed: owner-only
+bounded stable read, fatal UTF-8, exactly one lowercase even-length 0x hex line
+with LF, EIP-1559 decoding/signature recovery and exact package transaction
+validation. Its persisted validation report has the exact shared stage-754
+schema and links raw SHA, package, observation and RPC catalog. No new defect
+was found in either durable artifact.
+
+Finding and correction
+
+The ephemeral Ledger handoff feeding that durable envelope had only a generic
+strict JSON reader and a schema-name check in its consumer. Added one shared
+exact eight-key validator that binds chain, release/package/catalog/observation
+hashes and the exact role-indexed transaction to the reviewed package. It also
+invokes the package validator, so address, uint64 nonce, CREATE semantics,
+initcode/runtime hashes and role order remain canonical.
+
+The producer validates before output. A private bounded, mode-0600, fatal
+UTF-8/duplicate-key reader independently rereads the reviewed package, checks
+its environment-bound SHA and validates every initial/presign/prepublish/
+transmit/prereceipt handoff before comparison or field use.
+
+Validation
+
+- Focused package/identity tests: 14/14 pass, including top/nested extra and
+  missing keys, type drift, wrong package/observation, transaction substitution
+  and role mismatch.
+- Node and executor shell syntax and diff checks pass.
+
+No RPC, deploy, signature, commit, push or fund action was performed.

@@ -1,0 +1,59 @@
+USDOM — AUDITORIA DA MÁQUINA DE TRANSIÇÃO DO CHECKPOINT REGISTRY — ETAPA 1080
+Data: 2026-10-26
+
+Escopo
+======
+
+Revisão adversarial estática de DOMCheckpointRegistry: admissão, disputa,
+substituição e finalização de candidatos; totais econômicos V6; encerramento de
+emissão; shutdown gracioso; parada de emergência; premissas de reorg; e vínculo
+Registry -> adaptador -> verificador RISC Zero -> ImageID. Nenhum deploy, push,
+Forge ou Cargo foi executado nesta etapa.
+
+Resultado
+=========
+
+Nenhum bypass novo foi encontrado. Uma candidatura só é admitida se estender
+exatamente o checkpoint finalizado corrente (altura, bloco, raiz, contexto e
+dificuldade) e se a prova autorizar o hash que também compromete totais,
+issuanceClosed, sufixo de confirmação, chain ID, endereço do Registry,
+activationScheduleCommitment e checkpointConfigHash.
+
+A competição tem ordem total determinística: maior trabalho confirmado, depois
+menor hash do bloco de confirmação, depois menor statementHash. Uma substituição
+aceita conserva readyAt; portanto spam ou uma candidatura tardia não reinicia a
+janela. No instante readyAt ou depois, substituições fecham e finalize consome o
+candidato corrente. Transações Ethereum são serializadas, então não há corrida
+em que finalize use uma cópia obsoleta após uma substituição concorrente.
+
+Os totais anteriores não precisam aparecer como campos separados no statement:
+eles são autenticados pela previousStateRoot, e o programa prova a cadeia de
+transições econômicas dessa raiz até totalIssued/totalBurned/issuanceClosed do
+alvo. O Registry ainda rejeita regressão dos totais e reabertura depois que o
+fechamento já foi finalizado. Uma candidatura concorrente pode divergir no bit
+de fechamento enquanto o latest permanece aberto; isso representa forks DOM
+autenticados concorrentes, e apenas a vencedora por trabalho vira autoridade.
+
+Shutdown gracioso exige um checkpoint já finalizado com emissão fechada e
+issued == burned. Ele apaga candidatura pendente e marca gracefullyShutdown.
+A parada do guardião somente marca halted, sem fabricar fechamento gracioso.
+Não há função de rollback de checkpoint finalizado: reorganizações DOM são
+tratadas antes da finalidade por prova do sufixo, seleção por trabalho e janela
+de desafio. Depois da finalidade, o checkpoint Ethereum é a barreira explícita.
+
+O Registry fixa codehash, config hash e capability do adaptador e repete a
+verificação antes/depois da prova. O config hash do adaptador compromete chain,
+upstream codehash/selector, ImageID, schema do journal e capability; a chamada
+upstream usa exatamente esse ImageID e SHA-256 do statementHash cru de 32 bytes.
+
+Regressão e verificação leve
+===========================
+
+Adicionada:
+  test/node/checkpoint-registry-transition-stage1080.test.mjs
+
+Ela fixa os vínculos de predecessor/economia, a ordem total e janela não
+reiniciável, a transição atômica current/previous/candidate, a distinção entre
+shutdown e emergência e o caminho até o ImageID. O runtime Node pinado executou
+a regressão focal com sucesso: 6/6. Uma verificação estática Python equivalente
+passou 8/8. Forge/Cargo não foram iniciados, conforme serialização solicitada.

@@ -1,0 +1,6 @@
+ETAPA 765 — Checkpoint outer EVM/Groth16 packager TOCTOU closure
+Date: 2026-10-23
+
+Replaced the direct worktree packager with an owner-private snapshot containing outer job index, statement/chain, succinct receipt/index, outer ELF/BIN/IID and resumable Groth16/seal artifacts. Cargo/Node/cp/env are pinned and rechecked; a final manifest is verified immediately before the pinned RISC Zero packager, whose Rust validation binds image ID, journal/statement hash, Groth16 control parameters and selector/length. The previous metadata remains valid during conversion and is removed only after complete new private outputs exist; Groth16 receipt and seal publish before metadata/index.
+
+Validation: structural/adversarial/liveness test 1/1, bash -n and diff-check pass. No conversion, Cargo, RPC, commit or push.

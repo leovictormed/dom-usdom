@@ -1,0 +1,13 @@
+ETAPA 904 — leituras de autoridade nos crates dom-usdom
+
+Escopo: as mesmas 59 fontes Rust, sem `tests/` e `target/`. A busca por `fs::read`, `File::open`, `metadata`/`symlink_metadata` e `canonicalize` encontrou 57 ocorrências em 12 arquivos: 44 em caminhos de produção e 13 em módulos de teste. As 44 de produção se dividiam em 31 inspeções de metadata/autoridade, 7 aberturas de diretório exclusivamente para fsync e 6 canonicalizações de artefatos RandomX.
+
+Leituras de conteúdo de produção são encaminhadas ao helper `read_captured_bytes` com máximo explícito e depois a parsers canônicos/hash checks. Arquivos privados passam pelo helper de captura, que exige arquivo direto e mantém a leitura limitada; índices/receipts aplicam limites de bytes, serde canônico sem trailing bytes e bindings de hash/ImageID/journal. As aberturas de diretório não interpretam conteúdo. TPM valida caminho de ferramenta direto antes de execução; ownership/mode de credenciais é tratado na fronteira privada/launcher.
+
+Maior gap confirmado: os launchers `plan.rs` e `prove.rs` do RandomX chamavam `canonicalize` em ELF, ProgramBinary e ImageID. Isso aceitava que o caminho pinado fosse um symlink e convertia a referência de autoridade para outro pathname antes do helper direto. Os hashes ainda impediam conteúdo diferente, mas a política no-symlink e a identidade nominal do artefato eram enfraquecidas.
+
+Correção: os seis canonicalize foram removidos. Os launchers passam os três caminhos de produção exatos para `validate_artifact`, que lê por `read_captured_bytes` com limite, recusa arquivo indireto e exige SHA-256 esperado. Nenhuma leitura foi substituída por `fs::read` irrestrito.
+
+Estado final: 44/44 operações de produção classificadas; 31/31 inspeções de autoridade conformes, 7/7 aberturas são apenas directory-fsync e 6/6 caminhos de artefato agora usam leitura direta limitada/hash-bound; 13/13 ocorrências de teste separadas; 0 pendências neste escopo.
+
+Validação leve: regressões estruturais 2/2, `rustfmt --check` nos dois launchers e `git diff --check` aprovados. Nenhum Cargo build, prova ou RPC foi executado.

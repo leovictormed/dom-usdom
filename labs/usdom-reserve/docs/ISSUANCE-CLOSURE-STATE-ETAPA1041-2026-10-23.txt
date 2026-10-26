@@ -1,0 +1,9 @@
+ETAPA 1041 — terminal native USDOM issuance closure
+
+Implemented consensus-wide IssuanceClose transition backed only by the opaque Ethereum DepositsClosedV2 capability. Closure is unique, requires native totalIssued equal authenticated reserve totalDeposited, rejects all later Issue transitions, and is preserved by transfers, burns and checkpoints.
+
+State V1/V2 roots, framing, persistence, restart, deltas, undo, snapshots, burn witnesses and authenticated history now commit closure identity and Ethereum anchor. Historical open-state V2, UDOMUN01, USDBRN03, envelope kinds 1-4, policies UDCSPOL1 and manifest schemas 1/2 remain explicitly decodable; new closed state uses versioned successors. Reorg undo reopens issuance only by removing the canonical closure block.
+
+Proof kind 5 is limited to one 4MiB witness per envelope and verifies light-client finality, freshness, receipt/log, runtime/account and closure/total storage under StaticIssuanceClosureTrustPolicy. Policy is propagated through V1/V2 runtimes, chain connect/ingest/reorg/replay, node manifest schema3 and portable checkpoint guest. Older configs fail closed for kind5.
+
+Static gates and rustfmt pass. Cargo check was not forced because the live RISC0 proof held the shared target/I/O path. No network, push, deploy, signing or funds.

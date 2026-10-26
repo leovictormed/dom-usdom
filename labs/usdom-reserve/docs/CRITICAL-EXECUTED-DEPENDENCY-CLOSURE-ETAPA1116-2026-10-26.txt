@@ -1,0 +1,20 @@
+CRITICAL EXECUTED-DEPENDENCY CLOSURE — STAGE 1116 (2026-10-26)
+
+Scope
+- Extended the publication dependency audit beyond language imports to local programs and data executed/consumed by the critical control plane.
+- No MANIFEST.sha256 regeneration was performed.
+
+Finding and correction
+- Import closure alone omitted local scripts invoked through Node tool variables, Python argv, shell `$node_bin`, and configuration/template paths referenced as data. Altering one of those files could bypass the explicit critical inventory despite changing operational behavior.
+- The checker now extracts existing canonical `scripts/`, `sdk/` and `config/` references from executable source, combines them with language imports and sourced shell helpers, and requires the entire recursive closure in the inventory.
+- The inventory expanded from 133 to 238 lab sources. This includes deployment/recovery helper programs, private-file/RPC validators, release/capacity runners and referenced policy/templates.
+- Dynamic process creation is fail closed unless the exact source is present in a reasoned, sorted `dynamicExecutionAllowlist`. The five allowed boundaries are the authenticated rebuild orchestrator, the pinned executable child wrapper, the proof-program binary checker and the two bounded capacity E2E harnesses. Any added/removed dynamic launcher requires an explicit inventory change.
+- Static local paths are normalized beneath the lab root. Existing referenced files are subjected to the same direct, bounded, owner/mode, binary and secret checks.
+
+Validation
+- Adversarial self-test proves rejection of an omitted executed/config dependency and an unallowlisted dynamic launcher.
+- Live recursive closure: PASS, 238 lab sources plus 3 repository Rust/Cargo pins.
+- Pinned Node 24.19.0 focused suite: 2/2 PASS.
+- Python compilation and diff integrity: PASS.
+
+No network, Cargo, Forge, deployment, signing, funds, commit or push occurred.

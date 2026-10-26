@@ -1,0 +1,35 @@
+ETAPA 835 — invalidacao duravel e retomada de receipts RISC Zero
+Data: 2026-10-23
+
+Escopo
+
+Foram auditados os caminhos aggregate, economic, checkpoint e finalized-burn quanto a invalidacao do marcador de conclusao, publicacao index-last, retomada de receipts, corrida ENOENT e conjuntos de geracoes misturadas depois de falha.
+
+Achado corrigido
+
+O packager Groth16 do checkpoint outer podia reutilizar ou substituir o receipt Groth16 e o seal EVM sem remover antes `checkpoint-outer-evm-proof-index.json`. Uma queda entre essas escritas deixava um marcador antigo sobre artefatos de uma nova geracao. Consumidores que recalculam hashes rejeitariam o conjunto, mas a semantica duravel de completion marker ficava quebrada e observadores poderiam tratar trabalho incompleto como concluido.
+
+Correcao
+
+`package_outer_evm_proof` agora invalida o completion index antes de construir o plano ou reutilizar qualquer artefato. O helper:
+
+- usa `symlink_metadata` e aceita ENOENT como estado idempotente;
+- rejeita symlink e qualquer entrada que nao seja arquivo regular direto;
+- remove pelo helper `remove_direct_file`, que sincroniza o diretorio pai;
+- preserva a ordem artifacts-first/index-last para o novo conjunto.
+
+Resultado da auditoria adicional
+
+- finalized-burn EVM ja invalida o indice antes do trabalho;
+- aggregate usa remocao com fsync do pai;
+- economic e os caminhos checkpoint succinct usam remocao direta com fsync;
+- receipts retomados sao reverificados contra ImageID e journal atuais antes de integrar o novo indice;
+- os indices novos vinculam os hashes dos receipts correntes e sao publicados por ultimo.
+
+Validacao leve
+
+- `node --test labs/usdom-reserve/test/node/risc0-receipt-publication.test.mjs`: 3/3 aprovados, incluindo mutacao que remove a invalidacao;
+- `rustfmt --edition 2021 --check` nos hosts RandomX e checkpoint: aprovado;
+- `git diff --check`: aprovado.
+
+Nenhuma prova, compilacao Cargo pesada, RPC, deploy, assinatura, broadcast, commit ou push foi executado.

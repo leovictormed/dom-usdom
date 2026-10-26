@@ -1,0 +1,28 @@
+ETAPA1046 — closed-mainnet deposit financial evidence
+
+Concrete gap
+------------
+The pilot deposit executor proved three finalized transactions and allowance reset,
+but its output-last record did not independently demonstrate the exact movement of
+USDT into the reserve or the corresponding reserve accounting/deposit record.
+Receipts alone were weaker than the real-funds result required by the pilot.
+
+Correction
+----------
+Before any approval/deposit signature, the executor now observes on two RPCs at the
+finalized tag: funder USDT balance, reserve USDT balance, totalDeposited and
+outstanding. All observations must agree and are durably stored in a package-bound,
+mode-0600 financial baseline.
+
+After all receipts finalize, both RPCs must show: funder -1,000,000; reserve
++1,000,000; totalDeposited +1,000,000; outstanding +1,000,000; allowance zero; and
+the package depositId mapped to the exact funder, amount and receiving commitment.
+Output-last evidence binds the baseline SHA-256 and all before/after values. The
+offline checklist independently validates the baseline and four exact deltas.
+Unrelated balance/accounting movement during the ceremony fails closed.
+
+Validation
+----------
+Pinned Node 24.19.0 deposit evidence and executor suites passed 8/8. Bash syntax,
+checker syntax and focused diff check passed. No network, signer, proof, deployment,
+publication, push or funds were used.

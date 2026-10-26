@@ -1,0 +1,67 @@
+USDOM Stage 1090 — Safe control schema v2 / nine-owner migration
+Date: 2026-10-26
+Scope: static and lightweight Node/bash work; no network, deployment, Forge, Cargo, commit or push
+
+Result
+------
+The recoverable Safe control plane now models three independent 2-of-3 Safes
+with nine globally distinct owner addresses. Production paths reject the former
+shared-trio v1 model. Governance, reserve guardian and checkpoint guardian each
+carry a separate owner list, commitment, recovery transition and signer set.
+
+Security fixes
+--------------
+- deployment package v2 requires ownersByRole with exactly three owners per role
+  and rejects every cross-role overlap;
+- recovery plan/observation v2 requires transitionsByRole with an independent
+  lostOwner/replacementOwner for every role;
+- assembly, envelope validation and execution now select requiredSigners from
+  the target role. They no longer consult the removed global signer list;
+- materialization writes governanceOwners, guardianOwners and
+  checkpointGuardianOwners independently;
+- release authorization domain v4 binds three separate owner hashes;
+- native attestation and release request schemas reject v1;
+- collectors, RPC consensus, hardware signing, execution, artifact checks and
+  runbook were migrated to v2;
+- the enrollment ceremony reads nine hardware identities and refuses duplicate
+  addresses globally.
+
+Verification
+------------
+- Safe observation/recovery: 16/16 pass.
+- Safe RPC consensus plus observation: 25/25 pass.
+- release authorization: 6/6 pass.
+- focused deployment/recovery/config/checkpoint suites: 57/57 pass.
+- all edited Node modules pass node --check; all edited shell scripts pass bash -n.
+- productive search finds no controlPlaneOwners or Safe/request v1 schema use.
+
+Additional readiness closure
+----------------------------
+The cold-start fixture was migrated to the V6 economic and closure fields. A
+fail-closed bug was also corrected: readiness no longer calls
+safeOwnersCommitment after already detecting duplicate owners, so malformed
+owner lists produce blockers instead of throwing. The complete
+mainnet-readiness suite passes 63/63.
+
+Pending canonical rebuild
+-------------------------
+The compiled-runtime fixture still contains hashes from the prior Solidity
+artifact. Updating those values requires the authorized canonical Forge rebuild
+after the concurrent Cargo/Forge activity ends; no build was started here.
+
+Stage 1091 continuation
+-----------------------
+The operator command generator now provisions nine encrypted local keystores,
+validated backup copies and the public import bundle without placeholders. See
+SAFE-KEYSTORE-COMMAND-GENERATOR-AUDIT-ETAPA1091-2026-10-26.txt.
+
+Stage 1092 continuation
+-----------------------
+Safe package preparation is now gated on nine hardware EIP-712 custody proofs.
+See SAFE-HARDWARE-CUSTODY-MIGRATION-AUDIT-ETAPA1092-2026-10-26.txt.
+
+Stage 1093 continuation
+-----------------------
+The complete unsigned pre-mainnet Safe workflow, recovery replacement proofs and
+materialization commands are recorded in
+PREMAINNET-SAFE-V2-OPERATIONAL-FLOW-AUDIT-ETAPA1093-2026-10-26.txt.

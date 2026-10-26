@@ -1,0 +1,63 @@
+Stage 624 — RISC Zero Solidity adapter identity audit (2026-10-23)
+
+Scope
+
+Audited only the Solidity boundary of both RISC Zero adapters and their reserve
+and checkpoint callers: `verifierConfigHash`, underlying verifier/control
+identity, ImageID, journal digest representation, seal selector and length,
+ABI encoding and verifier return handling.
+
+Result
+
+No additional Solidity defect was confirmed.
+
+- Each adapter configuration commits a protocol-specific type hash, Ethereum
+  chain ID, underlying verifier address and runtime code hash, canonical
+  Groth16 selector, ImageID, journal schema and protocol-specific acceptance
+  capability. Identical adapter deployments intentionally have the same
+  configuration identity; reserve/registry configurations separately bind the
+  selected adapter address and code hash.
+- The selector getter must return exactly one canonically padded ABI word, is
+  constrained to the expected RISC Zero Groth16 v3 selector at construction,
+  and is rechecked together with chain ID and verifier code hash on every proof.
+- Both adapters require exactly 260 seal bytes: the four-byte selector plus
+  eight BN254 words. Truncated, extended or alternate-selector encodings fail
+  before the expensive verification call.
+- The journal is exactly the unframed 32-byte statement hash. Solidity
+  `sha256(abi.encodePacked(statementHash))` hashes those bytes without an ABI
+  offset, length word or integer conversion, leaving no alternate endianness or
+  framing accepted by the adapter.
+- The underlying verifier's `verify` ABI returns no value. The adapters copy no
+  returndata and accept only call success with exactly zero returned bytes;
+  false/magic words, short/oversized responses and return bombs cannot become
+  acceptance.
+- The underlying verifier's control parameters are represented by its pinned
+  runtime code hash and selector. Production remains fail-closed until the
+  independently ratified exact verifier code/config hashes are compiled in;
+  selecting a state-mutable verifier whose rules can change without either
+  identity changing would violate that release assumption and must not be
+  ratified.
+
+Material regression added
+
+`testIdenticalReceiptInputsCannotMergeBurnAndCheckpointAdapterCapabilities`
+places both adapters over the same verifier, ImageID, seal, statement and raw
+journal digest. It proves that:
+
+- protocol type hashes, complete configuration hashes and acceptance
+  capabilities remain distinct;
+- each adapter returns only its own capability; and
+- invoking either adapter through the other protocol's function selector
+  fails, so an ABI substitution cannot bridge reserve and checkpoint authority.
+
+Validation
+
+- new cross-adapter regression: 1/1 passed;
+- adapter, integration, reserve and registry suites: 81/81 passed;
+- complete Solidity campaign: 152/152 passed across 14 suites, including three
+  256-run/16,384-call invariant campaigns;
+- lint with warnings denied for both adapters and both callers: passed;
+- changed-test formatting and `git diff --check`: passed.
+
+No Rust, Cargo or RISC Zero script was touched or executed. No commit, push,
+deployment, signature or funds operation was performed.

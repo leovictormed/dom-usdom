@@ -1,0 +1,45 @@
+ETAPA 1011 — release-evidence commitment boundary — 2026-10-23
+
+Scope
+- ETAPA1007 releaseEvidenceCommitment canonical form and its request,
+  offline-check, materialization and readiness consumers.
+- Self-reference/cycles, JSON model discrepancies, traversal, symlink/hardlink,
+  TOCTOU and post-signature substitution.
+
+Concrete findings and corrections
+- The initial canonicalizer recursively accepted cycles until stack overflow and
+  treated unsupported JavaScript values through JSON.stringify semantics. An
+  in-memory builder could therefore crash or disagree with persisted strict
+  JSON over undefined, nonfinite numbers, custom objects or negative zero.
+- It also hashed document descriptors before checking their path and SHA-256
+  shape, allowing governance to sign a manifest that only failed later.
+- Canonicalization now accepts only null/bool/string/safe integer/plain object/
+  array; rejects cycles, non-JSON values, noncanonical numbers and custom
+  prototypes; and bounds depth, node count and encoded size. Object keys are
+  recursively sorted and the same exported function serves builder/validator.
+- Every object containing path or sha256 must be exactly {path,sha256}, use a
+  relative slash-separated non-dot/non-parent path and lowercase 64-hex hash.
+  Top-level authorization/signature/commitment keys are forbidden, preventing
+  logical self-reference or an authorization cycle inside the signed manifest.
+
+End-to-end conclusions
+- Strict JSON parsing rejects duplicate keys before commitment. Reordered keys
+  now have a regression proving the same commitment; artifact/tag mutations do
+  not.
+- Operational readers resolve paths beneath the canonical project root, open
+  directories/files with O_NOFOLLOW, reject hard links, unsafe ownership/mode
+  and inode/size/time changes while reading. Traversal and symlink regressions
+  already cover this shared boundary.
+- Request generation and authorization materialization reread and byte-compare
+  every fixed input after their work. The residual-risk document is also read
+  through the direct boundary and hash checked. Post-sign manifest substitution
+  changes the commitment/digest; post-sign artifact-byte substitution fails the
+  readiness document SHA-256 checks before deployment authorization.
+- The manifest intentionally does not contain its authorization or commitment;
+  operator intent stores those outputs separately, avoiding a hash fixed-point.
+
+Checks
+- Lightweight Python structural gate: 23/23 assertions passed.
+- git diff --check passed for all ETAPA1011 files.
+- Permanent Node gate: test/node/release-evidence-commitment-boundary.test.mjs.
+- Node is unavailable; no Cargo/Forge, network, push, deploy or funds.

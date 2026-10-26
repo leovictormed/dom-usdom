@@ -1,0 +1,22 @@
+ETAPA 734 — signing ceremony JQ executable pinning
+Date: 2026-10-23
+
+Finding
+=======
+Release/native attestation, checkpoint ratification and Safe-recovery signing pinned Cast and
+Node, but resolved JQ through PATH. JQ selects owners, thresholds, digests, typed data and Safe
+transaction fields. Replacement could change the authority presented to Ledger or persisted.
+
+Correction
+==========
+All three ceremonies pin JQ to a canonical absolute path with regular-file, one-link, safe owner,
+mode and parent-directory checks plus device/inode/size/mtime/ctime and SHA-256 snapshots. Every
+JQ call uses the captured path. JQ rechecks accompany Node and Cast after TTY consent, before each
+Ledger boundary and before signed-artifact installation.
+
+Validation
+==========
+Combined structural tests pass 3/3 and reject raw JQ invocation. Node syntax, `bash -n` for all
+three scripts and git diff checks pass. No ceremony, Ledger, RPC, signing or installation ran.
+
+No deployment, transmission, funds, build, staging, commit, tag or push was performed.

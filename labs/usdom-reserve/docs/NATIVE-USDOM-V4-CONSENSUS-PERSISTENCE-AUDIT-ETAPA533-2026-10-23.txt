@@ -1,0 +1,62 @@
+Etapa 533 — auditoria estática do consenso e persistência native USDOM v4
+
+Escopo revisado
+
+- crates/dom-chain/src/chain_state.rs: conexão canônica, promoção de branch,
+  commit atômico de bloco/estado e instalação do checkpoint floor.
+- crates/dom-chain/src/native_usdom_v4.rs: framing, limites, replay autenticado,
+  undo, retenção, checkpoint e persistência fragmentada.
+- crates/dom-chain/src/reorg.rs: política de finalidade móvel.
+- crates/dom-usdom-state/src/lib.rs: aplicação/reversão, nullifiers, burns e
+  reconstrução do estado persistido.
+- crates/dom-usdom-checkpoint-program/src/portable.rs: execução portable de
+  segmentos e vínculo com a abertura native.
+
+Evidência e conclusão
+
+1. Finalidade e retenção de undo são consistentes no limite. Depois que a tip
+   alcança 360, check_rolling_finality rejeita disconnect_count >= 360 e aceita
+   no máximo 359. Ao conectar a altura H, native_usdom_v4_undo_retention_update
+   remove o undo de H-360 no mesmo lote LMDB do novo bloco. Esse undo permitiria
+   cruzar para uma desconexão de 360 e já não é necessário para a maior
+   reorganização aceita. O rewind também rejeita o passo 360 antes de consumi-lo.
+
+2. O checkpoint não pode saltar para um bloco externo à ancestralidade. O alvo
+   precisa existir na tabela canônica por altura, sua raiz USDOM é reconstruída
+   por undo autenticado e native_checkpoint_floor_update exige igualdade de
+   altura, hash DOM, raiz, network magic, bridge, chain id, genesis validators
+   root, domínio e policy hash. Atualizações não idênticas passam pela validação
+   estrita de sucessor. Floor, bloco, UTXOs, kernels, pacote e undo entram no
+   mesmo commit_block_with_consensus_state; os campos em memória só avançam
+   depois do commit bem-sucedido.
+
+3. Replay/double-spend fecha em duas camadas. O framing limita quantidade e
+   classe dos payloads. NativeUsdomState::insert_nullifiers rejeita zero,
+   escalar não canônico, repetição dentro da transição e presença no conjunto
+   acumulado antes de inserir qualquer nullifier. O undo autenticado remove
+   somente os nullifiers declarados no BatchUndo e falha se o estado divergir.
+
+4. Parsers de pacote, envelope, witness bundle e sidecar impõem teto global e
+   por classe, usam reads limitados, exigem reader.finish() e re-encode canônico.
+   Metadados persistidos têm tamanho/versão exatos e corrupção produz erro
+   fail-closed, não uma aceitação alternativa.
+
+5. A execução portable recebe a abertura native autenticada e valida a
+   transição contra o estado anterior; os commitments/projeções são tipos
+   compartilhados de dom-usdom-state. Não foi identificada regra duplicada com
+   semântica divergente que conceda autoridade adicional ao portable.
+
+Risco residual explícito
+
+O próprio ChainState documenta que um rollback externamente consistente do
+diretório LMDB não é detectável apenas pelos bytes persistidos. O caminho de
+produção exige um restart checkpoint independente para restaurar o high-water
+mark. Isso é uma premissa operacional já modelada, não um bypass novo corrigível
+localmente sem uma âncora externa monotônica.
+
+Resultado
+
+Nenhum achado concreto reproduzível foi encontrado neste recorte. Portanto a
+etapa não altera código, não adiciona teste redundante e não cria fact artificial
+de readiness. A auditoria preserva como evidência as invariantes e o risco
+residual acima.

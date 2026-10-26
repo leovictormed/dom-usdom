@@ -1,0 +1,62 @@
+Finalized-deposit native admission and wallet preregistration — stage 285
+
+Status: implementation complete and locally validated; no live deposit, native
+mainnet block, Ethereum broadcast, DOM mining or funds were used.
+
+Problem closed
+
+The authenticated UDOMDPW1 builder could produce a consensus-valid issuance
+witness, but the node exposed authenticated submission only for private
+transfers and burns. A real deposit therefore had no bounded operational path
+from the verified witness into the native mining pool. Submitting before the
+receiving wallet persisted its expected issuance would also create an avoidable
+recovery risk.
+
+Implemented path
+
+1. `/usdom/v4/issuance/submit/v1` accepts only an authenticated raw
+   `application/octet-stream` UDOMDPW1 body, independently limited to 4 MiB.
+   One request at a time enters the CPU-heavy verifier and this route has a
+   dedicated 120-second timeout. The configured native runtime wraps the bytes
+   in the canonical single-issuance envelope and rechecks Ethereum consensus,
+   receipt inclusion, reserve code/event, replay time and native state before
+   retaining the candidate. RPC authentication grants no issuance authority.
+2. `dom-usdom-register-finalized-deposit` replays the witness under the exact
+   SHA-256-pinned native manifest, restores the encrypted recovery wallet,
+   derives the deterministic issuance note and requires exactly 1,000,000 base
+   units. It initializes the first wallet projection at a coherent local DOM
+   mainnet tip and registers the expected deposit before any network call.
+3. Snapshot, 48-byte external seal and public registration metadata are fully
+   fsynced inside a 0700 staging directory, then published by one directory
+   rename. Repetition loads the sealed encrypted snapshot and accepts only the
+   same wallet, witness, deposit, amount and still-noncanonical expectation.
+4. `npm run --silent register:finalized-deposit-wallet` is a fixed no-argument
+   ceremony. It reads the wallet password without echo through an owner-only
+   `/dev/shm` file and obtains the coherent node identity only from the fixed
+   mainnet loopback RPC at `127.0.0.1:33372`. It neither submits nor mines.
+5. `npm run --silent submit:finalized-deposit-issuance` reads the fixed
+   owner-only RPC token, rebinds the manifest, witness index and durable wallet
+   registration, verifies the local node mainnet identity before and after the
+   request, submits only to the new loopback route and fsyncs an idempotent
+   public admission receipt. It does not call a mining endpoint or Ethereum.
+
+Validation
+
+- release checks for `dom-rpc`, feature-enabled `dom-node` and the registration
+  binary passed;
+- the dedicated RPC test passed for bearer authentication, media type, empty
+  body, 4 MiB ceiling and exact queued receipt;
+- issuance metadata mutation tests passed 3/3;
+- all 39 proof-program sources pass the panic-primitive and SHA-256 inventory;
+- focused operator and release-gate tests cover the fixed commands and the
+  three new implemented requirements.
+
+Remaining evidence
+
+No claim is made that an issuance has reached a canonical DOM block. That
+requires a real finalized reserve deposit, a running node under the ratified
+mainnet manifest, explicit authorization to submit the witness and a separately
+authorized DOM block-production action. The live-vector requirements remain
+false until the resulting block, state root and wallet scan are independently
+observed. Mainnet genesis and activation data must also cease being placeholders
+before a public-network node can be used.

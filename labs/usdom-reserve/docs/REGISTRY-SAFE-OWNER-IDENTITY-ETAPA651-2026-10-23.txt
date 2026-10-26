@@ -1,0 +1,72 @@
+Stage 651 — runtime identity drift and registry Safe owners (2026-10-23)
+
+Scope
+
+Audited runtime identity drift in the two RISC Zero adapters, reserve control
+planes and checkpoint guardian under code deletion/redeployment, proxy
+singleton changes, identical proxy code with different state, and state changes
+after deposits or accepted candidates. Capability mutability from stage 646 was
+treated as established and not repeated.
+
+Confirmed defect
+
+`DOMCheckpointRegistry` pinned the guardian proxy code, singleton address/code,
+2-of-3 threshold, owner count/shape, empty module and guard policy, and fallback
+handler. It did not pin the identities or order of the three Safe owners.
+
+An existing Safe could therefore replace every signer while retaining the same
+proxy and singleton code and the same 2-of-3 policy. The registry continued to
+report the guardian healthy. The replacement group could invoke the irreversible
+`haltPermanently()` authority, while candidate submission/finalization also
+continued under an authority no longer matching deployment review.
+
+Correction
+
+- The registry now stores an immutable commitment to the exact ordered three
+  owners discovered at construction.
+- Runtime guardian checks recompute the bounded, canonical three-owner response
+  and require equality with that commitment, in addition to all prior proxy,
+  singleton, threshold, module, guard and fallback checks.
+- Direct non-proxy contracts keep a zero owner commitment and remain pinned by
+  their own code hash. Safe owner changes fail closed before checkpoint
+  progression or permanent halt.
+- A candidate accepted before owner drift is preserved. Exact owner restoration
+  permits finalization at its original ready time, so the new check does not
+  destroy retryability.
+
+Other identity conclusions
+
+- Code deletion or redeployment with different runtime bytes is detected by the
+  pinned account/implementation/upstream verifier code hashes. A proxy changing
+  singleton is independently detected.
+- Redeployment with byte-identical code is intentionally indistinguishable by
+  code hash alone. For Safes, all authority-bearing state exposed by the policy
+  boundary is additionally checked: ordered owners, threshold, modules, guard,
+  fallback and singleton.
+- The upstream RISC Zero verifier interface exposes selector and proof behavior,
+  but no generic state/configuration digest. The adapters bind its exact
+  production code hash and selector; safety therefore assumes the pinned
+  production verifier bytecode has no mutable acceptance authority hidden in
+  storage. A generic contract with mutable verification behavior is itself the
+  trusted proof root and cannot be made safe through adapter-side introspection.
+  Reverts or rejection remain fail-closed and retryable after restoration.
+
+Material regression
+
+`testSafeOwnerReplacementPreservesCandidateAndRequiresExactRestoration` queues a
+valid checkpoint, replaces one owner while keeping all Safe policy shapes, and
+proves both finalization and permanent halt fail. Candidate hash, ready time,
+latest height and halt state remain unchanged. Restoring the exact owner then
+finalizes the original candidate.
+
+Validation
+
+- new owner-identity regression: 1/1 passed;
+- focused registry/reserve/control suites: 72/72 passed, including the registry
+  invariant campaign;
+- complete Solidity campaign: 161/161 passed across 14 suites;
+- post-format regression: 1/1 passed;
+- production lint, formatting and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit,
+push, deployment, signature, transmission or funds operation was performed.

@@ -1,0 +1,60 @@
+Stage 639 — production constructor and verifier wiring audit (2026-10-23)
+
+Scope
+
+Audited the Solidity constructors and immutable deployment values of the proof
+reserve, checkpoint registry and both RISC Zero adapters. Reviewed zero/EOA/code
+boundaries, chain and protocol domains, delays/capacities, code/config hashes,
+Safe identities and the reserve/registry-to-adapter wiring. Existing constructor
+coverage was not duplicated except where needed to prove the new finding.
+
+Confirmed defect
+
+The reserve and checkpoint registry accepted any contract that exposed a
+nonzero `verifierConfigHash()`. They did not require the verifier to declare the
+acceptance domain expected by that caller.
+
+Consequently, a finalized-burn-shaped contract could be installed in the
+checkpoint registry, or a checkpoint-shaped contract in the reserve, while
+still passing construction. The function selectors are intentionally distinct,
+so subsequent proofs fail closed; however, the reserve could accept collateral
+before discovering that no burn proof could ever release it. This was a
+deployable fund-lock/configuration defect, rather than an unauthorized-release
+path. Mainnet's future compiled pins reduce accidental exposure but do not make
+an ambiguous constructor safe or protect isolated rehearsals.
+
+Correction
+
+- Both constructors now perform a gas-bounded, exact-one-word static read of
+  `PROOF_ACCEPTED()` using the same return-data-bounded primitive as verifier
+  configuration discovery.
+- `USDOMProofReserve` requires exactly
+  `keccak256("USDOM_FINALIZED_BURN_PROOF_V1")`.
+- `DOMCheckpointRegistry` requires exactly
+  `keccak256("DOM_CHECKPOINT_PROOF_V2")`.
+- A missing, reverting, malformed, oversized or wrong-domain capability returns
+  the zero sentinel and makes construction revert with `InvalidConfiguration`.
+- Runtime adapter code/config immutability checks remain unchanged; the
+  constructor check closes cross-protocol wiring before any value can enter.
+
+Material regressions
+
+- A verifier implementing the finalized-burn interface but declaring the
+  checkpoint capability is rejected by the reserve constructor.
+- A verifier implementing the checkpoint interface but declaring the
+  finalized-burn capability is rejected by the registry constructor.
+- Valid real RISC Zero adapter integrations continue to deploy and authenticate
+  their exact statements.
+
+Validation
+
+- constructor regressions: 2/2 passed;
+- focused production constructor/adapter/integration suites: 87/87 passed;
+- complete Solidity campaign: 158/158 passed across 14 suites, including all
+  invariant campaigns;
+- post-format constructor regressions: 2/2 passed;
+- production contract lint with warnings denied: passed;
+- changed-source formatting and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit,
+push, deployment, signature, transmission or funds operation was performed.

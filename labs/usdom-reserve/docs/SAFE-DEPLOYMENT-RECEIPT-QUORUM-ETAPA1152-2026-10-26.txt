@@ -1,0 +1,23 @@
+USDOM — ETAPA 1152 — RECIBO FINALIZADO DOS SAFES EM QUÓRUM
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+O executor persistia como recibo qualquer JSON sintaticamente válido devolvido pelo primeiro RPC. Um resultado nulo, falho, de outra transação, remetente ou fábrica podia virar evidência local mesmo após o endereço final do Safe ter sido observado corretamente.
+
+Implementação
+
+- Um validador estrito projeta somente o schema canônico e vincula hash da transação, status de sucesso, remetente, fábrica, bloco e papel ao raw já autenticado e ao pacote Safe fotografado.
+- Cada RPC independente precisa devolver a mesma projeção byte a byte.
+- Em cada fonte, o hash do bloco do recibo é reconsultado por altura e a altura precisa estar coberta pelo bloco `finalized` observado.
+- Recibo existente em uma retomada é relido diretamente, revalidado, comparado novamente com todos os RPCs e submetido outra vez às barreiras de bloco canônico e finalidade; divergência encerra a execução.
+- O novo validador foi incluído no inventário crítico. A verificação de fechamento avança até as duas dependências concorrentes legítimas de Stage1147, sem alterá-las.
+
+Validação
+
+- Sintaxe Bash/Node aprovada.
+- Teste adversarial do recibo rejeita status falho, hash, remetente, fábrica, quantidade e bloco inválidos.
+- Seleção focal e ampla de operações: 97/97.
+- Regressão final específica da retomada e runbook: 88/88.
+- `git diff --check` aprovado.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

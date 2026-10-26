@@ -1,0 +1,19 @@
+Stage 474 — Safe release bundle RPC-consensus binding
+Date: 2026-10-23
+
+The Safe release-evidence bundle retained the hashes of the baseline snapshot
+and finalized recovery report, but discarded the RPC source catalogs embedded
+in those source objects. A downstream offline signer could not independently
+recompute which operators and origins established the control-plane evidence.
+
+The bundle now embeds both baseline and recovery RPC-consensus evidence inside
+its bundle hash. Validation recomputes each domain-separated commitment and
+requires both phases to use the same ordered, independent operator/origin set.
+Substitution and omission fail closed even when the outer bundle hash is
+recomputed.
+
+`production_safe_release_bundle_binds_rpc_consensus` is structural. No live
+recovery, network, signature, deployment, funds, mining, commit or push is
+claimed.
+
+Validation: Safe-control module passes 15/15; readiness passes 60/60.

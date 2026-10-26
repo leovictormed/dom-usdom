@@ -1,0 +1,41 @@
+USD + DOM — token RPC do nó fechado fixado por descritor
+Etapa 356 — 2026-10-22
+
+Problema corrigido
+
+O lançador do nó de mainnet fechada criava `rpc.token` pelo caminho absoluto e
+só depois o reabria com ferramentas de shell. Uma substituição do diretório ou
+do arquivo entre essas operações poderia redirecionar a criação ou fazer a
+validação observar outro inode.
+
+Correção
+
+`scripts/run-closed-mainnet-node.sh` agora abre o diretório privado 0700 com
+`O_DIRECTORY|O_NOFOLLOW`, compara dispositivo e inode com o nome canônico e
+mantém esse descritor aberto durante toda a preparação. A criação exclusiva, a
+leitura e a validação do token usam `dir_fd`; o token exige arquivo regular 0600,
+proprietário local, um único link, conteúdo canônico de 65 bytes e `fsync` do
+arquivo e do diretório. O diretório de dados também é aberto sem seguir links e
+comparado ao caminho nomeado. O diretório raiz é revalidado antes de liberar o
+descritor.
+
+Validação
+
+- sintaxe Bash: passou;
+- ShellCheck: passou, excluída apenas a forma intencional `CDPATH= cd`;
+- criação e reutilização funcional do token: passaram;
+- ataques com diretório simbólico e hard link do token: rejeitados;
+- regressão operacional: 58/58 testes passaram;
+- lint e compilação forçada dos 44 fontes Solidity de produção: passaram;
+- regressão Node completa: 296/296 testes passaram;
+- proveniência: 169 importações, 45 fontes de prova e 1.130 arquivos do
+  manifesto foram verificados;
+- gate não configurado: 161 fatos derivados esperados, sem bloqueio de
+  auditoria externa, risco zero ou integridade do manifesto;
+- `git diff --check` nos arquivos alterados: passou.
+
+Limites preservados
+
+Nenhum push, commit, tag, deploy, assinatura, broadcast, mineração ou uso de
+fundos foi executado. A prova local longa de queima finalizada não foi alterada
+nem reiniciada.

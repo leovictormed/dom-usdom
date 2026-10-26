@@ -1,0 +1,34 @@
+DIRECT PROJECT ROOT AUTHORITY — STAGE 1146
+Date: 2026-10-26
+
+Finding
+
+`readDirectProjectFile` required the lexical project root to equal its realpath,
+and `readDirectFile` authenticated the target plus its immediate parent. It did
+not hold and authenticate the project-root directory itself. A group/other-
+writable root was therefore outside the explicit authority checks, and root
+replacement during collection was not independently detected at this layer.
+
+Correction
+
+The project reader now opens the exact root with O_DIRECTORY|O_NOFOLLOW and
+requires it to be:
+
+- a directory owned by the current effective user;
+- not writable by group or others;
+- the exact lexical root when resolved through its open descriptor.
+
+It retains that descriptor through the target read, then compares device,
+inode, owner and mode before/after and against a newly opened named root. A
+rename/replacement, permission/owner change, symlink or non-directory boundary
+fails closed. The existing target and immediate-parent inode, link, permission,
+size, realpath and content-stability checks remain in force.
+
+Validation
+
+- Active repository and component roots: owner `leonardov`, mode 0700.
+- Added negative test for a 0770 project root and positive recovery after 0700.
+- Node syntax and focused direct-file/evidence/readiness tests: PASS, 15/15.
+
+No production fact changed. No Cargo, Rust, Forge, network, signing, deployment,
+funds, commit or push ran.

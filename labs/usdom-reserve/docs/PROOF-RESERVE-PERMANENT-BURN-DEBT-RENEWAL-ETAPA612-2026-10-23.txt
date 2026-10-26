@@ -1,0 +1,64 @@
+Stage 612 — permanent finalized-burn debt renewal (2026-10-23)
+
+Finding confirmed
+
+`USDOMProofReserve` documented queue expiry as releasing only a temporary
+collateral reservation while preserving the reserve's irreversible debt. The
+implemented state did not preserve that promise:
+
+- `discardWithdrawal` and pruning deleted both `pendingWithdrawals[burnId]` and
+  `pendingRequests[requestId]` before payment;
+- an exact requeue after the seven-day lease could fail
+  `_requireRecentFinalitySlot`, because the statement's authenticated Beacon
+  slot was now older than the same seven-day freshness window; and
+- after expiry or emergency pause, another proved statement could reuse the
+  old request with a different burn, or reuse the burn while changing public
+  statement fields. An existing test explicitly renewed by replacing the
+  original `finalityBeaconSlot`, which demonstrated the substitution.
+
+The exact originally proved debt could therefore become unrecoverable while a
+different statement was allowed to occupy its identifiers.
+
+Correction
+
+- Added permanent `provedBurnStatements[burnId]` and
+  `provedRequestBurns[requestId]` bindings. They are written only after the
+  first proof has passed the immutable verifier.
+- First admission still requires a recent, nonfuture finalized Beacon slot and
+  verifies the complete proof.
+- Renewal may bypass only the slot-age admission check, and only when the full
+  statement hash and burn/request pairing exactly match the permanent first
+  admission. Recipient, amount, DOM block/state, finality slot, deadline and
+  every other statement field remain immutable.
+- Renewal still requires a correctly sized/selected proof and reruns the
+  immutable verifier. An unapproved proof cannot renew an old debt.
+- Queue expiry, pruning and emergency epoch invalidation continue to release
+  temporary reserved collateral and linked-list storage, but never erase the
+  permanent debt identity. Paid burn/request protections remain unchanged.
+
+Tests
+
+- Exact renewal succeeds after the original finality slot is older than the
+  admission window and the temporary lease was discarded.
+- A new burn using the old request is rejected after expiry and after pause.
+- A changed finality slot, and therefore a changed statement, is rejected even
+  with a separately accepted proof.
+- Renewal with an unapproved proof is rejected.
+- Emergency pause permits only the exact old debt to requeue after delayed
+  resume; epoch-bound stale emergency protection remains intact.
+- Queue invariants now require every active entry to match both permanent
+  bindings.
+
+Validation
+
+- Focused expiry/pause renewal tests pass 3/3; the final strengthened renewal
+  regression passes independently 1/1.
+- `USDOMProofReserveTest` passes 40/40, including three 1,024-run fuzz tests.
+- The full Solidity campaign passes 147/147 across 14 suites, including three
+  256-run/16,384-call invariant campaigns.
+- Production-contract lint and `git diff --check` pass. The installed formatter
+  reports one unrelated pre-existing constructor layout difference; none of the
+  changed sections is implicated.
+
+No RISC Zero script, commit, push, deployment, signature or funds operation was
+performed.

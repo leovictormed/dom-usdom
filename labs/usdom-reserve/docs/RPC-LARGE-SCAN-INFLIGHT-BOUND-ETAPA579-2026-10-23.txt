@@ -1,0 +1,53 @@
+RPC large-scan in-flight bound — stage 579
+Date: 2026-10-23
+Scope: crates/dom-rpc/src/{lib.rs,middleware.rs}
+
+Finding corrected
+=================
+The authenticated chain scan, full-fidelity scan, private transfer/burn lookup
+and native USDOM history endpoints bounded each page and were rate limited, but
+had no shared in-flight response-generation bound. The default read burst is
+100 and the newly bounded operator maximum is 10,000. A credential-holding
+client could therefore admit many concurrent page requests, each performing a
+chain snapshot and potentially constructing a 2 MiB or 8 MiB-class response.
+Per-page bounds prevent one request from growing without limit; they did not
+bound aggregate simultaneous generation.
+
+Correction
+==========
+All five potentially large authenticated scan routes now share exactly two
+response-generation slots. A middleware uses `Semaphore::try_acquire_owned`:
+when both slots are occupied, another page is immediately answered with HTTP
+503 rather than being queued. The owned permit covers the complete handler and
+JSON response construction and is released on success, error, timeout or task
+cancellation.
+
+The shared read governor remains outside this capacity gate, so over-quota
+traffic receives 429 before it can acquire a response slot. Bearer
+authentication remains outermost. Public confirmed-chain point lookups,
+`/health`, status and small authenticated administrative reads are not routed
+through the new scanner capacity and retain their existing behavior. Page
+clients already treat overloaded scan operations as retryable.
+
+Boundary retained
+=================
+The permit covers snapshot work and response serialization. It does not remain
+held for an arbitrarily slow client after the materialized response is returned
+to Hyper; transport backpressure and the per-source governor govern that phase.
+The per-page block-count, consensus block-size and encoded soft budgets remain
+the primary response-size bounds.
+
+Light validation
+================
+* rustfmt for lib.rs and middleware.rs: PASS
+* git diff --check for both Rust files: PASS
+* structural assertions prove all five large scan routes share the capacity
+  middleware and rate admission wraps it: PASS
+* Added an isolated async middleware regression with capacity one. The first
+  handler holds its permit, an immediate second request must return 503 within
+  one second, and cancelling the first must restore the permit: queued/reject/
+  release behavior covered.
+
+Cargo execution remains queued while the pinned RandomX proof owns the shared
+compiler and memory resources. No readiness fact, push, deploy, signature,
+transaction, mining or funds action occurred.

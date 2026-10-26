@@ -77,10 +77,16 @@ const verifier = await deployed(
 );
 const domain = keccak256(new TextEncoder().encode("DOM local proof reserve fixture"));
 const activation = keccak256(new TextEncoder().encode("DOM local activation fixture"));
+const checkpointRegistry = await deployed(
+  signer,
+  "Mocks.sol/MockGracefulShutdownRegistry.json",
+  [domain, activation],
+);
 const reserve = await deployed(signer, "USDOMProofReserve.sol/USDOMProofReserve.json", [
   [
     await token.getAddress(),
     await verifier.getAddress(),
+    await checkpointRegistry.getAddress(),
     domain,
     activation,
     await governance.getAddress(),
@@ -131,7 +137,7 @@ const proofRun = spawnSync(
   { cwd: repository, encoding: "utf8" },
 );
 rmSync(temporary, { recursive: true, force: true });
-if (proofRun.status !== 0) throw new Error(proofRun.stderr || "receipt proof generator failed");
+if (proofRun.status !== 0) throw new Error("receipt proof generator failed");
 const receiptProofs = JSON.parse(proofRun.stdout);
 if (receiptProofs.root.toLowerCase() !== block.receiptsRoot.toLowerCase()) {
   throw new Error(`receipt root mismatch: ${receiptProofs.root} != ${block.receiptsRoot}`);

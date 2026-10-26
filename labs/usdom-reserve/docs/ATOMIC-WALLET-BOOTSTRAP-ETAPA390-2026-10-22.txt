@@ -1,0 +1,28 @@
+DOM/USDOM hardening stage 390 — atomic wallet bootstrap
+
+Date: 2026-10-22
+
+The standalone wallet bootstrap no longer creates the recovery phrase or final
+WalletDir through mutable pathname operations.
+
+The phrase is published with the shared retained-parent, mode-0600, fsync and
+no-clobber writer; its temporary in-memory encoding is overwritten before the
+function returns. Its parent must be the current user's direct exact-mode-0700
+directory. Existing regular files and symbolic links are preserved and cause a
+failure.
+
+The complete WalletDir is now built inside a fresh mode-0700 staging directory
+anchored to its retained parent descriptor. The final name is installed only
+after wallet creation succeeds, using a no-replace rename and parent fsync. A
+failed creation or publication cannot expose a partial wallet generation, and
+an existing destination is never reused or replaced.
+
+The generic private staging module is now available to the default host build;
+rustix is a normal dom-node host dependency rather than a native-USDOM-only
+feature dependency. No guest dependency graph is affected.
+
+Validation completed:
+
+- wallet bootstrap tests: 2/2 passed, including create-once and symlink target
+  preservation;
+- default-feature staging authority tests: 3/3 passed.

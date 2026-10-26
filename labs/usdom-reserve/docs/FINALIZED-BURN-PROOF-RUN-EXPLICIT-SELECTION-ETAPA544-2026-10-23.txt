@@ -1,0 +1,29 @@
+Stage 544 — finalized-burn proof-run explicit selection
+Date: 2026-10-23
+
+Finding
+
+The capacity runner always chose the lexicographically newest canonical run
+directory and then required `succeeded`. This correctly prevented silent
+fallback, but one newer orphan `running` directory permanently blocked import
+of an older completed proof unless another expensive proof was produced.
+
+Correction
+
+The default remains unchanged and fail closed: the newest canonical directory
+must be a canonical success. An operator may now set
+`USDOM_FINALIZED_BURN_PROOF_RUN_ID` to one exact canonical run ID. The selected
+directory must exist directly under the owner-only run root and pass the same
+strict status schema, success state, timestamps, prover policy and required-file
+checks. Malformed, missing, failed or running explicit selections are rejected.
+There is no scanning for an older success and therefore no silent fallback.
+
+Adversarial validation
+
+A focused test creates an older succeeded run and a newer orphan running run.
+Automatic selection rejects the orphan; explicit selection accepts only the
+named canonical success; a traversal-shaped run ID is rejected.
+
+The active prover service and its directories were not inspected or changed.
+No full readiness, Cargo, Foundry, Anvil, proof, network, signing, funds,
+deployment, push or publication operation was run.

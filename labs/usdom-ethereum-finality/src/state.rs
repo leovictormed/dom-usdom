@@ -2,7 +2,9 @@
 //! code/configuration ran during an earlier transaction in the same block.
 use alloy::primitives::{keccak256, Address, Bytes, B256, U256};
 use alloy_rlp::Decodable;
-use alloy_trie::{proof::verify_proof, Nibbles, TrieAccount, EMPTY_ROOT_HASH, KECCAK_EMPTY};
+use alloy_trie::{
+    nodes::TrieNode, proof::verify_proof, Nibbles, TrieAccount, EMPTY_ROOT_HASH, KECCAK_EMPTY,
+};
 use eyre::{ensure, Result};
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +25,50 @@ pub struct AccountEvidence {
     /// None requests a proof of absence, never a default zero account.
     pub account_rlp: Option<Bytes>,
     pub proof: Vec<Bytes>,
+}
+
+/// Named, untrusted account fields returned by one `eth_getProof` response.
+/// Keeping the block and trie fields in one value prevents positional mixups
+/// between hashes and quantities before the finalized-state verification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RpcAccountClaim {
+    pub block_hash: B256,
+    pub block_number: u64,
+    pub address: Address,
+    pub nonce: u64,
+    pub balance: U256,
+    pub storage_root: B256,
+    pub code_hash: B256,
+    pub proof: Vec<Bytes>,
+}
+
+/// Canonically encode the account claim returned by `eth_getProof`. The claim
+/// receives no authority until `verify_account` checks it against a finalized
+/// state root.
+pub fn account_evidence_from_rpc_claim(claim: RpcAccountClaim) -> Result<AccountEvidence> {
+    let RpcAccountClaim {
+        block_hash,
+        block_number,
+        address,
+        nonce,
+        balance,
+        storage_root,
+        code_hash,
+        proof,
+    } = claim;
+    ensure!(
+        block_hash != B256::ZERO && block_number != 0 && address != Address::ZERO,
+        "zero account evidence identity"
+    );
+    check_proof_size(&proof, false)?;
+    let account = TrieAccount::new(nonce, balance, storage_root, code_hash);
+    Ok(AccountEvidence {
+        block_hash,
+        block_number,
+        address,
+        account_rlp: Some(alloy_rlp::encode(account).into()),
+        proof,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +137,73 @@ fn check_proof_size(proof: &[Bytes], allow_empty: bool) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn validate_account_allocation_bounds(evidence: &AccountEvidence) -> Result<()> {
+    if let Some(account) = &evidence.account_rlp {
+        ensure!(
+            !account.is_empty() && account.len() <= MAX_ACCOUNT_BYTES,
+            "account byte limit"
+        );
+    }
+    check_proof_size(&evidence.proof, false)
+}
+
+pub(crate) fn validate_storage_allocation_bounds(evidence: &StorageEvidence) -> Result<()> {
+    check_proof_size(&evidence.proof, true)
+}
+
+pub(crate) fn validate_runtime_code_allocation_bounds(code: &[u8]) -> Result<()> {
+    ensure!(
+        !code.is_empty() && code.len() <= MAX_CODE_BYTES,
+        "runtime code byte limit"
+    );
+    Ok(())
+}
+
+/// Reject the malformed inline shape that reaches an `unreachable!` in
+/// `alloy-trie` 0.9.8's proof walker.  The workspace release profile aborts on
+/// panic, so validation must happen before entering the dependency.
+fn validate_inline_node_shape(node: &TrieNode) -> Result<()> {
+    match node {
+        TrieNode::Branch(branch) => {
+            for child in &branch.stack {
+                if child.is_hash() {
+                    continue;
+                }
+                let mut child_bytes = child.as_slice();
+                let child_node = TrieNode::decode(&mut child_bytes)?;
+                ensure!(child_bytes.is_empty(), "trailing inline MPT child bytes");
+                validate_inline_node_shape(&child_node)?;
+            }
+        }
+        TrieNode::Extension(extension) if !extension.child.is_hash() => {
+            let mut child_bytes = extension.child.as_slice();
+            let child = TrieNode::decode(&mut child_bytes)?;
+            ensure!(
+                child_bytes.is_empty() && matches!(&child, TrieNode::Branch(_)),
+                "noncanonical inline extension child in MPT"
+            );
+            validate_inline_node_shape(&child)?;
+        }
+        TrieNode::EmptyRoot | TrieNode::Extension(_) | TrieNode::Leaf(_) => {}
+    }
+    Ok(())
+}
+
+pub(crate) fn verify_mpt_proof(
+    root: B256,
+    key: Nibbles,
+    expected: Option<Vec<u8>>,
+    proof: &[Bytes],
+) -> Result<()> {
+    for encoded in proof {
+        let mut input = encoded.as_ref();
+        let node = TrieNode::decode(&mut input)?;
+        ensure!(input.is_empty(), "trailing MPT proof node bytes");
+        validate_inline_node_shape(&node)?;
+    }
+    verify_proof(root, key, expected, proof.iter()).map_err(Into::into)
+}
+
 impl HistoricalCapellaClient {
     pub fn verify_account(&self, evidence: &AccountEvidence) -> Result<Option<VerifiedAccount>> {
         let header = self.finalized_execution(evidence.block_hash, evidence.block_number)?;
@@ -115,11 +228,11 @@ pub(crate) fn verify_account_at(
         );
     }
     // Account keys are keccak(address), unlike receipt keys RLP(index).
-    verify_proof(
+    verify_mpt_proof(
         header.state_root,
         Nibbles::unpack(keccak256(evidence.address)),
         evidence.account_rlp.as_ref().map(|raw| raw.to_vec()),
-        evidence.proof.iter(),
+        &evidence.proof,
     )?;
     let Some(raw) = &evidence.account_rlp else {
         return Ok(None);
@@ -169,11 +282,11 @@ impl VerifiedAccount {
         } else {
             Some(alloy_rlp::encode(evidence.value))
         };
-        verify_proof(
+        verify_mpt_proof(
             self.account.storage_root,
             Nibbles::unpack(keccak256(evidence.slot)),
             expected,
-            evidence.proof.iter(),
+            &evidence.proof,
         )?;
         Ok(VerifiedStorageWord {
             location: self.location.clone(),
@@ -274,4 +387,66 @@ pub(crate) fn test_verify_account(
     evidence: &AccountEvidence,
 ) -> Result<Option<VerifiedAccount>> {
     verify_account_at(genesis_validators_root, header, evidence)
+}
+
+#[cfg(test)]
+mod mpt_abort_regressions {
+    use super::*;
+    use alloy_rlp::Encodable;
+    use alloy_trie::{
+        nodes::{BranchNode, ExtensionNode, LeafNode, RlpNode},
+        TrieMask,
+    };
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    #[test]
+    fn inline_extension_to_leaf_is_rejected_before_dependency_abort() {
+        let leaf = TrieNode::Leaf(LeafNode::new(Nibbles::from_nibbles(&[1]), vec![0x42]));
+        let mut leaf_bytes = Vec::new();
+        leaf.encode(&mut leaf_bytes);
+        let leaf_pointer = RlpNode::from_raw(&leaf_bytes).expect("small inline leaf");
+
+        let extension = TrieNode::Extension(ExtensionNode::new(
+            Nibbles::from_nibbles(&[2]),
+            leaf_pointer,
+        ));
+        let mut extension_bytes = Vec::new();
+        extension.encode(&mut extension_bytes);
+        let extension_pointer =
+            RlpNode::from_raw(&extension_bytes).expect("small inline extension");
+
+        let branch = TrieNode::Branch(BranchNode::new(
+            vec![extension_pointer],
+            TrieMask::from_nibble(0),
+        ));
+        let error = validate_inline_node_shape(&branch)
+            .expect_err("extension-to-leaf branch shape must fail closed");
+        assert!(error
+            .to_string()
+            .contains("noncanonical inline extension child"));
+
+        // Keep the root node hashed so alloy-trie's walker reaches the bad
+        // inline child. In the test profile panic unwinds, demonstrating the
+        // exact upstream abort path that the release prevalidation excludes.
+        let TrieNode::Branch(mut branch_node) = branch else {
+            unreachable!();
+        };
+        branch_node
+            .stack
+            .push(RlpNode::word_rlp(&B256::repeat_byte(3)));
+        branch_node.state_mask.set_bit(1);
+        let mut encoded_branch = Vec::new();
+        TrieNode::Branch(branch_node).encode(&mut encoded_branch);
+        assert!(encoded_branch.len() >= 32);
+        let proof = [Bytes::from(encoded_branch.clone())];
+        let upstream = catch_unwind(AssertUnwindSafe(|| {
+            verify_proof(
+                keccak256(&encoded_branch),
+                Nibbles::from_nibbles(&[0, 2, 1]),
+                Some(vec![0x42]),
+                proof.iter(),
+            )
+        }));
+        assert!(upstream.is_err(), "upstream invariant must be reproducible");
+    }
 }

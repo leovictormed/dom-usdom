@@ -1,0 +1,40 @@
+Checkpoint V6 closure-aware Rust migration — Stage 1080 — 2026-10-26
+
+Finding
+The host-reference V2 executor still decoded UDCPST05 and did not bind the
+authenticated issuance-closure bit. Its calls into native package validation
+also omitted the newly required closure policy. Candidate-V2 source APIs still
+accepted an absent closure policy, allowing a V6 source boundary to be built
+without the immutable Ethereum closure identity.
+
+Corrections
+- `execute_checkpoint_extension_v2_with_witnesses` decodes only UDCPST06 and
+  rejects V5 framing.
+- The exact target `total_issued`, `total_burned` and `issuance_closed` are
+  compared to the independently executed state at the checkpoint target.
+- Candidate-V2 reference execution and source builders require an explicit
+  `StaticIssuanceClosureTrustPolicy`; both block-verification paths receive the
+  authenticated policy. The node fails closed when its V2 runtime lacks it.
+- Current V2 runtime/export fixtures use schema 3 plus an exact closure policy.
+- V6 outer-chain regressions use UDCSTN04 economic/closure fields and the V6
+  validator. Historical V4/V5 readers remain only in explicit compatibility
+  tests.
+- Fixtures that materialize current static Ethereum policies now use a valid,
+  strictly increasing fork schedule. The sole remaining default fork schedule
+  is an intentional regtest network-identity test that does not construct a
+  static policy.
+
+Verification to date
+- Rust formatting and `git diff --check` pass.
+- First focal Cargo run exposed stale V4/V5 test initializers; corrected.
+- Second focal Cargo run compiled production code, passed 46/46 library tests
+  and 1/1 native-state-opening test. Its two remaining failures occurred during
+  fixture construction because `EthereumForks::default()` violates current
+  static-policy validation; every affected current-policy fixture was corrected.
+- The closure-policy fixture regression passes. The portable pipeline then
+  exposed a distinct stale test assumption: its header used dev fast-PoW while
+  the exporter truthfully executed RandomX. The fixture now mines one real
+  RandomX regtest header and compares network, chain, height, seed, preimage,
+  claimed output, target and independently recomputed output before export.
+- Exact final regression passed 1/1 in 401.36 seconds. No RISC Zero guest build
+  ran.

@@ -1,0 +1,40 @@
+RISC ZERO RECEIPT / SEAL BOUNDARY — ETAPA993
+Date: 2026-10-23
+
+Result
+------
+The host and Solidity cryptographic formats agree: both guests publish exactly
+the statement bytes as the journal; hosts verify receipt journal and ImageID,
+require the pinned Groth16 verifier-parameter digest, then package the raw eight
+BN254 proof words behind selector 0x73c457ba. Both adapters compute SHA-256 over
+the exact 32 statement bytes, require 260 bytes and the same selector, bind the
+guest ImageID immutably, call the direct verifier with 4,500,000 gas, and accept
+only success with empty returndata. The direct verifier is responsible for
+canonical BN254 field/curve validation.
+
+Concrete evidence gap fixed
+---------------------------
+The authenticated artifact collectors validated selector, seal size, ImageID,
+journal digest and Groth16 parameters, while each isolated release E2E passed
+the collected seal directly to the adapter and bounded only the overall
+transaction at 5,000,000 gas. Consequently the release rehearsal did not state
+or independently prove its assumptions about the adapter's inner 4,500,000 gas
+cap and on-chain journal-digest computation.
+
+Both finalized-burn and checkpoint E2Es now independently reject a seal unless
+it is exactly 260 bytes with selector 0x73c457ba. After adapter deployment they
+read `RISC_ZERO_VERIFIER_GAS_LIMIT()` and require 4,500,000, call
+`journalDigest(statementHash)`, independently compute SHA-256 over the raw
+32-byte statement, and require equality before proof verification. A successful
+call against the observed direct runtime also proves the void-return ABI because
+the adapter rejects any nonempty returndata.
+
+Validation
+----------
+`python3 scripts/check-risc0-receipt-boundary.py`: PASS. The permanent gate
+cross-checks both adapters, both Rust packagers and both E2E rehearsals for the
+selector, size, parameter/journal checks, empty return policy and gas cap.
+Python syntax and whitespace checks passed. Cargo/Forge and the full E2Es were
+not run while the long RISC0 proof occupied the machine.
+
+No network, push, deploy, signing, broadcast, mining or funds action occurred.

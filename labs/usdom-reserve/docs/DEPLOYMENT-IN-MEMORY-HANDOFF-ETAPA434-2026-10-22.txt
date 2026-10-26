@@ -1,0 +1,43 @@
+USD/DOM stage 434 — source-stable deployment package and Ledger handoff
+Date: 2026-10-22
+
+Finding
+=======
+
+Immediately before each mainnet deployment the runbook regenerated the
+four-contract package and compared it byte for byte with the reviewed file. It
+then reopened the reviewed pathname with four independent `jq` calls to obtain
+the deployer, nonce, initcode and expected address. Replacement after the
+comparison could change what reached `cast send --ledger`. The generator itself
+also consumed release, verifier, compiler artifact and source files without a
+final stability pass across all inputs.
+
+Correction
+==========
+
+`prepare-mainnet-deployment.mjs` records every byte it consumes, including all
+artifact-declared sources, and rereads every input at the same length before it
+emits a package.
+
+The fixed `prepare-mainnet-deployment-transaction.mjs` command reads one direct
+owner-only package inode, verifies its pinned SHA-256, regenerates the entire
+package from current sources, requires byte-for-byte equality and returns only
+the indexed transaction as an in-memory shell value. It has no RPC, Ledger,
+signing or broadcast capability. Both adapter and registry/reserve deployment
+loops now derive all transaction fields from that value and never reopen the
+package between comparison and hardware use.
+
+Validation
+==========
+
+- Focused deployment/direct-input/operator regression: 73/73 pass.
+- Complete Node regression: 312/312 pass.
+- Production Solidity lint and forced 44-file build pass.
+- JavaScript syntax and repository whitespace checks pass.
+- Complete provenance passes for 169 imports, every proof and panic boundary,
+  and 1,221 source files.
+- Closed-mainnet and real-funds gates remain intentionally closed at 169 and
+  176 blockers; neither contains a stage-434 failure.
+
+No public RPC write, hardware signature, transaction, deployment, funds,
+mining, commit, tag or push occurred.

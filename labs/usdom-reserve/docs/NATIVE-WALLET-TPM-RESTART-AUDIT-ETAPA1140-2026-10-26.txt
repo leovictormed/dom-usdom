@@ -1,0 +1,31 @@
++NATIVE WALLET OBSERVATION, RECOVERY AND TPM OPERATIONAL AUDIT — STAGE 1140
+Date: 2026-10-26
+Scope: observe-finalized-deposit-wallet, wallet recovery drill, TPM keystore provisioning, TPM authority bootstrap and operational restart.
+No real network, signature, deployment, funds, Cargo or Rust execution was used.
+
+FINDINGS CORRECTED
+
+1. HIGH — finalized-deposit observation had a canonical-identity TOCTOU gap.
+   The script authenticated the DOM mainnet identity twice before observation, but accepted the derived wallet state without proving the same chain/genesis/tip remained authoritative after the observer RPC work.
+   Correction: after the observer returns, the hardened curl and Node readers fetch and validate identity again. The complete identity file must byte-match the pre-observation identity before observed-state is accepted. In the closed pilot, continuous mining is disabled, so a mismatch identifies reorg, node replacement or unauthorized block and fails closed.
+
+2. MEDIUM — TPM keystore cleanup used an ambient find command after handling recovery and owner credentials.
+   Correction: cleanup now uses the already pinned/authenticated Node executable and fs.rmSync, preserving signal status and removing PATH-dependent cleanup execution.
+
+REVIEW RESULTS
+
+- observe/register scripts close inherited descriptors, scrub loader/Node/Cargo/proxy/debug environments, disable core dumps, pin executable identity and hashes, snapshot manifest inputs, authenticate DOM mainnet identity and keep secret material in owner-only tmpfs.
+- Recovery verifies fixed manifest/deposit/checkpoint/recovery/token commitments before each credential-bearing action; built binary identity and hash are checked immediately before execution.
+- TPM provisioning/bootstrap pin TPM tool paths, parents, metadata and hashes, verify state/input commitments immediately before mutation, use owner-only locks/runtime and refuse replacement of existing credential/evidence generations.
+- Existing outputs intentionally fail closed rather than being overwritten. Partial hardware mutation or a crash between TPM mutation and its durable evidence remains a recovery ceremony, because shell code cannot safely infer NV state ownership without the native authority validator.
+
+IMMEDIATE POST-CARGO RUST ITEM
+
+Implement an authenticated, bounded, read-only native issuance status endpoint keyed by both candidateId and depositId. It must return chain ID, genesis hash, canonical tip, candidate state, consumed-deposit state, inclusion height/hash and issuance commitment; reject mismatched candidate/deposit pairs; and expose no note secret, address linkage or witness bytes. Submission, mining, observation and recovery scripts must use it to reconcile the crash window after node mutation and before local receipt fsync. This is the first queued Rust item after the active workspace Cargo run ends.
+
+VALIDATION
+
+- bash -n passed for observe, TPM provision/bootstrap and recovery drill.
+- Focused Node suite passed 17/17.
+- No network, TPM operation, Cargo/Rust execution, signing, deployment, commit or push.
+

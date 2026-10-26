@@ -1,0 +1,74 @@
+USDOM NODE CONCURRENCY AUDIT — ETAPA 1026
+Date: 2026-10-23
+
+Scope
+=====
+
+Native USDOM candidate admission, mining-template construction, mined-package
+finalization, peer/RPC proof ingress, block connect/reorg, checkpoint-floor
+promotion, snapshot export, future/orphan replay and wallet/mempool auxiliary
+effects were reviewed for double admission, stale authority, lock inversion and
+post-reorg mutation.
+
+Concrete findings and fixes
+===========================
+
+1. Stale mined-candidate cleanup after reorg (fixed)
+
+   `finalize_mined_native_usdom_v{4,2}_block` decided that its block was
+   canonical, released ingress, and only then reacquired the runtime to delete
+   the candidate. Another task could reorganize that exact block away between
+   those operations. Cleanup would then consume a candidate that was again
+   valid for a later template.
+
+   Both cleanup entry points now receive the mined block height and canonical
+   hash. They acquire `chain` before the corresponding native runtime, verify
+   the exact height/hash in the current canonical index, and remove the
+   candidate only while both facts remain serialized. A stale result retains
+   the candidate.
+
+2. Future-queue duplicate lost during proof contention (fixed)
+
+   A deferred package replay racing the identical in-flight package was
+   classified as a permanent policy rejection and dropped. Duplicate-in-flight
+   is now classified with proof-capacity contention so the bounded future queue
+   requeues it. The existing permit still serializes verification and prevents
+   double application.
+
+Verified boundaries
+===================
+
+- RPC/peer candidate admission and template creation serialize under
+  `chain -> native runtime`; template proofs are reverified against the current
+  state and exact timestamp.
+- Final package ingress retains the same lock order throughout blocking proof
+  verification and atomic chain/native-state commit. Caller cancellation cannot
+  release the global proof permit while the blocking worker remains alive.
+- Candidate IDs are deterministic and runtime admission is mutex-serialized;
+  repeated exact bytes are idempotent.
+- V4/V2 checkpoint-floor changes are included in the same DomStore transaction
+  as the carrier block, USDOM state, undo and canonical indices. The in-memory
+  floor advances only after that transaction succeeds.
+- Snapshot export starts from one coherent LMDB consensus snapshot, verifies
+  every package/undo against canonical indices and rejects if the chain tip
+  changed before completion.
+- Wallet/mempool effects do not grant consensus authority. Native state cannot
+  be applied after a reorg because state mutation occurs only inside serialized
+  chain/runtime ingress. Ordinary transaction admission's documented stale
+  view remains volatile and every block is revalidated by consensus.
+- No awaited runtime->chain inversion was found in the audited native paths.
+
+Regression evidence
+===================
+
+- `python3 labs/usdom-reserve/scripts/check-usdom-node-concurrency-stage1026.py`
+  PASS.
+- `python3 -m py_compile .../check-usdom-node-concurrency-stage1026.py` PASS.
+- `rustfmt --edition 2021 --check crates/dom-node/src/node.rs
+  crates/dom-node/src/miner.rs` PASS.
+- A focused unit assertion now pins duplicate-in-flight as retryable queue
+  contention.
+
+Full Cargo tests were intentionally deferred while the independent real RISC0
+proof process remained active, to avoid invalidating that resource-constrained
+run. No network, push, deployment, signing or funds were used.

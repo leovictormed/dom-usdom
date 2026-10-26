@@ -1,0 +1,60 @@
+Native USDOM receiving-wallet ceremony — stage 281
+Date: 2026-10-21
+Status: implementation and local validation complete; operator ceremony pending
+
+Problem
+
+The recovery CLI generated and immediately restored an encrypted native USDOM
+wallet backup, then returned its canonical USDADR01 public address. The Ethereum
+reserve deposit ABI needs the address owner's canonical BN254 scalar as the
+receivingCommitment. No fixed operator command extracted that public field,
+bound it to the exact DOM domain/privacy policy and retained the recoverable
+wallet without exposing the recovery seed.
+
+Implementation
+
+1. dom-usdom-wallet-recovery now derives receiving_commitment from the same
+   decoded RecipientAddress returned by the wallet and prints it as an exact
+   lowercase 32-byte public value. The recovery seed and passphrase remain
+   absent from stdout, argv and the environment.
+2. The fixed no-argument command is:
+
+     npm run --silent prepare:native-receiving-wallet
+
+   It reads domDomain and the compiled privacy-policy hash from the checked-in
+   release inputs, and fails before requesting a passphrase while either is
+   unconfigured or malformed.
+3. The command builds before reading a secret. It reads and confirms the
+   passphrase without terminal echo, writes it only to an owner-only temporary
+   file in /dev/shm, removes that file on every exit path, and passes only the
+   file path to the Rust process.
+4. The encrypted recovery backup and public identity live outside the project
+   in ~/.local/share/dom-usdom/mainnet-wallet. Creation is no-clobber. Reruns
+   restore the existing backup and require the exact previously published
+   USDADR01 address. Direct files, ownership, modes 0700/0600 and link count are
+   checked before use.
+5. The public JSON contains the exact DOM domain, privacy-policy hash, chain
+   scalar, receivingCommitment, recipient address and backup path. It contains
+   no seed, private viewing key, spending key or passphrase.
+
+Evidence
+
+- shell syntax and fixed-command policy: passed;
+- operator-runbook suite: passed 27/27;
+- focused operator/readiness suites, including independent fail-closed checks
+  for both new real-funds requirements: passed 65/65;
+- complete Node suite after rebuilding the normal Foundry artifacts: passed
+  157/157;
+- recovery binary create/restore and permission suite: passed 5/5 with the
+  test-only fixture guard enabled only for tests;
+- ordinary optimized production-binary check without unsafe-test-oracle:
+  passed;
+- no public network, wallet ceremony, transaction, fund, deploy, commit or push
+  occurred.
+
+Scope boundary
+
+The command makes the necessary wallet ceremony executable and deterministic.
+It does not claim that the ceremony has occurred, that hardware/OS custody or a
+rollback-resistant wallet seal has been installed, or that a real finalized
+deposit has entered DOM consensus. Those live facts remain separate blockers.

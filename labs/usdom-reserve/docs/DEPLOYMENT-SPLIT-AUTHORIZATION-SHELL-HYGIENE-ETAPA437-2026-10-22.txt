@@ -1,0 +1,39 @@
+USD + DOM — split deployment authorization and shell hygiene
+Stage 437 — 2026-10-22
+
+Findings
+--------
+1. The recoverable deployment executor requested textual authorization only
+   after Ledger signing. A signed raw Ethereum transaction is already a
+   transferable publication capability, even when it has not yet reached an
+   RPC.
+2. A warning-level ShellCheck sweep found 33 launchers using the intentional
+   but visually ambiguous `CDPATH= cd` environment-assignment idiom.
+
+Corrections
+-----------
+- A new raw transaction requires the exact index-bound
+  `AUTORIZO ASSINAR DEPLOY MAINNET INDICE N` phrase after the two-RPC gas,
+  fee, nonce and address review and before `cast mktx --ledger`.
+- After durable raw/hash journaling and network lookup, publication requires a
+  distinct `AUTORIZO TRANSMITIR DEPLOY MAINNET INDICE N` phrase only when the
+  primary RPC has not already observed that exact hash. Restarted receipt
+  observation does not request a meaningless new signing authorization.
+- All 33 affected launchers now express an empty CDPATH as `CDPATH='' cd`.
+  This keeps the same physical-directory resolution while making the intended
+  environment assignment explicit.
+
+Validation
+----------
+- Bash syntax passes for every shell launcher;
+- warning-level ShellCheck passes for every shell launcher with no finding;
+- syntax checks pass for all 173 JavaScript modules;
+- focused deployment and operator regression passes 70/70.
+- complete Node regression and forced 44-file Solidity build pass 316/316;
+- complete provenance passes for 169 imports, all proof/panic boundaries and
+  1,228 source-manifest entries;
+- expected fail-closed gates remain at 169 closed-mainnet and 176 real-funds
+  blockers.
+
+No Ledger signature, transaction publication, deployment, funds, mining,
+commit, tag or push occurred.

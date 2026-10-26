@@ -1,0 +1,82 @@
+{
+  "schema": "usdom-mainnet-toolchain-lock/v1",
+  "executables": [
+    {
+      "name": "node",
+      "path": "/home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node",
+      "sha256": "bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12",
+      "versionContains": "v24.19.0",
+      "realpath": "/home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node"
+    },
+    {
+      "name": "npm",
+      "path": "/usr/lib/chatgpt/resources/cua_node/bin/npm",
+      "sha256": "cfd4401a4cab5ce4ec910db4d3944697da0b0ea6e0be5eb890fac41061f1f61a",
+      "versionContains": "11.17.0",
+      "realpath": "/usr/lib/chatgpt/resources/cua_node/bin/npm"
+    },
+    {
+      "name": "forge",
+      "path": "/home/leonardov/.foundry/bin/forge",
+      "sha256": "06c477aee83d0996e57aa92b0841fdf06382cb172fd69bbb88920bb0054dfd7f",
+      "versionContains": "1.8.5",
+      "realpath": "/home/leonardov/.foundry/bin/forge"
+    },
+    {
+      "name": "cast",
+      "path": "/home/leonardov/.foundry/bin/cast",
+      "sha256": "1eb1eecfdadaad8da2173ccf0c7c0be86fe237b0a267042a40d7ca12d0fa2af7",
+      "versionContains": "1.8.5",
+      "realpath": "/home/leonardov/.foundry/bin/cast"
+    },
+    {
+      "name": "rustc",
+      "path": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc",
+      "sha256": "3690cc576ede140504698405d5d8fa3826aaadbe71699c6c4ed0a565d6f493e2",
+      "versionContains": "1.98.0",
+      "realpath": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc"
+    },
+    {
+      "name": "cargo",
+      "path": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+      "sha256": "ff3022fcbd13b08434ea7afde9a0ef9d5b3f5c17b5fc7a40031be3ee000a6a24",
+      "versionContains": "1.98.0",
+      "realpath": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo"
+    },
+    {
+      "name": "python3",
+      "path": "/usr/bin/python3",
+      "sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+      "versionContains": "3.12.3",
+      "realpath": "/usr/bin/python3.12"
+    },
+    {
+      "name": "jq",
+      "path": "/usr/bin/jq",
+      "sha256": "59cfd58d7e470b103aede0e7589cfea929e45ee27f5471f08aa9676ac7bfc566",
+      "versionContains": "jq-1.7",
+      "realpath": "/usr/bin/jq"
+    }
+  ],
+  "files": [
+    {
+      "path": "package-lock.json",
+      "sha256": "61311e2e1f536853fa4e5b07f9c8a97b32e1e1891fe7aee32e730fa6cffd58e1"
+    },
+    {
+      "path": "../../Cargo.lock",
+      "sha256": "a8cf3916a0e823e81bf0378721530fb07d5e82b7bd7bb7d821bc08c02bf4dfc2"
+    },
+    {
+      "path": "foundry.toml",
+      "sha256": "20029b980175ac1237c4a1f77071b42d78b6737f9bc2f3a337cbbfed6f40ef97"
+    }
+  ],
+  "solcVersion": "0.8.37",
+  "rustToolchain": "1.98.0",
+  "solc": {
+    "path": "/home/leonardov/.svm/0.8.37/solc-0.8.37",
+    "sha256": "5de843c2c93563cc66425c99a4fb13fdbf32b4c4ae07469480faaf126e14404a",
+    "version": "0.8.37"
+  }
+}

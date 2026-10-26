@@ -1,0 +1,63 @@
+USDOM — materialização Safe em duas fases (etapa 304)
+Data: 2026-10-21
+Escopo: implementação local; nenhum artefato mainnet real foi materializado
+
+RISCO TRATADO
+
+Copiar manualmente endereços, code hashes e referências de evidência do bundle
+Safe para os JSONs da release permitiria erro de transcrição e poderia romper a
+regra de dois commits: fatos técnicos pertencem ao commit fonte imutável;
+documentos que precisam citar esse commit pertencem ao filho de evidência.
+
+IMPLEMENTAÇÃO
+
+- um materializador fonte lê o conjunto canônico de seis relatórios e o
+  fragmento, verifica conteúdo e SHA-256, e preenche somente os três endereços
+  Safe e seus três runtime code hashes;
+- a fase fonte exige `productionReady == false` e
+  `realFundsAuthorized == false`; valor preexistente diferente falha;
+- um materializador de evidência preenche somente bundle, três relatórios de
+  papel, relatório de separação e recovery drill no JSON de metadados;
+- a fase de evidência exige que a configuração fonte esteja idêntica ao HEAD e
+  recusa qualquer mudança pendente fora dos dois JSONs de metadados e de
+  `evidence/`;
+- as duas fases usam caminhos fixos, lock exclusivo, arquivo temporário no
+  mesmo diretório, fsync e rename atômico; nenhuma aceita argumentos;
+- nenhuma fase acessa RPC, dispositivo, segredo, assinatura, transação ou Git
+  de escrita; `git add`, `commit`, `tag` e `push` permanecem fora delas;
+- o runbook coloca a fase fonte antes do commit fonte e a fase de metadados
+  somente após esse commit assinado.
+
+ARQUIVOS PRINCIPAIS
+
+- `sdk/safe-control-materialization.mjs`
+- `scripts/safe-control-release-artifacts.mjs`
+- `scripts/prepare-safe-control-release-config-materialization.mjs`
+- `scripts/prepare-safe-control-release-metadata-materialization.mjs`
+- `scripts/materialize-safe-control-release-config.sh`
+- `scripts/materialize-safe-control-release-metadata.sh`
+- `docs/CLOSED-MAINNET-LINUX-RUNBOOK.md`
+
+VALIDAÇÃO LOCAL
+
+- shell e JavaScript passam por verificações sintáticas;
+- 103/103 testes focados de Safe, runbook e readiness passam;
+- 88/88 testes focados passam depois da integração dos comandos no runbook;
+- substituições semânticas e hashes divergentes são rejeitados; execução
+  idempotente conserva o JSON canônico;
+- lint dos contratos de produção, rebuild Foundry e 210/210 testes Node passam;
+- proveniência passa 169 imports/16 mudanças declaradas, 45 fontes de programas
+  de prova, 7 fontes de carteira/8 arquivos de crate e 1004 fontes do
+  laboratório;
+- os gates permanecem esperadamente fechados com 163 bloqueios únicos no
+  closed-mainnet e 174 no real-funds; não há bloqueio de implementação da etapa
+  304, auditoria externa ou garantia impossível de risco zero;
+- nenhum RPC, dispositivo, assinatura, transação, deploy, fundo, mineração,
+  geração de prova, commit, tag ou push foi usado.
+
+LIMITES
+
+Os comandos não foram executados contra dados reais porque os Safes e o ensaio
+finalizado ainda não existem. O materializador não cria commits ou tags. A
+cerimônia assinada de dois commits continua sendo uma ação separada e o push
+continua proibido sem autorização explícita.

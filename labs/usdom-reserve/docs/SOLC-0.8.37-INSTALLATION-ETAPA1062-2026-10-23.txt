@@ -1,0 +1,47 @@
+Stage 1062 — authenticated Solc 0.8.37 installation
+Date: 2026-10-23 (America/Sao_Paulo)
+Status: toolchain verified
+
+Pinned authority
+================
+The existing reviewed manifest fixes the official Solidity release asset:
+- release: https://github.com/argotorg/solidity/releases/tag/v0.8.37
+- asset: https://github.com/argotorg/solidity/releases/download/v0.8.37/solc-static-linux
+- version: 0.8.37+commit.f401782d.Linux.g++
+- SHA-256: 5de843c2c93563cc66425c99a4fb13fdbf32b4c4ae07469480faaf126e14404a
+- provenance: official release digest independently matched in Stage 63 and
+  encoded in `config/solc-0.8.37-official-manifest.json`.
+
+Installation
+============
+No local Solc 0.8.37 target was present. The audited bootstrap downloaded the
+fixed asset using curl with HTTPS-only initial/redirect protocols, TLS >=1.2,
+bounded timeouts and retries. It wrote a create-new private candidate under the
+owner-only final directory, authenticated SHA-256 before execution, verified
+the exact version string, set mode 0700 and installed through an exclusive hard
+link. It did not use curl|sh and could not replace an existing file or symlink.
+
+The installed file is a regular single-link owner file at
+`/home/leonardov/.svm/0.8.37/solc-0.8.37`, mode 0700, 15,473,648 bytes. Its
+observed digest and version exactly equal the manifest.
+
+Concrete correction
+===================
+The first post-download materialization exposed a real Node API error:
+`statSync(descriptor)` rejects a numeric file descriptor. The materializer now
+uses `fstatSync(descriptor)`, preserving the intended O_NOFOLLOW descriptor
+boundary for owner/mode/link validation. A regression requires `fstatSync` and
+rejects reintroduction of `statSync` on the descriptor.
+
+Validation
+==========
+- materializer updated the Solc lock slot only after descriptor hash/version
+  validation;
+- the complete mainnet toolchain checker passes: 8 tools and 3 locked files;
+- rerunning the bootstrap used the installed artifact, performed no download,
+  and passed materialization/checking again;
+- focused pinned-Node command/toolchain regression passes 1/1;
+- Bash and Node syntax checks pass; focused diff integrity passes.
+
+No Forge build, proof interruption, signature, deployment, broadcast, funds
+action, commit or push occurred.

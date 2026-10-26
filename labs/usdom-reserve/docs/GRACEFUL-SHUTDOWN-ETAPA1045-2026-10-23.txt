@@ -1,0 +1,44 @@
+ETAPA1045 — ENCERRAMENTO GRACIOSO USDOM
+Data: 2026-10-23
+
+Resultado
+
+Foi implementado um estado terminal autenticado e separado do halt emergencial. O caminho gracioso não pode ser acionado por governança ou guardião: depende da prova de fechamento de emissão, de toda a oferta emitida ter sido queimada e, no lado Ethereum, de todo o colateral devido ter sido efetivamente pago.
+
+Fronteira nativa
+
+- `GracefulShutdown` é uma transição de consenso distinta, vinculada ao domínio USDOM.
+- Só é aceita quando existe `issuance_closure`, `total_burned == total_issued` e o estado ainda não está terminal.
+- Depois do encerramento, novas transições USDOM falham deterministicamente.
+- Root, framing, persistência, restart, histórico, projeção, undo e reorg preservam o bit terminal.
+- `USDBRN05` permite continuar provando burns já registrados no estado terminal; formatos históricos continuam explícitos.
+- Halt emergencial é somente controle operacional e não cria autoridade monetária nem terminalidade.
+
+Checkpoint e prova
+
+- `UDCSTN04` publica `previous_issuance_closed` e `new_issuance_closed`; a prova portátil compara ambos ao estado executado e proíbe reabertura.
+- `UDCPST06` usa `DOMCheckpointV4`, native-state version 3 e vincula `issuanceClosed` em palavra ABI própria. V5 permanece histórico e não pode autorizar shutdown.
+- Outer guest/host produzem e validam V6. O finalized-burn program consome V6, mantendo o caminho de pagamento utilizável depois do fechamento da emissão.
+- SDK e configuração fail-closed foram elevados para statement 6 / 551 bytes e segment transition 4 / 2320 bytes.
+
+Ethereum
+
+- O Registry mantém `latestIssuanceClosed` monotônico e só marca `gracefullyShutdown` quando o checkpoint finalizado prova fechamento e `latestTotalBurned == latestTotalIssued`.
+- O halt do guardião permanece um evento/estado diferente e nunca marca encerramento gracioso.
+- A reserva fixa Registry por endereço, codehash, config hash, domínio e activation commitment, e lê retornos com tamanho/canonicalidade estritos.
+- A reserva só se torna terminal com depósitos fechados, sem pausa, `totalDeposited == totalReleased`, outstanding zero, contagem/valor/cabeçalhos da fila zerados e Registry terminal com circulação zero.
+- Queue, renewal e execute continuam disponíveis enquanto houver qualquer passivo; não existe caminho gracioso que encalhe dívida.
+
+Validação
+
+- Gate estrutural `check-usdom-graceful-shutdown-stage1045.py`: passou.
+- Gate de closure ingress da ETAPA1041: passou.
+- rustfmt dos arquivos Rust alterados: passou.
+- `git diff --check`: passou.
+- Compilação Solidity dos 7 contratos: passou.
+- 7 testes Solidity focados passaram com via-IR: 3 da reserva e 4 do Registry, incluindo hash/closure, liquidação e separação do emergency halt.
+- Cargo completo não foi iniciado para não disputar I/O/CPU com a prova RISC0 longa ativa.
+
+Limite operacional
+
+Os ELFs/ImageIDs e manifests RISC0 existentes antecedem UDCSTN04/UDCPST06. Os gates de release continuam falhando de forma segura até rebuild reprodutível e propagação dos novos hashes. Nenhum deploy, rede, assinatura, push ou fundo foi usado.

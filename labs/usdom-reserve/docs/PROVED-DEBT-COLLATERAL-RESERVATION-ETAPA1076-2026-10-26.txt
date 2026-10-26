@@ -1,0 +1,32 @@
+Stage 1076 — permanent proved-debt collateral reservation
+Date: 2026-10-26
+Scope: USDOMProofReserve real-funds accounting, queue expiry/pause/pruning, shutdown and cold-start observation.
+
+Finding (high severity)
+An accepted finalized-burn proof creates an irreversible reserve debt, but the previous collateral bound used totalPendingAmount. Expiry, discard, pruning or emergency queue invalidation set/remove that temporary amount. A different valid burn could then reserve and consume the same collateral while the first provedBurnDebts entry remained unpaid. Repetition could leave a valid permanent payout right undercollateralized. The shutdown predicate did not independently account for accepted unpaid debt.
+
+Correction
+- Added totalProvedDebtAmount as the permanent aggregate of accepted unpaid finalized burns.
+- unreservedCollateral is now outstanding - totalProvedDebtAmount.
+- Only first proof acceptance increments permanent debt; a renewal restores only its queue lease and does not double reserve.
+- Only successful payout decrements permanent debt. Discard, prune and pause leave it unchanged.
+- Execution fails closed if aggregate debt cannot cover the queued amount.
+- A frozen recipient no longer suppresses recognition/reservation of an irreversible debt; recipient policy is enforced at payment, while reserve/token health is enforced at admission.
+- Graceful shutdown explicitly requires totalProvedDebtAmount == 0.
+- Mainnet cold-start ABI observation/schema now collects this getter and requires canonical zero.
+- Closed-mainnet payout evidence records the permanent debt before execution and requires its exact one-USDT decrement after finalized payment across both RPCs.
+- Solidity invariant ledger independently tracks proved debt and checks queue <= proved debt <= outstanding.
+
+Regression evidence
+- Added testExpiredProvedDebtKeepsCollateralReservedUntilPayment: fills all credited collateral with five expired/discarded proved debts, rejects a sixth debt, permits exact renewal without double reservation, and releases the permanent amount only on payment.
+- Added static temporal/accounting assertions and updated cross-ledger conservation checks.
+- Node focused suites: 21/21 relevant tests passed (6 temporal, 13 accounting/conservation/preflight and 2 payout-evidence tests); redemption shell syntax passes.
+- Foundry validation is complete: the default pinned pipeline passes the full 189/189 Solidity suite, including 63/63 USDOMProofReserve tests and the 256-run/16,384-call ProofReserve invariant.
+
+Adjacent compilation repairs
+- Replaced two unavailable assertLt calls with typed assertTrue comparisons.
+- Realigned every typed candidate() destructure with all 13 current fields and extended the invariant to cover totalIssued/totalBurned.
+- Added the explicit IDOMGracefulShutdownRegistry cast required by the configuration type.
+- Added a one-event-per-pruned-certificate regression for WithdrawalDiscarded.
+
+No deployment, broadcast, signing, funds, commit or push occurred.

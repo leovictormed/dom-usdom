@@ -1,0 +1,49 @@
+ETAPA 997 — collateral/token accounting boundary — 2026-10-23
+
+Scope
+- USDOMProofReserve and prototype USDOMReserve deposit, donation, reservation,
+  payout, token-bucket and USDT-policy paths.
+- Exact balance deltas, totalDeposited/totalReleased/totalPendingAmount algebra,
+  overflow behavior and adversarial sequences were inspected.
+
+Concrete finding and correction
+- The production proof reserve pinned the collateral runtime code hash, while
+  the quorum prototype did not. On an EVM environment permitting code
+  replacement at the configured address, collateral transfer/policy semantics
+  could change after deployment while the internal ledger continued to trust
+  the address.
+- USDOMReserve now captures tokenCodeHash at construction and checks it before
+  every token-policy boundary. TokenChanged reverts before any ledger, bucket,
+  replay or pending-queue mutation.
+- A focused vm.etch regression verifies a changed runtime cannot consume a
+  deposit id or mutate deposited/released/pending totals; the stateful
+  accounting invariant also binds the live runtime to the deployment hash.
+
+Accounting conclusions
+- Donations increase actual reserve balance but never totalDeposited and
+  therefore never create issuance credit.
+- Admission reserves only unreserved outstanding collateral; execution removes
+  the exact reservation and increases totalReleased atomically with the exact
+  reserve/recipient balance-delta postcondition. Reverts restore every effect.
+- uint64 amounts/capacity and the elapsed<1-day refill branch bound bucket
+  multiplication; Solidity checked arithmetic fails closed on inconsistent
+  ledgers or adversarial reported balances.
+- pause, deprecation, nonzero fee and reserve/funder/recipient blacklist states
+  fail closed. A temporary policy change preserves pending rights for retry.
+
+Residual operational risk
+- A permanent Tether pause, blacklist, deprecation or incompatible USDT runtime
+  can make collateral unavailable indefinitely. Both designs deliberately have
+  no sweep/migration authority, so removing that lock would add a stronger fund
+  movement trust assumption. This remains an explicit external issuer risk,
+  not an accounting fail-open.
+
+Checks
+- Lightweight Python structural equivalent: passed after checking code-hash
+  pinning, outstanding/reservation algebra, exact delta checks, policy gates,
+  independent donation/deposit/payment ghosts and the runtime-change test.
+- git diff --check: passed for all ETAPA997 files.
+- Node gate added at test/node/collateral-token-accounting-boundary.test.mjs;
+  node is unavailable on PATH in this environment.
+- Forge intentionally deferred while the live RISC0 proof owns constrained
+  memory/IO resources.

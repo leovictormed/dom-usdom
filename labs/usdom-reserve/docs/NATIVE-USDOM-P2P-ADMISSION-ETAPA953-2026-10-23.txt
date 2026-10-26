@@ -1,0 +1,26 @@
+ETAPA 953 — admissão P2P e propagação USDOM nativa
+Data: 2026-10-23
+
+Achado corrigido
+- `UsdomV4Package` e `UsdomV2Package` compartilhavam a categoria Block, com orçamento de 600 mensagens/10 s/peer. Um pacote V2 pode carregar até 16 MiB de bloco + 4 MiB de witnesses e executar validação criptográfica cara; assim um peer Noise autenticado podia consumir o orçamento generoso de catch-up com centenas de provas.
+- Criada categoria independente `NativeUsdom`, limitada a 8 pacotes/10 s/peer. O override de teste `DOM_TEST_RATELIMIT_NATIVE_USDOM` só pode tornar o limite mais estrito, seguindo o parser canônico existente. Tráfego nativo não consome nem herda o orçamento de blocos PoW.
+
+Inventário confirmado
+- Framing Noise limita payload antes do dispatch; payloads v4/v2 validam magic, comprimentos checked, limites 16 MiB/4 MiB, total exato e re-encoding canônico. Não há decompression path.
+- Pacotes só chegam aos handlers após Noise/Hello e capability bilateral; rate check ocorre antes de parsing, locks, filas e prova.
+- Metadata/timestamp precedem prova cara. Prova/consenso roda em spawn_blocking e a ordem de locks é chain -> runtime.
+- Replay/AlreadyHave é tratado pelo runtime; relay exclui peer de origem.
+- Future queue tem teto 64 MiB; orphan pool tem teto 1024 itens, 32/parent e 256 MiB, com eviction/replay bounded já cobertos.
+- O limitador continua per-peer. O lock exclusivo do runtime serializa commits globais; um cap global adicional pode ser avaliado com métricas reais, mas não é necessário para fechar a amplificação confirmada de 600 pacotes por peer.
+
+Regressão
+- `proof_packages_have_a_tight_budget_independent_of_blocks` cobre V1/V2 compartilhando o novo teto, overflow, reset de janela e independência do orçamento Block.
+- Gate estrutural confirma mapeamento exclusivo, constante 8, window dedicada e teste presente.
+
+Validação leve
+- rustfmt --check: aprovado.
+- Gate estrutural 6/6: aprovado.
+- git diff --check: aprovado.
+- Cargo não executado durante a prova concorrente; teste focado fica pendente para a suíte agregada.
+
+Sem rede, node, commit, push, deploy, assinatura ou fundos.

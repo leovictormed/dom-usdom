@@ -1,0 +1,33 @@
+ETAPA 630 — PACOTES DE CONTROLE SAFE EM JSON ESTRITO
+Data: 2026-10-23
+
+Escopo
+
+Foram auditados os dois pacotes independentes produzidos por
+prepare:recoverable-safe-controls antes de qualquer implantação. Esses
+artefatos vinculam chain ID, owners, threshold, endereços CREATE2 dos Safes de
+governança e guardiões e as transações de criação/configuração correspondentes.
+
+Achado e correção
+
+Embora fossem JSON de autoridade, safe-package-primary.json e
+safe-package-secondary.json atravessavam o instalador create-once em modo
+binário. A validação posterior com jq não elimina a ambiguidade de chaves
+duplicadas antes de o arquivo se tornar a autoridade comparada e hasheada.
+
+O runbook agora passa ambos por install-private-file-new-stdin.mjs --json. O
+instalador faz decodificação UTF-8 fatal, rejeita chaves duplicadas inclusive
+quando escapadas, serializa de forma canônica e só então cria o arquivo privado
+com semântica create-once. Uma falha não substitui nem altera o alvo existente.
+A comparação byte a byte entre os dois RPCs e o SHA-256 passam a operar sobre
+a mesma representação JSON estrita.
+
+Validação
+
+- teste estrutural confirma --json nos dois pacotes Safe;
+- teste comportamental do instalador confirma rejeição de chave duplicada
+  escapada e byte UTF-8 inválido, preservando exatamente o alvo anterior;
+- 2 testes focados passaram; git diff --check passou.
+
+Nenhum deploy, assinatura, transmissão, staging, commit, push ou uso de fundos
+foi executado. Binários e artefatos que não são JSON permaneceram inalterados.

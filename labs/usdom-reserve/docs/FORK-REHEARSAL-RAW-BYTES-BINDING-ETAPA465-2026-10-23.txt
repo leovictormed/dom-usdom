@@ -1,0 +1,36 @@
+Stage 465 — fork-rehearsal raw-byte binding
+Date: 2026-10-23
+
+Finding
+=======
+
+Fork-rehearsal validation compared each scenario reference hash with a caller
+supplied `sha256`, then semantically checked a separately supplied parsed
+document. It never recomputed the hash from that document. A caller could
+therefore change a still-valid field, such as a capture time inside the allowed
+window, while retaining the old evidence hash.
+
+Remediation
+===========
+
+Raw fault and recovery documents now have one canonical sorted JSON encoding
+with a final newline. Validation recomputes SHA-256 from the parsed document
+and requires equality with the indexed hash. The preparer additionally rejects
+any raw file whose exact bytes are not that canonical encoding, then performs
+its existing post-build TOCTOU reread. The release gate mutation suite changes
+a semantically valid timestamp without changing its hash and verifies
+fail-closed rejection.
+
+Evidence boundary
+=================
+
+`production_mainnet_fork_rehearsal_raw_bytes_hash_recomputed` is a structural
+fact. It does not claim that the pending live rehearsal has occurred. No
+network, signing, deployment, funds, mining, commit or push occurred.
+
+Validation
+==========
+
+- Focused fork-rehearsal tests pass 7/7.
+- Changed Node syntax, JSON and diff checks pass.
+- Full readiness passes 60/60.

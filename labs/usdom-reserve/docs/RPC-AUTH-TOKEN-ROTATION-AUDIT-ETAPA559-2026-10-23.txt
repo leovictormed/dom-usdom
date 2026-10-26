@@ -1,0 +1,33 @@
+Stage 559 — RPC authentication, token rotation and private-route exposure audit
+Date: 2026-10-23
+Scope: crates/dom-rpc/src/{lib.rs,middleware.rs,token.rs}, standalone node RPC configuration and native USDOM routes.
+
+Result
+
+One real fail-open configuration defect was found and corrected. Explicit token material that was empty was silently ignored, selecting a lower-precedence environment or on-disk credential. Weak nonempty explicit/environment/file credentials were also accepted by the generic dom-rpc server API, and its fallback token file reader accepted symlinks, hard links and group/world-readable files. An operator attempting revocation could therefore restart with an unintended older credential, while a weak or exposed credential protected wallet and native USDOM capabilities.
+
+Correction
+
+- Every explicit and DOM_RPC_TOKEN credential now must be 32..=512 bytes of visible ASCII with no whitespace. A present but invalid higher-precedence source aborts startup; it never falls through.
+- Persisted credentials use one canonical optional line ending. General trim-based credential mutation was removed.
+- Existing token files must be regular, owner-only and single-link. The reader rechecks the opened inode against the path and rechecks mode/link count, closing pathname-swap and symlink/hard-link acceptance.
+- Reads are bounded before allocation; generated and repaired tokens pass the same validation; concurrent repair winners are revalidated before adoption.
+- Empty crash remnants remain recoverable through the pre-existing atomic claim/create-new protocol, preserving availability without accepting an empty credential.
+
+Route and concurrency audit
+
+All private native USDOM endpoints remain bearer protected: V2 candidate submission, V4 issuance, private transfer and burn submission, exact transfer/burn scans and authenticated history. Candidate and issuance admission are independently serialized; transfer and burn share one concurrency limit before their proof-verifying runtime. Body limits and timeouts remain bounded. Public chain routes expose only already-published consensus state. The public transaction submission route does not grant issuance, burn, wallet or mining authority.
+
+Rotation/revocation semantics
+
+The server intentionally uses one immutable token generation for one listener lifetime. Rotation is restart-and-replace: install a new owner-only token, stop the old listener, then start with the new credential. There is no overlapping old/new-token grace window and no hot-rotation endpoint. Graceful shutdown may allow a request authenticated before shutdown to finish, so operational rotation must first quiesce private callers when immediate cancellation of in-flight work is required. This is an explicit operational property, not an authentication bypass.
+
+Focused evidence
+
+- rustfmt --edition 2021 --check crates/dom-rpc/src/token.rs: PASS
+- Structural assertions for validation, inode-safe reading, link rejection and focused regression tests: PASS
+- Added regression cases for explicit invalid material, symlink, hard link, group-readable file, weak token, leading whitespace and multiple trailing newlines.
+- Full Cargo execution is deliberately deferred until the active RandomX proof releases constrained memory. No readiness fact is claimed from structural checks.
+- Active proof service remained active/running with the same main PID 2262600 during this work.
+
+No push, commit, deployment, signing, transaction, funds movement or proof-run mutation occurred.

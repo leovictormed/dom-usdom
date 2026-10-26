@@ -1,0 +1,16 @@
+Stage 478 — mainnet deployment presign network reobservation
+Date: 2026-10-23
+
+The deployment executor previously observed finalized and pending nonce, the
+free CREATE address, gas estimate and finalized base fee before the human
+authorization prompt, then signed without reobserving them. It now repeats all
+observations across every cataloged RPC after authorization and before Ledger
+access. It recomputes the gas limit and maximum fee and requires exact equality
+with the values reviewed by the operator. Any network state, fee or source drift
+fails closed and requires a fresh ceremony.
+
+`production_mainnet_deployment_presign_network_reobserved` is a structural
+fact. No network access, signature, deployment, funds, mining, commit or push
+occurred while producing this evidence.
+
+Validation: complete operator runbook 71/71; readiness 60/60.

@@ -1,0 +1,22 @@
+ETAPA 894 — primeira metade dos writers derived-retryable
+
+Universo nominal, em ordem do inventário ETAPA888 (14/28):
+
+1. `candidate-monitor.mjs` — conforme: checkpoint JSON é troca durável única; RPC tem timeout/abort e não há completion separado.
+2. `collect-finalized-deposit-source.sh` — conforme: derivados anteriores são invalidados antes do prompt/RPC.
+3. `export-authenticated-randomx-statement-set.sh` — conforme: exporter invalida a geração e publica índice por último via autoridade privada.
+4. `export-authenticated-randomx-statement.sh` — gap corrigido nesta etapa.
+5. `export-canonical-checkpoint-source-set.sh` — conforme: autoridade Rust invalida outputs e usa os dois índices como completion-last.
+6. `export-canonical-checkpoint-source.sh` — conforme: autoridade Rust invalida outputs e publica índice econômico por último.
+7. `export-canonical-finalized-burn-source.sh` — conforme: autoridade Rust invalida outputs e publica índice por último.
+8. `export-dom-preactivation-anchor.sh` — conforme: output único temporário+fsync+instalação/readback.
+9. `materialize-ethereum-checkpoint-source-catalog.sh` — conforme: config única atômica sob lock; mudança de trust root exige igualdade explícita.
+10. `materialize-limited-mainnet-policy.sh` — conforme: config única atômica sob lock.
+11. `materialize-mainnet-preflight-attestation.mjs` — conforme após ETAPA888: invalida report+pointer antes do segredo e pointer por último.
+12. `materialize-mainnet-preflight-attestation.sh` — conforme: wrapper mantém lock durante todo o materializador e não publica output próprio.
+13. `materialize-native-preactivation-facts.sh` — conforme: config única atômica sob lock.
+14. `materialize-preactivation-policy.sh` — conforme: config única atômica sob lock.
+
+Achado corrigido: o export de statement RandomX instalava statement e report sequencialmente, porém mantinha o report antigo visível enquanto substituía o statement. Agora preserva a geração anterior durante o cálculo, remove duravelmente o report completion marker antes de instalar o statement novo e instala o report por último.
+
+Contagens: antes 13/14 conformes e 1/14 pendente; depois 14/14 conformes e 0/14 pendentes. Validação estrutural/inventário 3/3, `bash -n` e `git diff --check` aprovados. Nenhum build, prova ou RPC foi executado.

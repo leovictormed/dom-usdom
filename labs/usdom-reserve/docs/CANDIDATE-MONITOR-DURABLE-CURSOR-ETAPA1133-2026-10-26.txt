@@ -1,0 +1,61 @@
+Candidate monitor durable cursor and fail-closed history audit — Stage 1133
+Date: 2026-10-26
+
+Problem
+-------
+The monitor reread every Reserve event from deployment on every cycle. Although
+queries were paged, the hard ceiling of 256 pages x 512 blocks meant a healthy
+monitor would permanently stop after 131,072 Ethereum blocks. Emergency key
+revocation also reconstructed the active notary set by replaying the same
+unbounded history.
+
+Changes
+-------
+1. The durable `ethereum` checkpoint is now an authenticated incremental event
+   cursor. Every restart verifies the stored block hash against every configured
+   Ethereum source before scanning the next range.
+2. Each cycle reads at most 131,072 new blocks, in 512-block pages, and persists
+   the last fully checked block/hash only after event validation, private-chain
+   ancestry validation and a second block-hash stability check.
+3. A backlog never reports healthy. The monitor confirms an operational pause,
+   commits the bounded cursor, and returns `indexing`; later cycles continue from
+   the exact next block. No deployment-to-head rescan is required.
+4. WithdrawalQueued, WithdrawalCertificate and Released logs are required to
+   match across the independently catalogued finalized Ethereum RPC views.
+   Nested certificate tuples are converted to canonical primitive arrays before
+   comparison.
+5. A private chain that no longer extends its durable checkpoint now triggers
+   emergency recovery. That checkpoint seals all prior queue/release checks, so
+   ancestry replacement can invalidate an already-paid burn even though old
+   Ethereum logs are intentionally not reread.
+6. Emergency pause uses the epoch-bound, idempotent `pauseEpoch` operation. This
+   removes the last full-history NotariesInstalled scan while retaining permanent
+   revocation through the contract's recoveryRequired state.
+7. The locally pinned chain, bytecode, domain, guardian and EIP-712 identity are
+   checked before any failure path may ask the guardian to sign. A wrong target
+   is rejected without a transaction; disagreement about a known target pauses
+   fail closed.
+8. The concurrently developed finalized-RPC quorum and crash-safe Linux lock
+   were integrated. The lock binds boot ID, PID start time, nonce and canonical
+   record digest, rejects indirect/malformed artifacts and safely reclaims a
+   proven dead owner without PID-reuse lock theft.
+
+Verification
+------------
+- Node syntax checks pass for candidate-monitor.mjs and its focused test file.
+- Pure cursor boundary and canonical event tests pass.
+- The complete candidate-monitor EVM/lock/quorum suite passes: 29/29, 0 failed,
+  serial execution, 106.6 seconds.
+- Regressions cover durable restart advancement, event ordering and bounds,
+  fabricated and paid burns, private and Ethereum reorgs, divergent RPC views,
+  wrong deployment pins, journal failures, key-rotation races, SIGKILL orphan
+  recovery, PID reuse, concurrent lock acquisition, and indirect lock paths.
+
+Boundaries
+----------
+No network access, signing, deployment, funds, Cargo, Forge, commit or push was
+performed by this work. The active Cargo workspace validation was left untouched.
+The cursor removes the lifetime 131,072-block limit; 131,072 blocks remains the
+intentional per-cycle work bound. A cycle exceeding the 10,000-event family bound
+fails closed and requires operator investigation rather than silently dropping
+logs.

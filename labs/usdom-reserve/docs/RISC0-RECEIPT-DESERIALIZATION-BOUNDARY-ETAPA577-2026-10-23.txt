@@ -1,0 +1,64 @@
+RISC Zero receipt deserialization boundary audit — stage 577
+Date: 2026-10-23
+
+Scope
+=====
+
+Audited the RandomX, RandomX aggregate, economic, checkpoint segment/outer and
+finalized-burn proof hosts, plus the JavaScript release collectors, at every
+boundary that accepts receipt bytes or receipt/index JSON.
+
+Concrete defects corrected
+==========================
+
+1. All eight Rust receipt decoders now reject empty and oversized byte slices
+   before bincode deserialization. Bincode remains fixed-width, bounded and
+   trailing-byte rejecting. A decode must also re-encode byte-for-byte under
+   the same fixed-width options, so an alternate/noncanonical representation
+   cannot reach verification.
+
+2. Receipt kind, Groth16 verifier parameters when applicable, and the exact
+   32-byte journal are checked before the expensive cryptographic verification.
+   The same ordering now applies to freshly produced per-block RandomX proofs.
+   A wrong-journal artifact therefore cannot consume verifier work.
+
+3. The finalized-burn artifact collector previously checked file hashes and a
+   subset of graph links but did not enforce all security claims in the receipt
+   and EVM-proof indices. It now requires the exact schema, paths, ImageID,
+   RISC Zero version, receipt kind, segment limit, verifier parameters,
+   selector, journal digest, execution/verification booleans, dev-mode flag,
+   proof-generation flag and mining flag before constructing a submission.
+
+4. The same collector previously retained the complete first snapshot while
+   copying a second snapshot, allowing two large receipt generations to remain
+   live together. It now retains only bounded SHA-256/size records, recopies
+   artifacts sequentially, detects mutation at capture and rechecks origins at
+   the end. Its succinct/Groth16 ceiling is aligned with the Rust 256 MiB
+   decoder ceiling; the 512 MiB allowance remains restricted to the
+   composite-only Rust host path.
+
+Existing defenses confirmed
+===========================
+
+- All receipt/index files are captured through direct regular-file readers
+  with pre-allocation size ceilings and symlink/hardlink/private-owner checks.
+- Security-sensitive JavaScript JSON uses duplicate-key rejection, explicit
+  byte ceilings and depth 32. Rust indices are byte-capped and use typed
+  `deny_unknown_fields` records with bounded receipt counts before file loops.
+- Receipt file names, byte counts and SHA-256 values are bound by their index;
+  source/job/receipt/proof indices are linked by exact hashes.
+
+Validation
+==========
+
+- Focused finalized-burn collector mutation suite: 5/5 passed, including false
+  receipt-verification claims and substituted Groth16 verifier parameters.
+- Rustfmt completed for all five modified proof-host source files.
+- Structural audit confirmed all eight receipt decoders have explicit size
+  bounds and check journals before `Receipt::verify`.
+- `git diff --check` passed.
+
+The full Cargo/integrated proof-host suite remains queued until the active
+real RISC Zero proof releases the constrained host resources. No receipt was
+declared valid by this stage, and no push, deployment, signing, broadcast or
+fund movement occurred.

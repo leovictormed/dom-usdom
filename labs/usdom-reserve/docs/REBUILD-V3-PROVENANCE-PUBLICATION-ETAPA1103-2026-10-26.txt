@@ -1,0 +1,26 @@
+ETAPA 1103 — REBUILD V3 PROVENANCE / PUBLICATION BOUNDARY
+Date: 2026-10-26
+
+Added a closed critical-source inventory for the V3 template, orchestrator,
+manifest materializer, receipt aggregator, verifier installer and both boundary
+checkers. The publication checker requires every inventory entry to be a direct
+single-link source whose live SHA-256 equals the same path in MANIFEST.sha256.
+It also asserts that generated evidence, artifacts, outputs, caches and result
+trees remain excluded. The checker is mandatory in npm check:provenance, so a
+release cannot omit the inventory/checker or substitute a copied implementation.
+
+Cargo currently emits target/debug/dom-usdom-verify-rebuild-receipt as nlink=2.
+The materializer correctly continues to reject it. A separate authenticated
+installer now reads the reviewed Cargo inode by O_NOFOLLOW descriptor, checks
+stable identity and expected hash, writes an owner-only temporary file, fsyncs,
+atomically links the create-once destination, removes the temporary name and
+fsyncs the parent. The installed executable is mode 0500 and nlink=1. The
+single-link rule was not relaxed. Installer tests pass 2/2.
+
+The source-manifest regeneration was attempted twice but correctly aborted
+because another concurrent task changed the lab path set during hashing. The
+new checker must therefore remain a visible pending gate until one quiescent
+regeneration/verification run updates MANIFEST.sha256. No stale manifest was
+accepted or manually patched.
+
+No Cargo/Forge/network/deploy/funds/commit/push was initiated by this stage.

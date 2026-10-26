@@ -1,0 +1,22 @@
+ETAPA 645 — TRANSAÇÃO BRUTA DE IMPLANTAÇÃO COM FRAMING ESTRITO
+Data: 2026-10-23
+
+Foi auditada a fronteira pós-Ledger que valida a transação bruta de implantação
+imediatamente antes da publicação. Ela compara os bytes assinados com destino,
+calldata, valor, chain ID e nonce derivados do pacote revisado.
+
+O arquivo hexadecimal usava `Buffer.toString('utf8')`, que substitui bytes
+inválidos. A saída JSON do subprocesso derivador era capturada diretamente com
+`encoding:'utf8'`, com a mesma tolerância. Agora ambos são capturados como bytes
+e passam por `TextDecoder('utf-8',{fatal:true})`. O raw exige `0x`, hexadecimal
+minúsculo, comprimento par e exatamente uma quebra de linha; o handoff derivado
+continua usando JSON com rejeição de chaves duplicadas.
+
+As leituras diretas 0600, reprodução do pacote e observação, hash do raw e
+comparação semântica completa da transação permanecem. O executor mantém
+snapshots, confirmação interativa após a assinatura e journals create-once.
+
+Validação: ataques com byte 0xff, hexadecimal em caixa não canônica e quebra de
+linha extra; testes focados passaram 2/2; `node --check` e `git diff --check`
+passaram. Nenhum Ledger, assinatura, RPC, transmissão, deploy, staging, commit,
+push ou movimentação de fundos foi utilizado.

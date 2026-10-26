@@ -1,0 +1,22 @@
+ETAPA 647 — REFERÊNCIA FINALIZADA DE CHECKPOINT COM JSON DE BYTES ESTRITO
+Data: 2026-10-23
+
+Foi auditada a fronteira pós-submissão que registra o hash da transação de
+checkpoint e depois confirma seu evento em snapshots finalizados de RPCs
+independentes. Os documentos consumidos vinculam release, registry/config hash,
+pacote de submissão, referência da transação e catálogo RPC.
+
+O produtor da referência e o coletor aplicavam parser de chaves duplicadas, mas
+primeiro usavam `Buffer.toString('utf8')`, que substitui bytes inválidos. Foi
+adicionada `parseStrictJsonBytes`: ela usa `TextDecoder('utf-8',{fatal:true})` e
+só então chama o parser JSON estrito com limites. Ambos os consumidores foram
+migrados para essa fronteira.
+
+Os hashes SHA-256 da submissão/referência, igualdade estrutural esperada,
+instalação create-once, snapshots RPC independentes e rechecagem byte a byte de
+todos os inputs após a coleta permanecem.
+
+Validação: regressões diretas para byte 0xff e chave `transactionHash` duplicada
+por escape; suites strict JSON + coletor passaram 8/8; `node --check` passou no
+SDK e nos dois scripts; `git diff --check` passou. Nenhum RPC, prova, assinatura,
+transmissão, deploy, staging, commit, push ou fundos foram usados.

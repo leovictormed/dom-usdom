@@ -1,0 +1,40 @@
+ETAPA 1001 — Solidity external-call boundaries — 2026-10-23
+
+Scope
+- Token decimals/policy/balance/transfer calls in both reserves.
+- Safe singleton/threshold/owners/modules/guard/fallback storage reads.
+- Verifier configuration, capability and proof calls in the reserve, checkpoint
+  registry and both RISC Zero adapters.
+- Gas grief, returndata amplification, dirty ABI padding and check/use drift.
+
+Concrete finding and correction
+- Both reserves still invoked decimals and USDT policy getters through Solidity
+  high-level calls. A hostile or changed target could return arbitrarily large
+  data and make the caller copy/allocate it before ABI decoding. The quorum
+  prototype also used high-level balance and SafeERC20 transfer boundaries.
+- All token views now use a 500,000-gas staticcall which copies at most one word
+  and requires exactly 32 return bytes. Boolean policy results additionally
+  require the canonical words 0 or 1. Both reserve transfer paths cap gas and
+  accept only USDT's empty return or the exact canonical true word.
+- A focused hostile token returns a one-megabyte paused() response or dirty bool
+  2. Both forms fail closed during construction under the bounded boundary.
+
+Audit conclusions
+- Safe reads already cap gas, copy fixed output sizes, validate exact ABI
+  offsets/lengths/address padding, pin proxy and implementation code hashes,
+  and repeat the complete identity before privileged state transitions.
+- Verifier config/capability calls already use exact one-word bounded staticcall.
+  Proof calls are gas capped and either require exact acceptance magic or, for
+  the reviewed RISC Zero void ABI, require zero returndata. Adapter bytes4
+  getters reject all dirty right padding.
+- staticcall prevents policy/view targets from mutating state between reads.
+  Runtime code hashes are pinned and checked before operational use; EVM code
+  cannot be replaced midway through one transaction under the supported model.
+
+Checks
+- Lightweight Python structural mirror passed 31 assertions spanning both
+  reserves, registry, both adapters and the hostile regression.
+- git diff --check passed for all ETAPA1001 files.
+- Permanent Node gate: test/node/solidity-external-call-boundary.test.mjs.
+- Node is absent from PATH and Forge remains deferred while the live RISC0
+  proof owns constrained memory/IO resources.

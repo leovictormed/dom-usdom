@@ -1,0 +1,32 @@
+USDⓄM RESERVE — COMPLETE 1-OF-1 SAFE SDK REMOVAL (STAGE 417)
+Date: 2026-10-22
+
+Finding
+
+The operator command and runbook for 1-of-1 role Safes had already been
+disabled, but the low-level SDK still exported a constructor capable of
+building that unsafe custody configuration. Keeping a callable legacy primitive
+made accidental reuse possible outside the reviewed CLI.
+
+Correction
+
+- Removed the legacy schema and threshold constants.
+- Removed the exported 1-of-1 deployment constructor.
+- Removed its isolated positive and sole-owner tests.
+- Converted shared identity, chain and deterministic-rederivation coverage to
+  exercise only the production 3-owner, 2-of-3 constructor.
+- Added a regression that rejects restoration of the legacy export, threshold,
+  schema or conditional single-owner result shape.
+- Marked the earlier historical audit notes as superseded by this removal.
+
+Validation
+
+- focused Safe and operator/runbook suites: 69/69 passed.
+- complete Node regression: 304/304 passed. The count fell by exactly two
+  because the two positive single-owner tests were deleted with the capability.
+- source-integrity manifest: 1,198/1,198 files passed;
+- imported provenance: 169 files, including 16 explicit modifications, passed;
+- repository whitespace checks passed.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

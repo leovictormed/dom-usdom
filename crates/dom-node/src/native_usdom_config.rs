@@ -10,16 +10,25 @@ use alloy::primitives::{Address, B256};
 use dom_core::{DomError, Hash256, NETWORK_MAGIC_MAINNET};
 use dom_usdom_privacy::verifier::SpendVerifier;
 use dom_usdom_state::{BridgeIdentity, BurnTimingPolicy};
+use rustix::fs::{open, Mode, OFlags};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use usdom_ethereum_finality_experiment::{
-    checkpoints::{CheckpointPolicy, CheckpointTrustPolicy, StaticCheckpointTrustPolicy},
+    checkpoints::{
+        checkpoint_witness_replay_slot, verify_checkpoint_witness, CheckpointPolicy,
+        CheckpointTrustPolicy, StaticCheckpointTrustPolicy, VerifiedCheckpoint,
+        MAX_CHECKPOINT_WITNESS_BYTES,
+    },
+    closures::{
+        IssuanceClosurePolicy, IssuanceClosureTrustPolicy, StaticIssuanceClosureTrustPolicy,
+    },
     deposits::{DepositTrustPolicy, ReserveDepositPolicy, StaticDepositTrustPolicy},
     EthereumFork, EthereumForks,
 };
 
 const LEGACY_SCHEMA_VERSION: u16 = 1;
 const CANDIDATE_V2_SCHEMA_VERSION: u16 = 2;
+const ISSUANCE_CLOSURE_SCHEMA_VERSION: u16 = 3;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 // Keep the startup read boundary aligned with SpendVerifier's canonical key
 // limit. A Groth16 verifying key is small; the larger proving key never belongs
@@ -34,6 +43,9 @@ pub struct NativeUsdomV4NodeBundle {
     pub checkpoint_policy: StaticCheckpointTrustPolicy,
     /// Immutable finalized reserve-deposit policy.
     pub deposit_policy: StaticDepositTrustPolicy,
+    /// Immutable closure verifier. Absent only for historical schemas 1/2,
+    /// which reject proof kind 5 at ingress.
+    pub issuance_closure_policy: Option<StaticIssuanceClosureTrustPolicy>,
     /// Exact weak-subjectivity checkpoint selected by the manifest.
     pub ethereum_trusted_checkpoint: B256,
     /// Exact Ethereum fork schedule selected by the manifest.
@@ -45,6 +57,18 @@ pub struct NativeUsdomV4NodeBundle {
     /// First height interpreted under candidate state-v2, when the hash-pinned
     /// manifest explicitly ratifies the live migration phase.
     pub candidate_v2_first_height: Option<u64>,
+    /// Canonical DOM distance between checkpoint targets under candidate V2.
+    pub checkpoint_interval_blocks: Option<u32>,
+    /// Canonical DOM work-confirmation suffix after each checkpoint target.
+    pub checkpoint_confirmation_depth_blocks: Option<u32>,
+    /// RandomX receipt ImageID committed by candidate-v2 checkpoint states.
+    ///
+    /// Legacy V1 manifests do not select a recursive checkpoint runtime.
+    pub randomx_receipt_image_id: Option<[u8; 32]>,
+    /// Independently retained and fully replay-verified restart floor. The
+    /// manifest pins both its file name and SHA-256; raw decoded checkpoints
+    /// never cross this startup boundary.
+    pub restart_checkpoint: Option<VerifiedCheckpoint>,
 }
 
 #[derive(Deserialize)]
@@ -59,13 +83,26 @@ struct Manifest {
     ethereum: EthereumManifest,
     checkpoint: CheckpointManifest,
     deposit: DepositManifest,
+    #[serde(default)]
+    issuance_closure: Option<IssuanceClosureManifest>,
     bridge: BridgeManifest,
+    #[serde(default)]
+    restart_checkpoint: Option<RestartCheckpointManifest>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RestartCheckpointManifest {
+    witness_file: String,
+    witness_sha256: String,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CandidateV2Manifest {
     first_height: u64,
+    checkpoint_interval_blocks: u32,
+    checkpoint_confirmation_depth_blocks: u32,
 }
 
 #[derive(Deserialize)]
@@ -105,6 +142,7 @@ struct CheckpointManifest {
     config_storage_slot: String,
     checkpoint_config_hash: String,
     bridge_domain: String,
+    randomx_receipt_image_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -115,6 +153,18 @@ struct DepositManifest {
     runtime_code_hash: String,
     bridge_domain: String,
     max_amount: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IssuanceClosureManifest {
+    ethereum_chain_id: u64,
+    reserve: String,
+    runtime_code_hash: String,
+    reserve_config_hash: String,
+    bridge_domain: String,
+    deposits_closed_storage_slot: String,
+    total_deposited_storage_slot: String,
 }
 
 #[derive(Deserialize)]
@@ -157,7 +207,7 @@ pub fn load_native_usdom_v4_node_bundle(
         .map_err(|error| rejected(format!("invalid native USDOM manifest JSON: {error}")))?;
     if !matches!(
         manifest.schema_version,
-        LEGACY_SCHEMA_VERSION | CANDIDATE_V2_SCHEMA_VERSION
+        LEGACY_SCHEMA_VERSION | CANDIDATE_V2_SCHEMA_VERSION | ISSUANCE_CLOSURE_SCHEMA_VERSION
     ) || manifest.network_magic != expected_network_magic
     {
         return Err(rejected(
@@ -172,16 +222,61 @@ pub fn load_native_usdom_v4_node_bundle(
             "native USDOM activation schedule belongs to another network",
         ));
     }
-    let candidate_v2_first_height = match (manifest.schema_version, manifest.candidate_v2) {
-        (LEGACY_SCHEMA_VERSION, None) => None,
-        (CANDIDATE_V2_SCHEMA_VERSION, Some(candidate))
-            if candidate.first_height > schedule.first_v4_height() =>
+    let (
+        candidate_v2_first_height,
+        checkpoint_interval_blocks,
+        checkpoint_confirmation_depth_blocks,
+    ) = match (manifest.schema_version, manifest.candidate_v2) {
+        (LEGACY_SCHEMA_VERSION, None) => (None, None, None),
+        (CANDIDATE_V2_SCHEMA_VERSION | ISSUANCE_CLOSURE_SCHEMA_VERSION, Some(candidate))
+            if candidate.first_height > schedule.first_v4_height()
+                && candidate.checkpoint_interval_blocks > 0
+                && candidate.checkpoint_interval_blocks <= 360
+                && candidate.checkpoint_confirmation_depth_blocks > 0
+                && candidate.checkpoint_confirmation_depth_blocks
+                    <= candidate.checkpoint_interval_blocks
+                && candidate
+                    .checkpoint_interval_blocks
+                    .checked_add(candidate.checkpoint_confirmation_depth_blocks)
+                    .is_some_and(|span| span <= 720)
+                && candidate
+                    .checkpoint_interval_blocks
+                    .checked_mul(2)
+                    .and_then(|span| {
+                        span.checked_add(candidate.checkpoint_confirmation_depth_blocks)
+                    })
+                    .and_then(|span| span.checked_sub(1))
+                    .is_some_and(|maximum_rewind| {
+                        u64::from(maximum_rewind) <= dom_core::MAX_REORG_DEPTH_POLICY
+                    }) =>
         {
-            Some(candidate.first_height)
+            (
+                Some(candidate.first_height),
+                Some(candidate.checkpoint_interval_blocks),
+                Some(candidate.checkpoint_confirmation_depth_blocks),
+            )
         }
         _ => {
             return Err(rejected(
                 "native USDOM manifest schema and candidate-v2 activation disagree",
+            ))
+        }
+    };
+    let randomx_receipt_image_id = match (
+        manifest.schema_version,
+        manifest.checkpoint.randomx_receipt_image_id.as_deref(),
+    ) {
+        (LEGACY_SCHEMA_VERSION, None) => None,
+        (CANDIDATE_V2_SCHEMA_VERSION | ISSUANCE_CLOSURE_SCHEMA_VERSION, Some(value)) => {
+            let image_id = decode_hex_array::<32>(value, "RandomX receipt ImageID")?;
+            if image_id == [0; 32] {
+                return Err(rejected("RandomX receipt ImageID must be nonzero"));
+            }
+            Some(image_id)
+        }
+        _ => {
+            return Err(rejected(
+                "native USDOM manifest schema and RandomX receipt ImageID disagree",
             ))
         }
     };
@@ -242,6 +337,52 @@ pub fn load_native_usdom_v4_node_bundle(
     };
     let deposit_policy = StaticDepositTrustPolicy::from_trust_policy(&deposit_dynamic)
         .map_err(|error| rejected(format!("invalid deposit policy: {error}")))?;
+    let issuance_closure_policy = match (manifest.schema_version, manifest.issuance_closure) {
+        (LEGACY_SCHEMA_VERSION | CANDIDATE_V2_SCHEMA_VERSION, None) => None,
+        (ISSUANCE_CLOSURE_SCHEMA_VERSION, Some(closure)) => {
+            let dynamic = IssuanceClosureTrustPolicy {
+                trusted_checkpoint,
+                ethereum_genesis_validators_root: genesis_root,
+                forks: forks.clone(),
+                max_current_slot: 1,
+                closure: IssuanceClosurePolicy {
+                    ethereum_chain_id: closure.ethereum_chain_id,
+                    ethereum_genesis_validators_root: genesis_root,
+                    reserve: address(&closure.reserve, "closure reserve")?,
+                    runtime_code_hash: b256(
+                        &closure.runtime_code_hash,
+                        "closure runtime code hash",
+                    )?,
+                    reserve_config_hash: b256(
+                        &closure.reserve_config_hash,
+                        "closure reserve configuration hash",
+                    )?,
+                    activation_schedule_commitment: B256::from_slice(
+                        schedule.commitment().as_bytes(),
+                    ),
+                    bridge_domain: b256(&closure.bridge_domain, "closure bridge domain")?,
+                    deposits_closed_storage_slot: b256(
+                        &closure.deposits_closed_storage_slot,
+                        "closure deposits-closed storage slot",
+                    )?,
+                    total_deposited_storage_slot: b256(
+                        &closure.total_deposited_storage_slot,
+                        "closure total-deposited storage slot",
+                    )?,
+                },
+            };
+            Some(
+                StaticIssuanceClosureTrustPolicy::from_trust_policy(&dynamic).map_err(|error| {
+                    rejected(format!("invalid issuance closure policy: {error}"))
+                })?,
+            )
+        }
+        _ => {
+            return Err(rejected(
+                "native USDOM manifest schema and issuance closure policy disagree",
+            ))
+        }
+    };
 
     let reserve = decode_hex_array::<20>(&manifest.bridge.reserve, "bridge reserve")?;
     let checkpoint_hash: [u8; 32] = checkpoint_policy.policy_hash().into();
@@ -290,6 +431,15 @@ pub fn load_native_usdom_v4_node_bundle(
             "native USDOM manifest contains inconsistent bridge policies",
         ));
     }
+    if issuance_closure_policy.as_ref().is_some_and(|policy| {
+        policy.closure().ethereum_chain_id != manifest.deposit.ethereum_chain_id
+            || policy.closure().reserve.as_slice() != bridge.reserve
+            || policy.closure().bridge_domain.as_slice() != bridge.dom_domain
+    }) {
+        return Err(rejected(
+            "native USDOM closure policy does not match the bridge policies",
+        ));
+    }
     let empty_state = dom_usdom_state::NativeUsdomState::new(bridge)
         .map_err(|error| rejected(format!("invalid native USDOM bridge identity: {error}")))?;
     if empty_state.state_root() != schedule.empty_state_root() {
@@ -324,15 +474,57 @@ pub fn load_native_usdom_v4_node_bundle(
         ));
     }
 
+    let restart_checkpoint = manifest
+        .restart_checkpoint
+        .map(|restart| {
+            let witness_name = one_relative_filename(&restart.witness_file)?;
+            let witness_path = manifest_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(witness_name);
+            let witness = read_regular_file(
+                &witness_path,
+                MAX_CHECKPOINT_WITNESS_BYTES as u64,
+                "restart checkpoint witness",
+            )?;
+            let expected_hash = decode_hex_array::<32>(
+                &restart.witness_sha256,
+                "restart checkpoint witness SHA-256",
+            )?;
+            let observed_hash: [u8; 32] = Sha256::digest(&witness).into();
+            if observed_hash != expected_hash {
+                return Err(rejected("restart checkpoint witness SHA-256 mismatch"));
+            }
+            let replay_slot = checkpoint_witness_replay_slot(&witness).map_err(|error| {
+                rejected(format!(
+                    "invalid restart checkpoint witness framing: {error}"
+                ))
+            })?;
+            let policy = checkpoint_policy
+                .at_max_current_slot(replay_slot)
+                .map_err(|error| rejected(format!("invalid restart checkpoint policy: {error}")))?;
+            verify_checkpoint_witness(&witness, &policy).map_err(|error| {
+                rejected(format!(
+                    "restart checkpoint witness verification failed: {error}"
+                ))
+            })
+        })
+        .transpose()?;
+
     Ok(NativeUsdomV4NodeBundle {
         bridge,
         checkpoint_policy,
         deposit_policy,
+        issuance_closure_policy,
         ethereum_trusted_checkpoint: trusted_checkpoint,
         ethereum_forks: forks,
         spend_verifying_key,
         schedule,
         candidate_v2_first_height,
+        checkpoint_interval_blocks,
+        checkpoint_confirmation_depth_blocks,
+        randomx_receipt_image_id,
+        restart_checkpoint,
     })
 }
 
@@ -457,8 +649,18 @@ fn read_regular_file(path: &Path, limit: u64, label: &str) -> Result<Vec<u8>, Do
     if !named.file_type().is_file() || named.file_type().is_symlink() || named.len() == 0 {
         return Err(rejected(format!("{label} is not a nonempty regular file")));
     }
-    let file =
-        File::open(path).map_err(|error| rejected(format!("cannot open {label}: {error}")))?;
+    // Keep the no-symlink condition on the open operation itself.  A separate
+    // `symlink_metadata` check is insufficient because an attacker able to
+    // replace the leaf between inspection and `File::open` could redirect the
+    // read.  The inode comparison below additionally rejects any replacement
+    // by a different regular file during that interval.
+    let file = open(
+        path,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map(File::from)
+    .map_err(|error| rejected(format!("cannot open {label}: {error}")))?;
     let opened = file
         .metadata()
         .map_err(|error| rejected(format!("cannot inspect opened {label}: {error}")))?;
@@ -539,7 +741,7 @@ mod tests {
         let checkpoint_dynamic = CheckpointTrustPolicy {
             trusted_checkpoint: B256::from([0x41; 32]),
             ethereum_genesis_validators_root: B256::from([0x22; 32]),
-            forks: EthereumForks::default(),
+            forks: supported_mainnet_forks(),
             max_current_slot: 1,
             checkpoint: CheckpointPolicy {
                 ethereum_chain_id: 1,
@@ -557,7 +759,7 @@ mod tests {
         let deposit_dynamic = DepositTrustPolicy {
             trusted_checkpoint: B256::from([0x41; 32]),
             ethereum_genesis_validators_root: B256::from([0x22; 32]),
-            forks: EthereumForks::default(),
+            forks: supported_mainnet_forks(),
             max_current_slot: 1,
             deposit: ReserveDepositPolicy {
                 ethereum_chain_id: 1,
@@ -675,10 +877,19 @@ mod tests {
         assert_eq!(loaded.schedule.first_v4_height(), 1);
         assert_eq!(loaded.spend_verifying_key, test_verifying_key());
         assert_eq!(loaded.candidate_v2_first_height, None);
+        assert_eq!(loaded.checkpoint_interval_blocks, None);
+        assert_eq!(loaded.checkpoint_confirmation_depth_blocks, None);
+        assert_eq!(loaded.randomx_receipt_image_id, None);
+        assert!(loaded.restart_checkpoint.is_none());
 
         let mut v2_manifest: Value = serde_json::from_slice(&bytes).unwrap();
         v2_manifest["schema_version"] = Value::from(2);
-        v2_manifest["candidate_v2"] = json!({"first_height": 720u64});
+        v2_manifest["candidate_v2"] = json!({
+            "first_height": 720u64,
+            "checkpoint_interval_blocks": 360u32,
+            "checkpoint_confirmation_depth_blocks": 30u32
+        });
+        v2_manifest["checkpoint"]["randomx_receipt_image_id"] = Value::String("17".repeat(32));
         let v2_bytes = serde_json::to_vec(&v2_manifest).unwrap();
         std::fs::write(&manifest, &v2_bytes).unwrap();
         let v2_loaded = load_native_usdom_v4_node_bundle(
@@ -688,6 +899,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(v2_loaded.candidate_v2_first_height, Some(720));
+        assert_eq!(v2_loaded.checkpoint_interval_blocks, Some(360));
+        assert_eq!(v2_loaded.checkpoint_confirmation_depth_blocks, Some(30));
+        assert_eq!(v2_loaded.randomx_receipt_image_id, Some([0x17; 32]));
 
         v2_manifest["candidate_v2"]["first_height"] = Value::from(1);
         let invalid_v2 = serde_json::to_vec(&v2_manifest).unwrap();
@@ -695,6 +909,51 @@ mod tests {
         assert!(load_native_usdom_v4_node_bundle(
             &manifest,
             &sha256_hex(&invalid_v2),
+            NETWORK_MAGIC_REGTEST,
+        )
+        .is_err());
+
+        v2_manifest["candidate_v2"]["first_height"] = Value::from(720);
+        v2_manifest["candidate_v2"]["checkpoint_confirmation_depth_blocks"] = Value::from(361);
+        let invalid_checkpoint_span = serde_json::to_vec(&v2_manifest).unwrap();
+        std::fs::write(&manifest, &invalid_checkpoint_span).unwrap();
+        assert!(load_native_usdom_v4_node_bundle(
+            &manifest,
+            &sha256_hex(&invalid_checkpoint_span),
+            NETWORK_MAGIC_REGTEST,
+        )
+        .is_err());
+
+        v2_manifest["candidate_v2"]["checkpoint_confirmation_depth_blocks"] = Value::from(300);
+        let invalid_rewind_bound = serde_json::to_vec(&v2_manifest).unwrap();
+        std::fs::write(&manifest, &invalid_rewind_bound).unwrap();
+        assert!(load_native_usdom_v4_node_bundle(
+            &manifest,
+            &sha256_hex(&invalid_rewind_bound),
+            NETWORK_MAGIC_REGTEST,
+        )
+        .is_err());
+
+        v2_manifest["candidate_v2"]["checkpoint_confirmation_depth_blocks"] = Value::from(30);
+        v2_manifest["checkpoint"]["randomx_receipt_image_id"] = Value::String("00".repeat(32));
+        let zero_image_id = serde_json::to_vec(&v2_manifest).unwrap();
+        std::fs::write(&manifest, &zero_image_id).unwrap();
+        assert!(load_native_usdom_v4_node_bundle(
+            &manifest,
+            &sha256_hex(&zero_image_id),
+            NETWORK_MAGIC_REGTEST,
+        )
+        .is_err());
+
+        v2_manifest["checkpoint"]
+            .as_object_mut()
+            .unwrap()
+            .remove("randomx_receipt_image_id");
+        let missing_image_id = serde_json::to_vec(&v2_manifest).unwrap();
+        std::fs::write(&manifest, &missing_image_id).unwrap();
+        assert!(load_native_usdom_v4_node_bundle(
+            &manifest,
+            &sha256_hex(&missing_image_id),
             NETWORK_MAGIC_REGTEST,
         )
         .is_err());
@@ -727,6 +986,58 @@ mod tests {
     }
 
     #[test]
+    fn restart_floor_accepts_only_manifest_pinned_replay_witnesses() {
+        let directory = tempfile::tempdir().unwrap();
+        let (bytes, _) = fixture(directory.path());
+        let manifest_path = directory.path().join("native-usdom-v4.json");
+        std::fs::write(
+            directory.path().join("restart.witness"),
+            b"opaque-checkpoint",
+        )
+        .unwrap();
+        let mut manifest: Value = serde_json::from_slice(&bytes).unwrap();
+        manifest["restart_checkpoint"] = json!({
+            "witness_file": "restart.witness",
+            "witness_sha256": sha256_hex(b"different")
+        });
+        let hash_mismatch = serde_json::to_vec(&manifest).unwrap();
+        std::fs::write(&manifest_path, &hash_mismatch).unwrap();
+        let error = load_native_usdom_v4_node_bundle(
+            &manifest_path,
+            &sha256_hex(&hash_mismatch),
+            NETWORK_MAGIC_REGTEST,
+        )
+        .err()
+        .expect("hash mismatch must fail");
+        assert!(error.to_string().contains("witness SHA-256 mismatch"));
+
+        manifest["restart_checkpoint"]["witness_sha256"] =
+            Value::String(sha256_hex(b"opaque-checkpoint"));
+        let opaque = serde_json::to_vec(&manifest).unwrap();
+        std::fs::write(&manifest_path, &opaque).unwrap();
+        let error = load_native_usdom_v4_node_bundle(
+            &manifest_path,
+            &sha256_hex(&opaque),
+            NETWORK_MAGIC_REGTEST,
+        )
+        .err()
+        .expect("opaque bytes must fail");
+        assert!(error
+            .to_string()
+            .contains("invalid restart checkpoint witness framing"));
+
+        manifest["restart_checkpoint"]["witness_file"] = Value::String("../escape".into());
+        let traversal = serde_json::to_vec(&manifest).unwrap();
+        std::fs::write(&manifest_path, &traversal).unwrap();
+        assert!(load_native_usdom_v4_node_bundle(
+            &manifest_path,
+            &sha256_hex(&traversal),
+            NETWORK_MAGIC_REGTEST,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn manifest_rejects_noncanonical_hex_and_escaping_key_paths() {
         let directory = tempfile::tempdir().unwrap();
         let (bytes, _) = fixture(directory.path());
@@ -752,6 +1063,41 @@ mod tests {
             NETWORK_MAGIC_REGTEST,
         )
         .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_authority_rejects_symlinked_and_hardlinked_inputs() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let (bytes, digest) = fixture(directory.path());
+        let manifest = directory.path().join("native-usdom-v4.json");
+        let manifest_target = directory.path().join("manifest-target.json");
+        std::fs::write(&manifest_target, &bytes).unwrap();
+        symlink(&manifest_target, &manifest).unwrap();
+        let error = load_native_usdom_v4_node_bundle(&manifest, &digest, NETWORK_MAGIC_REGTEST)
+            .err()
+            .expect("a symlinked manifest must fail closed");
+        assert!(error.to_string().contains("manifest"));
+
+        std::fs::remove_file(&manifest).unwrap();
+        std::fs::write(&manifest, &bytes).unwrap();
+        let key = directory.path().join("spend.vk");
+        let key_target = directory.path().join("spend-target.vk");
+        std::fs::rename(&key, &key_target).unwrap();
+        symlink(&key_target, &key).unwrap();
+        let error = load_native_usdom_v4_node_bundle(&manifest, &digest, NETWORK_MAGIC_REGTEST)
+            .err()
+            .expect("a symlinked verifying key must fail closed");
+        assert!(error.to_string().contains("spend verifying key"));
+
+        std::fs::remove_file(&key).unwrap();
+        std::fs::hard_link(&key_target, &key).unwrap();
+        let error = load_native_usdom_v4_node_bundle(&manifest, &digest, NETWORK_MAGIC_REGTEST)
+            .err()
+            .expect("a multiply-linked verifying key must fail closed");
+        assert!(error.to_string().contains("multiple links"));
     }
 
     #[test]

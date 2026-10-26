@@ -36,11 +36,11 @@ fn main() -> eyre::Result<()> {
     let updates: Vec<Value> = serde_json::from_str(include_str!("../fixtures/updates.json"))?;
     for value in updates {
         let update: Update<Spec> = serde_json::from_value(value["data"].clone())?;
-        client.accept(&GenericUpdate::from(&update), 7109432)?;
+        client.accept(&GenericUpdate::from(&update))?;
     }
     let finality: Value = serde_json::from_str(include_str!("../fixtures/finality.json"))?;
     let update: FinalityUpdate<Spec> = serde_json::from_value(finality["data"].clone())?;
-    client.accept(&GenericUpdate::from(&update), 7109432)?;
+    client.accept(&GenericUpdate::from(&update))?;
     let view = client.finalized();
     println!(
         "{}",

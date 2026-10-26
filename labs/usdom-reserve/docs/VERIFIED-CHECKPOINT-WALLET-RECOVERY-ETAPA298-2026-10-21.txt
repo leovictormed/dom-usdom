@@ -1,0 +1,95 @@
+USDOM — recuperação da carteira em checkpoint verificado (etapa 298)
+Data: 2026-10-21
+Escopo: implementação local; nenhum TPM, nó, fundo ou rede pública foi usado
+
+RESULTADO
+
+Foi implementado um ensaio fechado de recuperação que reconstrói a carteira
+sem abrir, copiar ou confiar em qualquer snapshot operacional anterior. O
+comando restaura a identidade determinística pelo backup portátil cifrado,
+autentica novamente o depósito de 1 USDT e reconstrói o histórico DOM desde o
+genesis até um checkpoint cuja finalidade Ethereum foi verificada localmente.
+
+FRONTEIRAS AUTENTICADAS
+
+1. O manifesto nativo e seu SHA-256 fixam rede, chain ID, domínio, políticas
+   Ethereum, ativação e configuração de privacidade.
+2. UDOMDPW1 autentica o recibo/log do depósito e deriva localmente a ocorrência
+   exata. O índice precisa vincular o witness verificado e declarar que nenhuma
+   transmissão ou mineração foi feita pelo construtor.
+3. O checkpoint witness é verificado sob a política Ethereum imutável do
+   manifesto. A capacidade opaca resultante vincula network magic, domínio,
+   policy hash, altura, bloco DOM, state root e digest do evento Ethereum.
+4. O RPC aceito é fixo em http://127.0.0.1:33372/ com bearer token local. Cada
+   cabeçalho, transição, continuidade e state root é revalidado pelo cliente; a
+   resposta terminal deve coincidir com o bloco e state root do checkpoint.
+5. O compromisso da nota é derivado localmente do depósito e das chaves
+   recuperadas. O servidor não escolhe propriedade, índice, saldo ou estado de
+   gasto. Se a nota tiver sido gasta antes do checkpoint, o ensaio preserva e
+   registra esse estado em vez de fabricar saldo disponível.
+6. O novo snapshot é geração 1, cifrado com a senha operacional derivada de
+   senha humana mais segredo TPM. O diretório final é criado uma única vez e
+   nunca substituído.
+
+ARQUIVOS PRINCIPAIS
+
+- crates/dom-node/src/bin/dom-usdom-recover-wallet-at-checkpoint.rs
+- labs/usdom-reserve/scripts/drill-closed-mainnet-wallet-recovery.sh
+- comando: npm run --silent drill:closed-mainnet-wallet-recovery
+- saída fixa: ~/.local/share/dom-usdom/mainnet-wallet/recovery-drill-v1
+
+O wrapper não recebe argumentos nem campos para preenchimento. Ele exige os
+artefatos já produzidos pelo fluxo fechado, o token RPC local, o TPM configurado
+e solicita apenas a senha secreta de recuperação em terminal oculto. O segredo
+operacional existe somente em arquivo 0600 dentro de um diretório 0700 novo em
+/dev/shm durante a execução.
+
+ESCLARECIMENTO DA ETAPA 317 (2026-10-22)
+
+`native_private_wallet_recovery_ceremony_implemented` agora descreve somente a
+existência do caminho completo e verificável de execução e está verdadeiro. A
+execução viva permanece separadamente falsa e continua exigindo o relatório de
+recuperação autenticado no gate de fundos reais. Essa separação não reduz os
+controles de liberação.
+
+LIMITES HONESTOS
+
+Esta etapa prova a implementação e o caminho de teste. Ela não afirma que o
+ensaio real foi executado neste host: tpm2-tools e a permissão tss ainda precisam
+ser instalados/configurados pelo operador, e os witnesses reais ainda não
+existem. Por isso a execução viva do keystore e os relatórios de
+custódia/recuperação continuam falsos ou ausentes nos gates. Auditoria externa e risco zero não são tratados
+como bloqueadores; identidade, prova, configuração ou evidência incorreta
+continuam bloqueadores objetivos.
+
+O comando não minera, não submete transições, não transmite transações Ethereum,
+não implanta contratos e não movimenta fundos. Nenhum push foi realizado.
+
+PRÓXIMA EVIDÊNCIA NECESSÁRIA
+
+Após instalar os pré-requisitos TPM, provisionar o índice e produzir os
+witnesses do fluxo fechado, executar o comando fixo. A evidência só pode
+ratificar a recuperação quando o endereço restaurado, depósito, checkpoint,
+nota, estado gasto/saldo, geração e seal coincidirem com os artefatos vivos. A
+execução deve ocorrer antes de qualquer aceitação final de custódia para fundos
+reais.
+
+VALIDAÇÃO LOCAL CONCLUÍDA
+
+- 1/1 teste do parser do novo binário passou;
+- Clippy estrito do novo binário passou com `-D warnings`;
+- 80/80 testes focados de runbook e readiness passaram;
+- 185/185 testes Node completos passaram;
+- 138/138 testes Solidity, incluindo fuzz e invariantes, passaram;
+- proveniência confirmou 169 arquivos importados e 16 alterações declaradas;
+- 45 fontes críticas de programas/provas e 7 fontes da carteira não contêm
+  primitivas de pânico em produção;
+- o manifesto completo autenticou 969 arquivos do laboratório;
+- gates fechado e fundos reais recusaram a liberação com 161 e 172 bloqueadores
+  objetivos únicos. Nenhum bloqueador exige auditoria externa ou garantia de
+  risco zero.
+
+O teste ao vivo continua deliberadamente não executado: faltam tpm2-tools,
+permissão de grupo tss, provisão do índice e os witnesses produzidos pelo fluxo
+real. Esses fatos permanecem requisitos de evidência, sem invalidar a
+implementação local acima.

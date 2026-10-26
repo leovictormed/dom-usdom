@@ -1,0 +1,25 @@
+ETAPA913 — PLANNER/COLLECTOR TIMEOUT AUTHENTICATION
+Date: 2026-10-23
+
+Fixed input: the 19 bare-real baseline left by ETAPA910; no new filesystem inventory was performed.
+
+Corrected 9/9 timeout calls: five proof planners plus run-closed-mainnet-node and collect-ethereum-checkpoint-consensus. Every existing signal, kill grace and duration is preserved; each call uses a same-shell wrapper that immediately rechecks the shared bounded absolute timeout executable/hash/canonical-parent pin.
+
+Remaining bare-real baseline calls: 10
+
+Remaining groups:
+jq	wallet/TPM/deposit/burn	2
+node	commit ceremonies	4
+node	wallet/TPM/deposit/burn	4
+
+Exact remaining baseline call sites:
+labs/usdom-reserve/scripts/commit-release-source.sh:87: node --input-type=module - "$source_tag" <<'NODE'
+labs/usdom-reserve/scripts/prepare-native-receiving-wallet.sh:245: jq -n \
+labs/usdom-reserve/scripts/prepare-closed-mainnet-private-burn.sh:140: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST" \
+labs/usdom-reserve/scripts/prepare-closed-mainnet-private-burn.sh:142: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST_PIN" \
+labs/usdom-reserve/scripts/provision-closed-mainnet-tpm-keystore.sh:120: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST" \
+labs/usdom-reserve/scripts/provision-closed-mainnet-tpm-keystore.sh:122: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST_PIN" \
+labs/usdom-reserve/scripts/commit-release-evidence.sh:71: node --input-type=module - "$source_tag" <<'NODE'
+labs/usdom-reserve/scripts/commit-release-evidence.sh:207: node scripts/check-mainnet-readiness.mjs closed-mainnet > "$closed_report"
+labs/usdom-reserve/scripts/commit-release-evidence.sh:208: node scripts/check-mainnet-readiness.mjs real-funds > "$real_report"
+labs/usdom-reserve/scripts/submit-closed-mainnet-private-burn.sh:258: jq -n --arg inputs "$input_commitment" --arg manifest "$manifest_sha256" \

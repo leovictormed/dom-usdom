@@ -1,0 +1,18 @@
+ETAPA 737 — RandomX v4 private prover TOCTOU and tool identity
+Date: 2026-10-23
+
+Finding
+The future RandomX receipt prover copied its inputs into a private snapshot, but it invoked Cargo/Node/JQ/copy/env through mutable PATH and did not rederive the job index immediately before proving. A same-user process able to alter a selected executable or the private snapshot between validation and Cargo launch could change the authority consumed by the long proof.
+
+Correction
+- Resolves Cargo, Node, JQ, cp and env to direct regular executables with safe owner, directory, mode and link count; records filesystem identity and SHA-256 and rechecks them immediately before reconstruction/proving.
+- Reconstructs the deterministic proof-job index from the snapshotted statement set with the non-proving planner and byte-compares it to the reviewed index.
+- Hashes the rebuilt job index, statement-set index, every selected statement and the ELF/program/IID files; `sha256sum -c` runs immediately before the pinned env and pinned Cargo prover invocation.
+- All statement and receipt reads/installations now use pinned Node, parsing uses pinned JQ, artifact copies use pinned cp.
+- The active compilation/proof process was neither inspected nor interrupted; the modified runner applies only to a future invocation.
+
+Validation
+- `bash -n scripts/prove-authenticated-randomx-receipt-set.sh`: pass.
+- Focused Node structural tests: 3 passed, 0 failed.
+- `git diff --check`: pass.
+- No Cargo, proof, mining, RPC, commit, push, deploy, signing, transmission or funds.

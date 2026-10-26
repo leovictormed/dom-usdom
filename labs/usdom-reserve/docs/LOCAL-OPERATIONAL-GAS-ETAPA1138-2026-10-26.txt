@@ -1,0 +1,50 @@
+LOCAL OPERATIONAL GAS MEASUREMENT — STAGE 1138
+Date: 2026-10-26
+
+Purpose
+-------
+Create deterministic local baseline evidence for the four gas requirements that
+remain false. This evidence intentionally does not satisfy production readiness.
+
+Authenticated environment
+-------------------------
+- Pinned Anvil SHA-256: 00f97668e1ae0fcca118fd7d2d1b6d25c0496447a523ca6bc2dfd10958c99604.
+- The report records SHA-256 for Node, every consumed Solidity artifact and the
+  complete Safe 1.4.1 mainnet runtime fixture.
+- No external RPC, production key, hardware wallet or network input is accepted.
+- Every scenario is executed twice on fresh local chain state and the two result
+  documents must be byte-equivalent before the report is emitted.
+
+Measured maximum scenarios
+--------------------------
+- queueWithdrawal: 343,546 gas. A new permanent debt is appended behind an
+  existing queue tail, with the exact 260-byte Groth16 proof framing and all
+  three current events. This covers the additional prior-tail link write.
+- pruneExpired(256): 7,636,276 gas. Exactly 256 live linked entries expire and
+  all 256 are removed in one maximum-size prefix call.
+- pruneDiscardable(256): 7,482,345 gas. Exactly 256 entries are invalidated by
+  emergency epoch rotation and removed from an explicit maximum-size list.
+- Safe administration: 99,496 gas. An actual pinned Safe 1.4.1 proxy with three
+  owners and threshold two executes swapOwner through execTransaction with two
+  approved-hash signatures; inner calldata is 100 bytes and outer calldata is
+  676 bytes.
+
+Production materialization path
+-------------------------------
+`prepare-production-operational-gas-job.mjs` accepts the exact production-ready
+release configuration and this local evidence only after release identities are
+materialized. It binds the Reserve runtime/config hashes and both Safe
+implementation hashes, and emits an incomplete measurement job requiring two
+identical runs, two independent RPC sources and finalized observations. The job
+explicitly says that local evidence does not satisfy production.
+
+The four flags remain false in production-requirements.json. They may become
+true only after the post-pin job is executed and independently checked on the
+exact production identities.
+
+Validation
+----------
+- Local evidence checker: pass.
+- Focused semantic/source tests: 3/3 pass.
+- A separate complete rerun reproduced the stored evidence byte-for-byte.
+- No Cargo, Forge, external network, signing, deploy, funds, commit or push ran.

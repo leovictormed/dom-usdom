@@ -1,0 +1,19 @@
+USDOM — ETAPA 1155 — EXCLUSÃO MÚTUA DA CERIMÔNIA SAFE
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+O executor retomável dos três Safes não adquiria o lock global do diretório de evidências. Duas instâncias, ou uma implantação Safe concorrente com implantação/recuperação, podiam observar o mesmo nonce e disputar journals create-once, prompts e publicação.
+
+Implementação
+
+- `flock` é agora pinado, hash-verificado e continuamente reatestado pelo mesmo limite de ferramentas do executor.
+- O lock é aplicado diretamente ao descritor somente leitura do diretório 0700 autenticado, sem criar ou seguir um arquivo de lock.
+- A aquisição é não bloqueante e ocorre antes do temporário, proxy, acesso ao Ledger, prompt ou qualquer artefato.
+- O mesmo inode de diretório já usado pelos executores de implantação e recuperação fornece exclusão mútua entre as três cerimônias.
+
+Validação
+
+- Sintaxe Bash, executor Safe, recibos, inventário de processos e runbook: 91/91.
+- Diff-check direcionado aprovado.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

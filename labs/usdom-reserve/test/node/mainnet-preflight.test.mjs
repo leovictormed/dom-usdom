@@ -1,12 +1,54 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {getCreateAddress} from 'ethers';
-import {assessMainnetPreflight as assessPreflight,EMPTY_CODE_HASH} from '../../sdk/mainnet-preflight.mjs';
+import {assessMainnetPreflight as assessPreflight,EMPTY_CODE_HASH,ETHEREUM_MAINNET_USDT,
+  ETHEREUM_MAINNET_USDT_CODE_HASH,ETHEREUM_MAINNET_GENESIS_BLOCK_HASH} from '../../sdk/mainnet-preflight.mjs';
+import {prepareMainnetPreflightMaterialization} from '../../sdk/mainnet-preflight-materialization.mjs';
 import {PINNED_RISC0_MAINNET_V3} from '../../sdk/risc0-verifier-reference.mjs';
+import {SAFE_MAINNET_IDENTITY} from '../../sdk/safe-control-deployment.mjs';
+import {rpcConsensusEvidence} from '../../sdk/rpc-consensus-evidence.mjs';
+import {safeOwnersCommitment} from '../../sdk/configuration.mjs';
+import {FINALIZED_BURN_PROOF_ACCEPTED_HASH} from '../../sdk/verifier-config.mjs';
+import {CHECKPOINT_PROOF_ACCEPTED_HASH} from '../../sdk/checkpoint-verifier-config.mjs';
 
 const assessMainnetPreflight=args=>assessPreflight({
   ...args,riscZeroReference:{...PINNED_RISC0_MAINNET_V3},
 });
+
+test('cold-start collector uses one atomic queue snapshot and does not traverse an empty queue',()=>{
+  const script=readFileSync(new URL('../../scripts/check-mainnet-preflight.mjs',import.meta.url),'utf8');
+  assert.ok(script.includes('reserve.pendingQueueSnapshot(callOptions)'));
+  assert.ok(script.includes("const adapterNames=['riscZeroVerifier','riscZeroVerifierCodeHash'"));
+  assert.ok(script.includes("'function availableOutflow() view returns (uint256)'"));
+  assert.ok(script.includes('function pendingBurnPage(uint64 expectedQueueEpoch'));
+  for(const getter of ['pendingCount','totalPendingAmount','firstPendingBurn','lastPendingBurn']) {
+    assert.ok(!script.includes(`'${getter}'`),getter);
+  }
+  assert.ok(!script.includes('reserve.pendingBurnPage('));
+});
+
+test('pilot executor rechecks live multisource authorities before its first signature prompt',()=>{
+  const source=readFileSync(new URL('../../scripts/execute-closed-mainnet-deposit.sh',import.meta.url),'utf8');
+  assert.match(source,/check-mainnet-preflight\.mjs authority-recheck/);
+  assert.match(source,/if \[\[ \$index == 0 \]\]; then recheck_live_authorities; fi[\s\S]*?AUTORIZO ASSINAR/);
+  assert.match(source,/AUTORIZO ASSINAR[\s\S]*?test "\$answer"[\s\S]*?recheck_live_authorities[\s\S]*?cast mktx/);
+  assert.match(source,/AUTORIZO TRANSMITIR[\s\S]*?test "\$answer"[\s\S]*?recheck_live_authorities[\s\S]*?publish-private-raw-transaction/);
+});
+
+const materializationInputs=(phase,observation)=>{
+  const releaseConfig=release();
+  const result=assessMainnetPreflight({phase,releaseConfig,observation});
+  const rpcConsensus=rpcConsensusEvidence([
+    {sourceId:'operator-a',originKeccak256:'0x'+'11'.repeat(32)},
+    {sourceId:'operator-b',originKeccak256:'0x'+'22'.repeat(32)},
+  ]);
+  return {phase,report:{...result,observation,rpcConsensus},releaseConfig,
+    riscZeroReference:{...PINNED_RISC0_MAINNET_V3},
+    evidence:{mainnetPredeploymentAttestationReport:null,mainnetColdStartAttestationReport:null},
+    requirements:{production_mainnet_predeployment_preflight_passed:false,
+      production_mainnet_cold_start_attestation_completed:false}};
+};
 
 const address=n=>'0x'+n.toString(16).padStart(40,'0');
 const hash=n=>'0x'+n.toString(16).padStart(64,'0');
@@ -15,9 +57,11 @@ function release() {
   const deployer=address(1),deployerNonce='7',checkpointRegistryDeployer=address(2),checkpointRegistryDeployerNonce='9';
   const verifierDeployer=address(10),verifierDeployerNonce='3';
   const checkpointVerifierDeployer=address(11),checkpointVerifierDeployerNonce='4';
-  return {ethereumChainId:'1',deploymentMethod:'CREATE',deployer,deployerNonce,
+  return {productionReady:true,realFundsAuthorized:false,
+    ethereumChainId:'1',deploymentMethod:'CREATE',deployer,deployerNonce,
     reserve:getCreateAddress({from:deployer,nonce:BigInt(deployerNonce)}),
-    reserveRuntimeCodeHash:hash(20),reserveInitcodeHash:hash(21),token:address(3),tokenCodeHash:hash(30),
+    reserveRuntimeCodeHash:hash(20),reserveInitcodeHash:hash(21),token:ETHEREUM_MAINNET_USDT,
+    tokenCodeHash:ETHEREUM_MAINNET_USDT_CODE_HASH,tokenOwner:address(77),tokenOwnerCodeHash:EMPTY_CODE_HASH,
     verifierDeployer,verifierDeployerNonce,
     verifier:getCreateAddress({from:verifierDeployer,nonce:BigInt(verifierDeployerNonce)}),
     verifierInitcodeHash:hash(24),
@@ -31,33 +75,73 @@ function release() {
       nonce:BigInt(checkpointVerifierDeployerNonce)}),checkpointVerifierInitcodeHash:hash(25),
     checkpointVerifierCodeHash:hash(45),
     checkpointVerifierConfigHash:hash(46),checkpointGuardian:address(8),checkpointGuardianCodeHash:hash(47),
+    checkpointGuardianImplementation:address(18),checkpointGuardianImplementationCodeHash:hash(57),
     checkpointDomNetworkMagic:'3669344250',checkpointDomChainId:hash(55),checkpointFirstV4Height:'101',
     checkpointActivationEmptyStateRoot:hash(49),checkpointIntervalBlocks:'360',
     checkpointConfirmationDepthBlocks:'30',checkpointChallengePeriodSeconds:'172800',
     checkpointInitialHeight:'100',checkpointInitialBlock:hash(48),checkpointInitialStateRoot:hash(49),
     checkpointInitialContextHash:hash(51),
     checkpointInitialTotalDifficulty:'1000000',
-    governance:address(5),governanceCodeHash:hash(50),guardian:address(6),guardianCodeHash:hash(60),
+    governance:address(5),governanceCodeHash:hash(50),governanceImplementation:address(15),
+    governanceImplementationCodeHash:hash(51),guardian:address(6),guardianCodeHash:hash(60),
+    guardianImplementation:address(16),guardianImplementationCodeHash:hash(61),
+    governanceOwners:[address(101),address(102),address(103)],
+    guardianOwners:[address(104),address(105),address(106)],
+    checkpointGuardianOwners:[address(107),address(108),address(109)],
+    governanceOwnersCommitment:safeOwnersCommitment([address(101),address(102),address(103)]),
+    guardianOwnersCommitment:safeOwnersCommitment([address(104),address(105),address(106)]),
     withdrawalDelaySeconds:'86400',governanceDelaySeconds:'172800',maxOutstandingBaseUnits:'100000000000',
     outflowCapacityBaseUnitsPerDay:'2000000000'};
 }
 
 function baseObservation(config=release()) {
-  return {chainId:'1',finalizedBlockNumber:'22000000',finalizedBlockHash:hash(70),
+  return {chainId:'1',genesisBlockHash:ETHEREUM_MAINNET_GENESIS_BLOCK_HASH,
+    finalizedBlockNumber:'22000000',finalizedBlockHash:hash(70),
     snapshotBlockHashAfter:hash(70),deployerNonce:'7',
     checkpointRegistryDeployerNonce:'9',
     codeHashes:{reserve:EMPTY_CODE_HASH,token:config.tokenCodeHash,verifier:config.verifierCodeHash,
       governance:config.governanceCodeHash,guardian:config.guardianCodeHash,checkpointRegistry:EMPTY_CODE_HASH,
-      checkpointVerifier:config.checkpointVerifierCodeHash,checkpointGuardian:config.checkpointGuardianCodeHash},
+      governanceImplementation:config.governanceImplementationCodeHash,
+      guardianImplementation:config.guardianImplementationCodeHash,
+      checkpointVerifier:config.checkpointVerifierCodeHash,checkpointGuardian:config.checkpointGuardianCodeHash,
+      checkpointGuardianImplementation:config.checkpointGuardianImplementationCodeHash},
     verifierConfigHash:config.verifierConfigHash,checkpointVerifierConfigHash:config.checkpointVerifierConfigHash,
+    verifierProofAccepted:FINALIZED_BURN_PROOF_ACCEPTED_HASH,
+    checkpointVerifierProofAccepted:CHECKPOINT_PROOF_ACCEPTED_HASH,
+    finalizedBurnVerifier:{address:config.verifier,riscZeroVerifier:PINNED_RISC0_MAINNET_V3.verifier_address,
+      riscZeroVerifierCodeHash:PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash,
+      verifierSelector:PINNED_RISC0_MAINNET_V3.verifier_selector,imageId:hash(91),deploymentChainId:'1',
+      verifierConfigHash:config.verifierConfigHash,proofAccepted:FINALIZED_BURN_PROOF_ACCEPTED_HASH},
+    checkpointVerifier:{address:config.checkpointVerifier,riscZeroVerifier:PINNED_RISC0_MAINNET_V3.verifier_address,
+      riscZeroVerifierCodeHash:PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash,
+      verifierSelector:PINNED_RISC0_MAINNET_V3.verifier_selector,imageId:hash(92),deploymentChainId:'1',
+      verifierConfigHash:config.checkpointVerifierConfigHash,proofAccepted:CHECKPOINT_PROOF_ACCEPTED_HASH},
+    controlPlaneImplementations:{governance:config.governanceImplementation,
+      guardian:config.guardianImplementation,checkpointGuardian:config.checkpointGuardianImplementation},
+    controlPlanePolicies:{
+      governance:{nonce:'0',threshold:'2',owners:[address(101),address(102),address(103)],
+        ownerCodeHashes:[EMPTY_CODE_HASH,EMPTY_CODE_HASH,EMPTY_CODE_HASH],modules:[],modulesNext:address(1),guard:address(0),
+        fallbackHandler:SAFE_MAINNET_IDENTITY.fallbackHandler,
+        fallbackHandlerCodeHash:SAFE_MAINNET_IDENTITY.fallbackHandlerCodeHash},
+      guardian:{nonce:'0',threshold:'2',owners:[address(104),address(105),address(106)],
+        ownerCodeHashes:[EMPTY_CODE_HASH,EMPTY_CODE_HASH,EMPTY_CODE_HASH],modules:[],modulesNext:address(1),guard:address(0),
+        fallbackHandler:SAFE_MAINNET_IDENTITY.fallbackHandler,
+        fallbackHandlerCodeHash:SAFE_MAINNET_IDENTITY.fallbackHandlerCodeHash},
+      checkpointGuardian:{nonce:'0',threshold:'2',owners:[address(107),address(108),address(109)],modules:[],
+        ownerCodeHashes:[EMPTY_CODE_HASH,EMPTY_CODE_HASH,EMPTY_CODE_HASH],modulesNext:address(1),guard:address(0),
+        fallbackHandler:SAFE_MAINNET_IDENTITY.fallbackHandler,
+        fallbackHandlerCodeHash:SAFE_MAINNET_IDENTITY.fallbackHandlerCodeHash},
+    },
     riscZeroVerifier:{address:PINNED_RISC0_MAINNET_V3.verifier_address,
       codeHash:PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash,
       selector:PINNED_RISC0_MAINNET_V3.verifier_selector,version:PINNED_RISC0_MAINNET_V3.verifier_version},
     riscZeroEmergencyStop:{address:PINNED_RISC0_MAINNET_V3.emergency_stop_wrapper_address,
       codeHash:PINNED_RISC0_MAINNET_V3.emergency_stop_wrapper_runtime_code_hash,
       paused:false,verifier:PINNED_RISC0_MAINNET_V3.verifier_address},
-    token:{decimals:'6',paused:false,deprecated:false,basisPointsRate:'0',maximumFee:'0',
-      reserveBlacklisted:false,reserveBalance:'0'},
+    token:{name:'Tether USD',symbol:'USDT',decimals:'6',totalSupply:'1000000000000',owner:address(77),
+      ownerCodeHash:EMPTY_CODE_HASH,paused:false,deprecated:false,upgradedAddress:address(0),
+      basisPointsRate:'0',maximumFee:'0',reserveBlacklisted:false,reserveBalance:'0',
+      eip1967Implementation:hash(0),eip1967Admin:hash(0),eip1967Beacon:hash(0)},
     finalizedBurnVerifierDeployment:{status:true,from:config.verifierDeployer,
       nonce:config.verifierDeployerNonce,creates:config.verifier,derivedCreateAddress:config.verifier,
       blockNumber:'21999997',
@@ -93,10 +177,20 @@ function postObservation(config=release()) {
     reserveConfigHash:config.reserveConfigHash,domDomain:config.domDomain,
     activationScheduleCommitment:config.activationScheduleCommitment,governance:config.governance,
     governanceCodeHash:config.governanceCodeHash,guardian:config.guardian,
-    guardianCodeHash:config.guardianCodeHash,withdrawalDelay:config.withdrawalDelaySeconds,
+    governanceImplementation:config.governanceImplementation,
+    governanceImplementationCodeHash:config.governanceImplementationCodeHash,
+    governanceOwnersCommitment:config.governanceOwnersCommitment,
+    guardianCodeHash:config.guardianCodeHash,guardianImplementation:config.guardianImplementation,
+    guardianImplementationCodeHash:config.guardianImplementationCodeHash,
+    guardianOwnersCommitment:config.guardianOwnersCommitment,
+    withdrawalDelay:config.withdrawalDelaySeconds,
     governanceDelay:config.governanceDelaySeconds,maxOutstanding:config.maxOutstandingBaseUnits,
-    outflowCapacity:config.outflowCapacityBaseUnitsPerDay,paused:true,queueEpoch:'1',resumeReadyAt:'0',
-    totalDeposited:'0',totalReleased:'0',totalPendingAmount:'0',pendingCount:'0'};
+    outflowCapacity:config.outflowCapacityBaseUnitsPerDay,paused:true,depositsClosed:false,
+    gracefullyShutdown:false,resumeReadyAt:'0',
+    totalDeposited:'0',totalReleased:'0',totalProvedDebtAmount:'0',
+    pendingQueue:{epoch:'1',count:'0',amount:'0',firstBurnId:hash(0),lastBurnId:hash(0)},
+    outstanding:'0',unreservedCollateral:'0',availableOutflow:config.outflowCapacityBaseUnitsPerDay,
+    controlPlaneHealthy:true};
   observation.checkpointRegistry={checkpointConfigHash:config.checkpointRegistryConfigHash,
     bridgeDomain:config.domDomain,domNetworkMagic:config.checkpointDomNetworkMagic,
     domChainId:config.checkpointDomChainId,firstV4Height:config.checkpointFirstV4Height,
@@ -106,23 +200,75 @@ function postObservation(config=release()) {
     challengePeriod:config.checkpointChallengePeriodSeconds,
     verifierCodeHash:config.checkpointVerifierCodeHash,verifierConfigHash:config.checkpointVerifierConfigHash,
     guardian:config.checkpointGuardian,guardianCodeHash:config.checkpointGuardianCodeHash,
-    latestHeight:config.checkpointInitialHeight,checkpointCount:'1',halted:false,
+    guardianImplementation:config.checkpointGuardianImplementation,
+    guardianImplementationCodeHash:config.checkpointGuardianImplementationCodeHash,
+    guardianOwnersCommitment:safeOwnersCommitment(config.checkpointGuardianOwners),
+    latestHeight:config.checkpointInitialHeight,checkpointCount:'1',halted:false,gracefullyShutdown:false,
+    latestIssuanceClosed:false,
     latestBlock:config.checkpointInitialBlock,latestStateRoot:config.checkpointInitialStateRoot,
     latestContextHash:config.checkpointInitialContextHash,
-    latestTotalDifficulty:config.checkpointInitialTotalDifficulty};
+    latestTotalDifficulty:config.checkpointInitialTotalDifficulty,latestTotalIssued:'0',latestTotalBurned:'0',
+    previousTotalIssued:'0',previousTotalBurned:'0',guardianControlHealthy:true};
   observation.checkpointRegistryCandidate={statementHash:hash(0),height:'0',readyAt:'0',blockHash:hash(0),
-    stateRoot:hash(0),contextHash:hash(0),totalDifficulty:'0',confirmationHeight:'0',confirmationBlock:hash(0),
+    stateRoot:hash(0),contextHash:hash(0),totalDifficulty:'0',totalIssued:'0',totalBurned:'0',
+    issuanceClosed:false,confirmationHeight:'0',confirmationBlock:hash(0),
     confirmationTotalDifficulty:'0',confirmationTimestamp:'0'};
   observation.checkpointRegistrySlot0=config.checkpointRegistryConfigHash;
   return observation;
 }
+
+test('preflight accepts three distinct owner trios across distinct role Safes',()=>{
+  const config=release();
+  const observation=baseObservation(config);
+  assert.notEqual(config.governance.toLowerCase(),config.guardian.toLowerCase());
+  assert.notEqual(config.governance.toLowerCase(),config.checkpointGuardian.toLowerCase());
+  assert.notEqual(config.guardian.toLowerCase(),config.checkpointGuardian.toLowerCase());
+  assert.equal(new Set(Object.values(observation.controlPlanePolicies).flatMap(value=>value.owners)).size,9);
+  assert.equal(assessMainnetPreflight({phase:'predeployment',releaseConfig:config,observation}).ready,true);
+});
+
+test('authority recheck binds current Safes and USDT immediately before the first signature',()=>{
+  const config=release();
+  const observation=baseObservation(config);
+  observation.codeHashes.reserve=config.reserveRuntimeCodeHash;
+  observation.codeHashes.checkpointRegistry=config.checkpointRegistryRuntimeCodeHash;
+  assert.equal(assessMainnetPreflight({phase:'authority-recheck',releaseConfig:config,observation}).ready,true);
+  for(const change of [
+    value=>{value.controlPlanePolicies.governance.nonce='1';},
+    value=>{value.controlPlanePolicies.guardian.modules=[address(99)];},
+    value=>{value.controlPlanePolicies.checkpointGuardian.guard=address(99);},
+    value=>{value.token.paused=true;},value=>{value.token.deprecated=true;},
+    value=>{value.token.maximumFee='1';},value=>{value.token.reserveBlacklisted=true;},
+    value=>{value.token.reserveBalance='1';},value=>{value.genesisBlockHash=hash(99);},
+  ]) {
+    const changed=structuredClone(observation); change(changed);
+    assert.equal(assessMainnetPreflight({phase:'authority-recheck',releaseConfig:config,
+      observation:changed}).ready,false);
+  }
+});
+
+test('preflight accepts either explicit fund-authorization state but rejects unconfigured drift',()=>{
+  for(const authorized of [false,true]) {
+    const config={...release(),realFundsAuthorized:authorized};
+    assert.equal(assessMainnetPreflight({phase:'predeployment',releaseConfig:config,
+      observation:baseObservation(config)}).ready,true);
+  }
+  for(const realFundsAuthorized of [null,'false',0]) {
+    const config={...release(),realFundsAuthorized};
+    const report=assessMainnetPreflight({phase:'predeployment',releaseConfig:config,
+      observation:baseObservation(config)});
+    assert.equal(report.ready,false);
+    assert(report.blockers.some(value=>value.code==='release_plan_invalid'));
+  }
+});
 
 test('predeployment preflight accepts only the exact finalized empty address and release identities',()=>{
   const config=release();
   assert.equal(assessMainnetPreflight({phase:'predeployment',releaseConfig:config,
     observation:baseObservation(config)}).ready,true);
   const changes=[
-    o=>{o.chainId='31337';},o=>{o.chainId=1;},o=>{o.extra=true;},o=>{o.token.extra=true;},
+    o=>{o.chainId='31337';},o=>{o.chainId=1;},o=>{o.genesisBlockHash=hash(99);},
+    o=>{o.extra=true;},o=>{o.token.extra=true;},
     o=>{o.finalizedBlockHash=hash(0);},o=>{o.snapshotBlockHashAfter=hash(71);},
     o=>{o.deployerNonce='8';},
     o=>{o.checkpointRegistryDeployerNonce='10';},
@@ -133,13 +279,33 @@ test('predeployment preflight accepts only the exact finalized empty address and
     o=>{o.codeHashes.reserve=hash(1);},o=>{o.codeHashes.verifier=hash(2);},
     o=>{o.codeHashes.checkpointRegistry=hash(3);},o=>{o.codeHashes.checkpointVerifier=hash(4);},
     o=>{o.codeHashes.checkpointGuardian=hash(5);},o=>{o.verifierConfigHash=hash(6);},
+    o=>{o.verifierProofAccepted=hash(7);},o=>{o.checkpointVerifierProofAccepted=hash(8);},
+    o=>{o.controlPlaneImplementations.governance=address(99);},
+    o=>{o.controlPlaneImplementations.guardian=address(99);},
+    o=>{o.controlPlaneImplementations.checkpointGuardian=address(99);},
+    o=>{o.controlPlanePolicies.governance.threshold='1';},
+    o=>{o.controlPlanePolicies.governance.nonce='1';},
+    o=>{o.controlPlanePolicies.governance.owners[2]=address(104);},
+    o=>{o.controlPlanePolicies.guardian.owners.reverse();},
+    o=>{o.controlPlanePolicies.guardian.owners.pop();},
+    o=>{o.controlPlanePolicies.checkpointGuardian.modules=[address(99)];},
+    o=>{o.controlPlanePolicies.governance.owners[1]=o.controlPlanePolicies.governance.owners[0];},
+    o=>{o.controlPlanePolicies.guardian.modulesNext=address(2);},
+    o=>{o.controlPlanePolicies.checkpointGuardian.ownerCodeHashes[1]=hash(99);},
+    o=>{o.controlPlanePolicies.governance.guard=address(99);},
+    o=>{o.controlPlanePolicies.guardian.fallbackHandler=address(99);},
+    o=>{o.controlPlanePolicies.checkpointGuardian.fallbackHandlerCodeHash=hash(99);},
     o=>{o.checkpointVerifierConfigHash=hash(7);},o=>{o.token.paused=true;},o=>{o.token.deprecated=true;},
     o=>{o.riscZeroVerifier.address=address(99);},o=>{o.riscZeroVerifier.codeHash=hash(99);},
     o=>{o.riscZeroVerifier.selector='0x01020304';},o=>{o.riscZeroVerifier.version='other';},
     o=>{o.riscZeroEmergencyStop.address=address(99);},
     o=>{o.riscZeroEmergencyStop.codeHash=hash(99);},
     o=>{o.riscZeroEmergencyStop.verifier=address(99);},o=>{o.riscZeroEmergencyStop.paused=true;},
-    o=>{o.token.basisPointsRate='1';},o=>{o.token.maximumFee='1';},o=>{o.token.reserveBlacklisted=true;},
+    o=>{o.token.name='US Dollar';},o=>{o.token.symbol='USD';},o=>{o.token.totalSupply='0';},
+    o=>{o.token.owner=address(0);},o=>{o.token.ownerCodeHash='bad';},o=>{o.token.upgradedAddress=address(99);},
+    o=>{o.token.eip1967Implementation=hash(99);},o=>{o.token.eip1967Admin=hash(99);},
+    o=>{o.token.eip1967Beacon=hash(99);},o=>{o.token.basisPointsRate='1';},
+    o=>{o.token.maximumFee='1';},o=>{o.token.reserveBlacklisted=true;},
     o=>{o.token.reserveBalance='1';},
   ];
   for(const change of changes) {
@@ -161,6 +327,18 @@ test('predeployment preflight accepts only the exact finalized empty address and
   const numericReleaseChain=release(); numericReleaseChain.ethereumChainId=1;
   assert.equal(assessMainnetPreflight({phase:'predeployment',releaseConfig:numericReleaseChain,
     observation:baseObservation(numericReleaseChain)}).ready,false);
+  const changedTokenOwner=release(); changedTokenOwner.tokenOwner=address(88);
+  assert.equal(assessMainnetPreflight({phase:'predeployment',releaseConfig:changedTokenOwner,
+    observation:baseObservation(changedTokenOwner)}).ready,false);
+  const reusedSafe=release(); reusedSafe.guardian=reusedSafe.governance;
+  assert.equal(assessMainnetPreflight({phase:'predeployment',releaseConfig:reusedSafe,
+    observation:baseObservation(reusedSafe)}).ready,false);
+  for(const field of ['verifierInitcodeHash','checkpointVerifierCodeHash',
+    'checkpointRegistryConfigHash','reserveRuntimeCodeHash']) {
+    const partialRelease=release(); partialRelease[field]=null;
+    assert.equal(assessMainnetPreflight({phase:'predeployment',releaseConfig:partialRelease,
+      observation:baseObservation(partialRelease)}).ready,false,field);
+  }
   const changedReference={...PINNED_RISC0_MAINNET_V3,verifier_address:address(99)};
   assert.equal(assessPreflight({phase:'predeployment',releaseConfig:config,
     observation:baseObservation(config),riscZeroReference:changedReference}).ready,false);
@@ -196,6 +374,13 @@ test('postdeployment preflight binds transaction, runtime, immutables and empty 
     o=>{o.checkpointVerifierDeployment.blockHash=hash(99);},
     o=>{o.checkpointVerifierDeployment.blockNumber='22000001';},
     o=>{o.checkpointVerifierDeployment.extra=true;},
+    o=>{o.finalizedBurnVerifier.riscZeroVerifier=address(99);},
+    o=>{o.finalizedBurnVerifier.riscZeroVerifierCodeHash=hash(99);},
+    o=>{o.finalizedBurnVerifier.verifierSelector='0x00000000';},
+    o=>{o.finalizedBurnVerifier.imageId=hash(0);},
+    o=>{o.finalizedBurnVerifier.deploymentChainId='2';},
+    o=>{o.checkpointVerifier.verifierConfigHash=hash(99);},
+    o=>{o.checkpointVerifier.proofAccepted=hash(99);},
     o=>{o.deployment.status=false;},o=>{o.deployment.from=address(9);},
     o=>{o.deployment.nonce='8';},o=>{o.deployment.creates=address(9);},
     o=>{o.deployment.derivedCreateAddress=address(9);},
@@ -206,7 +391,9 @@ test('postdeployment preflight binds transaction, runtime, immutables and empty 
     o=>{o.reserve.reserveConfigHash=hash(99);},
     o=>{o.reserve.activationScheduleCommitment=hash(99);},
     o=>{o.reserve.governance=address(9);},o=>{o.reserve.governanceCodeHash=hash(99);},
-    o=>{o.reserve.withdrawalDelay='1';},o=>{o.reserve.paused=false;},o=>{o.reserve.queueEpoch='2';},
+    o=>{o.reserve.withdrawalDelay='1';},o=>{o.reserve.paused=false;},o=>{o.reserve.depositsClosed=true;},
+    o=>{o.reserve.gracefullyShutdown=true;},o=>{o.reserve.pendingQueue.epoch='2';},
+    o=>{o.reserve.controlPlaneHealthy=false;},
     o=>{o.reserve.resumeReadyAt='1';},o=>{o.reserve.totalDeposited='1';},o=>{o.token.reserveBalance='1';},
     o=>{o.codeHashes.checkpointRegistry=hash(24);},o=>{o.checkpointRegistryDeployment.status=false;},
     o=>{o.checkpointRegistryDeployment.from=address(9);},o=>{o.checkpointRegistryDeployment.nonce='10';},
@@ -238,10 +425,23 @@ test('postdeployment preflight binds transaction, runtime, immutables and empty 
     o=>{o.checkpointRegistry.verifier=address(9);},o=>{o.checkpointRegistry.verifierCodeHash=hash(93);},
     o=>{o.checkpointRegistry.verifierConfigHash=hash(94);},o=>{o.checkpointRegistry.guardian=address(9);},
     o=>{o.checkpointRegistry.guardianCodeHash=hash(95);},
+    o=>{o.checkpointRegistry.guardianImplementation=address(9);},
+    o=>{o.checkpointRegistry.guardianImplementationCodeHash=hash(96);},
+    o=>{o.checkpointRegistry.guardianOwnersCommitment=hash(97);},
     o=>{o.checkpointRegistry.latestHeight='101';},o=>{o.checkpointRegistry.latestBlock=hash(92);},
     o=>{o.checkpointRegistry.latestStateRoot=hash(93);},o=>{o.checkpointRegistry.latestTotalDifficulty='1000001';},
+    o=>{o.checkpointRegistry.gracefullyShutdown=true;},o=>{o.checkpointRegistry.latestIssuanceClosed=true;},
+    o=>{o.checkpointRegistry.latestTotalIssued='1';},o=>{o.checkpointRegistry.latestTotalBurned='1';},
+    o=>{o.checkpointRegistry.previousTotalIssued='1';},o=>{o.checkpointRegistry.previousTotalBurned='1';},
     o=>{o.checkpointRegistry.checkpointCount='2';},
+    o=>{o.checkpointRegistry.guardianControlHealthy=false;},
+    o=>{o.reserve.pendingQueue.firstBurnId=hash(1);},o=>{o.reserve.pendingQueue.lastBurnId=hash(1);},
+    o=>{o.reserve.pendingQueue.count='1';},o=>{o.reserve.pendingQueue.amount='1';},
+    o=>{o.reserve.outstanding='1';},o=>{o.reserve.unreservedCollateral='1';},
+    o=>{o.reserve.availableOutflow='1';},
     o=>{o.checkpointRegistryCandidate.statementHash=hash(1);},
+    o=>{o.checkpointRegistryCandidate.totalIssued='1';},o=>{o.checkpointRegistryCandidate.totalBurned='1';},
+    o=>{o.checkpointRegistryCandidate.issuanceClosed=true;},
     o=>{o.checkpointRegistry.halted=true;},o=>{o.checkpointRegistrySlot0=hash(94);},
   ];
   for(const change of changes) {
@@ -261,7 +461,7 @@ test('observed uints must use canonical unsigned decimal strings',()=>{
   }
   for(const value of [true,'01','0x1',1,1n]) {
     const observation=postObservation(config);
-    observation.reserve.queueEpoch=value;
+    observation.reserve.pendingQueue.epoch=value;
     assert.equal(assessMainnetPreflight({phase:'postdeployment',releaseConfig:config,observation}).ready,false,
       `one substitute ${String(value)} (${typeof value})`);
   }
@@ -269,4 +469,57 @@ test('observed uints must use canonical unsigned decimal strings',()=>{
   eventCount.checkpointRegistryDeployment.checkpointEventCount=1;
   assert.equal(assessMainnetPreflight({phase:'postdeployment',releaseConfig:config,
     observation:eventCount}).ready,false);
+  for(const value of ['9'.repeat(79),(1n<<256n).toString()]) {
+    const observation=postObservation(config);
+    observation.token.totalSupply=value;
+    assert.equal(assessMainnetPreflight({phase:'postdeployment',releaseConfig:config,
+      observation}).ready,false,'oversized uint256 must fail before BigInt work');
+  }
+  const oversizedHeight=postObservation(config);
+  oversizedHeight.finalizedBlockNumber=(1n<<64n).toString();
+  assert.equal(assessMainnetPreflight({phase:'postdeployment',releaseConfig:config,
+    observation:oversizedHeight}).ready,false);
+  const oversizedNonceConfig=release();
+  const oversizedNonceObservation=baseObservation(oversizedNonceConfig);
+  oversizedNonceConfig.deployerNonce='9'.repeat(100_000);
+  assert.equal(assessMainnetPreflight({phase:'predeployment',releaseConfig:oversizedNonceConfig,
+    observation:oversizedNonceObservation}).ready,false);
+});
+
+test('materializes only an independently recomputed zero-blocker predeployment report',()=>{
+  const config=release();
+  const inputs=materializationInputs('predeployment',baseObservation(config));
+  const prepared=prepareMainnetPreflightMaterialization(inputs);
+  assert.equal(prepared.evidencePath,'evidence/mainnet-predeployment-attestation.json');
+  assert.deepEqual(JSON.parse(prepared.reportContent),inputs.report);
+  assert.deepEqual(JSON.parse(prepared.evidenceContent).mainnetPredeploymentAttestationReport,
+    prepared.document);
+  assert.equal(JSON.parse(prepared.requirementsContent)
+    .production_mainnet_predeployment_preflight_passed,true);
+  for(const change of [
+    value=>{value.report.finalizedBlockHash=hash(99);},
+    value=>{value.report.ready=false;},
+    value=>{value.report.blockerCount=1;},
+    value=>{value.report.extra=true;},
+    value=>{value.report.observation.snapshotBlockHashAfter=hash(99);},
+    value=>{value.evidence.mainnetPredeploymentAttestationReport={path:'evidence/other.json',sha256:'0'.repeat(64)};},
+  ]) {
+    const candidate=structuredClone(inputs); change(candidate);
+    assert.throws(()=>prepareMainnetPreflightMaterialization(candidate));
+  }
+});
+
+test('materializes the exact independently recomputed cold-start report idempotently',()=>{
+  const config=release();
+  const inputs=materializationInputs('postdeployment',postObservation(config));
+  const first=prepareMainnetPreflightMaterialization(inputs);
+  assert.equal(first.evidencePath,'evidence/mainnet-cold-start-attestation.json');
+  const repeated=prepareMainnetPreflightMaterialization({
+    ...inputs,
+    evidence:{...inputs.evidence,mainnetColdStartAttestationReport:first.document},
+    requirements:{...inputs.requirements,production_mainnet_cold_start_attestation_completed:true},
+  });
+  assert.deepEqual(repeated,first);
+  assert.equal(JSON.parse(first.requirementsContent)
+    .production_mainnet_cold_start_attestation_completed,true);
 });

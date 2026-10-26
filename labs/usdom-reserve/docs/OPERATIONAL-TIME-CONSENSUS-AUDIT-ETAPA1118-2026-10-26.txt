@@ -1,0 +1,33 @@
+OPERATIONAL TIME CONSENSUS AUDIT — ETAPA 1118
+Date: 2026-10-26
+Scope: lightweight local Node validation. No network, Cargo/Forge, signing, deployment, funds, commit or push.
+
+RESULT
+The finalized multisource preflight now rejects grossly wrong or unstable host time before it can authorize downstream fee, certificate-deadline or signing decisions.
+
+CONTROLS
+- Every bounded RPC request compares wall-clock progress with the monotonic clock.
+  Wall-clock rollback, monotonic rollback or more than five seconds of divergence
+  aborts the provider.
+- Finalized block responses must contain canonical number, hash and timestamp.
+  The timestamp is sampled again from the exact pinned block after collection and
+  must remain identical.
+- Two to five source samples require distinct source IDs, monotonic local
+  collection intervals, no more than 15 seconds finalized timestamp skew, and no
+  more than 30 seconds local collection skew.
+- A finalized timestamp may be at most 30 minutes old and no more than 15 seconds
+  ahead of the local clock. These limits make the preflight unavailable during a
+  prolonged finality outage instead of allowing time-sensitive actions.
+- The authority recheck already runs immediately before each signing or broadcast
+  authorization, so rollback/divergence blocks those downstream decisions.
+
+LIMIT
+Ethereum block timestamps are consensus fields with bounded proposer discretion;
+they are not trusted civil time. Comparing independent RPC reports detects drift,
+staleness and operational misconfiguration, but does not create trusted time or
+prove a correct host clock. Certificate validity remains enforced by Node TLS
+against the host clock.
+
+VALIDATION
+- Focused RPC, collector and preflight suites: 27/27 passed.
+- Node syntax and focused diff integrity passed.

@@ -5,9 +5,14 @@
 //! environment. This is an operator tool; the node itself still only opens an
 //! existing WalletDir and never invents one (DOM-SEC-004).
 
-use dom_node::secret_file::load_owner_only_utf8_secret_file;
+use dom_node::{
+    private_staging_directory::PrivateStagingDirectory,
+    secret_file::load_owner_only_utf8_secret_file,
+};
 use dom_wallet::{Bip39Seed, Network, WalletDir};
-use std::{ffi::OsString, io::Write, path::PathBuf};
+use dom_wallet_crypto::{save_private_bytes_noclobber, validate_private_directory};
+use std::{ffi::OsString, path::PathBuf};
+use zeroize::Zeroizing;
 
 const MAX_WALLET_PASSWORD_BYTES: u64 = 1024;
 
@@ -36,19 +41,19 @@ fn main() -> anyhow::Result<()> {
     {
         anyhow::bail!("phrase output must be outside the WalletDir");
     }
-    let password = load_owner_only_utf8_secret_file(
+    let password = Zeroizing::new(load_owner_only_utf8_secret_file(
         &arguments.password_file,
         "wallet password",
         1,
         MAX_WALLET_PASSWORD_BYTES,
-    )?;
+    )?);
     if password
         .chars()
         .any(|character| matches!(character, '\0' | '\r' | '\n'))
     {
         anyhow::bail!("wallet password file contains a forbidden control character");
     }
-    prepare_owner_only_empty_wallet_directory(&arguments.wallet_dir)?;
+    let wallet_staging = prepare_private_wallet_staging(&arguments.wallet_dir)?;
     if arguments.phrase_output_file.exists()
         || std::fs::symlink_metadata(&arguments.phrase_output_file).is_ok()
     {
@@ -59,7 +64,7 @@ fn main() -> anyhow::Result<()> {
     write_new_owner_only_phrase(&arguments.phrase_output_file, seed.phrase())?;
     let genesis = dom_core::startup_genesis_hash_for_network_magic(arguments.network.magic())?;
     let wallet = WalletDir::create_from_seed(
-        &arguments.wallet_dir,
+        &wallet_staging.path(),
         &password,
         arguments.network,
         &genesis,
@@ -71,6 +76,11 @@ fn main() -> anyhow::Result<()> {
         )
     })?;
     drop(wallet);
+    wallet_staging.publish().map_err(|error| {
+        anyhow::anyhow!(
+            "wallet publication failed after the recovery phrase was durably retained; preserve that file and retry with a new absent WalletDir: {error}"
+        )
+    })?;
     println!("wallet_dir: {}", arguments.wallet_dir.display());
     println!("network: {:?}", arguments.network);
     println!("schema: v2");
@@ -79,81 +89,25 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn validate_owner_only_directory(path: &std::path::Path, label: &str) -> anyhow::Result<()> {
-    let metadata = std::fs::symlink_metadata(path)
-        .map_err(|error| anyhow::anyhow!("cannot inspect {label}: {error}"))?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        anyhow::bail!("{label} must be an existing non-symlink directory");
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o077 != 0 {
-            anyhow::bail!("{label} must not be accessible by group or others");
-        }
-    }
-    Ok(())
+    validate_private_directory(path).map_err(|error| anyhow::anyhow!("invalid {label}: {error}"))
 }
 
-fn prepare_owner_only_empty_wallet_directory(path: &std::path::Path) -> anyhow::Result<()> {
+fn prepare_private_wallet_staging(
+    path: &std::path::Path,
+) -> anyhow::Result<PrivateStagingDirectory> {
     if path.exists() || std::fs::symlink_metadata(path).is_ok() {
-        validate_owner_only_directory(path, "wallet directory")?;
-    } else {
-        #[cfg_attr(not(unix), allow(unused_mut))]
-        let mut builder = std::fs::DirBuilder::new();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
-        }
-        builder
-            .create(path)
-            .map_err(|error| anyhow::anyhow!("cannot create wallet directory: {error}"))?;
-        validate_owner_only_directory(path, "wallet directory")?;
+        anyhow::bail!("wallet directory already exists; refusing to overwrite it");
     }
-    if std::fs::read_dir(path)
-        .map_err(|error| anyhow::anyhow!("cannot inspect wallet directory: {error}"))?
-        .next()
-        .is_some()
-    {
-        anyhow::bail!("wallet directory is not empty; refusing to overwrite it");
-    }
-    Ok(())
+    PrivateStagingDirectory::create(path)
 }
 
 fn write_new_owner_only_phrase(path: &std::path::Path, phrase: &str) -> anyhow::Result<()> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(path)
-        .map_err(|error| anyhow::anyhow!("cannot create phrase output file: {error}"))?;
-    file.write_all(phrase.as_bytes())
-        .and_then(|_| file.write_all(b"\n"))
-        .and_then(|_| file.sync_all())
-        .map_err(|error| anyhow::anyhow!("cannot durably write phrase output file: {error}"))?;
-    let metadata = file
-        .metadata()
-        .map_err(|error| anyhow::anyhow!("cannot inspect phrase output file: {error}"))?;
-    if !metadata.is_file() {
-        anyhow::bail!("phrase output is not a regular file");
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o077 != 0 {
-            anyhow::bail!("phrase output file must not be accessible by group or others");
-        }
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| anyhow::anyhow!("cannot durably sync phrase directory: {error}"))?;
-    }
-    Ok(())
+    let mut encoded = phrase.as_bytes().to_vec();
+    encoded.push(b'\n');
+    let result = save_private_bytes_noclobber(path, &encoded)
+        .map_err(|error| anyhow::anyhow!("cannot durably create phrase output file: {error}"));
+    encoded.fill(0);
+    result
 }
 
 fn parse_arguments(arguments: impl IntoIterator<Item = OsString>) -> anyhow::Result<Arguments> {
@@ -197,8 +151,7 @@ mod tests {
     use super::parse_arguments;
     #[cfg(unix)]
     use super::{
-        prepare_owner_only_empty_wallet_directory, validate_owner_only_directory,
-        write_new_owner_only_phrase,
+        prepare_private_wallet_staging, validate_owner_only_directory, write_new_owner_only_phrase,
     };
     use std::ffi::OsString;
 
@@ -233,19 +186,32 @@ mod tests {
         validate_owner_only_directory(root.path(), "test root").unwrap();
 
         let wallet = root.path().join("wallet");
-        prepare_owner_only_empty_wallet_directory(&wallet).unwrap();
-        let mode = std::fs::metadata(&wallet).unwrap().permissions().mode();
+        let staging = prepare_private_wallet_staging(&wallet).unwrap();
+        let mode = std::fs::metadata(staging.path())
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o077, 0);
+        staging.publish().unwrap();
+        assert!(prepare_private_wallet_staging(&wallet).is_err());
 
         let phrase = root.path().join("phrase");
         write_new_owner_only_phrase(&phrase, "public-test-words").unwrap();
         let mode = std::fs::metadata(&phrase).unwrap().permissions().mode();
-        assert_eq!(mode & 0o077, 0);
+        assert_eq!(mode & 0o7777, 0o600);
         assert!(write_new_owner_only_phrase(&phrase, "replacement").is_err());
+
+        let phrase_target = root.path().join("phrase-target");
+        std::fs::write(&phrase_target, b"preserve").unwrap();
+        std::fs::set_permissions(&phrase_target, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let phrase_link = root.path().join("phrase-link");
+        symlink(&phrase_target, &phrase_link).unwrap();
+        assert!(write_new_owner_only_phrase(&phrase_link, "replacement").is_err());
+        assert_eq!(std::fs::read(&phrase_target).unwrap(), b"preserve");
 
         let linked = root.path().join("linked-wallet");
         symlink(&wallet, &linked).unwrap();
-        assert!(prepare_owner_only_empty_wallet_directory(&linked).is_err());
+        assert!(prepare_private_wallet_staging(&linked).is_err());
         std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o750)).unwrap();
         assert!(validate_owner_only_directory(root.path(), "test root").is_err());
     }

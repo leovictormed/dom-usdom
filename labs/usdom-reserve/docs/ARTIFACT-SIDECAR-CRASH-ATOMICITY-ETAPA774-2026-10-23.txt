@@ -1,0 +1,26 @@
+ETAPA 774 — artifact/hash-sidecar crash atomicity
+Date: 2026-10-23
+
+Audit
+Reviewed proof-to-Ethereum artifact+hash publication boundaries for create-once completion semantics. After ETAPA773 fixed the checkpoint transaction reference, the next concrete identical partial state was the checkpoint bootstrap ratification signing request: request JSON was installed before its required SHA sidecar, and any crash between writes made retries impossible.
+
+Correction
+- Publish and exact-readback the SHA sidecar first; publish the JSON signing request last as the completion artifact.
+- If a crash leaves only the sidecar, retry rebuilds the request and accepts the existing sidecar only when it is a direct owner-only 0600 regular file with byte-exact content.
+- A substituted/malformed sidecar rejects before request publication.
+- Validate/read back the final request as direct owner-only 0600 and byte-exact before sync.
+- Structural ordering regression requires sidecar install before request install and both readbacks. Also reconciled the signer assertion to require the current pinned `$cast_bin` invocation and prohibit literal `cast wallet sign`.
+
+Failure-boundary outcomes
+- before sidecar: clean retry;
+- after sidecar, before request: authenticated sidecar-only retry;
+- substituted sidecar: fail closed;
+- after request: complete pair with exact readback;
+- request install/readback failure: no completion accepted by downstream collectors.
+
+Validation
+bash -n scripts/write-checkpoint-bootstrap-ratification-request.sh
+node --test test/node/checkpoint-bootstrap-ratification-collector.test.mjs
+Result: 5 tests, 5 passed, 0 failed.
+git diff --check: passed.
+No RPC, signing, broadcast, proof or Cargo command ran.

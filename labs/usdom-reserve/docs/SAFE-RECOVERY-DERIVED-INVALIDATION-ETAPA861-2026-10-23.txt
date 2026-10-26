@@ -1,0 +1,6 @@
+ETAPA 861 — invalidacao dos derivados da recuperacao Safe
+Data: 2026-10-23
+
+O executor preservava finalized-execution, report e bundle antigos durante um retry, embora a cabeca finalizada pudesse mudar. Sob o lock exclusivo do diretorio, agora invalida duravelmente esses cinco derivados antes do proxy/RPC. Raw transactions, hashes e envelopes permanecem intactos como registros anti-replay. Cada novo derivado continua publicado create-once/output-last apos consenso e rechecks.
+
+Validacao: teste estrutural 1/1, sintaxe Bash e diff-check aprovados. Sem RPC/deploy.

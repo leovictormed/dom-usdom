@@ -1,0 +1,70 @@
+ETAPA 1033 — USDOM/USDT amount units and bounds
+Date: 2026-10-23
+
+Conclusion
+==========
+
+The reviewed path preserves one integer token base unit from Ethereum ingress
+through native issuance, private transfer/burn, finalized-burn proof and USDT
+payout. USDT and USDOM both use six decimal places, but consensus never scales,
+rounds or parses a fractional human-readable amount. One USDOM base unit is
+backed and redeemed as one USDT base unit.
+
+Ingress and ABI canonicality
+============================
+
+- The reserve constructor requires ERC-20 `decimals()` to return exactly 6 and
+  Mainnet additionally pins the USDT address and runtime code hash.
+- `deposit` accepts `uint64 amount`, records and emits that same value, and
+  requires exact sender/reserve balance deltas. Fee-on-transfer and rebasing
+  behavior fail closed.
+- Ethereum verification requires the exact event signature containing `uint64`.
+  The upper 24 bytes of its ABI word must be zero before the lower eight bytes
+  are decoded. Zero and values above the immutable `max_amount` are rejected.
+- A new regression covers `u64::MAX`, a nonzero high ABI byte, and a deposit
+  exceeding its policy. This protects the U256-to-u64 boundary against silent
+  truncation.
+
+Native accounting and privacy
+=============================
+
+- Deposit, note, transfer and burn amounts are `u64`. No decimal conversion is
+  present between the authenticated event and the native occurrence.
+- Note selection uses checked `u64` addition and subtraction. Each private
+  circuit value is range-constrained to 64 bits; conservation equates exact
+  input value with outputs plus the public burn amount in the BN254 field.
+  With at most two inputs, the integer sum is far below the field modulus.
+- Aggregate issued and burned counters are `u128`; every `u64` delta is widened
+  losslessly with `u128::from` and added with `checked_add`. Burned supply may
+  never exceed issued supply. Persistence uses fixed-width canonical big-endian
+  u64/u128 encodings and validates recomputed totals.
+
+Redemption and operational representations
+==========================================
+
+- The finalized burn statement, EIP-712 type and reserve payout all use the
+  same `uint64` amount. The reserve transfers exactly that many token units and
+  verifies exact reserve/recipient balance deltas.
+- Solidity cumulative deposit/release and pending totals are `uint256`; active
+  exposure and each withdrawal remain bounded by immutable `uint64` policy
+  limits. Solidity checked arithmetic prevents wraparound.
+- JSON artifacts serialize monetary values as canonical base-10 strings. The
+  deposit-witness builder rejects empty, signed, fractional and leading-zero
+  forms, parses directly to `u64`, and serializes with `to_string()`. No float,
+  human-unit conversion, truncation or rounding exists in the value path.
+- The only division found in the reserve is the time-based outflow bucket. Its
+  deliberate downward integer rounding changes release capacity, never a
+  deposit, burn, debt or payout amount.
+
+Changes and evidence
+====================
+
+- Added boundary regression
+  `deposit_amount_is_one_exact_canonical_uint64_base_unit_value`.
+- Added structural gate
+  `labs/usdom-reserve/scripts/check-usdom-amount-units-stage1033.py`.
+- Gate, Python syntax, rustfmt and targeted diff checks pass.
+
+Full Cargo and Forge execution remains deferred while the independent RISC0
+proof is active on the resource-constrained host. No network, push, deployment,
+signing or funds were used.

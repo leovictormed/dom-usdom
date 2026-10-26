@@ -1,0 +1,43 @@
+RELEASE CRYPTOGRAPHIC ARTIFACT FILE BOUNDARY — ETAPA1000
+Date: 2026-10-23
+
+Scope and result
+----------------
+Audited release/readiness reads for ELF, raw ImageID, canonical ProgramBinary,
+verifying-key evidence, trusted-setup transcript, verifier manifests, source
+manifests and four Solidity artifacts/source sets.
+
+All relevant entrypoints use `readDirectProjectFile`/`readDirectFile`. The
+reader opens the parent and leaf with `O_NOFOLLOW`, reads via the opened file
+descriptor, requires owner identity and link count one, resolves `/proc/self/fd`
+back to the expected direct path, and compares inode/size/mtime/ctime plus the
+parent descriptor before and after reading. Materializers retain exact byte
+snapshots and reread them before output; readiness caches every authority/evidence
+read and rechecks all snapshots before emitting its result. The trusted-setup
+report additionally rereads its raw transcript and all controlling manifests.
+
+Concrete gap fixed
+------------------
+The shared direct reader rejected writable parent directories but, unless
+`privateMode` or `exactMode` was requested, accepted a group- or world-writable
+regular file. Most public cryptographic artifacts use the default mode policy.
+Another local account could therefore replace bytes in place before collection
+or between ceremonies without first controlling the safe parent directory.
+Descriptor checks caught concurrent mutation during one read, but permissive
+ownership policy was still inappropriate for release authority.
+
+Every direct file read now rejects mode bits 0022. A focused regression changes
+a valid public release input to 0664, requires rejection, and restores 0644.
+This applies uniformly to crypto artifacts, manifests, Solidity artifacts and
+all other callers of the shared descriptor-safe reader.
+
+Validation
+----------
+`python3 scripts/check-release-crypto-artifact-file-boundary.py`: PASS. The gate
+asserts no-follow descriptor reads, single-link/owner/non-writable policy,
+descriptor identity/stability and end-of-operation snapshot rechecks in core,
+preactivation, readiness and trusted-setup paths. Python syntax and whitespace
+checks passed. Node tests were not run because Node is unavailable in the active
+shell; Cargo/Forge remained idle during the long RISC0 proof.
+
+No network, push, deploy, signing, broadcast, mining or funds action occurred.

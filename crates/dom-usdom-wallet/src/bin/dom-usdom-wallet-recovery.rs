@@ -7,7 +7,6 @@
 
 use std::{
     ffi::OsString,
-    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -17,7 +16,6 @@ use dom_usdom_wallet::{
     MAX_WALLET_PASSPHRASE_BYTES, MIN_WALLET_PASSPHRASE_BYTES, RECIPIENT_ADDRESS_BYTES,
 };
 use rand::rngs::OsRng;
-use zeroize::Zeroizing;
 
 enum Action {
     Help,
@@ -45,6 +43,7 @@ struct PublicSummary {
     dom_domain: [u8; 32],
     privacy_policy_hash: [u8; 32],
     chain: [u8; 32],
+    receiving_commitment: [u8; 32],
     recipient_address: Vec<u8>,
 }
 
@@ -63,6 +62,10 @@ fn main() -> anyhow::Result<()> {
                 hex::encode(summary.privacy_policy_hash)
             );
             println!("chain_scalar: {}", hex::encode(summary.chain));
+            println!(
+                "receiving_commitment: {}",
+                hex::encode(summary.receiving_commitment)
+            );
             println!(
                 "recipient_address: {}",
                 hex::encode(summary.recipient_address)
@@ -114,7 +117,9 @@ fn execute(arguments: Arguments) -> anyhow::Result<PublicSummary> {
             WalletSecrets::from_recovery_seed(chain, &seed)?
         }
     };
-    let recipient_address = wallet.address()?.to_bytes();
+    let address = wallet.address()?;
+    let receiving_commitment = address.owner().to_bytes();
+    let recipient_address = address.to_bytes();
     if arguments
         .expected_address
         .is_some_and(|expected| expected != recipient_address)
@@ -125,59 +130,17 @@ fn execute(arguments: Arguments) -> anyhow::Result<PublicSummary> {
         dom_domain: arguments.dom_domain,
         privacy_policy_hash: policy,
         chain: chain.to_bytes(),
+        receiving_commitment,
         recipient_address: recipient_address.to_vec(),
     })
 }
 
 fn load_passphrase_file(path: &Path) -> anyhow::Result<WalletPassphrase> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("password file must have a parent directory"))?;
-    let parent_named = std::fs::symlink_metadata(parent)
-        .map_err(|error| anyhow::anyhow!("cannot inspect password directory: {error}"))?;
-    let named = std::fs::symlink_metadata(path)
-        .map_err(|error| anyhow::anyhow!("cannot inspect password file: {error}"))?;
-    if !parent_named.file_type().is_dir()
-        || parent_named.file_type().is_symlink()
-        || !named.file_type().is_file()
-        || named.file_type().is_symlink()
-    {
-        anyhow::bail!("password authority must use regular non-symlink paths");
-    }
-    let file = std::fs::File::open(path)
-        .map_err(|error| anyhow::anyhow!("cannot open password file: {error}"))?;
-    let opened = file
-        .metadata()
-        .map_err(|error| anyhow::anyhow!("cannot inspect opened password file: {error}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let owner = rustix::process::geteuid().as_raw();
-        if parent_named.uid() != owner
-            || parent_named.mode() & 0o7777 != 0o700
-            || named.uid() != owner
-            || opened.uid() != owner
-            || named.mode() & 0o7777 != 0o600
-            || opened.mode() & 0o7777 != 0o600
-            || named.nlink() != 1
-            || opened.nlink() != 1
-            || named.dev() != opened.dev()
-            || named.ino() != opened.ino()
-        {
-            anyhow::bail!("password file must be an owner-only 0600 file in a 0700 directory");
-        }
-    }
-    let maximum = u64::try_from(MAX_WALLET_PASSPHRASE_BYTES)?;
-    if opened.len() == 0 || opened.len() > maximum + 2 {
-        anyhow::bail!("password file exceeds the bounded length");
-    }
-    let mut raw = Zeroizing::new(String::new());
-    file.take(maximum + 3)
-        .read_to_string(&mut raw)
-        .map_err(|error| anyhow::anyhow!("cannot read UTF-8 password file: {error}"))?;
-    if raw.len() as u64 > maximum + 2 {
-        anyhow::bail!("password file exceeds the bounded length");
-    }
+    let bytes = dom_wallet_crypto::read_private_bytes(path, MAX_WALLET_PASSPHRASE_BYTES + 2)?;
+    let raw = zeroize::Zeroizing::new(
+        String::from_utf8(bytes.to_vec())
+            .map_err(|error| anyhow::anyhow!("cannot read UTF-8 password file: {error}"))?,
+    );
     let trimmed = raw
         .strip_suffix("\r\n")
         .or_else(|| raw.strip_suffix('\n'))
@@ -297,6 +260,7 @@ fn print_help() {
 mod tests {
     use super::{execute, load_passphrase_file, parse_arguments, Action};
     use dom_usdom_privacy::privacy_policy_hash;
+    use dom_usdom_wallet::RecipientAddress;
     use std::{ffi::OsString, path::PathBuf};
 
     fn args(values: &[&str]) -> Vec<OsString> {
@@ -432,6 +396,16 @@ mod tests {
             panic!("expected create action")
         };
         let created = execute((*create).clone()).unwrap();
+        let decoded_address: [u8; dom_usdom_wallet::RECIPIENT_ADDRESS_BYTES] =
+            created.recipient_address.as_slice().try_into().unwrap();
+        assert_eq!(
+            RecipientAddress::from_bytes(&decoded_address)
+                .unwrap()
+                .owner()
+                .to_bytes(),
+            created.receiving_commitment
+        );
+        assert_ne!(created.receiving_commitment, [0; 32]);
         let expected_address = hex::encode(&created.recipient_address);
         let verify = parse_arguments(args(&[
             "verify",

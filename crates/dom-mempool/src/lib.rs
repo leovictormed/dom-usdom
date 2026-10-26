@@ -185,6 +185,9 @@ pub struct Mempool {
     total_weight: u64,
     /// Maximum total weight (default: 10 * MAX_BLOCK_WEIGHT).
     max_weight: u64,
+    /// Maximum entry count. Kept identical to the persisted-state decoder so
+    /// every reachable runtime state can be serialized and restored.
+    max_entries: usize,
 }
 
 impl Mempool {
@@ -196,6 +199,7 @@ impl Mempool {
             fee_index: BTreeMap::new(),
             total_weight: 0,
             max_weight: MAX_BLOCK_WEIGHT as u64 * 10,
+            max_entries: MAX_PERSISTED_MEMPOOL_ENTRIES,
         }
     }
 
@@ -204,6 +208,12 @@ impl Mempool {
     #[cfg(test)]
     fn set_max_weight_for_test(&mut self, max_weight: u64) {
         self.max_weight = max_weight;
+    }
+
+    #[cfg(test)]
+    fn set_max_entries_for_test(&mut self, max_entries: usize) {
+        assert!(max_entries > 0);
+        self.max_entries = max_entries;
     }
 
     /// Current transaction count.
@@ -303,6 +313,21 @@ impl Mempool {
                 weight, self.max_weight
             )));
         }
+        let entry_count_full = self.entries.len() >= self.max_entries;
+        let weight_full = self.total_weight.saturating_add(u64::from(weight)) > self.max_weight;
+        if entry_count_full || weight_full {
+            let incoming_rate =
+                fee_policy::actual_fee_rate(fee, u64::from(weight))?.noms_per_weight_unit;
+            if self
+                .fee_index
+                .first_key_value()
+                .is_some_and(|(&(lowest_rate, _), _)| lowest_rate >= incoming_rate)
+            {
+                return Err(DomError::PolicyRejected(
+                    "mempool full, fee too low to evict".into(),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -335,6 +360,20 @@ impl Mempool {
                 "tx weight {} exceeds mempool max_weight {}",
                 entry.weight, self.max_weight
             )));
+        }
+
+        // Weight alone permits up to max_weight / WEIGHT_KERNEL minimal
+        // one-kernel transactions, which exceeds the persisted-state decoder's
+        // entry bound. Enforce the same count during admission so snapshot()
+        // can never emit a state this implementation refuses to restore.
+        while self.entries.len() >= self.max_entries {
+            let count_before = self.entries.len();
+            self.evict_lowest_fee(entry.fee_rate)?;
+            if self.entries.len() >= count_before {
+                return Err(DomError::PolicyRejected(
+                    "mempool full, unable to free an entry for incoming transaction".into(),
+                ));
+            }
         }
 
         // Evict low-fee transactions until the incoming tx fits. A single
@@ -1154,6 +1193,39 @@ mod tests {
             .filter(|h| pool.get_tx(h).is_some())
             .count();
         assert_eq!(remaining, 1, "three of four fillers must be evicted");
+    }
+
+    #[test]
+    fn runtime_entry_cap_matches_persistence_and_uses_fee_eviction() {
+        let mut pool = Mempool::new();
+        pool.set_max_entries_for_test(2);
+
+        let (low_a, hash_a) = make_tx(24_000);
+        let (low_b, hash_b) = make_tx(24_024);
+        pool.accept_tx(low_a, hash_a, 1).unwrap();
+        pool.accept_tx(low_b, hash_b, 2).unwrap();
+        assert_eq!(pool.len(), 2);
+
+        let (high, high_hash) = make_tx(24 * 1_000_000);
+        pool.accept_tx(high, high_hash, 3).unwrap();
+        assert_eq!(pool.len(), 2);
+        assert!(pool.get_tx(&high_hash).is_some());
+        assert!(pool.get_tx(&hash_a).is_none());
+
+        let snapshot = pool.snapshot();
+        let bytes = snapshot.to_bytes().expect("bounded snapshot serializes");
+        let restored = PersistedMempoolState::from_bytes(&bytes)
+            .expect("every runtime-bounded snapshot is accepted by the decoder");
+        assert_eq!(restored.entries.len(), 2);
+
+        let (too_cheap, too_cheap_hash) = make_tx(24_000);
+        let error = pool
+            .precheck_cheap_admission_gates(&too_cheap, &too_cheap_hash)
+            .expect_err("full count rejects a noncompetitive fee before crypto");
+        assert!(matches!(
+            error,
+            DomError::PolicyRejected(ref message) if message == "mempool full, fee too low to evict"
+        ));
     }
 
     #[test]

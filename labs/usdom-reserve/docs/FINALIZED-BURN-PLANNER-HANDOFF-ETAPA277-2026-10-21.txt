@@ -1,0 +1,50 @@
+Finalized-burn source-to-planner handoff — stage 277
+Date: 2026-10-21
+Status: deterministic dry handoff verified; no proof or production evidence produced
+
+Objective
+
+Verify that the exact canonical UDFINL03 bytes accepted by the finalized-burn
+relation can cross the fixed production source path into the proof-job planner
+without manual fields, stale artifacts, proof generation, mining or secrets.
+
+Command
+
+npm run --silent check:finalized-burn-planner-handoff
+
+The command accepts no arguments. It creates a private temporary directory,
+mirrors only the fixed planner paths, copies the pinned finalized-burn
+ProgramBinary and ImageID, generates the repository's deterministic positive
+raw-Ethereum-checkpoint vector, and executes the real release-mode planner.
+
+Verified bindings
+
+- canonical input length: 64,264 bytes;
+- canonical input SHA-256:
+  f0256065e381b89d54df68fc860170bcbbd800b83eb2421d8727d94acfd837ee;
+- Solidity-compatible statement hash:
+  c0461e1c2bcff62d1dfd8e8fed0b094b5d19c2744cf9bad34c8ae3722e7eaef4;
+- RISC Zero ProgramBinary SHA-256:
+  600c9480bd7028c56a0ee5d729810668eeaaf7f171fe1c71fbd4175a6d470389;
+- ImageID:
+  7a7e94b31f59aa6d41437b84f47da92680f757bd8c4f289bf9a072828ae3a449;
+- copied planner input is byte-identical to the source;
+- the job-index SHA-256 printed by the planner matches the published file;
+- relation_executed is true;
+- generates_proofs and mines are false;
+- no finalized-burn receipt exists.
+
+The trap removes the complete temporary tree on success, ordinary failure,
+interrupt or termination. A policy test verifies shell syntax, zero positional
+configuration, absence of credential/prover variables, fixed vector and
+planner entrypoints, receipt absence and temporary cleanup.
+
+Security boundary
+
+This test uses deterministic public synthetic evidence. It proves the byte and
+artifact handoff, not DOM Mainnet synchronization, a production burn, zkVM
+proving capacity or EVM receipt verification. Production evidence paths remain
+absent and cannot be confused with these temporary fixtures.
+
+No wallet, network, miner, prover, deployment, transaction, fund movement,
+commit or push was used.

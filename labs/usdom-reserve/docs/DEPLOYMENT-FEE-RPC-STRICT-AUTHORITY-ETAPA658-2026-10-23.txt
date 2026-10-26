@@ -1,0 +1,34 @@
+ETAPA 658 — AUTORIDADE ESTRITA DA BASE FEE DO DEPLOY
+Data: 2026-10-23
+
+Escopo
+- Inventário estático de curl/RPC shell que alimenta jq em labs/usdom-reserve,
+  sdk e scripts.
+- Correção do caminho de maior impacto encontrado: os blocos finalized usados
+  para calcular maxFeePerGas antes da assinatura Ledger e para reconfirmá-lo
+  depois da autorização interativa.
+- Nenhuma chamada RPC, assinatura, transmissão, deploy ou fundo foi usado.
+
+Achado e correção
+Antes, a saída `rpc block finalized --json` era enviada diretamente a jq.
+JSON com UTF-8 inválido ou chaves duplicadas poderia ser interpretado de modo
+ambíguo na definição de baseFeePerGas, que participa da transação assinada.
+Agora cada resposta de cada provedor é primeiro gravada em arquivo privado no
+tmpfs do executor, validada por check-private-strict-json-file.mjs (UTF-8 fatal,
+JSON sem chaves duplicadas, arquivo regular privado) e somente então lida por
+jq. A mesma barreira existe no cálculo inicial e na repetição imediatamente
+anterior à assinatura. Permanecem o máximo multi-RPC, os limites de gas/fee e
+a igualdade exata entre cálculo inicial e presign.
+
+Inventário residual
+A busca também identificou observações de ancestry/finalized pós-publicação no
+mesmo executor que ainda usam variável/pipeline para jq. Elas não definem a
+transação assinada, mas devem ser a próxima migração estrita; esta etapa não as
+oculta nem afirma que o inventário terminou.
+
+Regressões
+- O teste adversarial existente executa o checker contra JSON idêntico entre
+  fontes contendo chave duplicada escapada e contra byte UTF-8 inválido.
+- A asserção estrutural exige os dois checkers da base fee e proíbe a regressão
+  direta `rpc block finalized | jq ...baseFeePerGas`.
+- Resultado: 2/2 testes focados passaram; bash -n e git diff --check passaram.

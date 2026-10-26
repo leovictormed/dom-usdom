@@ -1,0 +1,45 @@
+USDOM stage 291 — durable finalized-burn prover diagnostics
+Date: 2026-10-21
+
+Problem
+=======
+
+The authorized local succinct proof ended with exit status 143 after more than
+7h28m. The E2E wrapper removed its temporary tree on every exit, so the prover
+and resource-usage logs were lost together with the incomplete run. The exit
+status establishes SIGTERM but does not identify its source.
+
+Change
+======
+
+`scripts/check-finalized-burn-prover-e2e.sh` now creates one private run
+directory below:
+
+  ~/.local/share/dom-usdom/prover-capacity/finalized-burn/runs/
+
+It records a versioned running status before proving and atomically replaces it
+with a succeeded or failed status during the EXIT trap. Vector, planner, prover
+and `/usr/bin/time` logs are copied atomically before temporary cleanup. A
+successful run also preserves the succinct receipt and its index.
+
+The directory setup rejects symbolic links, foreign ownership and group/other
+access on project-owned path components before writing. Signal traps preserve
+the conventional 129/130/143 exit status. The script still fixes one Rayon
+worker, local proving, development mode off and a succinct receipt. It does not
+mine, deploy, broadcast or access funds.
+
+Validation
+==========
+
+- Bash syntax: passed.
+- Operator policy and directed wrapper suite: 37/37 passed.
+- A fake Cargo pre-proof failure produced exactly one private durable run,
+  `status=failed`, the exact wrapper exit status and a retained `vector.log`.
+- A symbolic-link substitution for the durable project directory was rejected
+  before any proof command.
+- `git diff --check`: passed.
+- `cargo fmt --all -- --check`: passed.
+
+No proof was rerun. Proving capacity remains unconfirmed until an explicitly
+authorized retry produces and independently verifies the expected succinct
+receipt.

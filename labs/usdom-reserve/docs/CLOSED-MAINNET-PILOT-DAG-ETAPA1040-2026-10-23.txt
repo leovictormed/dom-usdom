@@ -1,0 +1,35 @@
+ETAPA1040 — closed-mainnet pilot DAG and offline adversarial dry run
+
+Integration
+-----------
+The generated ceremony DAG now has explicit secret phases for the deposit and
+redemption executors. Each phase reconstructs its environment, checks prior
+artifacts semantically, and invokes only the resumable executor. Generated text
+contains no direct publication command. Both canonical packages retain
+broadcastAuthorized=false; their executors alone expose separate literal sign
+and publish prompts.
+
+The checklist now validates deposit and redemption packages rather than treating
+existence as readiness. It binds terminal execution records to the exact package
+SHA-256, requires mode-0600 single-link evidence pairs, reconciles ordered nonces,
+receipt success, two-RPC finality claims, zero residual allowance, one-USDOM amount,
+and terminal paid-burn/request state. Readiness runs this DAG checker before its
+existing policy gate.
+
+Offline dry run
+---------------
+Pure fixtures covered: no artifacts, prepared deposit, crash after one deposit
+receipt, completed deposit, queue finalized while waiting for readyAt, and complete
+payout. Adversarial mutations covered foreign/noncanonical package hashes, enabling
+broadcast in a package, nonce consumption/gaps, failed or reorged receipts, one-RPC
+receipt claims, residual allowance, and payout marked paid before execute or absent
+after execute. Every adversarial fixture failed closed.
+
+Validation
+----------
+- pinned Node 24.19.0: generator plus pilot DAG tests 4/4 passed;
+- all ten generated phase programs pass `bash -n` in the generator test;
+- the live offline checklist reports canonical schema and broadcast=false;
+- shell syntax and focused diff check passed.
+
+No network, signer, proof, deployment, publication, push or funds were used.

@@ -1,0 +1,17 @@
+ETAPA 887 — lifecycle compartilhado dos geradores de relatórios
+Data: 2026-10-23
+
+Família corrigida
+- Seis geradores homologados de relatórios executavam dez filhos Node finitos cada.
+- Os 60 sites compartilham agora TERM em 120 s e KILL 2 s depois.
+- A cobertura inclui leitura/releitura de configuração, preparação, invalidação, instalação imutável e atualização de metadados para relatórios de operações, reserve, verifier, checkpoint verifier, checkpoint registry e validação de segurança.
+
+Contabilidade do inventário preservado
+- Pendentes antes: 84 sites operacionais sem deadline.
+- Convertidos nesta etapa: 60.
+- Pendentes depois: 24 sites operacionais sem deadline.
+- Totais globais após a correção: 3 serviços contínuos, 159 chamadas limitadas, 150 checks instantâneos, 21 build/test não operacional e 24 operacionais pendentes; soma 357.
+
+Validação
+- Teste parametrizado verifica os seis scripts, dez sites por script e total de 60.
+- `bash -n` aprovado nos seis scripts.

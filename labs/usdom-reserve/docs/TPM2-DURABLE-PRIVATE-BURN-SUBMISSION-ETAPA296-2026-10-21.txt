@@ -1,0 +1,118 @@
+USDOM stage 296 - TPM2 durable private-burn authorization and loopback submission
+Date: 2026-10-21
+
+Scope
+=====
+
+This stage closes the filesystem-rollback gap between the offline native USDOM
+private-burn builder and the authenticated DOM node submission endpoint. It does
+not deploy a contract, contact Ethereum, mine a DOM block, generate a proof, or
+move funds.
+
+Implemented boundary
+====================
+
+1. crates/dom-usdom-wallet/src/tpm2_authority.rs implements a fixed TPM2 NV
+   wallet-snapshot authority at handle 0x01555344. The canonical 180-byte record
+   binds the exact network/release/wallet identity and the committed/prepared
+   snapshot seals. Every state transition is serialized by an owner-only local
+   lock, compares the exact predecessor, writes the complete record, rereads it,
+   and rejects any mismatch.
+
+2. The TPM index authorization is a random 256-bit value. It is stored only in
+   an authenticated wallet-passphrase-encrypted, create-only credential
+   envelope. TPM command authorization is passed through an inherited anonymous
+   memfd. It is not placed in argv, the environment, or a persistent plaintext
+   file.
+
+3. Every authoritative record read revalidates the public NV area through the
+   explicitly selected device:/dev/tpmrm0 TCTI. The code requires SHA-256, the
+   exact authread|authwrite|written attributes, the exact record size, and an
+   empty policy. Missing, replaced, malformed, corrupt, differently bound, or
+   unavailable TPM state fails closed.
+
+4. dom-usdom-bootstrap-tpm-wallet-authority authenticates the complete encrypted
+   generation-1 -> generation-2 -> generation-3 wallet chain before ratifying
+   generation 3. It independently checks the exact 1-USDT deposit/burn state,
+   private-burn payload, all Ethereum payout-obligation fields, preparation
+   index, native release manifest, chain identity, wallet identity, and the
+   ciphertext bytes before and after authentication. Its immutable evidence
+   binds the complete preparation-index SHA-256.
+
+5. dom-usdom-submit-private-burn opens the exact TPM-bound authority, reconciles
+   either side of a prior prepare/save/commit crash, requires the exact prepared
+   generation-3 snapshot or its generation-4 authorized successor, commits the
+   generation-4 submission authorization before networking, and sends only the
+   exact authenticated payload to http://127.0.0.1:33372/. Restart after an
+   ambiguous HTTP result reissues a capability from the same TPM-committed
+   snapshot and relies on the node's exact-candidate idempotency. A pre-existing
+   receipt must equal the returned transition and candidate identifiers.
+
+6. The fixed wrappers take no caller-supplied arguments, keep interactive
+   secrets in owner-only temporary /dev/shm files, pin the release manifest,
+   reject unsafe file ownership/modes/symlinks, and contain no mining or
+   Ethereum-broadcast command.
+
+Audit correction during validation
+==================================
+
+The first submission implementation incorrectly applied a 32-byte hash-format
+validator to 48-byte WalletSnapshotSeal values. Every legitimate 96-character
+seal in bootstrap evidence would therefore have been rejected. The validator
+now decodes the complete canonical seal, verifies its framing and nonzero
+snapshot digest, and requires generations 1, 2 and 3 explicitly. Submission also proves that a
+generation-3 state is the exact prepared seal and observed predecessor, or that
+a generation-4 state names that exact prepared seal as its predecessor.
+
+Trust and recovery assumptions
+==============================
+
+The TPM ordinary NV record prevents an old filesystem snapshot from being
+accepted while the TPM and its index authorization remain intact. It does not
+protect against an operator or attacker who simultaneously controls the wallet
+passphrase, the encrypted credential, the TPM owner hierarchy and arbitrary
+local code. Such control already crosses the private-wallet signing boundary.
+Deleting, clearing or making the NV index unavailable is a hard recovery event;
+the software never treats it as permission to trust the local seal file.
+
+The index has no external recovery copy by design. The encrypted authorization
+credential is necessary but not sufficient to restore an erased TPM record.
+Loss or clear of the TPM therefore requires a separately reviewed recovery
+ceremony that reconstructs the canonical DOM/Ethereum state; that ceremony is
+not implemented by this stage.
+
+Host prerequisites and current live status
+==========================================
+
+The host exposes /dev/tpm0 and /dev/tpmrm0. At the time of this assessment,
+tpm2-tools is not installed and the login user is not a member of group tss.
+Consequently, no live TPM index was defined, read or written. The complete
+operator prerequisite command is:
+
+  sudo apt-get update && sudo apt-get install -y --no-install-recommends tpm2-tools && sudo usermod -aG tss "$(id -un)"
+
+A logout/login is required after that command so the new group applies. This
+command installs local tooling and changes group membership; it does not deploy,
+submit, mine, sign, broadcast or move funds.
+
+Validation evidence
+===================
+
+- TPM authority unit tests: 5 passed, including canonical corruption,
+  impossible generations, exact public metadata, inherited anonymous memfd,
+  two-phase CAS and abort behavior.
+- Release tests for the bootstrap and submission binaries: 3 passed.
+- Strict release Clippy for both binaries: passed with -D warnings.
+- No TPM state, DOM node, miner, prover, Ethereum RPC, deployment, transaction,
+  fund movement or remote push was used during these checks.
+
+Readiness conclusion
+====================
+
+The software boundary is implemented and locally validated. Live integration
+remains unproven until the exact prerequisite is installed, a fresh login grants
+/dev/tpmrm0 access, the real generation-1/2/3 wallet artifacts exist, and the
+bootstrap plus loopback submission are exercised under the closed-mainnet
+runbook. Absence of an external audit and absence of a zero-risk guarantee are
+not release blockers; missing live identity, state and execution evidence remain
+objective blockers.

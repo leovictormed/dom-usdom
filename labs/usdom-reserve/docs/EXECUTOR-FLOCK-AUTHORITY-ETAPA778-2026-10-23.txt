@@ -1,0 +1,27 @@
+ETAPA778 — EXECUTOR FLOCK AUTHORITY
+Date: 2026-10-23
+
+Finding and correction
+----------------------
+Both executors opened descriptor 9 on the evidence directory but acquired its
+exclusive lock with PATH-resolved `flock`. Substitution could report success
+without locking and allow two deployment or recovery ceremonies to mutate the
+same append-only evidence namespace concurrently.
+
+Each executor now pins `flock` by absolute path, owner, hardlink count, mode,
+trusted parent directory, inode metadata and SHA-256. Its identity is rechecked
+immediately after opening descriptor 9 and before acquisition through the pinned
+path. Lock failure remains fail-closed with status 75.
+
+Lifetime and trap audit
+-----------------------
+The structural regression proves exactly one `exec 9<...`, rejects descriptor
+close/reuse, requires lock acquisition before the cleanup trap, and rejects any
+literal PATH `flock`. The descriptor remains owned by the main shell until its
+exit; cleanup runs while it remains open, so signal and normal cleanup cannot
+release exclusion before temporary state cleanup finishes.
+
+Validation
+----------
+Focused tests pass 15/15; both executor scripts pass `bash -n`; `git diff
+--check` passes. No executor, RPC, signing, deployment or transmission ran.

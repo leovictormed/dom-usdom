@@ -1,0 +1,22 @@
+ETAPA 741 — signing ceremony CMP executable pinning
+Date: 2026-10-23
+
+Finding
+=======
+The three signing ceremonies used PATH-resolved `cmp` to decide whether signing requests,
+configuration, Safe state and rebuilt artifacts remained byte-identical across operator pauses.
+A replaced comparator could hide concurrent mutation and authorize a stale or changed digest.
+
+Correction
+==========
+Each ceremony now pins `cmp` by canonical absolute path, safe file/link/owner/mode/directory,
+metadata and SHA-256 using the already pinned hashing helper. All comparisons use the captured
+path. Comparator identity is rechecked with JQ, Node and Cast after TTY consent, before Ledger
+boundaries and before artifact installation.
+
+Validation
+==========
+Combined structural tests pass 3/3 and reject literal PATH-resolved `cmp -s`. All scripts pass
+`bash -n`; Node syntax and diff checks pass. No ceremony, Ledger, RPC or signing ran.
+
+No commit, push, deploy, transmission or funds were used.

@@ -1,0 +1,22 @@
+USDOM — ETAPA 1146 — ORDEM FÍSICA E RETOMADA DA CUSTÓDIA SAFE
+Data: 2026-10-26
+
+Falhas corrigidas
+
+1. O pacote de implantação Safe ordena os três donos de cada função pelo endereço. A cerimônia de hardware preserva a ordem física primary/secondary/recovery. O gerador usava a ordem canônica para assinar, mas publicava a ordem física e depois exigia igualdade posicional. Assim, rótulos podiam apontar para dispositivos diferentes e a validação seguinte normalmente falhava.
+2. A publicação dos nove comprovantes e da identidade era sequencial. Uma queda após o primeiro arquivo deixava estado válido, mas não retomável porque o comando exigia que ambos estivessem ausentes.
+3. A prova de custódia era verificada por comandos dispersos, sem um verificador estrito reutilizável do pacote completo.
+
+Correção
+
+- Os rótulos físicos são preservados no bundle e em cada mensagem EIP-712. A ordem canônica continua usada apenas pelo Safe; a igualdade entre os dois documentos compara conjuntos normalizados por função.
+- Criado `check-safe-owner-hardware-custody-proofs.mjs`: valida arquivos diretos 0600, shapes exatas, nove provas em ordem, funções/slots, domínio/tipos/mensagem EIP-712, packageHash, Safe, conjuntos globais e signer recuperado.
+- Migração e preparação invocam o verificador completo.
+- Se houver comprovantes autenticáveis sem o arquivo derivado de identidades, o comando reconstrói a identidade em `/dev/shm`, recalcula o pacote Safe com consenso RPC, verifica todas as provas e só então instala a identidade de forma create-once. Identidade sem provas continua rejeitada.
+
+Evidência
+
+- Fixture com ordem física deliberadamente diferente da ordem canônica foi aceita; mutações de slot, conjunto, packageHash, assinatura e campos extras foram rejeitadas.
+- Testes focados finais: 10/10 e 3/3 aprovados; Bash gerado passa em `bash -n`.
+- O inventário crítico aceita os novos arquivos e para apenas na dependência concorrente já alterada `sdk/release-evidence-document-paths.mjs` ainda não adicionada pelo respectivo agente.
+- Nenhuma rede real, assinatura de hardware, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

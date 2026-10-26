@@ -1,0 +1,29 @@
++# Stage 1132 — RISC Zero mainnet health RPC authority hardening (2026-10-26)
+
+## Finding
+
+The RISC Zero health path opened every catalogued RPC but accepted each observation independently. The aggregate command could therefore call every source “healthy” even when their finalized block or observed state differed. The observer also omitted canonical Ethereum genesis verification and did not pin `BoundedMainnetPreflightProvider` before contract state reads.
+
+The v1 health catalog authenticated only operator and endpoint labels. It did not bind distinct provider and infrastructure identities, and its endpoint hash accepted full URLs containing paths or query credentials even though the bounded provider accepts only root HTTPS origins.
+
+## Corrections
+
+- Require canonical Ethereum chain ID 1 and canonical mainnet genesis.
+- Require a provider with snapshot pinning and pin the exact finalized number/hash before all code and contract reads.
+- Re-read the numeric finalized block and complete health state at the pinned snapshot.
+- Require exact agreement among all 2–4 catalogued observations; divergence now fails closed before a report is returned.
+- Upgrade the health source catalog to v2, binding distinct source, operator, provider, infrastructure and endpoint-origin commitments.
+- Accept only canonical public root HTTPS origins without credentials, paths, queries, fragments, IPs or local hostnames.
+- Extend health assessment and incident response to authenticate the genesis and v2 identities.
+
+## Validation
+
+- RISC Zero observer/health/catalog focal suite: 11/11 passed.
+- Full incident-response suite, including the isolated EVM containment drill: 11/11 passed.
+- Provider/infrastructure impersonation regression: 1/1 passed.
+- Mainnet-readiness RISC Zero catalog gate: 1/1 passed.
+- Syntax check passed.
+- Updated the isolated EVM fixture for the current ProofReserve registry binding and verified real pause/halt inclusion.
+
+No Cargo, Forge, real network, signing, deployment, commit or push was performed.
+

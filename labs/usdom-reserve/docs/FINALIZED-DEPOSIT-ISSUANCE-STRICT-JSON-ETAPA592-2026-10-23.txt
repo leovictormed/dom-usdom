@@ -1,0 +1,31 @@
+USDOM stage 592 — strict JSON at finalized-deposit issuance submission
+Date: 2026-10-23
+
+Finding
+=======
+
+The final operator-side issuance submitter captured and rechecked the exact
+witness index and private wallet registration bytes, then decoded both with
+`JSON.parse`. That parser accepts duplicate object keys and replaces malformed
+UTF-8 before parsing. The downstream schemas are strict, but ambiguity at this
+last operational boundary was unnecessary. Local DOM RPC replies also decoded
+UTF-8 permissively before strict JSON validation.
+
+Correction
+==========
+
+`submit-finalized-deposit-issuance.mjs` now applies one bounded `decodeJson`
+boundary using `TextDecoder('utf-8', {fatal:true})` and `parseStrictJson` to the
+128 KiB witness index, the 128 KiB wallet registration and every 64 KiB DOM RPC
+response. Duplicate keys, malformed Unicode, depth overflow and oversized
+documents fail before the issuance POST or receipt persistence.
+
+Evidence
+========
+
+* `node --check scripts/submit-finalized-deposit-issuance.mjs`: pass.
+* Focused direct operational input test: 1 pass, 0 failures.
+* `git diff --check` for implementation and test: pass.
+
+No issuance was submitted and no funds, signatures, deployment, commit or push
+were performed.

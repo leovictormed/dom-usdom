@@ -1,0 +1,30 @@
+USDOM — ETAPA 1145 — VINCULAÇÃO DAS PROVAS DE SUBSTITUIÇÃO DO SAFE
+Data: 2026-10-26
+
+Problemas corrigidos
+
+1. O gerador da fase prepare-safe-recovery-secret escrevia o JSON de provas no caminho com um caractere `+` anexado. A saída era sintaticamente válida para Bash, porém a etapa seguinte tentava abrir outro nome e a cerimônia sempre falharia depois das interações com os três novos dispositivos.
+2. As provas EIP-712 de posse das três novas chaves eram coletadas e persistidas, mas não eram verificadas independentemente antes de os seis donos atuais assinarem as transações de troca.
+3. O assinador não incluía o arquivo de provas entre seus snapshots imutáveis e verificações contra alteração durante a cerimônia.
+
+Correção
+
+- Corrigido o caminho de escrita no comando gerado e acrescentada regressão sobre a saída real do gerador.
+- Criado `scripts/check-safe-recovery-replacement-proofs.mjs`, com parsing JSON estrito, formas e campos exatos, três funções em ordem canônica, endereços distintos, domínio/tipos/mensagem EIP-712 exatos, vínculo a planHash/Safe/função/newOwner e recuperação criptográfica do signer.
+- `sign-recoverable-safe-recovery.sh` agora exige, fotografa, verifica e compara continuamente o pacote de provas; uma mutação antes ou durante a coleta das assinaturas administrativas encerra a cerimônia.
+- O novo verificador foi incluído no inventário crítico do rebuild V3.
+
+Validação local
+
+- Testes focados de gerador, verificador, temporários privados, timeout Ledger e escrita durável: 14/14 aprovados com Node v24.19.0.
+- Casos adversariais cobrem planHash, mensagem, assinatura, campo extra e substituição do novo dono.
+- `bash -n` e `git diff --check` aprovados nos arquivos alterados.
+- O verificador do inventário avançou além da ordenação e do novo arquivo, parando somente no drift concorrente já conhecido de `labs/usdom-ethereum-finality/tests/historical.rs`.
+
+Não houve rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push.
+
+Complemento de robustez da cerimônia
+
+- Todas as leituras de endereço e assinaturas Ledger geradas para migração e recuperação agora usam `/usr/bin/timeout --foreground --signal=TERM --kill-after=5s 300s` e o `cast` absoluto pré-verificado; verificações locais têm limite de 60 segundos.
+- A expectativa antiga do teste de pinagem foi reconciliada com o nome canônico realmente usado e coberto pelo assinador (`signatures-$role-$signer_index.json`).
+- A suíte operacional ampliada de ambiente, descritores, crash exposure, processos, temporários, Ledger, escrita durável, pinagem, gerador e provas passa 31/31.
