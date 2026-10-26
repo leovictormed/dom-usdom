@@ -1,0 +1,22 @@
+ETAPA 770 — proof-to-Ethereum unsigned submission handoff
+Date: 2026-10-23
+Scope: finalized-burn EVM artifact and checkpoint outer EVM artifact handoff into unsigned submission packages.
+
+Finding
+The finalized-burn writer already copied every authoritative input into private create-once files, built only from those snapshots, rechecked the workspace before publication, and verified/hash-bound the installed result. The analogous checkpoint writer did not: it built from workspace buffers and never read back or hashed the installed package. Although it re-read inputs before writing, its trust boundary and durable-output evidence were weaker and diverged from the finalized-burn path.
+
+Correction
+- Snapshot release, verifier, checkpoint statement, proof index and EVM seal into a mode-0700 temporary directory through writePrivateFileDurableNew.
+- Read the snapshot through direct regular-file/private-mode checks and build only from those bytes.
+- Preserve fail-closed ordering: an unconfigured release is rejected before any proof artifact access.
+- Re-read all original project inputs before publication and reject any substitution.
+- Install the JSON create-once, then read it back with bounds/private checks, compare exact bytes and report its SHA-256.
+- Remove the private snapshot in finally on success or failure.
+- No RPC, signature, broadcast, proof generation or conversion was executed.
+
+Validation
+PATH=/usr/lib/chatgpt/resources/cua_node/bin:/home/leonardov/.foundry/bin:/home/leonardov/.cargo/bin:/home/leonardov/.local/bin:/usr/local/bin:/usr/bin:/bin
+node --check scripts/prepare-authenticated-checkpoint-submission.mjs
+node --test test/node/checkpoint-submission-writer-hardening.test.mjs test/node/finalized-burn-submission-writer-hardening.test.mjs test/node/checkpoint-submission.test.mjs test/node/finalized-burn-submission.test.mjs
+Result: 15 tests, 15 passed, 0 failed.
+git diff --check: passed.

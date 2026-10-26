@@ -1,0 +1,19 @@
+ETAPA 903 — envelope JSON-RPC fail-closed
+Data: 2026-10-23
+
+Cobertura exata dos 22 consumers/providers
+- 22/22 exigem `jsonrpc` exatamente `2.0`.
+- 22/22 ligam `id` da resposta ao request.
+- 22/22 exigem exatamente um entre `result` e `error`.
+- 22/22 rejeitam resposta batch; requests batch e notifications são desativados pelo provider.
+- 22/22 herdam bytes, UTF-8 fatal, duplicate keys, depth, width, node e request-count bounds.
+
+Gap corrigido
+- 0/22 sanitizavam de forma central o objeto `error`: texto e `data` controlados pelo endpoint podiam alcançar logs/exceções do Ethers.
+- 22/22 agora exigem objeto de erro não-array, chaves somente `code/message/data`, `code` inteiro int32 e mensagem de 1..1024 bytes.
+- Antes de entregar ao Ethers, mensagem e `data` remotos são descartados; somente code e mensagem constante sobrevivem.
+
+Regressão
+- Erro válido com URL/token secretos não aparece na exceção.
+- Extra key, código fracionário e mensagem acima de 1024 bytes falham fechados.
+- Suíte RPC focada: 9/9.

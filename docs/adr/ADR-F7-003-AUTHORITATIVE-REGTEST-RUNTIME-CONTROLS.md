@@ -27,9 +27,10 @@ recipient from performing that third-message check before economic exposure.
 ## Decision
 
 1. `DOM_WALLET_PASSWORD_FILE` loads the standalone WalletDir password from a
-   bounded UTF-8, owner-only, regular non-symlink file. It is mutually exclusive
-   with the legacy `DOM_WALLET_PASSWORD` value. The legacy input remains for
-   compatibility, but the F7 runtime uses only the file boundary.
+   bounded UTF-8, owner-only, regular non-symlink file. The former
+   `DOM_WALLET_PASSWORD` value is rejected because reusable credentials in an
+   environment can be exposed through process inspection and service
+   diagnostics.
 2. `dom-wallet-bootstrap` accepts only non-secret paths and network selection in
    argv. It reads the password from the strict file boundary and writes the new
    recovery phrase exactly once to an owner-only file in a separate owner-only

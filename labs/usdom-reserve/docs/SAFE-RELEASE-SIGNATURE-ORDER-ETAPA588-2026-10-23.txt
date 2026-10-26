@@ -1,0 +1,32 @@
+USDOM stage 588 — Safe release signature order after recovery
+Date: 2026-10-23
+
+Finding
+=======
+
+`sign-release-authorizations.sh` selected governance owners 0 and 1 directly
+from `ownersAfter` and concatenated their Ledger signatures in that order. A
+Safe `swapOwner` operation preserves the linked-list position being replaced;
+the resulting evidence array may therefore be a valid three-owner set without
+being numerically sorted. Gnosis Safe requires concatenated EOA signatures to
+be ordered by strictly increasing signer address. Two authentic signatures
+could consequently form an unusable EIP-1271 bundle after a recovery drill.
+
+Correction
+==========
+
+The signing script now uses the C locale, lowercases and sorts all three
+post-recovery owner addresses, validates the complete canonical ascending set,
+and only then selects the first two hardware signers. The same implementation
+serves both the production release authorization and the four native release
+attestations. No private key or mnemonic is accepted.
+
+Evidence
+========
+
+* `bash -n scripts/sign-release-authorizations.sh`: pass.
+* Focused `operator-runbook.test.mjs` signing test: 1 pass, 0 failures.
+* `git diff --check` on the implementation and regression: pass.
+
+No Ledger was accessed, no signature was created, and nothing was transmitted,
+deployed, committed or pushed.

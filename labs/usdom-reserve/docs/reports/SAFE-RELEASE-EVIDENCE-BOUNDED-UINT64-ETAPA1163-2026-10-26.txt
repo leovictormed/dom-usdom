@@ -1,0 +1,15 @@
+Stage 1163 — Safe release evidence bounded uint64 parsing
+Date: 2026-10-26
+
+Safe release role evidence previously accepted arbitrary-length canonical
+decimal strings before BigInt comparisons of finalized heights, recovery block
+numbers and nonces. The common validator now rejects beyond 20 digits before
+conversion and enforces the exact uint64 ceiling.
+
+An internally rehashed bundle carrying a 100,000-digit recovery block number is
+rejected by policy without unbounded conversion. Positive construction and the
+adversarial semantic-substitution test pass 2/2 with pinned Node 24.19.0;
+targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

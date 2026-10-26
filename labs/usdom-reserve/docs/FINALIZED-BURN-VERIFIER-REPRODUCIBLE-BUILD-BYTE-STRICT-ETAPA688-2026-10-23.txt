@@ -1,0 +1,34 @@
+ETAPA 688 — BUILD REPRODUCÍVEL DO VERIFICADOR DE BURN COM BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O preparador do DOMFinalizedBurnRiscZeroVerifier decodificava release evidence,
+release config, verifier config e artefatos das duas builds isoladas com
+Buffer.toString('utf8') antes do parser estrito.
+
+Correção
+As quatro fronteiras do preparador usam parseStrictJsonBytes: artifactBytes em
+isolatedBuild, evidenceBytes, releaseBytes e verifierConfigBytes. As duas builds
+compartilham a função isolada, mantendo schema específico do finalized burn.
+
+Garantias preservadas
+- release/config até 4 MiB/profundidade 64; artifact até 64 MiB/profundidade 128;
+- ambiente reproducível e Forge seguro/estável vinculado por hash;
+- duas builds com out/cache e identidades distintas;
+- compiler, artifact, source-set, runtime/initcode e verifier config hash iguais;
+- bindings RISC Zero, ImageID, selector, journal schema, proof size e immutable config;
+- artifact/config canônicos vinculados aos SHA-256 da release evidence;
+- compiler source keccak e fontes rechecadas;
+- release, config, artifact, verifier config, fontes e Forge rechecados após builds;
+- writer mantém locks e instalação imutável/create-once;
+- relatório não autoriza deploy, prova ou fundos.
+
+Testes leves
+- metadata duplicada por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige quatro fronteiras bytes strict e todos os rechecks;
+- substituição de artifact/runtime/config/compiler/source e drift de release
+  continuam rejeitados;
+- 5/5 testes em <0,3 s; node --check e git diff --check passaram.
+Nenhuma build Forge foi executada.
+
+Nenhum RPC, Cargo/Rust, Solidity build, RISC0, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

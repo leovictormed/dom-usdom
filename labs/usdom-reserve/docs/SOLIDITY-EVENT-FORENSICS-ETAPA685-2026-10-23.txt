@@ -1,0 +1,87 @@
+Stage 685 — Solidity event and forensic observability audit (2026-10-23)
+
+Scope
+
+Audited all production and prototype Solidity event definitions and emit sites
+for deposit, queue, proof admission, execution, discard/prune, pause, recovery,
+resume, notary rotation, checkpoint bootstrap/candidate/finalization and
+permanent halt. Compared emitted fields with committed state and assessed log
+atomicity, indexing/filterability and privacy.
+
+Result
+
+No production defect requiring an ABI/event change was confirmed.
+
+State/event equivalence and atomicity
+
+- Deposit events bind the domain-separated ID, indexed funder, exact uint64
+  amount and native receiving commitment. They occur only after token transfer
+  and exact balance postconditions.
+- Queue events index both burn and request IDs and include the exact digest or
+  statement hash plus executable time window. Proof admission additionally
+  emits the public finalized-burn statement; prototype admission emits the
+  complete public quorum certificate. Failed signature/proof checks emit none.
+- Release events index burn, request and recipient and contain every settlement
+  field needed to reconcile the payment with the admitted burn. They occur only
+  after transfer and exact post-transfer balance checks. Any token failure
+  reverts reserve state and its lifecycle event.
+- Discard/prune emits only after successful O(1) deletion. The original queued
+  event supplies amount/window/statement, while indexed burn/request IDs join
+  cleanup to that record. Queue invalidation emits new epoch plus exact invalidated
+  count and amount before those values are reset; `Paused` records the actor.
+- Resume scheduling records its authorization time (and prototype epoch/config).
+  `Resumed` follows the final state transition. Rotation events expose proposal
+  commitment, complete bounded signer set, threshold, installation epoch and
+  every permanent emergency revocation.
+- Checkpoint candidate events contain the complete public statement, work and
+  confirmation fields plus ready time and statement hash. Finalization records
+  the domain/network, exact height/block/state root and immutable config hash;
+  these fields select one preceding candidate, while context/work remain in that
+  candidate event and final contract state. Bootstrap is deliberately a distinct
+  event. Permanent halt records the immutable guardian.
+- All external interactions preceding lifecycle events are STATICCALL-only or
+  are protected by non-reentrancy and exact postconditions. EVM transaction
+  rollback removes all logs on failure; no event can survive with reverted state.
+
+Indexing and privacy
+
+Burn IDs, request IDs, recipients/funders, queue epoch, notary epoch/key,
+checkpoint domain/network and guardian are indexed where they form primary
+forensic lookup keys. The three-topic limit explains why larger statement/work
+fields remain data; domain/network or burn/request filters bound their search.
+
+No proof witness, note opening, sender/recipient history inside DOM, secret,
+signature key or private transfer graph is emitted. Ethereum calldata already
+reveals deposits, withdrawal recipient/amount and the public statement fields;
+events repeat only those inevitable values and commitments needed for native
+issuance, payout reconciliation and incident response. Groth16 proof bytes are
+not logged.
+
+Material regression
+
+`testLifecycleLogsAreAtomicAndMatchFinalState` proves:
+
+- hostile transfer failure cannot emit a reserve `Deposited` event;
+- hostile payout failure cannot emit a reserve `Released` event or consume state;
+- successful retry emits exactly one reserve `Released` event whose indexed
+  burn/request/recipient and decoded amount/height/block/state/finality fields
+  equal the paid statement and resulting paid/accounting state.
+
+Foundry's log recorder exposes nested-call logs even when the outer call reverts;
+the regression deliberately checks that the reserve itself emits no premature
+lifecycle log. On-chain transaction receipts discard those nested logs with the
+reverted transaction as required by EVM semantics.
+
+Validation
+
+- new focused event regression: 1/1 passed;
+- complete `USDOMProofReserveTest`: 55/55 passed;
+- full 168-test campaign from stage 679 remains the latest complete baseline;
+  a full rerun was unnecessary because this stage changes tests/documentation
+  only and the complete affected contract suite passed;
+- `forge lint` completed on all five production contracts with only the already
+  inventoried prototype heuristic warnings;
+- `forge fmt --check` and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit, push,
+deployment, signature, transmission or funds operation was performed.

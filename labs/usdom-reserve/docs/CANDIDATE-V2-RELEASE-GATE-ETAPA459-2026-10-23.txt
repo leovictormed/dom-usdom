@@ -1,0 +1,35 @@
+Stage 459 — Candidate-V2 production release gate
+Date: 2026-10-23
+
+Finding
+
+The readiness gate accepted a source-built native runtime manifest whose
+candidate-V2 activation was disabled. Such a release could still satisfy the
+checkpoint recursion and RandomX implementation flags, even though its running
+DOM node would remain on legacy V1 and never select the state format that pins
+the per-block RandomX receipt ImageID. This was a false-ready path.
+
+Correction
+
+Both production readiness modes now require a scheduled candidate-V2 native
+runtime. The existing validation continues to require that its activation
+height is canonical and later than native V4, its checkpoint interval and
+confirmation depth exactly match the release, and its nonzero RandomX ImageID
+matches the canonical checkpoint verifier manifest. A legacy manifest now
+emits the stable `native_runtime_candidate_v2_required` blocker even when all
+legacy disabled sentinels are internally consistent.
+
+Verification
+
+The positive readiness fixture now models an active candidate-V2 runtime.
+Focused tests cover the positive release, explicit V2 disablement, zero and
+substituted ImageIDs, and schedule substitution. The focused readiness set
+passes 3/3. The structural requirement
+`production_native_runtime_candidate_v2_required_by_release_gate` is true.
+
+Status
+
+This closes only the gate omission. It does not claim that a final activation
+height, runtime manifest or RandomX receipt has been selected or executed for
+the release. Their live facts remain false. No proof, build, network operation,
+signing, transaction, deployment, funds, mining, commit or push occurred.

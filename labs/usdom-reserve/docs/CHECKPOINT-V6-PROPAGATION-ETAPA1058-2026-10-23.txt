@@ -1,0 +1,21 @@
+ETAPA 1058 — PROPAGAÇÃO FAIL-CLOSED UDCSTN04 / UDCPST06
+Data: 2026-10-23
+
+Escopo
+Auditoria independente da propagação do schema econômico/closure implementado na ETAPA1045, sem rebuild RISC Zero, rede, push, deploy ou fundos.
+
+Falhas concretas encontradas e corrigidas
+1. O importador RandomX aceitava somente o cabeçalho antigo/truncado UDCSTN02. Agora exige exatamente 2320 bytes, magic UDCSTN04, versão 4, blockCount canônico, quatro totais u128, burn <= issued, monotonicidade econômica e flags de closure canônicas sem reabertura.
+2. O SDK do checkpoint ainda comprometia o domínio de transição v3. Foi alinhado ao domínio v4 determinado pela fonte.
+3. Requisitos e gate de cadeia de artefatos ainda descreviam V5/V3. Foram atualizados estruturalmente para manifest v8, statement v6, UDCPST06/551 bytes e UDCSTN04/2320 bytes.
+4. O relatório de capacidade omitira totalIssued, totalBurned e issuanceClosed. O schema v5 agora valida e compromete os três campos.
+5. Fixtures focados foram atualizados e ganharam regressões para truncatura, versão antiga, totais inválidos e reabertura.
+
+Resultado dos gates
+- 12/12 testes Node focados passaram usando Node v24.19.0 explícito.
+- py_compile e git diff --check passaram.
+- O gate de cadeia rejeita corretamente 7 bindings compilados/proveniências antigos. Eles permanecem indisponíveis até rebuild real; nenhum hash ou ImageID foi inventado.
+- A suíte ampla de mainnet foi reconciliada parcialmente durante esta etapa. A conclusão das fixtures compartilhadas foi coordenada com a auditoria concorrente responsável por esse arquivo, para evitar edições conflitantes.
+
+Conclusão
+A cadeia estrutural segment -> outer -> finalized-burn/SDK/host/config está coerente com UDCSTN04/UDCPST06 nas fontes auditadas e falha fechada diante de artefatos antigos. Prontidão de release continua falsa enquanto os sete artefatos reais não forem reconstruídos e seus hashes/ImageIDs não forem propagados a partir da saída verificável do build.

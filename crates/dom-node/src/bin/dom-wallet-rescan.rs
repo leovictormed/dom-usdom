@@ -8,8 +8,8 @@
 //! so `rescan_wallet_dir`'s "different wallet dir than the node opened"
 //! contract holds (the node opened none).
 //!
-//! Usage (reads the same env as the service, e.g. `.dom/miner.env`):
-//!   DOM_NETWORK=mainnet DOM_DATA_DIR=… DOM_WALLET_PATH=… DOM_WALLET_PASSWORD=… \
+//! Usage (reads the same non-secret env as the service):
+//!   DOM_NETWORK=mainnet DOM_DATA_DIR=… DOM_WALLET_PATH=… DOM_WALLET_PASSWORD_FILE=… \
 //!     dom-wallet-rescan            # dry-run: CompareOnly, nothing persisted
 //!   DOM_RESCAN_APPLY=1 …           # Repair: persist the deterministic rebuild
 //!
@@ -17,9 +17,11 @@
 
 use dom_config::{parse_dom_network, Network, NodeConfig};
 use dom_node::node::DomNode;
+use dom_node::secret_file::load_owner_only_utf8_secret_file;
 use dom_wallet::{WalletDir, WalletRescanMode};
 use std::path::Path;
 use std::sync::Arc;
+use zeroize::Zeroizing;
 
 fn dom(noms: u64) -> f64 {
     noms as f64 / 1e8
@@ -56,8 +58,19 @@ async fn main() -> anyhow::Result<()> {
     }
     let wallet_path = std::env::var("DOM_WALLET_PATH")
         .map_err(|_| anyhow::anyhow!("DOM_WALLET_PATH is required"))?;
-    let wallet_password = std::env::var("DOM_WALLET_PASSWORD")
-        .map_err(|_| anyhow::anyhow!("DOM_WALLET_PASSWORD is required"))?;
+    if std::env::var_os("DOM_WALLET_PASSWORD").is_some() {
+        anyhow::bail!(
+            "DOM_WALLET_PASSWORD is forbidden; use an owner-only DOM_WALLET_PASSWORD_FILE"
+        );
+    }
+    let wallet_password_path = std::env::var_os("DOM_WALLET_PASSWORD_FILE")
+        .ok_or_else(|| anyhow::anyhow!("DOM_WALLET_PASSWORD_FILE is required"))?;
+    let wallet_password = Zeroizing::new(load_owner_only_utf8_secret_file(
+        Path::new(&wallet_password_path),
+        "wallet password",
+        1,
+        1024,
+    )?);
     let apply = std::env::var("DOM_RESCAN_APPLY")
         .map(|v| v == "1")
         .unwrap_or(false);

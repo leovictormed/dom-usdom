@@ -1,0 +1,45 @@
+ETAPA921 — RUST ARGV AND STDOUT PRIVACY AUDIT
+Date: 2026-10-23
+
+Closed scope
+- The same 33 production modules and fixed signal inventory established by
+  ETAPA918: 28 argv parsers and 257 stdout sites.
+- No build, proof, RPC, credential, wallet, signing or network operation.
+
+ARGV classification (28/28)
+- Fourteen DOM operator parsers accept public configuration and filesystem
+  paths. Passwords, TPM authorization, RPC bearer, proving keys, recovery
+  material, witnesses and private state cross argv only as `*-file` or
+  directory paths; zero secret contents cross argv.
+- Fourteen proof-host entrypoints parse only the executable-name slot and
+  reject operator arguments. They obtain staged proof inputs from the bounded
+  host protocol rather than argv.
+- Result: 28 safe path/configuration parsers, zero literal-secret argv inputs.
+
+STDOUT classification (257/257 before correction)
+- 239 sites were safe to retain: 81 public identifiers/evidence commitments
+  and 158 status, policy, height, count, size or boolean observations.
+- 18 sites formed one privacy leak family. Six wallet/deposit/private-burn
+  commands printed linkable identifiers or private-state facts: deposit IDs,
+  note commitments, note spent/balance/amount values, a private witness hash,
+  wallet transition IDs and prepared burn/request IDs.
+- No site printed a password, bearer token, raw transaction, private witness
+  bytes, private key, mnemonic, recovery seed or TPM authorization value.
+
+Correction
+- Removed all 18 linkable wallet/private-transition stdout fields from:
+  recover-wallet-at-checkpoint (4), register-finalized-deposit (5),
+  build-finalized-deposit-witness (2), bootstrap-tpm-wallet-authority (1),
+  build-private-burn (3), and observe-finalized-deposit (3).
+- The authoritative owner-only/create-once evidence artifacts retain fields
+  needed for subsequent validation. Console output now carries only status and
+  non-private operational metadata for those commands.
+- Public finalized-burn/checkpoint identifiers and proof artifact commitments
+  remain because they are deliberately published verification handles, not
+  wallet history or secret material.
+
+Post-correction result
+- 239 stdout sites remain: 81 public identifier/evidence sites and 158
+  operational metadata sites. Sensitive/linkable wallet stdout sites: zero.
+- Focused structural regressions cover both stdout labels and the no-literal-
+  secret argv rule.

@@ -1,0 +1,50 @@
+USD + DOM — reserve solvency and outflow audit
+Stage 561 — 2026-10-23
+
+Scope
+-----
+
+Audited `USDOMProofReserve` deposit, queue, execution, queue invalidation,
+cleanup, pause/resume and token-bucket accounting for a path that could pay
+while insolvent, exceed the configured outflow capacity, restore spent capacity
+through an administrative transition or leave collateral double-reserved.
+
+Result
+------
+
+No distinct exploitable defect was established.
+
+- Deposits measure exact reserve and funder balance deltas. They reject unsafe
+  USDT policy, a changed token runtime, existing insolvency and exposure above
+  the immutable maximum before creating credit.
+- Queue admission checks unreserved credit and complete reserve solvency before
+  the expensive proof, then reserves the exact amount under one queue epoch.
+- Execution rechecks the exact statement, epoch, delay, lease, verifier, token
+  policy, credited liability, live reserve balance and rate limit. State and
+  replay identifiers update before the non-reentrant transfer, and any transfer
+  or exact-delta failure reverts the complete transaction.
+- The bucket is capped at the immutable capacity and refills conservatively over
+  24 hours. Pause, resume and queue invalidation do not reset either bucket
+  field, so administrative activity cannot manufacture withdrawal capacity.
+- Emergency pause advances `queueEpoch` once and clears only current reservation
+  aggregates. Old entries cannot decrement the new queue, overwrite an active
+  request or clear a replacement request during lazy cleanup.
+- Paid burn and request identifiers have no deletion path. Donations do not
+  create credit, and `outstanding = totalDeposited - totalReleased` cannot be
+  increased by a direct token transfer.
+
+The contract therefore fails closed if collateral is externally confiscated,
+the reserve is blacklisted, token policy changes, the verifier/control plane
+changes or capacity is exhausted. Separate operational alerts remain useful for
+response time, but their absence does not authorize a payout that these checks
+reject.
+
+Validation and limits
+---------------------
+
+Four lightweight cross-language statement and burn-identity tests passed. The
+complete Solidity and invariant campaigns are queued after the active RandomX
+proof because cleaned Foundry artifacts would require the deliberately deferred
+heavy rebuild. No code or readiness fact changed in this audit. No external
+RPC, proof, signing, deployment, transaction, funds, commit or push operation
+ran.

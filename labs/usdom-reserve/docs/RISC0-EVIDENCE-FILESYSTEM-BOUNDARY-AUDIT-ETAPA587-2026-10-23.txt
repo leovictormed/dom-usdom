@@ -1,0 +1,60 @@
+RISC Zero evidence filesystem-boundary audit — stage 587
+Date: 2026-10-23
+
+Scope
+=====
+
+Audited RISC Zero source-tree copying, guest artifact installation, proof-job
+and receipt-set publication, capacity/release run snapshots, health catalog
+snapshots, mainnet preflight snapshots, finalized-burn submission preparation
+and checkpoint/finalized-burn evidence materialization for path traversal,
+symlink/hardlink adoption, directory substitution, partial overwrite and TOCTOU.
+
+Result
+======
+
+No additional exploitable filesystem-boundary defect was established after
+the earlier descriptor-anchoring and snapshot work. No code change was made
+merely to manufacture a finding.
+
+The authoritative boundaries verified in current source are:
+
+- Untrusted relative artifact names are either required to equal deterministic
+  filenames before `join`, or pass canonical component checks rejecting empty,
+  absolute, backslash, NUL, `.` and `..` components.
+- JavaScript reads use `O_NOFOLLOW`, require a current-user, single-link regular
+  inode, enforce size/mode before allocation, resolve the opened descriptor,
+  and compare inode size/timestamps after the read.
+- Rust proof hosts use parent directory descriptors plus `openat(O_NOFOLLOW)`,
+  validate owner/link count and reauthenticate the named file and parent after
+  capture.
+- Durable JavaScript and Rust publishers retain the destination directory
+  descriptor, use exclusive random temporaries, fsync the file, rename/link
+  relative to that descriptor, fsync the directory, then reauthenticate the
+  named directory and installed bytes. Immutable outputs use no-clobber links.
+- Recursive capacity copies reject symlink directories, special entries and
+  hard-linked files; their destinations are new private per-run directories.
+  Every copied monetary artifact is subsequently rebuilt/hash-linked and
+  cryptographically revalidated by the proof planner/host before use.
+- Run, health, source, preflight and release materializers operate on fixed
+  catalogs, private replicas and final origin rechecks. Multi-step immutable
+  evidence writes are idempotent, so interruption before the companion metadata
+  update resumes only when the existing bytes are identical.
+
+Residual assumption
+===================
+
+The operating-system account and kernel remain within the local trust boundary.
+An attacker already able to execute arbitrary code as the prover account can
+deny service; monetary evidence still requires its pinned hashes, statements,
+ImageIDs and cryptographic verification. This is an operational trust premise,
+not a missing path validation.
+
+Validation
+==========
+
+- Direct/durable filesystem boundary suite: 7/7 passed.
+- Artifact snapshots and capacity/release materializers: 11/11 passed.
+- `git diff --check` passed.
+- Heavy Cargo/Foundry suites remain queued behind the active proof. No push,
+  deployment, signature, broadcast, mining or funds action occurred.

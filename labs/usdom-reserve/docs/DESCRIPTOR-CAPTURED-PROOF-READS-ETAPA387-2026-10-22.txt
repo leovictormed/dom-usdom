@@ -1,0 +1,33 @@
+USDOM hardening stage 387 — descriptor-captured proof reads
+
+Date: 2026-10-22
+
+dom-wallet-crypto now provides read_captured_bytes for non-secret artifacts.
+On Unix it retains and authenticates the exact current-user parent directory,
+opens the child descriptor-relatively with no-follow and close-on-exec flags,
+requires a current-user single-link regular file, enforces a strict allocation
+and read bound, and reauthenticates the named parent, anchored child and caller
+path after reading. Ordinary public file modes remain supported.
+
+The finalized-burn, RandomX, economic and checkpoint proof hosts, both RandomX
+statement exporters, the finalized-deposit witness builder and finalized-burn
+source exporter now share this implementation instead of duplicated pathname-
+inspect/open/read copies. This closes parent-directory replacement in addition
+to the already checked child inode.
+
+Validation completed:
+
+- shared reader: 1/1 focused test passed, covering public mode 0644, bounds,
+  file symlink, hard link and parent-directory symlink rejection;
+- finalized-burn host: 4/4 library tests passed;
+- RandomX host verify mode: 3/3 library tests passed;
+- economic host: 2/2 library tests passed;
+- checkpoint host verify mode: 1/1 library test passed.
+- native exporters: witness 1/1, finalized-burn 6/6 and RandomX set 1/1 passed;
+- standalone RandomX exporter compiled under host-reference;
+- all three verify-only host checks are warning-free. The economic memory
+  parser is now compiled only for proving or its focused tests.
+
+The detached capacity proof keeps its previously loaded executable and was not
+restarted. Its eventual result remains capacity evidence for that generation;
+the final release proof must be generated after source stabilization.

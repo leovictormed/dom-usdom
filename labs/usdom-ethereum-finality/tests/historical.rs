@@ -11,7 +11,8 @@ use helios_consensus_core::{
 };
 use serde_json::{json, Value};
 use usdom_ethereum_finality_experiment::{
-    EthereumFinalityClient, FinalizedExecution, HistoricalCapellaClient,
+    validate_finalized_time_window, EthereumFinalityClient, FinalizedExecution,
+    HistoricalCapellaClient, MAX_TRUSTED_BOOTSTRAP_AGE_SLOTS,
 };
 
 const TRUSTED: B256 = b256!("5afc212a7924789b2bc86acad3ab3a6ffb1f6e97253ea50bee7f4f51422c9275");
@@ -67,8 +68,8 @@ fn current_mainnet_fulu_bootstrap_and_finality_signature_verify() {
     let mut bad_signature = update.clone();
     bad_signature.sync_aggregate.sync_committee_signature =
         optimistic().sync_aggregate.sync_committee_signature;
-    rejected_unchanged(&mut client, &bad_signature, update.signature_slot);
-    client.accept(&update, update.signature_slot).unwrap();
+    rejected_unchanged(&mut client, &bad_signature);
+    client.accept(&update).unwrap();
     let finalized = client.finalized();
     assert_eq!(finalized.beacon_slot, 15_447_776);
     assert!(finalized.beacon_slot > initial.beacon_slot);
@@ -77,12 +78,13 @@ fn current_mainnet_fulu_bootstrap_and_finality_signature_verify() {
     assert!(!finalized.state_root.is_zero());
 
     let transcript = client.export_transcript().unwrap();
-    let restored = EthereumFinalityClient::restore_transcript(
+    let restored = EthereumFinalityClient::restore_transcript_bounded(
         &transcript,
         CHECKPOINT,
         GENESIS,
         forks(),
         &finalized,
+        update.signature_slot,
     )
     .unwrap();
     assert_eq!(restored.finalized(), finalized);
@@ -134,7 +136,7 @@ fn fresh() -> HistoricalCapellaClient {
 fn synced() -> HistoricalCapellaClient {
     let mut client = fresh();
     for update in updates() {
-        client.accept(&update, NOW).unwrap();
+        client.accept(&update).unwrap();
     }
     client
 }
@@ -145,10 +147,10 @@ fn mutate(update: &GenericUpdate<Spec>, f: impl FnOnce(&mut Value)) -> GenericUp
     serde_json::from_value(v).unwrap()
 }
 
-fn rejected_unchanged(client: &mut HistoricalCapellaClient, u: &GenericUpdate<Spec>, now: u64) {
+fn rejected_unchanged(client: &mut HistoricalCapellaClient, u: &GenericUpdate<Spec>) {
     let before = client.finalized();
     let retained = client.retained_finalized_headers();
-    assert!(client.accept(u, now).is_err());
+    assert!(client.accept(u).is_err());
     assert_eq!(client.finalized(), before);
     assert_eq!(client.retained_finalized_headers(), retained);
 }
@@ -162,17 +164,17 @@ fn real_mainnet_signatures_and_committee_rotations_authenticate_execution_roots(
     let list = updates();
     // The first valid update teaches the next committee but has an older finalized
     // header. Rejecting all such updates would prevent synchronization here.
-    client.accept(&list[0], NOW).unwrap();
+    client.accept(&list[0]).unwrap();
     assert_eq!(client.finalized(), initial);
     assert_eq!(client.retained_finalized_headers(), 1);
     for update in &list[1..] {
         let before = client.finalized();
         let retained = client.retained_finalized_headers();
-        client.accept(update, NOW).unwrap();
+        client.accept(update).unwrap();
         assert!(client.finalized().beacon_slot >= before.beacon_slot);
         assert_eq!(client.retained_finalized_headers(), retained + 1);
     }
-    client.accept(&finality(), NOW).unwrap();
+    client.accept(&finality()).unwrap();
     assert_eq!(client.retained_finalized_headers(), 7);
     let actual = client.finalized();
     assert_eq!(actual.beacon_slot, 7109344);
@@ -209,12 +211,18 @@ fn real_mainnet_signatures_and_committee_rotations_authenticate_execution_roots(
 #[test]
 fn transcript_revalidates_every_update_and_requires_the_external_finalized_tip() {
     let mut client = synced();
-    client.accept(&finality(), NOW).unwrap();
+    client.accept(&finality()).unwrap();
     let expected = client.finalized();
     let bytes = client.export_transcript().unwrap();
-    let restored =
-        HistoricalCapellaClient::restore_transcript(&bytes, TRUSTED, GENESIS, forks(), &expected)
-            .unwrap();
+    let restored = HistoricalCapellaClient::restore_transcript_bounded(
+        &bytes,
+        TRUSTED,
+        GENESIS,
+        forks(),
+        &expected,
+        NOW,
+    )
+    .unwrap();
     assert_eq!(restored.finalized(), expected);
     assert_eq!(
         restored.retained_finalized_headers(),
@@ -224,42 +232,107 @@ fn transcript_revalidates_every_update_and_requires_the_external_finalized_tip()
 
     let mut noncanonical = vec![b'\n'];
     noncanonical.extend_from_slice(&bytes);
-    assert!(HistoricalCapellaClient::restore_transcript(
+    assert!(HistoricalCapellaClient::restore_transcript_bounded(
         &noncanonical,
         TRUSTED,
         GENESIS,
         forks(),
         &expected,
+        NOW,
     )
     .err()
     .expect("noncanonical transcript must fail")
     .to_string()
     .contains("noncanonical transcript"));
+
+    // Duplicate members must fail closed whether serde rejects the duplicate
+    // typed field directly or the exact-byte canonical boundary rejects it.
+    let duplicate_version = bytes
+        .strip_prefix(br#"{"version":1,"#)
+        .expect("canonical transcript prefix");
+    let mut duplicate_member = br#"{"version":1,"version":1,"#.to_vec();
+    duplicate_member.extend_from_slice(duplicate_version);
+    assert!(HistoricalCapellaClient::restore_transcript_bounded(
+        &duplicate_member,
+        TRUSTED,
+        GENESIS,
+        forks(),
+        &expected,
+        NOW,
+    )
+    .is_err());
     assert!(HistoricalCapellaClient::restore_transcript_bounded(
         &bytes,
         TRUSTED,
         GENESIS,
         forks(),
         &expected,
-        NOW - 1,
+        NOW - 2,
     )
     .err()
     .expect("slot above consensus limit must fail")
     .to_string()
     .contains("current slot exceeds consensus limit"));
 
+    // Mutate only the canonical decimal bytes. Round-tripping through Value
+    // would reorder object members and exercise the encoding guard instead of
+    // the independently authenticated replay-slot binding below.
+    let first_slot = updates()[0].signature_slot;
+    let needle = format!(r#""current_slot":{first_slot}"#).into_bytes();
+    let replacement = format!(r#""current_slot":{}"#, first_slot + 1).into_bytes();
+    assert_eq!(needle.len(), replacement.len());
+    let offset = bytes
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .expect("first canonical replay slot");
+    assert!(!bytes[offset + needle.len()..]
+        .windows(needle.len())
+        .any(|window| window == needle));
+    let mut relayer_clock = bytes.clone();
+    relayer_clock[offset..offset + needle.len()].copy_from_slice(&replacement);
+    let relayer_clock_error = HistoricalCapellaClient::restore_transcript_bounded(
+        &relayer_clock,
+        TRUSTED,
+        GENESIS,
+        forks(),
+        &expected,
+        NOW,
+    )
+    .err()
+    .expect("relayer-selected replay clock must fail")
+    .to_string();
+    assert!(
+        relayer_clock_error.contains("noncanonical transcript replay slot"),
+        "unexpected rejection: {relayer_clock_error}"
+    );
+
+    let bootstrap_slot = bootstrap().header().beacon().slot;
+    assert!(HistoricalCapellaClient::restore_transcript_bounded(
+        &bytes,
+        TRUSTED,
+        GENESIS,
+        forks(),
+        &expected,
+        bootstrap_slot + MAX_TRUSTED_BOOTSTRAP_AGE_SLOTS + 1,
+    )
+    .err()
+    .expect("stale trusted bootstrap must fail")
+    .to_string()
+    .contains("freshness horizon"));
+
     let before = client.export_transcript().unwrap();
-    client.accept(&updates()[1], NOW).unwrap();
+    client.accept(&updates()[1]).unwrap();
     assert_eq!(client.export_transcript().unwrap(), before);
 
     let mut truncated: Value = serde_json::from_slice(&bytes).unwrap();
     truncated["updates"].as_array_mut().unwrap().pop();
-    assert!(HistoricalCapellaClient::restore_transcript(
+    assert!(HistoricalCapellaClient::restore_transcript_bounded(
         &serde_json::to_vec(&truncated).unwrap(),
         TRUSTED,
         GENESIS,
         forks(),
         &expected,
+        NOW,
     )
     .is_err());
 
@@ -268,56 +341,73 @@ fn transcript_revalidates_every_update_and_requires_the_external_finalized_tip()
     let last = bad_signature["updates"].as_array().unwrap().len() - 1;
     bad_signature["updates"][last]["update"]["sync_aggregate"]["sync_committee_signature"] =
         replacement["sync_aggregate"]["sync_committee_signature"].clone();
-    assert!(HistoricalCapellaClient::restore_transcript(
+    assert!(HistoricalCapellaClient::restore_transcript_bounded(
         &serde_json::to_vec(&bad_signature).unwrap(),
         TRUSTED,
         GENESIS,
         forks(),
         &expected,
+        NOW,
     )
     .is_err());
 
     let mut duplicate: Value = serde_json::from_slice(&bytes).unwrap();
     let repeated = duplicate["updates"][1].clone();
     duplicate["updates"].as_array_mut().unwrap().push(repeated);
-    assert!(HistoricalCapellaClient::restore_transcript(
+    assert!(HistoricalCapellaClient::restore_transcript_bounded(
         &serde_json::to_vec(&duplicate).unwrap(),
         TRUSTED,
         GENESIS,
         forks(),
         &expected,
+        NOW,
     )
     .is_err());
 
     let mut unknown: Value = serde_json::from_slice(&bytes).unwrap();
     unknown["uncommitted"] = json!(true);
-    assert!(HistoricalCapellaClient::restore_transcript(
+    assert!(HistoricalCapellaClient::restore_transcript_bounded(
         &serde_json::to_vec(&unknown).unwrap(),
         TRUSTED,
         GENESIS,
         forks(),
         &expected,
+        NOW,
     )
     .is_err());
 
     let mut wrong_expected = expected.clone();
     wrong_expected.block_number -= 1;
-    assert!(HistoricalCapellaClient::restore_transcript(
+    assert!(HistoricalCapellaClient::restore_transcript_bounded(
         &bytes,
         TRUSTED,
         GENESIS,
         forks(),
         &wrong_expected,
+        NOW,
     )
     .is_err());
-    assert!(HistoricalCapellaClient::restore_transcript(
+    assert!(HistoricalCapellaClient::restore_transcript_bounded(
         &bytes,
         B256::repeat_byte(7),
         GENESIS,
         forks(),
         &expected,
+        NOW,
     )
     .is_err());
+}
+
+#[test]
+fn fork_schedule_and_finalized_time_window_fail_closed() {
+    let mut reordered = forks();
+    reordered.deneb.epoch = reordered.capella.epoch;
+    assert!(HistoricalCapellaClient::bootstrap(&bootstrap(), TRUSTED, GENESIS, reordered).is_err());
+
+    assert!(validate_finalized_time_window(1_000, 1_100, 120, 10).is_ok());
+    assert!(validate_finalized_time_window(1_000, 1_131, 120, 10).is_err());
+    assert!(validate_finalized_time_window(1_111, 1_100, 120, 10).is_err());
+    assert!(validate_finalized_time_window(1_000, 1_100, 0, 10).is_err());
 }
 
 #[test]
@@ -343,12 +433,12 @@ fn wrong_genesis_and_signature_domain_are_rejected() {
     let mut client =
         HistoricalCapellaClient::bootstrap(&bootstrap(), TRUSTED, B256::repeat_byte(8), forks())
             .unwrap();
-    rejected_unchanged(&mut client, &updates()[0], NOW);
+    rejected_unchanged(&mut client, &updates()[0]);
     let mut config = forks();
     config.capella.fork_version = [3, 1, 0, 0].into();
     let mut client =
         HistoricalCapellaClient::bootstrap(&bootstrap(), TRUSTED, GENESIS, config).unwrap();
-    rejected_unchanged(&mut client, &updates()[0], NOW);
+    rejected_unchanged(&mut client, &updates()[0]);
 }
 
 #[test]
@@ -358,8 +448,8 @@ fn invalid_bls_signature_is_rejected_without_poisoning_next_update() {
     // Another well-formed real signature is still invalid for this signed message.
     bad.sync_aggregate.sync_committee_signature =
         optimistic().sync_aggregate.sync_committee_signature;
-    rejected_unchanged(&mut client, &bad, NOW);
-    client.accept(&finality(), NOW).unwrap();
+    rejected_unchanged(&mut client, &bad);
+    client.accept(&finality()).unwrap();
     assert_eq!(client.finalized().beacon_slot, 7109344);
 }
 
@@ -368,7 +458,7 @@ fn corrupted_finality_branch_is_rejected() {
     let mut client = synced();
     let mut bad = finality();
     bad.finality_branch.as_mut().unwrap()[0] = B256::ZERO;
-    rejected_unchanged(&mut client, &bad, NOW);
+    rejected_unchanged(&mut client, &bad);
 }
 
 #[test]
@@ -377,7 +467,7 @@ fn corrupted_execution_receipts_root_is_rejected() {
     let bad = mutate(&finality(), |v| {
         v["finalized_header"]["execution"]["receipts_root"] = json!(B256::ZERO);
     });
-    rejected_unchanged(&mut client, &bad, NOW);
+    rejected_unchanged(&mut client, &bad);
 }
 
 #[test]
@@ -385,19 +475,17 @@ fn corrupted_next_committee_proof_is_rejected_and_recovery_replays_valid_update(
     let mut client = fresh();
     let mut bad = updates().remove(0);
     bad.next_sync_committee_branch.as_mut().unwrap()[0] = B256::ZERO;
-    rejected_unchanged(&mut client, &bad, NOW);
+    rejected_unchanged(&mut client, &bad);
     for update in updates() {
-        client.accept(&update, NOW).unwrap();
+        client.accept(&update).unwrap();
     }
-    client.accept(&finality(), NOW).unwrap();
+    client.accept(&finality()).unwrap();
 }
 
 #[test]
-fn future_signature_and_missing_committee_period_are_rejected() {
-    let mut client = synced();
-    rejected_unchanged(&mut client, &finality(), finality().signature_slot - 1);
+fn missing_committee_period_is_rejected() {
     let mut client = fresh();
-    rejected_unchanged(&mut client, &finality(), NOW);
+    rejected_unchanged(&mut client, &finality());
 }
 
 #[test]
@@ -410,14 +498,14 @@ fn insufficient_participation_and_missing_finality_are_rejected() {
         v["sync_aggregate"]["sync_committee_bits"] = json!(bits);
     });
     assert!(client
-        .accept(&bad, NOW)
+        .accept(&bad)
         .unwrap_err()
         .to_string()
         .contains("supermajority"));
     let mut bad = finality();
     bad.finality_branch = None;
-    rejected_unchanged(&mut client, &bad, NOW);
-    rejected_unchanged(&mut client, &optimistic(), NOW);
+    rejected_unchanged(&mut client, &bad);
+    rejected_unchanged(&mut client, &optimistic());
 }
 
 #[test]
@@ -431,7 +519,7 @@ fn upstream_timeout_can_promote_optimistic_header_but_strict_path_cannot() {
     for u in updates().into_iter().chain([finality()]) {
         verify_generic_update(&u, NOW, &upstream, GENESIS, &config).unwrap();
         apply_generic_update(&mut upstream, &u);
-        strict.accept(&u, NOW).unwrap();
+        strict.accept(&u).unwrap();
     }
     let before = strict.finalized();
     let u = optimistic();
@@ -441,7 +529,7 @@ fn upstream_timeout_can_promote_optimistic_header_but_strict_path_cannot() {
     let after_timeout = NOW + 8192 + 1;
     force_update(&mut upstream, after_timeout);
     assert_eq!(upstream.finalized_header.beacon().slot, 7109431);
-    rejected_unchanged(&mut strict, &u, after_timeout);
+    rejected_unchanged(&mut strict, &u);
     assert_eq!(strict.finalized(), before);
 }
 
@@ -449,17 +537,17 @@ fn upstream_timeout_can_promote_optimistic_header_but_strict_path_cannot() {
 fn replay_from_trusted_bootstrap_reconstructs_same_state_and_old_updates_do_not_rewind() {
     fn replay() -> (HistoricalCapellaClient, FinalizedExecution) {
         let mut c = synced();
-        c.accept(&finality(), NOW).unwrap();
+        c.accept(&finality()).unwrap();
         let view = c.finalized();
         (c, view)
     }
     let (mut first, expected) = replay();
     let (_, recovered) = replay();
     assert_eq!(expected, recovered);
-    first.accept(&finality(), NOW).unwrap();
+    first.accept(&finality()).unwrap();
     assert_eq!(first.finalized(), expected);
     let retained = first.retained_finalized_headers();
-    first.accept(&updates()[0], NOW).unwrap();
+    first.accept(&updates()[0]).unwrap();
     assert_eq!(first.finalized(), expected);
     assert_eq!(first.retained_finalized_headers(), retained);
 }
@@ -469,5 +557,5 @@ fn unsupported_header_variant_is_rejected_without_advancing() {
     let mut client = synced();
     let mut bad = finality();
     bad.finalized_header = Some(Default::default());
-    rejected_unchanged(&mut client, &bad, NOW);
+    rejected_unchanged(&mut client, &bad);
 }

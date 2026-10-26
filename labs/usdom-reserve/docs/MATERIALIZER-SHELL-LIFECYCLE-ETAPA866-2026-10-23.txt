@@ -1,0 +1,32 @@
+ETAPA 866 — MATERIALIZER SHELL CHILD LIFECYCLE
+Date: 2026-10-23
+
+Scope
+-----
+The audit was restricted to the mainnet preflight attestation materializer,
+both requested RPC catalog writers and the checkpoint finalized-event writer.
+No background jobs existed, but all Node children were foreground processes
+without an outer deadline. The three writers also installed one trap body for
+EXIT and signals that removed a temporary file without explicitly exiting with
+the signal status.
+
+Correction
+----------
+- Local catalog preparation/install children are bounded to 30 seconds with a
+  two-second TERM-to-KILL escalation.
+- Checkpoint finalized-event invalidation and installation use the same bound;
+  its multi-RPC collector has a five-minute outer bound and five-second kill
+  escalation in addition to its per-request network bounds.
+- Preflight attestation materialization replaces the shell with a five-minute
+  bounded process group, retaining the config-directory lock across exec.
+- Writer signal traps now clear traps, remove the temporary file and exit with
+  129/130/143. EXIT preserves the original status.
+
+Validation
+----------
+- Bash syntax passed for all four scoped wrappers.
+- Lifecycle, bounded RPC collector, bootstrap catalog and preflight transport
+  tests passed 17/17. Structural mutation assertions require every Node child
+  to have timeout/KILL escalation and reject background lifecycle drift.
+- Diff whitespace validation passed.
+- No RPC, signing, build, deployment or fund operation ran.

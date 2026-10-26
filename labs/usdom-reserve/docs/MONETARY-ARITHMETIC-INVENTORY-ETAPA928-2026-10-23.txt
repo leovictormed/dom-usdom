@@ -1,0 +1,48 @@
+ETAPA928 — aritmética monetária e transições Rust USDOM
+Data: 2026-10-23
+
+Escopo e inventário
+===================
+
+Foram revisados os 59 fontes Rust `dom-usdom-*`, com foco em amount, saldo,
+emissão, queima, contagens, alturas e índices. O inventário lexical reproduzível
+(diretórios tests/target e módulos convencionais cfg(test) excluídos) contém:
+
+- 150 checked_add, 34 checked_sub e 17 checked_mul: 201 operações checked;
+- 9 saturating_add e 10 saturating_sub: 19 operações saturating usadas em
+  janelas/telemetria onde clamp é a semântica deliberada;
+- 203 try_into;
+- 70 casts para u64, 14 para u32 e 57 para usize.
+
+Conclusão adversarial
+=====================
+
+Nenhum defeito monetário foi confirmado. Emissão e queima acumulam `u64` em
+`u128` com checked_add; queima rejeita total acima do emitido; restauração
+recalcula os dois totais a partir dos registros; undo restaura os totais exatos.
+Não existe fee ou inteiro assinado na política monetária USDOM. A oferta máxima
+é determinada por ocorrências de depósito Ethereum únicas e autenticadas, e o
+acumulador u128 falha fechado em overflow.
+
+O circuito usa UInt64 para cada valor e impõe `outputs + burn == inputs` no
+campo; com no máximo 2 inputs/2 outputs esses somatórios ficam muito abaixo do
+módulo BN254, portanto a igualdade de campo também é igualdade inteira. O estado
+exige nullifiers estritamente ordenados, rejeita duplicatas intra-transição e
+globais, rejeita notas duplicadas e mantém burnId/requestId em conjuntos
+separados. Builders somam com checked_add e calculam troco com checked_sub.
+Saldo da carteira usa u128; mesmo no limite teórico de usize entradas u64 não
+há overflow em plataforma 64-bit, e no zkVM usize é menor.
+
+Foi corrigida a lacuna de regressão encontrada: não existia gate único que
+congelasse o universo aritmético e as invariantes monetárias entre circuito,
+estado e wallet. `rust-monetary-arithmetic-inventory.test.mjs` agora exige as
+contagens e as relações checked/conservation/duplicates/order críticas.
+
+Validação
+=========
+
+- `node --test labs/usdom-reserve/test/node/rust-monetary-arithmetic-inventory.test.mjs` — 4/4;
+- `git diff --check` nos arquivos da ETAPA928 e nas duas continuações.
+
+Nenhum Cargo pesado, prova, RPC, deploy, assinatura, transmissão, commit ou push
+foi executado.

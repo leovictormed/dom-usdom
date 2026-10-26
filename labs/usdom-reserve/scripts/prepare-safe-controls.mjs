@@ -1,13 +1,5 @@
 #!/usr/bin/env node
-import {prepareSafeControlDeployments} from '../sdk/safe-control-deployment.mjs';
-
-try {
-  const result = await prepareSafeControlDeployments({
-    owner: process.env.USDOM_SAFE_OWNER,
-    rpcUrl: process.env.ETHEREUM_RPC_URL,
-  });
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-} catch (error) {
-  process.stderr.write(`Safe control preparation failed: ${error.message}\n`);
-  process.exitCode = 1;
-}
+process.stderr.write(
+  'Unsafe 1-of-1 Safe preparation is disabled. Use npm run --silent prepare:recoverable-safe-controls.\n',
+);
+process.exitCode=1;

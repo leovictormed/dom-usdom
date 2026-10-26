@@ -24,7 +24,8 @@ fn invalid_private_input_never_emits_partial_public_output() {
     for input in [
         &b""[..],
         &b"UDFINL01"[..],
-        &b"UDFINL02"[..],
+        &b"UDFINL03"[..],
+        &b"UDFINL04"[..],
         &[0u8; 420][..],
     ] {
         let output = run(input);

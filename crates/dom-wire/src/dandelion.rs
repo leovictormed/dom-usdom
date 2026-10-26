@@ -17,6 +17,9 @@ pub enum DandelionPhase {
     Stem,
     /// Fluff: broadcast to all peers.
     Fluff,
+    /// Exact live replay: preserve the existing stem route without emitting a
+    /// second network message or resetting its monotonic lifetime.
+    Suppressed,
 }
 
 /// Envelope for a stem-phase transaction: contains the target peer that
@@ -68,6 +71,18 @@ impl DandelionRouter {
         tx_hash: [u8; 32],
         available_peers: &[std::net::SocketAddr],
     ) -> DandelionPhase {
+        // Exact replay must not restart the stem lifetime. RPC callers can
+        // legitimately retry an already-admitted transaction after a lost
+        // response, while an untrusted caller can repeat the same canonical
+        // bytes. Replacing this entry used to reset `stem_start`, allowing a
+        // replay every < STEM_TIMEOUT to postpone fluff propagation forever.
+        if let Some(state) = self.stem_txs.get(&tx_hash) {
+            if state.stem_start.elapsed() <= STEM_TIMEOUT {
+                return DandelionPhase::Suppressed;
+            }
+            self.stem_txs.remove(&tx_hash);
+            return DandelionPhase::Fluff;
+        }
         if available_peers.is_empty() {
             return DandelionPhase::Fluff; // no peers → broadcast
         }
@@ -177,6 +192,48 @@ mod tests {
             }
         }
         assert!(found_stem, "should find stem phase in 20 attempts");
+    }
+
+    #[test]
+    fn exact_replay_preserves_original_stem_lifetime_and_route() {
+        let mut router = DandelionRouter::new();
+        let tx = [0x42; 32];
+        let first_peer: std::net::SocketAddr = "127.0.0.1:33369".parse().unwrap();
+        let second_peer: std::net::SocketAddr = "127.0.0.1:33370".parse().unwrap();
+        router.stem_txs.insert(
+            tx,
+            StemState {
+                stem_start: Instant::now(),
+                stem_peer: first_peer,
+            },
+        );
+        let original_start = router.stem_txs[&tx].stem_start;
+
+        assert_eq!(
+            router.route_new_tx(tx, &[second_peer]),
+            DandelionPhase::Suppressed
+        );
+        assert_eq!(router.get_stem_peer(&tx), Some(first_peer));
+        assert_eq!(router.stem_txs[&tx].stem_start, original_start);
+    }
+
+    #[test]
+    fn replay_of_expired_stem_promotes_to_fluff_without_reinsertion() {
+        let mut router = DandelionRouter::new();
+        let tx = [0x43; 32];
+        router.stem_txs.insert(
+            tx,
+            StemState {
+                stem_start: Instant::now() - STEM_TIMEOUT - Duration::from_secs(1),
+                stem_peer: "127.0.0.1:33369".parse().unwrap(),
+            },
+        );
+
+        assert_eq!(
+            router.route_new_tx(tx, &["127.0.0.1:33370".parse().unwrap()]),
+            DandelionPhase::Fluff
+        );
+        assert_eq!(router.get_stem_peer(&tx), None);
     }
 
     #[test]

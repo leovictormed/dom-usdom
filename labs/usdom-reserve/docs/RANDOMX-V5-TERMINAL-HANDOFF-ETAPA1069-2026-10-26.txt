@@ -1,0 +1,79 @@
+ETAPA 1069 — HANDOFF TERMINAL AUTENTICADO DA PROVA RANDOMX V5
+Data: 2026-10-26
+
+Resultado
+=========
+O adaptador somente leitura aceitou o término real da execução v5 e emitiu uma
+receita canônica imutável. A classificação é `failed-stale`, com
+`releaseAllowed=true` e `promotionAllowed=false`. Portanto os recursos da
+execução histórica podem ser liberados pelo fluxo subsequente, mas este resultado
+não pode promover artefato, receipt, ImageID ou configuração para mainnet.
+
+Estado terminal autenticado
+===========================
+- run directory:
+  `/home/leonardov/.local/share/dom-usdom/prover-inputs/udfinl04-pinned/randomx-proof-run`
+- lab root efetivamente usado pelo runner:
+  `/home/leonardov/.local/share/dom-usdom/prover-inputs/udfinl04-pinned/work/labs/usdom-reserve`
+- status: `failed`; exit code: `143`; finishedAt: `2026-10-26T13:36:55Z`
+- runner PID 2400602, wrapper PID 2400778 e prover PID 2400779: ausentes
+- runner SHA-256: `d43e90f1e16e581a9ee8d8e394cdcd9e3d91a8de8caaf4d065f2f209e96ae9f8`
+- build-status SHA-256: `09bf0afe01a88821aa07fb5d1deefb0e7f774808bfa5f5cc02afc994830f73cc`
+- terminal status SHA-256: `f50a546c32fa9f99853fdabd88f607b3fcb8cbef4da7fb2f42815fa7d7eafd86`
+- job-index SHA-256: `793451dc2ad0a760161b6fea0350303e868b1f9c84cf4fdd9dadfb7cfdb1fe29`
+- ELF SHA-256: `1a8e491304763477094da84ff0701ea18d935600a3b3a79eb1c1250facd6903f`
+- IID-file SHA-256: `57ec90732f703bd58efd1682ab608b1a1efc3c66dce65480384cf72db4891245`
+- ProgramBinary SHA-256: `0601bf022575b060edaeb0b32414b2f53e72f39d2284028069099414653591dd`
+- prover binary SHA-256: `4bc49c3a0a5c38adcea8cf3810e3cf74b663230d8e9c1cced034d871f0097611`
+- recursion artifact SHA-256: `744b999f0a35b3c86753311c7efb2a0054be21727095cf105af6ee7d3f4d8849`
+
+Identidade atual derivada
+=========================
+O Cargo.lock atual foi lido diretamente e possui SHA-256
+`a8cf3916a0e823e81bf0378721530fb07d5e82b7bd7bb7d821bc08c02bf4dfc2`.
+O source graph foi recalculado pelo algoritmo exato do `build-runner-v2.sh`:
+`cargo metadata --locked --offline`, fechamento transitivo a partir do pacote
+`dom-usdom-randomx-proof-host`, Cargo.toml/Cargo.lock e todos os arquivos regulares
+não-symlink dos pacotes locais, excluindo `.git` e `target`, com framing de
+comprimento big-endian. Resultado:
+
+- sourceGraph SHA-256 atual:
+  `171661b1337ffe03fc114f2350d0e81026a50cad6b24e6e1fb969dbd2b037f4e`
+- 493 pacotes no fechamento resolvido
+- 22 pacotes locais
+- 708 entradas incluídas no hash
+
+Receita canônica
+================
+- caminho:
+  `/home/leonardov/.local/share/dom-usdom/handoffs/randomx-v5-20261026-failed-stale-handoff.json`
+- modo/propriedade/link count: `0600`, `leonardov:leonardov`, 1
+- tamanho: 462 bytes
+- SHA-256:
+  `24e5919a8247310acbc52bc490656179a158cf242f73332086e5a1b7e7c3992a`
+- runManifestSha256:
+  `0b2a0af3dc746c5dcc41f2c2a25c2c2d246bdaf03b3e7d60b028778a5f7cebf6`
+- terminalSha256:
+  `f50a546c32fa9f99853fdabd88f607b3fcb8cbef4da7fb2f42815fa7d7eafd86`
+
+Comando exato de materialização
+===============================
+```
+umask 077
+python3 labs/usdom-reserve/scripts/adapt-randomx-v5-proof-handoff.py \
+  --run-directory /home/leonardov/.local/share/dom-usdom/prover-inputs/udfinl04-pinned/randomx-proof-run \
+  --lab-root /home/leonardov/.local/share/dom-usdom/prover-inputs/udfinl04-pinned/work/labs/usdom-reserve \
+  --expected-runner-sha256 d43e90f1e16e581a9ee8d8e394cdcd9e3d91a8de8caaf4d065f2f209e96ae9f8 \
+  --expected-current-cargo-lock-sha256 a8cf3916a0e823e81bf0378721530fb07d5e82b7bd7bb7d821bc08c02bf4dfc2 \
+  --expected-current-source-graph-sha256 171661b1337ffe03fc114f2350d0e81026a50cad6b24e6e1fb969dbd2b037f4e \
+  --expected-current-proof-schema usdom-randomx-receipt-set-v1 \
+  --recipe /home/leonardov/.local/share/dom-usdom/handoffs/randomx-v5-20261026-failed-stale-handoff.json
+```
+
+Limites e preservação
+=====================
+Como a execução falhou, não há receipt-set bem-sucedido a autenticar. O resultado
+prova a identidade e o término da execução histórica, não uma prova ZK válida.
+O adaptador não alterou nem removeu runner, status, logs, jobs, ELF, IID, programa,
+binário ou demais evidências. Não houve build pesado, rede, push, deploy, assinatura
+ou movimentação de fundos.

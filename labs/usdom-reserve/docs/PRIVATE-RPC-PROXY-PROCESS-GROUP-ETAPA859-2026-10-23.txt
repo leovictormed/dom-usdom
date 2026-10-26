@@ -1,0 +1,31 @@
+ETAPA 859 — PRIVATE RPC PROXY PROCESS-GROUP CLEANUP
+Date: 2026-10-23
+
+Scope
+-----
+The audit was restricted to four requested launchers: the secret Node
+entrypoint, closed-mainnet node launcher, mainnet deployment executor and
+recoverable Safe recovery executor. The first two use final `exec` and create
+no background process. Each executor creates one private RPC proxy.
+
+Finding and correction
+----------------------
+The proxy cleanup sent TERM only to the immediate Node PID and then performed
+an unbounded wait. A descendant could survive, or a TERM-resistant child could
+block secret-directory cleanup indefinitely.
+
+Both proxies now run below authenticated GNU timeout, which creates a separate
+process group, with a 24-hour absolute ceremony bound and two-second TERM-to-
+KILL escalation. Cleanup signals the negative process-group ID, polls for at
+most two seconds, sends final KILL, reaps the leader and only then erases the
+private directory. Early proxy failure also calls the same group cleanup before
+discarding the PID, covering a child that exits after spawning a descendant.
+
+Validation
+----------
+- Bash syntax passed for all four scoped launchers.
+- Background inventory, private cleanup and adversarial group lifecycle tests
+  passed 8/8. Mutations removing group signaling, kill escalation, bounded
+  timeout, exact wait or channel separation are rejected.
+- Diff whitespace validation passed.
+- No node, proxy, RPC, build, signing, deployment or fund operation ran.

@@ -7,19 +7,34 @@ authors.workspace = true
 license.workspace = true
 
 [features]
+default = []
+ethereum-checkpoint-verified-poc = [
+    "dom-chain/ethereum-checkpoint-verified-poc",
+    "dep:usdom-ethereum-finality-experiment",
+]
 # Isolated native USDOM v4 node runtime. Public-network construction requires
 # an exact persisted activation schedule and bridge-committed verifier; live
 # P2P ingress also requires an authenticated bilateral v4 capability.
 # No production schedule is selected by this feature.
 native-usdom-v4-poc = [
+    "ethereum-checkpoint-verified-poc",
     "dom-chain/native-usdom-v4-poc",
     "dom-wire/native-usdom-v4-poc",
     "dep:dom-usdom-state",
     "dep:dom-usdom-privacy",
-    "dep:usdom-ethereum-finality-experiment",
     "dep:alloy",
     "dep:serde",
     "dep:sha2",
+    "dep:dom-usdom-checkpoint-program",
+    "dep:dom-usdom-wallet",
+]
+# Offline wallet operator tools may load the large spend proving key. This
+# feature is deliberately separate from the validating node runtime so normal
+# Mainnet nodes keep the prover out of their dependency graph.
+usdom-wallet-operator = [
+    "native-usdom-v4-poc",
+    "dep:dom-usdom-prover",
+    "dom-usdom-wallet/tpm2-seal-authority",
 ]
 
 [[bin]]
@@ -34,6 +49,71 @@ path = "src/bin/dom-wallet-bootstrap.rs"
 name = "dom-usdom-manifest-check"
 path = "src/bin/dom-usdom-manifest-check.rs"
 required-features = ["native-usdom-v4-poc"]
+
+[[bin]]
+name = "dom-usdom-export-checkpoint-source"
+path = "src/bin/dom-usdom-export-checkpoint-source.rs"
+required-features = ["native-usdom-v4-poc"]
+
+[[bin]]
+name = "dom-usdom-export-preactivation-anchor"
+path = "src/bin/dom-usdom-export-preactivation-anchor.rs"
+required-features = ["native-usdom-v4-poc"]
+
+[[bin]]
+name = "dom-usdom-export-checkpoint-source-set"
+path = "src/bin/dom-usdom-export-checkpoint-source-set.rs"
+required-features = ["native-usdom-v4-poc"]
+
+[[bin]]
+name = "dom-usdom-export-randomx-statement-set"
+path = "src/bin/dom-usdom-export-randomx-statement-set.rs"
+required-features = ["native-usdom-v4-poc"]
+
+[[bin]]
+name = "dom-usdom-export-finalized-burn-source"
+path = "src/bin/dom-usdom-export-finalized-burn-source.rs"
+required-features = ["native-usdom-v4-poc"]
+
+[[bin]]
+name = "dom-usdom-build-finalized-deposit-witness"
+path = "src/bin/dom-usdom-build-finalized-deposit-witness.rs"
+required-features = ["native-usdom-v4-poc"]
+
+[[bin]]
+name = "dom-usdom-register-finalized-deposit"
+path = "src/bin/dom-usdom-register-finalized-deposit.rs"
+required-features = ["native-usdom-v4-poc"]
+
+[[bin]]
+name = "dom-usdom-observe-finalized-deposit"
+path = "src/bin/dom-usdom-observe-finalized-deposit.rs"
+required-features = ["native-usdom-v4-poc"]
+
+[[bin]]
+name = "dom-usdom-build-private-burn"
+path = "src/bin/dom-usdom-build-private-burn.rs"
+required-features = ["usdom-wallet-operator"]
+
+[[bin]]
+name = "dom-usdom-bootstrap-tpm-wallet-authority"
+path = "src/bin/dom-usdom-bootstrap-tpm-wallet-authority.rs"
+required-features = ["usdom-wallet-operator"]
+
+[[bin]]
+name = "dom-usdom-submit-private-burn"
+path = "src/bin/dom-usdom-submit-private-burn.rs"
+required-features = ["usdom-wallet-operator"]
+
+[[bin]]
+name = "dom-usdom-wallet-tpm-keystore"
+path = "src/bin/dom-usdom-wallet-tpm-keystore.rs"
+required-features = ["usdom-wallet-operator"]
+
+[[bin]]
+name = "dom-usdom-recover-wallet-at-checkpoint"
+path = "src/bin/dom-usdom-recover-wallet-at-checkpoint.rs"
+required-features = ["usdom-wallet-operator"]
 
 [dependencies]
 socket2.workspace     = true
@@ -72,8 +152,15 @@ usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finalit
 alloy = { version = "=2.1.0", default-features = false, optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
 sha2 = { workspace = true, optional = true }
+dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", optional = true, features = ["host-reference"] }
+dom-usdom-wallet = { path = "../dom-usdom-wallet", optional = true, features = ["rpc-client"] }
+dom-usdom-prover = { path = "../dom-usdom-prover", optional = true }
+dom-wallet-crypto.workspace = true
+rustix = { version = "=1.1.4", default-features = false, features = ["fs", "process", "std"] }
+zeroize.workspace = true
 
 [dev-dependencies]
+usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", features = ["unsafe-test-oracle"] }
 ark-bn254 = "=0.5.0"
 ark-groth16 = "=0.5.0"
 ark-serialize = "=0.5.0"

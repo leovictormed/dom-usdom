@@ -1,0 +1,22 @@
+ETAPA 905 — política de endpoints RPC
+Data: 2026-10-23
+
+Cobertura dos 22 consumers/providers
+- 22/22 usam a validação central de endpoint.
+- 22/22 exigem HTTPS, sem userinfo e sem fragment.
+- 22/22 recusam redirects no fetch.
+- Paths e queries permanecem permitidos para credenciais de provedor, mas não entram no catálogo público nem em erros sanitizados.
+- Catálogos exigem 2..5 operadores, operator IDs e origins distintos.
+
+Gaps corrigidos
+- Host literal, loopback, `.localhost`, `.local`, single-label e hostname com ponto terminal eram aceitos.
+- Agora endpoints mainnet exigem hostname DNS público canônico e recusam qualquer IPv4/IPv6 literal.
+- Origins em portas distintas do mesmo hostname podiam simular independência. Build e runtime matching agora exigem hostnames distintos além de operators/origins distintos.
+
+Exceções e limite técnico
+- O proxy local privado usa sua validação separada de tokens loopback e não passa por esta política mainnet.
+- DNS resolution não é feita durante preparação offline; a política elimina alvos locais/literais e redirects, mas não pode provar independência administrativa de DNS sem evidência operacional externa.
+- O fetch nativo não recebe configuração de proxy do código; fetch injetado continua sujeito ao contrato do caller/teste.
+
+Validação
+- Vetores HTTP, userinfo, fragment, localhost, `.local`, IPv4, IPv6, trailing-dot, single-label e hostname repetido em porta diferente.

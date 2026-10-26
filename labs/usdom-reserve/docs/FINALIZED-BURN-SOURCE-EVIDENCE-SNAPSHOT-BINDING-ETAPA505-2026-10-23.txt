@@ -1,0 +1,18 @@
+Stage 505 — Finalized-burn-source evidence snapshots
+Date: 2026-10-23
+
+The finalized-burn-source exporter checked checkpoint witness, checkpoint
+statement and burn ID paths before invoking Cargo. After compilation, the
+exporter binary reopened the original owner-only files. A replacement during
+the build could therefore cross the shell-to-binary check/open boundary.
+
+The command now copies all three inputs through the direct private-file reader
+into the same private temporary directory as its runtime manifest snapshots.
+The exporter receives only the snapshot paths. The entire set is removed after
+Cargo exits.
+
+`production_finalized_burn_source_evidence_snapshotted` is a structural fact.
+No compilation, burn-source export, network access, funds, mining, commit or
+push occurred while producing this evidence.
+
+Validation: shell syntax and complete operator runbook 71/71; readiness 60/60.

@@ -1,0 +1,39 @@
+ETAPA 784 — closed Safe finalized-execution evidence
+Date: 2026-10-23
+
+Finding
+
+The on-chain observer already reconciled the exact Safe ExecutionSuccess event
+against transaction, receipt, canonical block and finalized head, then required
+two to five RPCs to return identical results. The create-once per-role evidence
+was nevertheless consumed by the final collector with only schema name, role
+and a permissive transaction-hash regex. Extra/missing fields, alternate block
+quantities, Safe/safeTxHash substitution and RPC-consensus drift were not
+revalidated at the durable boundary.
+
+Correction
+
+- Added one shared finalized-execution validator with exactly nine base keys
+  plus required `rpcConsensus` for durable evidence.
+- It validates the complete Safe plan and transaction package, exact role Safe
+  and safeTxHash, lowercase transaction/block hashes, canonical decimal uint64
+  block numbers and `executionBlock <= finalizedObservationBlock`.
+- RPC consensus uses its existing exact schema and commitment validator.
+- The single-provider observer validates its nine-key projection before return.
+  The consensus observation is then reread through a private bounded mode-0600,
+  fatal-UTF-8/duplicate-key reader immediately before create-once persistence.
+- The final collector uses the same validator, requires the exact catalog-
+  derived RPC consensus evidence, includes the transaction package in its
+  stable reread set and then performs the existing full recovery observation.
+
+Validation
+
+- Focused finalized-execution and framing tests: 3/3 pass. Mutation coverage
+  includes extra/missing fields, uppercase hash, leading-zero/overflow/newer
+  block, Safe/safeTxHash substitution and RPC source-count drift.
+- Node/shell syntax and diff checks pass.
+- Stale broad textual regex belongs to concurrent ETAPA776 coordination and was
+  not modified here.
+
+No RPC, deployment, signature, transmission, commit, push or fund action was
+performed.

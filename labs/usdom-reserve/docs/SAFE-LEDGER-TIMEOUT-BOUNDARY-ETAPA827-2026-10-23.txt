@@ -1,0 +1,29 @@
+ETAPA 827 — Safe Ledger timeout boundary
+Date: 2026-10-23
+
+Finding
+
+The recoverable-Safe signing ceremony strongly pinned Cast, Node, jq, cmp and
+sha256sum, but its Ledger address and six signature calls had no deadline. A
+stalled USB/device/provider interaction could retain the private ceremony,
+terminal and temporary typed-data state indefinitely and prevent deterministic
+cleanup.
+
+Correction
+
+- Added GNU timeout to the required, safely owned tool set and bound its resolved
+  path, single-link metadata, owner/mode/directory, stat identity and SHA-256.
+- Both Ledger command forms execute through that exact timeout binary with a
+  five-minute deadline, TERM followed by KILL after five seconds, and foreground
+  terminal semantics.
+- Cast and timeout identities are checked immediately before and after every
+  Ledger operation. Timeout or signal failure propagates through `set -e` into
+  the existing status-preserving private cleanup.
+
+Validation
+
+- Bash syntax passes.
+- Ledger timeout, tool-pinning, environment, descriptor, crash and cleanup
+  suites: 17/17 pass.
+- Diff check passes.
+- No Ledger interaction, signature, RPC, deployment, commit, push or funds action ran.

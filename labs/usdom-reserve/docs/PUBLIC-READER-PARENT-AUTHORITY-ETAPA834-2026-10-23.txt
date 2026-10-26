@@ -1,0 +1,33 @@
+ETAPA 834 — public authority reader parent pinning
+Date: 2026-10-23
+
+Finding
+=======
+Public manifests, identities, receipts and configs used the shared direct-file
+reader's O_NOFOLLOW, owner, nlink, mode/size and post-read inode checks, but the
+reader pinned the parent only in private mode. A parent could be replaced after
+the opened-file canonical-path check while the old inode remained stable,
+allowing validated bytes to differ from the newly named authority path.
+
+Correction
+==========
+Every direct read now opens the parent with O_DIRECTORY|O_NOFOLLOW, requires
+current-user ownership and rejects group/world-writable modes. Public parents
+may remain intentionally listable (for example 0755). The basename is opened
+through the retained dirfd; the pinned parent is compared with a newly opened
+named parent before and after the bounded, inode-stable file read. Private mode
+adds the existing exact-0700 requirement.
+
+Two stale structural regressions were reconciled with stronger current code:
+- readiness now routes all source reads through one byte-snapshot wrapper over
+  `readDirectProjectFile`, rather than repeating literal calls;
+- both executors delegate canonical loopback validation to the shared strict
+  private-RPC-ready validator rather than embedding a duplicate regex.
+
+Validation
+==========
+- Public mode accepts 0755, rejects 0775 and rejects a symlink parent.
+- Full focused reader/runtime-secret/submission/wallet suite: 29/29 pass.
+- Node syntax and git diff checks pass.
+
+No RPC, secret, signature, deployment, push or fund operation ran.

@@ -21,12 +21,109 @@ use dom_crypto::keys::SecretKey;
 use dom_crypto::pedersen::{BlindingFactor, Commitment};
 use dom_pow::{fast_pow_hash, hash_meets_target, target_to_difficulty, CompactTarget};
 use dom_serialization::{DomDeserialize, DomSerialize};
+use dom_wallet_crypto::read_captured_bytes;
 use randomx_rs::{RandomXCache, RandomXDataset, RandomXFlag, RandomXVM};
 use serde_json::json;
-use std::time::Instant;
+use std::{
+    fs::{self, File, OpenOptions},
+    io::Write,
+    os::{
+        fd::AsRawFd,
+        unix::fs::{MetadataExt, OpenOptionsExt},
+    },
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 const GENESIS_POW_SEED: [u8; 32] = [0u8; 32];
 const CEREMONY_UTC: &str = "2026-07-14T23:23:49Z";
+const MAX_GENESIS_VECTOR_BYTES: usize = 1024 * 1024;
+static VECTOR_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn same_file(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+fn anchored_child(parent: &File, path: &Path) -> Result<PathBuf> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow!("genesis vector path has no final component"))?;
+    if name == "." || name == ".." {
+        return Err(anyhow!("invalid genesis vector final component"));
+    }
+    Ok(PathBuf::from(format!("/proc/self/fd/{}", parent.as_raw_fd())).join(name))
+}
+
+fn replace_genesis_vector(path: &Path, bytes: &[u8]) -> Result<()> {
+    if bytes.is_empty() || bytes.len() > MAX_GENESIS_VECTOR_BYTES {
+        return Err(anyhow!("genesis vector has an invalid encoded length"));
+    }
+    let parent_path = path.parent().unwrap_or_else(|| Path::new("."));
+    let named_parent = fs::symlink_metadata(parent_path)
+        .with_context(|| format!("inspect parent of {}", path.display()))?;
+    if !named_parent.file_type().is_dir() {
+        return Err(anyhow!("genesis vector parent is not a direct directory"));
+    }
+    let parent =
+        File::open(parent_path).with_context(|| format!("open parent of {}", path.display()))?;
+    if !same_file(&named_parent, &parent.metadata()?) {
+        return Err(anyhow!("genesis vector parent changed while opening"));
+    }
+    let target = anchored_child(&parent, path)?;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_name = format!(
+        ".dom-genesis-vector.{}.{}.{}.tmp",
+        std::process::id(),
+        nonce,
+        VECTOR_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    );
+    let temporary = anchored_child(&parent, Path::new(&temp_name))?;
+    let mut published_identity = None;
+    let result = (|| {
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o644)
+            .open(&temporary)?;
+        let created = output.metadata()?;
+        if !created.file_type().is_file() || created.nlink() != 1 || created.mode() & 0o022 != 0 {
+            return Err(anyhow!("genesis vector temporary file is not safe"));
+        }
+        output.write_all(bytes)?;
+        output.sync_all()?;
+        published_identity = Some(output.metadata()?);
+        drop(output);
+        let retained_parent = parent.metadata()?;
+        let current_parent = fs::symlink_metadata(parent_path)?;
+        if !same_file(&named_parent, &retained_parent) || !same_file(&named_parent, &current_parent)
+        {
+            return Err(anyhow!("genesis vector parent changed before publication"));
+        }
+        fs::rename(&temporary, &target)?;
+        parent.sync_all()?;
+        if read_captured_bytes(path, MAX_GENESIS_VECTOR_BYTES)
+            .map_err(|error| anyhow!(error.to_string()))?
+            != bytes
+        {
+            return Err(anyhow!("published genesis vector did not verify"));
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+        if let (Some(expected), Ok(current)) = (published_identity, fs::symlink_metadata(&target)) {
+            if current.file_type().is_file() && same_file(&expected, &current) {
+                let _ = fs::remove_file(&target);
+                let _ = parent.sync_all();
+            }
+        }
+    }
+    result.with_context(|| format!("publish {}", path.display()))
+}
 
 fn json_string<'a>(value: &'a serde_json::Value, key: &str) -> Result<&'a str> {
     value
@@ -228,15 +325,14 @@ fn verify_legacy_vector(value: &serde_json::Value, network_magic: u32) -> Result
 }
 
 fn verify_vectors() -> Result<()> {
-    let mainnet: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
-        "test-vectors/genesis/mainnet-v1.json",
-    )?)?;
-    let regtest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
-        "test-vectors/genesis/regtest-v1.json",
-    )?)?;
-    let testnet: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
-        "test-vectors/genesis/testnet-v1.json",
-    )?)?;
+    let load = |path: &str| -> Result<serde_json::Value> {
+        let bytes = read_captured_bytes(Path::new(path), MAX_GENESIS_VECTOR_BYTES)
+            .with_context(|| format!("capture genesis vector {path}"))?;
+        serde_json::from_slice(&bytes).with_context(|| format!("parse genesis vector {path}"))
+    };
+    let mainnet = load("test-vectors/genesis/mainnet-v1.json")?;
+    let regtest = load("test-vectors/genesis/regtest-v1.json")?;
+    let testnet = load("test-vectors/genesis/testnet-v1.json")?;
     for _ in 0..100 {
         verify_mainnet_vector(&mainnet)?;
         verify_legacy_vector(&regtest, NETWORK_MAGIC_REGTEST)?;
@@ -427,7 +523,7 @@ fn write_vectors() -> Result<()> {
     ] {
         let mut encoded = serde_json::to_string_pretty(&value)?;
         encoded.push('\n');
-        std::fs::write(path, encoded).with_context(|| format!("write {path}"))?;
+        replace_genesis_vector(Path::new(path), encoded.as_bytes())?;
     }
     Ok(())
 }
@@ -590,4 +686,44 @@ fn main() -> Result<()> {
     });
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    fn test_directory() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "dom-genesis-vector-test-{}-{}",
+            std::process::id(),
+            VECTOR_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn vector_publication_is_atomic_and_does_not_follow_links() {
+        let directory = test_directory();
+        let target = directory.join("vector.json");
+        replace_genesis_vector(&target, b"{\"generation\":1}\n").unwrap();
+        replace_genesis_vector(&target, b"{\"generation\":2}\n").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"{\"generation\":2}\n");
+
+        let protected = directory.join("protected");
+        fs::write(&protected, b"preserve").unwrap();
+        let linked_target = directory.join("linked.json");
+        symlink(&protected, &linked_target).unwrap();
+        replace_genesis_vector(&linked_target, b"replacement\n").unwrap();
+        assert_eq!(fs::read(&protected).unwrap(), b"preserve");
+        assert_eq!(fs::read(&linked_target).unwrap(), b"replacement\n");
+
+        let linked_parent = directory.with_extension("link");
+        symlink(&directory, &linked_parent).unwrap();
+        assert!(replace_genesis_vector(&linked_parent.join("bad.json"), b"bad\n").is_err());
+        assert!(!directory.join("bad.json").exists());
+        fs::remove_file(linked_parent).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+    }
 }

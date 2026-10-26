@@ -1,0 +1,14 @@
+Stage 1167 — finalized-burn E2E bounded integer parsing
+Date: 2026-10-26
+
+The finalized-burn E2E semantic validator now applies decimal digit ceilings
+for every supported uint width before delegating to the exact bounded integer
+parser. This protects both full report validation and the isolated release EVM
+receipt commitment.
+
+Adversarial tests cover 100,000-digit block-number and EVM-gas fields. The
+focused release E2E suite passes 5/5 with pinned Node 24.19.0; targeted
+diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

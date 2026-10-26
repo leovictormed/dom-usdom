@@ -1,0 +1,63 @@
+USD + DOM — leitura segura do checkpoint no consenso nativo
+Etapa 343 — 2026-10-22
+
+Achado
+
+O transporte de checkpoint Ethereum tem largura canônica fixa de 417 bytes e o
+decodificador rejeitava qualquer outro tamanho antes de acessar seus campos. Não
+havia acesso fora dos limites sob essa pré-condição. Mesmo assim, dois caminhos
+mantinham uma fragilidade de manutenção: o decodificador repetia offsets manuais
+e a ligação entre checkpoint verificado e queima nativa repetia parte desses
+offsets com `expect("fixed checkpoint record")`.
+
+Correção
+
+`decode_test_oracle_v2` agora consome sequencialmente o registro com
+`dom_serialization::Reader`, usa leituras big-endian e arrays de tamanho fixo e
+exige `finish()`. Todo erro de framing continua sendo convertido na rejeição de
+política já exposta ao chamador.
+
+`bind_verified_ethereum_checkpoint_to_native_burn` deixou de interpretar o array
+opaco por conta própria. Ele chama o decodificador canônico uma única vez e usa
+seus campos já validados. Isso também aplica ao handoff de queima a validação
+canônica do digest do evento e elimina os `expect` do caminho de produção.
+
+O único `unreachable!()` restante no despacho de provas privadas foi substituído
+por erro interno fail-closed. Uma alteração futura do enum não pode transformar
+uma premissa de despacho em panic do nó.
+
+Regressão e política
+
+O teste de encoding v2 agora rejeita todos os 417 prefixos próprios e bytes
+residuais. O novo gate
+`scripts/check-native-consensus-panic-boundary.py`:
+
+- rejeita `unwrap`, `expect`, `panic!`, `unreachable!`, `todo!` e
+  `unimplemented!` nos dois módulos de produção;
+- exige os marcadores de `Reader` e consumo completo no decodificador;
+- impede que o binding volte a acessar `checkpoint.record()` por offsets;
+- possui autoteste de mutações e integra `check:provenance`.
+
+Validação executada
+
+- autoteste do novo gate: aprovado;
+- gate sobre os fontes reais: aprovado;
+- verificação de proveniência do import: 169 arquivos, 16 modificações
+  registradas, aprovada;
+- `cargo fmt --all --check`: aprovado;
+- `git diff --check`: aprovado.
+
+A compilação e o teste Rust direcionado permanecem pendentes até a prova RISC
+Zero ativa liberar memória. O resultado dessa prova continua útil como medição
+de capacidade do guest anterior, mas uma prova de release final deverá usar o
+ImageID reconstruído após o congelamento dos fontes atuais.
+
+Fuzzing USDOMBL4
+
+Durante a mesma revisão foi constatado que o alvo de fuzz existe, mas seu corpus
+contém apenas três entradas inválidas curtas. A semente canônica documentada
+ainda precisa ser gerada pelo teste Rust já implementado. Isso será feito após a
+prova ativa para não iniciar uma compilação concorrente no computador limitado.
+
+Não houve push, commit, tag, deploy, assinatura, broadcast, mineração ou uso de
+fundos nesta etapa.

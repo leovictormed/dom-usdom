@@ -1,0 +1,31 @@
+PILOT NONCE, FEE AND REPLACEMENT AUDIT — ETAPA 1119
+Date: 2026-10-26
+Scope: closed mainnet deposit/redemption transaction gates and lightweight tests.
+
+RESULT
+- Immediately before Ledger signing and again after the transmission prompt,
+  both RPCs must report chain ID 1 and the exact expected nonce at finalized and
+  pending. Any account-level pending conflict blocks signing/broadcast.
+- Recovery from a consumed successor nonce is allowed only when both RPCs return
+  the exact already-signed transaction hash. A different, absent or ambiguous
+  hash is rejected; fee-bump/replacement publication is not implemented.
+- Type-2 raw validators continue to bind chain ID 1, exact nonce, 2 gwei priority
+  fee, bounded max fee, calldata/value/gas and transaction hash.
+- Max fee now uses the exact EIP-1559 maximum 12-block growth recurrence
+  ceil(baseFee*9/8) plus the fixed priority fee. Both RPC base fees must agree.
+  The signed fee is checked again against the current 12-block projection before
+  broadcast.
+- Redemption requires validUntil to remain at least 204 seconds beyond both
+  finalized timestamps: twelve projected 12-second blocks plus a 60-second
+  operational buffer.
+
+LIMIT
+Public RPC pending nonce is an account-level conflict signal, not a complete
+txpool inventory. The gate fails when pending differs from finalized and permits
+recovery only by exact known hash on both sources; it does not claim visibility
+into private builder mempools.
+
+VALIDATION
+- Focused nonce/raw/deposit/redemption suites: 13/13 passed.
+- Node/shell syntax and focused diff integrity passed.
+- No network, Cargo/Forge, signing, deployment, funds, commit or push ran.

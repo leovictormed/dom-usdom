@@ -1,0 +1,59 @@
+[package]
+name = "dom-usdom-checkpoint-proof-host"
+description = "Fail-closed planning for authenticated DOM checkpoint segment receipts"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+default = []
+verify = ["dep:bincode", "dep:risc0-zkvm"]
+prove = ["verify", "risc0-zkvm/client", "risc0-zkvm/prove"]
+
+[[bin]]
+name = "dom-usdom-plan-checkpoint-segment-set"
+path = "src/bin/plan.rs"
+required-features = ["verify"]
+
+[[bin]]
+name = "dom-usdom-plan-checkpoint-outer"
+path = "src/bin/plan-outer.rs"
+required-features = ["verify"]
+
+[[bin]]
+name = "dom-usdom-verify-rebuild-receipt"
+path = "src/bin/verify-rebuild-receipt.rs"
+required-features = ["verify"]
+
+[[bin]]
+name = "dom-usdom-prove-checkpoint-segment-set"
+path = "src/bin/prove.rs"
+required-features = ["prove"]
+
+[[bin]]
+name = "dom-usdom-prove-checkpoint-outer"
+path = "src/bin/prove-outer.rs"
+required-features = ["prove"]
+
+[[bin]]
+name = "dom-usdom-package-checkpoint-outer-evm-proof"
+path = "src/bin/package-outer-evm.rs"
+required-features = ["prove"]
+
+[dependencies]
+zeroize.workspace = true
+dom-wallet-crypto.workspace = true
+dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", features = ["economic-chunks", "outer-execution"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+bincode = { workspace = true, optional = true }
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std", "disable-dev-mode"], optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

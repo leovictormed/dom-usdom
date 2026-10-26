@@ -1,0 +1,98 @@
+Stage 532 — production Solidity static security review
+Date: 2026-10-23
+
+Scope
+
+- contracts/USDOMProofReserve.sol
+- contracts/DOMCheckpointRegistry.sol
+- contracts/DOMFinalizedBurnRiscZeroVerifier.sol
+- contracts/DOMCheckpointRiscZeroVerifier.sol
+- contracts/IRiscZeroVerifierV3.sol
+- IUSDTPolicy interactions reached by the reserve
+- Existing Solidity tests covering those contracts (read only)
+
+Result
+
+No distinct, exploitable Solidity defect was established in this review. No
+production contract or test was changed, and no structural readiness fact was
+added. This is evidence of review coverage, not a claim that the contracts are
+free of defects.
+
+Authorization and recovery
+
+- Reserve value paths execute only while unpaused and revalidate both pinned
+  governance and guardian identities and Safe policy. Resume is governance-only,
+  delayed, and rechecks the complete control plane, verifier and token policy.
+- Pause is deliberately available to either pinned emergency principal and
+  invalidates the whole pending generation in O(1). The epoch-bound automation
+  entry point rejects a transaction prepared against a replaced queue.
+- Registry halt is guardian-only, irreversible and revalidates the pinned
+  guardian identity and Safe policy. Permissionless candidate submission and
+  finalization cannot bypass proof verification or the challenge window.
+
+Replay, statement binding and accounting
+
+- Burn statements bind burnId, requestId, recipient, amount, DOM domain,
+  finalized DOM state, finality slot, validity window, Ethereum chain, reserve
+  address and activation schedule. Both burnId and requestId have paid and
+  pending replay guards; execution recomputes and compares the exact stored
+  statement hash.
+- Checkpoint statements bind the complete predecessor and successor context,
+  accumulated work, confirmation suffix, chain, registry, activation schedule
+  and registry configuration. Candidate replacement is restricted to the same
+  round and strictly better confirmation work (with deterministic tie-break),
+  and cannot reset the original challenge deadline.
+- Deposit and release accounting is effects-safe under nonReentrant and requires
+  exact reserve and counterparty balance deltas. Outstanding and pending amounts
+  are checked before reservation and payout; state and token transfer revert
+  atomically on any failed postcondition.
+- The token runtime code hash is pinned. USDT policy probes reject paused token
+  state and frozen participants on all value paths and before resume. Exact
+  balance deltas reject fee, rebase or otherwise incompatible transfer behavior.
+
+Rate limit, calldata and denial-of-service review
+
+- The token bucket is capped at outflowCapacity, refills over one day and is
+  charged before the external transfer. Each burn amount is individually capped
+  before reservation. Timestamp conversions use checked uint64 conversion.
+- Both callers and adapters require the exact 260-byte Groth16 seal and pinned
+  four-byte selector. Adapter journals are the SHA-256 digest of exactly the
+  authenticated 32-byte statement hash. Chain, ImageID, verifier selector,
+  verifier runtime code hash and adapter configuration are immutable bindings.
+- Reserve and registry verifier entry calls have a 5,000,000 gas cap and copy
+  one exact return word. Control-plane and selector probes use small fixed gas
+  budgets and fixed-size returndata. Adapter receipt calls copy no returndata
+  and reject any nonempty response, so a return-data bomb cannot force memory
+  expansion. The underlying verifier is immutable and code-hash pinned; its
+  use of the remaining adapter-call gas is therefore an availability parameter,
+  not an attacker-selectable target.
+- Queue cleanup is bounded to 256 entries. O(1) pause invalidation avoids an
+  unbounded emergency loop; targeted cleanup can remove stale entries behind a
+  live head. Registry stores one candidate, so finalization has constant work.
+
+Adversarial hypotheses checked against existing tests
+
+- altered proof, wrong selector/length, forged statement and verifier mutation;
+- duplicate burn/request, stale queue generation and mismatched execution data;
+- insolvent reserve, hostile token callback, fee/delta mismatch, paused/frozen
+  USDT state and token runtime mutation;
+- unauthorized pause/resume/halt, changed Safe implementation/policy, premature
+  resume/finalization and late or non-leading candidate replacement;
+- malformed/dirty selector returndata, nonempty verifier returndata and verifier
+  return-data bombs.
+
+Validation performed
+
+- Static source-to-test trace with ripgrep and bounded source reads.
+- Lightweight Node assertions confirmed the four production contracts retain
+  the exact proof length/selector checks, replay guards, code-hash/config checks,
+  bounded top-level verifier gas calls, exact transfer delta checks and bounded
+  cleanup constants described above.
+- JSON and whitespace/diff checks were run for this documentation change.
+
+Constraints
+
+No Cargo, Foundry, Anvil, full readiness suite, proof, network, signing, funds,
+deployment or publication operation was run while the RandomX proof workload was
+active. The full readiness suite remains pending until the operator releases
+that shared I/O budget.

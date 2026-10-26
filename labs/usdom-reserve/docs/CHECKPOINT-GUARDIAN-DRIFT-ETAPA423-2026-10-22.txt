@@ -1,0 +1,38 @@
+USDOM stage 423 — checkpoint guardian drift fails closed
+Date: 2026-10-22
+
+Finding
+
+DOMCheckpointRegistry authenticated the immutable guardian identity and Safe
+policy during construction and before permanent halt. Checkpoint submission and
+finalization, however, only rechecked the verifier. A later change to the
+guardian Safe implementation, threshold, owners, module, guard or required
+mainnet fallback handler could therefore leave checkpoint progression enabled
+while making the emergency halt path unavailable.
+
+Correction
+
+The registry now applies one shared _requireGuardianUnchanged predicate before
+both submitCheckpointCandidate and finalizeCheckpoint, and reuses the same
+predicate for haltPermanently. Any drift in the immutable guardian runtime,
+Safe singleton, singleton code, 2-of-3 owner policy, empty module/guard policy
+or mainnet fallback handler stops checkpoint progression before proof work or
+state mutation.
+
+Evidence
+
+- Focused DOMCheckpointRegistry suite: 18/18 passed.
+- New regression proves threshold drift rejects submission and module drift
+  rejects finalization while preserving the pending candidate and predecessor.
+- Complete Solidity suite: 146/146 passed, including all reserve and checkpoint
+  invariants.
+- Production Solidity lint passed.
+- Source-derived registry runtime and initcode vectors were refreshed from the
+  pinned compiler artifact. Focused compiled-runtime/EVM checks passed 3/3.
+- Complete Node regression: 307/307 passed.
+- Complete provenance passed, including 169 imported files with 16 declared
+  changes and the ordered SHA-256 manifest of 1,207 source files.
+
+No RPC, signature, transaction, deployment, funds, mining, commit, tag or push
+occurred in this stage. The independently running finalized-burn proof was not
+restarted or modified.

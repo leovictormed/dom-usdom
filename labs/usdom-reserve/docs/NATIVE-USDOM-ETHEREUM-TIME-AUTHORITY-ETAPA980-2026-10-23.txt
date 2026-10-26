@@ -1,0 +1,80 @@
+Native USDOM Ethereum time/freshness authority — ETAPA 980 — 2026-10-23
+
+Scope
+=====
+
+End-to-end Ethereum light-client time authority from bootstrap/update replay,
+checkpoint and deposit witnesses, native v4/v2 consensus validation, and the
+portable checkpoint replay program. The audit also covered fork-schedule input
+because fork epochs select the signature domain used by the same clock path.
+
+Concrete gaps closed
+====================
+
+1. `EthereumFinalityClient::accept` accepted a caller-provided `current_slot`.
+   Although native witness restoration bounded it by the DOM block timestamp,
+   the transcript could choose any earlier ceiling rather than the update's
+   authenticated signature slot. The public API now accepts only the update and
+   derives `current_slot = update.signature_slot`; callers cannot supply time.
+
+2. Canonical replay used `max`, so authenticated updates could be encoded in
+   decreasing slot order. Client admission, transcript preflight and bounded
+   restoration now require monotonic signature slots. Duplicate update bytes
+   remain idempotent and cannot append a second transcript record.
+
+3. A valid but indefinitely old trusted bootstrap could be replayed. Bounded
+   restoration now requires the authenticated bootstrap slot to be nonzero,
+   no later than the consensus ceiling, and at most 100,800 slots (14 days at
+   12 seconds/slot) behind it. The unbounded compatibility restore derives the
+   exact canonical replay slot and applies the same check. Production release
+   configuration must rotate its trusted checkpoint within that horizon.
+
+4. Checkpoint/deposit finality was upper-bounded by the DOM-derived Beacon slot,
+   but issuance/checkpoint admission did not independently apply the bridge's
+   maximum execution-anchor age. Both live native verification and portable
+   recursive replay now require the authenticated finalized execution timestamp
+   to fall within the immutable `max_ethereum_anchor_age_secs` and bounded DOM
+   clock lead. This prevents a historical witness from minting or refreshing
+   burn authority in a later DOM block.
+
+5. Serialized policy/proof-host paths accepted structurally malformed fork
+   schedules even though the mainnet node manifest pins the exact schedule.
+   Shared bootstrap plus checkpoint/deposit policy validation now requires
+   genesis epoch zero, strictly increasing epochs through Gloas, Capella active,
+   Gloas after Fulu, and unique fork versions. Exact mainnet epochs/versions
+   remain independently pinned by node configuration.
+
+Proven authority chain
+======================
+
+* The relayer controls witness bytes but not bootstrap root, genesis root,
+  immutable forks/policies, DOM block timestamp, or bridge timing policy.
+* Every recorded replay slot equals a BLS-authenticated update signature slot.
+* Bounded restoration rejects bootstrap/update/finalized slots beyond the slot
+  derived from the consensus-validated DOM block timestamp.
+* Bootstrap age and finalized execution timestamp age are bounded separately.
+* The same finality freshness helper is applied before an opaque verified
+  deposit/checkpoint becomes a native transition in both live and recursive
+  replay paths.
+* Burn admission continues to recheck the committed Ethereum anchor age and its
+  reserve-compatible certificate window in native state transition logic.
+
+Focused regressions/gates
+=========================
+
+ADDED: transcript mutation with relayer-selected current slot rejects.
+ADDED: stale bootstrap beyond 100,800 slots rejects.
+ADDED: equal/reordered fork epoch rejects at bootstrap.
+ADDED: finalized-time helper accepts boundary-valid input and rejects stale,
+       future and zero-policy inputs.
+UPDATED: all tests/examples use the one-argument authenticated `accept` API.
+PASS: structural gate confirms no two-argument finality `accept` call remains,
+      both policy validators and bootstrap validate fork schedules, restoration
+      has equality/monotonic/future/bootstrap-age gates, and both live/portable
+      native paths call finalized-time validation.
+PASS: rustfmt check and shared `git diff --check`.
+DEFERRED: Cargo execution until the active long RISC Zero proof finishes, to
+          avoid competing for constrained CPU/disk resources.
+
+No commit, push, deploy, signing, broadcast, mining, wallet use, or funds action
+was performed.

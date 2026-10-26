@@ -1,0 +1,28 @@
+ETAPA 873 — WALLET OPERATOR CHILD PROCESS LIFECYCLE
+Date: 2026-10-23
+
+Scope and finding
+-----------------
+The audit was restricted to finalized-deposit wallet observation/registration,
+closed-mainnet private-burn submission and finalized-deposit witness building.
+Pinning logic was preserved. Each flow had status-preserving secret cleanup and
+no background jobs, but Cargo could retain compiler descendants indefinitely,
+and the credential-bearing wallet/runtime binaries had no outer deadline.
+
+Correction
+----------
+- Cargo build/run commands now execute in timeout-created process groups with a
+  one-hour deadline and 30-second TERM-to-KILL escalation.
+- TPM keystore unlock and the observer/register/submit binaries now have
+  five-minute deadlines and five-second kill escalation.
+- Existing Curl ten-second network bounds, tool identity rechecks, temporary
+  secret cleanup and signal exit statuses remain unchanged.
+
+Validation
+----------
+- Bash syntax passed for all four scoped scripts.
+- Lifecycle, Cargo pinning, Curl boundary and secret-cleanup regressions passed
+  after reconciliation; the final affected suites contain 17 passing tests and
+  no remaining failure.
+- Diff whitespace validation passed.
+- No Cargo build, RPC, TPM, signing, submission or fund operation ran.

@@ -356,9 +356,9 @@ contract AuditV2Test is ReserveFixture {
         reserve.deposit(capacity, bytes32(uint256(1)), bytes32(uint256(1)));
         vm.stopPrank();
         USDOMReserve.Burn memory b = queued(capacity);
-        mature();
+        uint256 origin = block.timestamp + 1 days;
+        vm.warp(origin);
         reserve.executeWithdrawal(b);
-        uint256 origin = block.timestamp;
         uint256 elapsed = uint256(rawElapsed) % (2 days);
         vm.warp(origin + elapsed);
         uint64 amount = uint64(uint256(rawAmount) % capacity) + 1;

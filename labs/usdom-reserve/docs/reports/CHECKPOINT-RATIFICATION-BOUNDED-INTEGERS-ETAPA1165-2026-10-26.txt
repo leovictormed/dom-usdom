@@ -1,0 +1,13 @@
+Stage 1165 — checkpoint ratification bounded integer parsing
+Date: 2026-10-26
+
+The bootstrap ratification validator now applies lexical ceilings for uint8,
+uint64, uint128 and uint256 before BigInt conversion. The existing exact
+numeric bounds and nonzero policies remain unchanged.
+
+Adversarial tests cover 100,000-digit checkpoint epoch, source count and
+snapshot timestamp fields. The focused suite passes 6/6 with pinned Node
+24.19.0; targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

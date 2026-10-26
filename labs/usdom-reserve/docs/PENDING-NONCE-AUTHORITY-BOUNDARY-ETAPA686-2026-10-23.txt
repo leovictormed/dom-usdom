@@ -1,0 +1,35 @@
+ETAPA686 — PENDING NONCE AND LATEST-STATE AUTHORITY BOUNDARY
+Date: 2026-10-23
+
+Scope
+- Audited every production use of pending/latest and the bounded provider's
+  allowPendingNonce exception.
+- No RPC, signing, publication or external operation was performed.
+
+Findings and corrections
+1. Safe recovery envelope preparation read finalized nonce, balance, relayer
+   code and gas estimate using symbolic tags before establishing a finalized
+   baseline. It now first obtains one finalized block, pins number/hash with the
+   narrow pending-nonce policy, and performs all authority-bearing reads at the
+   exact canonical number. Independent RPCs must agree on finalized number/hash
+   as well as finalized/pending nonce.
+2. The bounded transport now covers eth_getBalance and eth_estimateGas in
+   addition to calls/code/storage/nonces. Both must use the pinned finalized
+   number. The only accepted `pending` state request is
+   eth_getTransactionCount when the caller explicitly enabled pending nonce.
+3. The interactive Safe recovery executor previously regenerated the envelope
+   after operator authorization but before potentially slow Ledger signing, and
+   did not recheck the relayer nonce immediately before publication. It now
+   regenerates catalog-consensus envelope evidence after authorization/signing
+   and directly before the publication branch, requiring its nonce to equal the
+   signed envelope. A mempool collision or finalized nonce advancement aborts.
+4. `latest` remains only for the EIP-1559 base-fee quote and monitoring UI. It
+   cannot select identity, finality, addresses, config, nonce, balance, code or
+   authorization. Fee observations are repeated per source and bounded; they
+   are intentionally not required to equal an older quote.
+
+Validation
+- Safe envelope/observation and pinned-provider suites: 22/22 passed.
+- Focused negative envelope regression: 1/1 passed, including pending nonce and
+  cross-RPC finalized-snapshot disagreement.
+- Shell syntax, Node syntax and repository whitespace checks passed.

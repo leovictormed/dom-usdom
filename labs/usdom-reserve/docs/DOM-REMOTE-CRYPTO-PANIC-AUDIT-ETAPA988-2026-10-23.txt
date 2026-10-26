@@ -1,0 +1,47 @@
+DOM REMOTE CRYPTO / CONSENSUS PANIC AUDIT — ETAPA988
+Date: 2026-10-23
+
+Scope
+-----
+Production paths reached by remote DOM inputs under panic=abort: RandomX header
+verification, native and portable bounded Bulletproof verification, Schnorr and
+SEC1 parsing, consensus serialization, encrypted network framing/reassembly.
+Ethereum witness paths belong to ETAPA981/985 and are excluded here.
+
+Concrete finding and fix
+------------------------
+The ordinary native Bulletproof verifier rejected malformed curve encodings
+before entering the pinned C verifier, but the transcript-bound verifier used
+by output recovery capsules performed only the 739-byte length check. Therefore
+a remote canonical-length proof with invalid curve-point prefixes could reach a
+dependency error path known to leak a scratch frame. Fresh scratch allocation
+limited accumulation, but it did not justify exposing malformed encodings to C.
+
+`bp_verify_with_extra_commit` now invokes `proof_has_valid_curve_points` before
+backend initialization and returns `Ok(false)` for malformed points, matching
+the ordinary verifier. The existing malformed-zero-prefix regression now covers
+both paths and proves rejection without requiring the native backend.
+
+Other audited boundaries
+------------------------
+* RandomX seed is derived from canonical chain ancestry rather than the peer;
+  cache/VM/hash APIs return errors and the 32-byte dependency result is checked.
+* Block/header decoding uses checked Reader consumption and fixed arrays before
+  RandomX. PoW target slice conversions operate on `[u8; 32]` fixed inputs.
+* Schnorr/SEC1 parsers check length/prefix/canonical scalar and curve membership;
+  CtOption unwraps are dominated by explicit is_none/is_some checks.
+* Network frames validate the four-byte prefix, cap logical/frame sizes, enforce
+  canonical fragmentation and inner payload length before reassembly growth.
+* The portable Bulletproof verifier accepts fixed arrays and rejects invalid
+  point/scalar encodings through typed errors; its guarded CtOption unwraps are
+  dominated by absence checks.
+
+Validation while the long RISC0 proof runs
+-------------------------------------------
+* `check-dom-remote-crypto-panic-boundary.sh`: PASS.
+* rustfmt applied/check invoked on the changed Rust source.
+* targeted production-source review and whitespace diff check: PASS.
+* Heavy Cargo execution remains deferred until the active proof releases CPU
+  and memory; the focused regression is committed in source for that run.
+
+No push, deploy, signing, broadcast, mining, or funds operation was performed.

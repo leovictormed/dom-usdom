@@ -1,0 +1,26 @@
+USDⓄM RESERVE — DURABLE MAINNET DEPLOYMENT PACKAGE (STAGE 415)
+Date: 2026-10-22
+
+Finding
+
+The unsigned four-contract mainnet deployment package was written by ordinary
+redirection to a predictable `/tmp` path. It contains the exact deployers,
+nonces, initcodes, expected addresses and runtime hashes later shown to the
+hardware wallet. Replacement or partial-write ambiguity at this boundary could
+change what an operator reviews or signs.
+
+Correction
+
+- The package now lives in the owner-only control-plane evidence directory.
+- Creation uses the durable create-only private-file writer.
+- Every estimation, rebuild, deployment and address check consumes the same
+  named artifact and its pinned SHA-256 digest.
+- Runbook regression rejects the former predictable path and direct writes.
+
+Validation
+
+- operator/runbook suite: 64/64 passed;
+- the active non-development finalized-burn proof was not changed or restarted.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

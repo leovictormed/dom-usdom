@@ -1,0 +1,34 @@
+Etapa 535 — boundary de hash direto do source manifest
+
+Achado
+
+O enumerador do manifesto aplicava lstat e rejeitava links simbólicos, porém a
+função digest reabria posteriormente cada nome com Path.read_bytes(). Uma troca
+de arquivo entre a enumeração e essa reabertura podia transformar o path em link
+simbólico e fazer o hash autenticar bytes fora da raiz. A mesma função também
+aceitava um path com .. quando chamada diretamente.
+
+Correção
+
+digest agora exige path relativo canônico, abre com O_NOFOLLOW e O_CLOEXEC,
+valida pelo descritor que o objeto é regular e lê em blocos limitados. Após a
+leitura, compara device, inode, tamanho, mtime e ctime obtidos pelo mesmo
+descritor. Substituição por symlink, path traversal ou mutação durante o hash
+falha fechada. Nenhuma regeneração do manifesto foi feita nesta etapa.
+
+Teste adversarial
+
+O self-test chama digest diretamente sobre um symlink para um arquivo válido e
+exige rejeição. Também chama digest com ../outside.txt e exige rejeição antes de
+qualquer abertura. Os testes anteriores de alteração de conteúdo, path extra,
+ordenação e symlink durante enumeração permanecem ativos.
+
+Revisão complementar
+
+MANIFEST.sha256 cobre o escopo integral de labs/usdom-reserve, salvo diretórios
+regeneráveis/evidência e os três documentos operacionais explicitamente
+excluídos. PROOF-PROGRAM-MANIFEST.sha256 cobre seu inventário externo exato e o
+checker exige igualdade de conjuntos, paths canônicos e hashes. O relatório de
+validação liga o hash do MANIFEST, requisitos e resultados de checks fixos. Não
+foi identificado fact booleano sem chave requerida no gate; nenhum novo fact foi
+criado para esta correção localizada.

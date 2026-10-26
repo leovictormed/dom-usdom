@@ -1,0 +1,32 @@
+ETAPA 945 — política de recursos da verificação USDOM nativa
+Data: 2026-10-23
+
+Achado corrigido
+O envelope limitava cada bloco a 1 checkpoint, 4 emissões, 16 spends privados e tamanho
+canônico bounded, mas provas exatamente repetidas chegavam à verificação Ethereum/Groth16.
+Uma repetição exata nunca pode ser uma segunda transição válida: repete deposit ou
+nullifier. Um bloco inválido podia assim forçar até 16 verificações Groth16 redundantes.
+
+Correção
+`validate_envelope_entries` mantém um BTreeSet emprestado de `(kind, payload)` e rejeita
+duplicata exata antes de qualquer criptografia. A checagem não aloca cópias dos payloads,
+é determinística e não remove nenhum bloco válido do protocolo.
+
+Política confirmada
+- máximo por envelope: 1024 transições, 1 checkpoint, 4 emissões, 16 spends privados;
+- envelope <= metade do limite serializado do bloco e limites específicos por payload;
+- parsing/count/size/duplicata ocorre antes de Ethereum/Groth16;
+- Rayon recebe no máximo 16 trabalhos caros, coleta em Vec indexado e o resultado é
+  reintegrado na ordem canônica;
+- a mutação de estado ocorre somente depois de todas as provas e em clone atômico.
+
+Validação leve
+- regressão Rust incluída no teste de framing para duplicata dentro dos demais limites;
+- gate Node `native-usdom-resource-policy-stage945.test.mjs`: 3/3 passou;
+- rustfmt --check e git diff --check: passaram;
+- Cargo pesado não executado.
+
+Risco residual
+Não há timeout consensual de verificação; timeout baseado em relógio dividiria nós. O
+controle seguro permanece orçamento determinístico de bytes/contagens e paralelismo
+bounds. Benchmark operacional de hardware continua necessário antes da ativação.

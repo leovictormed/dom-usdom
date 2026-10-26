@@ -25,6 +25,48 @@ pub struct ExecutionAncestryEvidence {
     pub headers_rlp: Vec<Bytes>,
 }
 
+/// Canonically encode a bounded ordered header chain. Hash/parent/root
+/// authentication still occurs during `verify_execution_ancestry`.
+pub fn build_execution_ancestry(headers: &[Header]) -> Result<ExecutionAncestryEvidence> {
+    ensure!(
+        !headers.is_empty() && headers.len() <= MAX_ANCESTRY_HEADERS,
+        "execution ancestry header count"
+    );
+    for pair in headers.windows(2) {
+        ensure!(
+            pair[1].number
+                == pair[0]
+                    .number
+                    .checked_add(1)
+                    .ok_or_else(|| eyre::eyre!("execution block number overflow"))?
+                && pair[1].parent_hash == pair[0].hash_slow(),
+            "broken execution ancestry"
+        );
+    }
+    let anchor = headers
+        .last()
+        .ok_or_else(|| eyre::eyre!("execution ancestry header count"))?;
+    let evidence = ExecutionAncestryEvidence {
+        anchor_block_hash: anchor.hash_slow(),
+        anchor_block_number: anchor.number,
+        headers_rlp: headers
+            .iter()
+            .map(|header| alloy_rlp::encode(header).into())
+            .collect(),
+    };
+    let total = evidence.headers_rlp.iter().try_fold(0usize, |total, raw| {
+        ensure!(
+            !raw.is_empty() && raw.len() <= MAX_HEADER_BYTES,
+            "execution header byte limit"
+        );
+        total
+            .checked_add(raw.len())
+            .ok_or_else(|| eyre::eyre!("execution ancestry size overflow"))
+    })?;
+    ensure!(total <= MAX_ANCESTRY_BYTES, "execution ancestry byte limit");
+    Ok(evidence)
+}
+
 /// Opaque execution header proven canonical under a retained finalized anchor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthenticatedExecutionHeader {
@@ -114,6 +156,26 @@ fn verify_ancestry(
             state_root: target.state_root,
         },
     })
+}
+
+pub(crate) fn validate_ancestry_allocation_bounds(
+    evidence: &ExecutionAncestryEvidence,
+) -> Result<()> {
+    ensure!(
+        !evidence.headers_rlp.is_empty() && evidence.headers_rlp.len() <= MAX_ANCESTRY_HEADERS,
+        "execution ancestry header count"
+    );
+    let total = evidence.headers_rlp.iter().try_fold(0usize, |total, raw| {
+        ensure!(
+            !raw.is_empty() && raw.len() <= MAX_HEADER_BYTES,
+            "execution header byte limit"
+        );
+        total
+            .checked_add(raw.len())
+            .ok_or_else(|| eyre::eyre!("execution ancestry size overflow"))
+    })?;
+    ensure!(total <= MAX_ANCESTRY_BYTES, "execution ancestry byte limit");
+    Ok(())
 }
 
 impl AuthenticatedExecutionHeader {

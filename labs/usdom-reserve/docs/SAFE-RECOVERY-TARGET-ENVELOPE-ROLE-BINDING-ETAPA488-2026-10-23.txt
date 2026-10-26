@@ -1,0 +1,22 @@
+Stage 488 — Safe recovery target envelope-role binding
+Date: 2026-10-23
+
+The Safe recovery target preflight previously accepted its role selector
+through the environment even though the canonical recovery envelope already
+commits the exact role and transaction semantics. A caller could therefore
+request an observation under semantics supplied separately from the durable
+ceremony artifacts.
+
+The preflight now directly reads the recovery plan, transaction package and
+envelope, semantically validates their relationship, and derives the role
+exclusively from the envelope. After independent cataloged multi-RPC
+observation, it rereads those three inputs together with the Safe package and
+RPC catalog before emitting a result. Substitution, omission, a loose role and
+TOCTOU changes fail closed.
+
+`production_safe_recovery_target_role_derived_from_envelope` is a structural
+fact. No network access, signature, transaction, funds, mining, commit or push
+occurred while producing this evidence.
+
+Validation: direct operational inputs and complete operator runbook 84/84;
+readiness 60/60.

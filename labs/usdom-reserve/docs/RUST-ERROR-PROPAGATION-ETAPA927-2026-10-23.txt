@@ -1,0 +1,26 @@
+ETAPA927 — RUST ERROR PROPAGATION BOUNDARY
+Date: 2026-10-23
+
+Focused inventory
+- Reviewed the same 33 USDOM production modules from ETAPA918 for map_err,
+  context/with_context, and error/source-bearing format!/anyhow! sites.
+- Found 291 internal error construction/propagation signals in 18 modules:
+  65 in DOM operator bins and 226 in proof-host libraries.
+- The internal messages include private/local paths, parser details, receipt and
+  proof diagnostics. They are useful for typed propagation inside the process
+  and are not themselves logs or public artifacts.
+
+Reachability classification
+- Externally observable through stdout/stderr: zero. ETAPA921 removed private
+  stdout values; ETAPA924/925 place every in-scope entrypoint behind a fixed
+  stderr wrapper and nonzero status.
+- Serialized into public/evidence JSON: zero. No error object/string is inserted
+  into an in-scope json!/serde output record.
+- Internal-only: 291/291. No further source redaction was warranted because it
+  would erase error classes without reducing the externally visible surface.
+
+Validation
+- A structural regression pins the 291-site inventory and rejects error
+  interpolation in stdout/stderr, error fields in json! output, and any renewed
+  Result-returning main. Test passes 1/1; rustfmt state and diff-check pass.
+- No Cargo build, proof, RPC, secret or external operation was executed.

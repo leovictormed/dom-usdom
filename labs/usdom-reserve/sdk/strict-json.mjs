@@ -8,10 +8,16 @@ const whitespace=code=>code===0x20||code===0x09||code===0x0a||code===0x0d;
  * the same bytes differently. Keys are compared after escape decoding, so
  * `"ready"` and `"\u0072eady"` are duplicates.
  */
-export function parseStrictJson(source,{label='JSON',maxBytes=64*1024*1024,maxDepth=128}={}) {
+export function parseStrictJson(source,{label='JSON',maxBytes=64*1024*1024,maxDepth=128,
+ maxNodes=1_000_000,maxStringBytes=maxBytes,maxObjectEntries=100_000,
+ maxArrayEntries=100_000}={}) {
  if(typeof source!=='string') throw new TypeError(`${label}: input must be text`);
+ for(const [name,value] of Object.entries({maxBytes,maxDepth,maxNodes,maxStringBytes,
+  maxObjectEntries,maxArrayEntries})) {
+  if(!Number.isSafeInteger(value)||value<1) throw new RangeError(`${label}: ${name} is invalid`);
+ }
  if(Buffer.byteLength(source,'utf8')>maxBytes) throw new SyntaxError(`${label}: input exceeds ${maxBytes} bytes`);
- let offset=0;
+ let offset=0,nodes=0;
  const fail=message=>{throw new SyntaxError(`${label}: ${message} at character ${offset}`);};
  const skip=()=>{while(offset<source.length&&whitespace(source.charCodeAt(offset))) offset++;};
  const string=()=>{
@@ -20,8 +26,11 @@ export function parseStrictJson(source,{label='JSON',maxBytes=64*1024*1024,maxDe
   while(offset<source.length) {
    const code=source.charCodeAt(offset++);
    if(code===0x22) {
-    try { return JSON.parse(source.slice(start,offset)); }
+    let result;
+    try { result=JSON.parse(source.slice(start,offset)); }
     catch { fail('invalid string escape'); }
+    if(Buffer.byteLength(result,'utf8')>maxStringBytes) fail(`string exceeds ${maxStringBytes} bytes`);
+    return result;
    }
    if(code<0x20) fail('unescaped control character in string');
    if(code===0x5c) {
@@ -46,6 +55,8 @@ export function parseStrictJson(source,{label='JSON',maxBytes=64*1024*1024,maxDe
  };
  const value=depth=>{
   if(depth>maxDepth) fail(`nesting exceeds ${maxDepth}`);
+  nodes++;
+  if(nodes>maxNodes) fail(`node count exceeds ${maxNodes}`);
   skip();
   const next=source[offset];
   if(next==='"') return string();
@@ -58,6 +69,7 @@ export function parseStrictJson(source,{label='JSON',maxBytes=64*1024*1024,maxDe
    const result=[];
    if(source[offset]===']') {offset++; return result;}
    while(true) {
+    if(result.length>=maxArrayEntries) fail(`array entries exceed ${maxArrayEntries}`);
     result.push(value(depth+1)); skip();
     if(source[offset]===']') {offset++; return result;}
     if(source[offset]!==',') fail("expected ',' or ']'");
@@ -71,6 +83,7 @@ export function parseStrictJson(source,{label='JSON',maxBytes=64*1024*1024,maxDe
    if(source[offset]==='}') {offset++; return result;}
    while(true) {
     const key=string();
+    if(keys.size>=maxObjectEntries) fail(`object entries exceed ${maxObjectEntries}`);
     if(keys.has(key)) fail(`duplicate object key ${JSON.stringify(key)}`);
     keys.add(key); skip();
     if(source[offset]!==':') fail("expected ':'");
@@ -87,4 +100,13 @@ export function parseStrictJson(source,{label='JSON',maxBytes=64*1024*1024,maxDe
  skip();
  if(offset!==source.length) fail('trailing content');
  return result;
+}
+
+/** Decode untrusted bytes as canonical UTF-8 before strict JSON parsing. */
+export function parseStrictJsonBytes(bytes,options={}) {
+ const label=options.label??'JSON';
+ let source;
+ try { source=new TextDecoder('utf-8',{fatal:true}).decode(bytes); }
+ catch { throw new SyntaxError(`${label}: input contains invalid UTF-8`); }
+ return parseStrictJson(source,options);
 }

@@ -1,0 +1,37 @@
+RESERVE ARTIFACT REPINS AFTER DEPOSIT CLOSURE — ETAPA 1123
+Date: 2026-10-26
+Scope: post-via-IR USDOMProofReserve artifact identity and deployment-budget gates. No network, signing, deployment, funds, commit or push.
+
+RESULT
+PASS. The permanent deposit-closure guard changes the canonical reserve bytecode by 40 bytes. The release gate and source-derived immutable-runtime tests now pin the independently reproduced artifact rather than the stale pre-guard artifact.
+
+REPRODUCED CANONICAL ARTIFACT
+- Toolchain: Forge 1.8.5, solc 0.8.37, Cancun, optimizer runs=1, viaIR=true, bytecode_hash=none.
+- Two sequential offline forced builds used distinct fresh output and cache directories.
+- Both isolated USDOMProofReserve JSON artifacts are byte-for-byte identical: SHA256 8d73790c864df170185c6c6170c483d8213d7af54338399a71055b50fe465aa9.
+- The shared broad-build artifact has different compiler-internal AST/source identifiers, while ABI, raw metadata, creation bytecode, runtime bytecode and immutable references match both isolated builds.
+- Runtime: 20,100 bytes; keccak256 0xf6b3cdd39c88e23928767433fe5a54faabdf1304790fb42a1a7a241cf278342b.
+- Creation bytecode: 26,146 bytes; keccak256 0xb95c306e4596df0fd390f533d81fc0445453bf01d37a27ed2341bb5319c36340.
+- Executable runtime prefix: 19,799 bytes; immutable patch sites: 68.
+- Source-derived configured runtime hash for the fixed test configuration: 0x4caa392f8579cf64d68802609a9e54e094e4a493e409543ecfc84edbd7263202.
+- Immutable patch manifest hash: 0x98b3d7d62f0e1e1e07e1da2834d400900fa4a8eba5584f090018478d8292c425.
+- Source-derived constructor initcode: 26,498 bytes; hash 0xa9d466335ea9eda3010202cf52125b7fb96e6494e8b8e5db5fcd0ecd35309784.
+
+LIMITS AND GAS POLICY
+- EIP-170 headroom is 4,476 bytes, preserving the required 4,096-byte release margin.
+- EIP-3860 initcode headroom is 23,006 bytes, preserving the required 8,192-byte release margin.
+- The reserve CREATE ceiling remains 4,800,000 gas. The 40-byte runtime increase adds an unavoidable 8,000 gas of code-deposit cost and remains within the existing conservative ceiling over the last measured 4,627,582-gas CREATE.
+- The four component ceilings remain mathematically compatible with the 12,000,000 aggregate policy after calldata and the 25% buffer. Fresh release measurements remain mandatory; stale artifacts are diagnostics only.
+
+VALIDATION
+- Two clean isolated offline Forge builds: passed and byte-identical.
+- Reserve artifact CLI: passed with 20,100/26,146 byte sizes and all 68 immutable references.
+- Focused Node suites for artifact identity, immutable materialization, deployment gas and deployment package: 24/24 passed.
+- Mainnet gas-budget structural self-test: passed.
+- Diff whitespace check for the changed gates/tests: passed.
+
+FILES
+- sdk/reserve-artifact-safety.mjs
+- test/node/reserve-artifact-safety.test.mjs
+- test/node/compiled-runtime.test.mjs
+

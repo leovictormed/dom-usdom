@@ -1,0 +1,79 @@
+Closed-mainnet USDT deposit adversarial audit — Stage 1134
+Date: 2026-10-26
+
+Findings corrected
+------------------
+1. High — the executor referenced `expected_next_nonce` without assigning it.
+   With `set -u`, every newly included transaction aborted before its receipt was
+   journaled. After the exact approval, this left the one-USDT allowance exposed
+   until a later restart. The next nonce is now derived canonically for every
+   step and checked on both RPCs.
+2. High — restart replay compared each historical receipt against that step's
+   transient current state. A restart after approval saw the earlier reset
+   receipt, expected allowance zero, and aborted because the legitimate current
+   allowance was one USDT. Fully completed runs similarly failed at the approval
+   receipt. Historical receipts are now authenticated without replaying obsolete
+   transient state; only the highest durable/signed step must match current
+   allowance, balances, accounting and pending nonce. This also handles a crash
+   after signing or inclusion but before receipt installation.
+3. Medium — financial reads used each provider's moving `finalized` alias. Two
+   different blocks could be compared as if they were one view. The executor now
+   selects the lower finalized height, requires both RPCs to return its exact same
+   nonzero hash, and pins allowance, blacklist, nonce, balance, accounting and
+   base-fee reads to that numeric block. It refreshes the common snapshot before
+   signing, publishing, receipt recovery and final conservation checks.
+4. Medium — the release preflight checked the Reserve blacklist status but did
+   not bind the Ledger funder's USDT blacklist status. Both independent RPCs must
+   now report the funder unblacklisted at the common finalized snapshot before
+   preparation proceeds and immediately before every sign and publish decision.
+   The existing authority recheck continues to bind USDT bytecode, pause,
+   deprecation, upgradedAddress, proxy slots, Reserve blacklist and Reserve code.
+5. Medium — baseline, receipt, validation and terminal execution artifacts had
+   inconsistent indirect-file checks and some fields were consumed before file
+   policy validation. Direct regular file, no symlink, 0600 and nlink=1 checks now
+   precede reads. The durable baseline also requires an exact schema and canonical
+   decimal values.
+6. Privacy — the package contains the deposit salt and DOM receiving linkage.
+   The preparation wrapper now refuses a terminal stdout and requires the caller
+   to pipe/redirect it into the owner-only installation path. Raw signed
+   transactions remain mode 0600 private artifacts and are removed after dual-RPC
+   finality; public-artifact policy continues to reject them.
+7. Process boundary — both preparation and execution now disable tracing/core
+   dumps, clear loader, Node, proxy, SSL-keylog and Foundry/Cast override state,
+   use the fixed tool path and close caller-owned file descriptors before Ledger
+   or private package handling.
+
+Security properties after correction
+------------------------------------
+- The allowance trajectory remains exact: 0 -> 0 reset -> 1,000,000 approval ->
+  0 after the deposit. A restart resumes only the exact signed hash/nonce and
+  never signs or publishes a replacement implicitly.
+- A crash after a later step cannot be mistaken for an invalid earlier transient
+  state. Earlier receipts still have exact hash, block, status, gas and dual-RPC
+  finality checks.
+- The final deposit proves exact -1,000,000 funder, +1,000,000 Reserve,
+  +1,000,000 totalDeposited and +1,000,000 outstanding deltas on both RPCs,
+  plus the exact permanent deposit record and zero remaining allowance.
+- Token/reserve code and administrative state are rechecked before authority is
+  exercised. A token pause, deprecation, upgrade, Reserve/funder blacklist,
+  bytecode/config mismatch, nonce disagreement, RPC fork or noncanonical artifact
+  fails closed.
+
+Verification
+------------
+- `bash -n`: prepare and execute scripts pass.
+- `shellcheck -x`: prepare and execute scripts pass with zero diagnostics.
+- Focused deposit, evidence, conservation, nonce/restart, diagnostics and
+  publication/privacy tests: 20/20 pass, 0 failed.
+- No real RPC request, signing, broadcast, deploy, funds, Cargo, Forge, commit or
+  push occurred.
+
+Operational boundary
+--------------------
+ERC-20/USDT does not support an expiring allowance and the Ledger EOA cannot
+atomically approve and call the Reserve. Therefore a process/network failure
+between finalized approval and finalized deposit can leave exactly one USDT
+approved until the authenticated restart completes the deposit or the operator
+signs an explicit approve-zero recovery. No software may silently sign that
+recovery. The approved spender is the immutable Reserve, whose deposit pulls
+only from `msg.sender`; another caller cannot consume the funder's allowance.

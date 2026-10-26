@@ -1,0 +1,32 @@
+ETAPA 678 — VALIDAÇÃO DE SEGURANÇA COM JSON DE BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O preparador da evidência de validação de segurança decodificava mainnet release
+evidence com Buffer.toString('utf8') antes do parser estrito. Esse documento
+fornece release id, commit e tag vinculados aos resultados fixos de validação.
+
+Correção
+releaseEvidenceBytes agora entra diretamente em parseStrictJsonBytes, com UTF-8
+fatal e rejeição de chaves duplicadas. Production requirements e MANIFEST.sha256
+não são interpretados como JSON nesse caminho; permanecem bytes brutos vinculados
+pelos respectivos SHA-256.
+
+Garantias preservadas
+- 4 MiB/profundidade 64 para release evidence;
+- catálogo fixo, ordem, comandos e quantidade das verificações;
+- ambiente perigoso rejeitado;
+- executáveis diretos, seguros e estáveis rechecados antes/depois, com tool hash;
+- stdout/stderr hash, exit code e provenance completos;
+- release evidence, requirements e source manifest relidos byte a byte após os testes;
+- o relatório é evidência, não autorização de broadcast ou fundos;
+- writer existente mantém locks e instalação imutável/create-once.
+
+Testes leves
+- chave duplicada por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige parser de bytes e os três rechecks TOCTOU;
+- resultados falhos/reordenados/substituídos e executável instável continuam cobertos;
+- 5/5 testes em <0,1 s; node --check e git diff --check passaram.
+A suíte real de validação não foi executada durante o build ativo.
+
+Nenhum RPC, Cargo/Rust, Solidity, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

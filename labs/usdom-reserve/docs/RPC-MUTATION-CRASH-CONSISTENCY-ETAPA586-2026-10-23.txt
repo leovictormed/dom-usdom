@@ -1,0 +1,80 @@
+RPC mutation atomicity and crash-consistency audit — stage 586
+Date: 2026-10-23
+Scope: transaction submit, wallet spend/Slate, native USDOM transfer/burn/issuance candidate admission, and bounded regtest mining
+
+Finding corrected
+=================
+The authenticated legacy POST /wallet/spend endpoint was exposed on every
+network. Its implementation correctly journals a Built wallet reservation
+before mutation, rolls that reservation back when mempool admission fails, and
+never acknowledges before the reservation has been persisted. However, the
+one-message request has no client-supplied replay identity. If the node reserves
+and admits the transaction and then the HTTP response is lost (timeout,
+disconnect or process failure), the caller cannot name and recover that exact
+result. A retry may construct a distinct spend or encounter the prior durable
+reservation. This is an ambiguous outcome and is unsuitable for public-network
+real-fund operation.
+
+Correction
+==========
+The RPC boundary now rejects legacy /wallet/spend on every network except
+explicit Regtest, before invoking any wallet mutation. Public networks must use
+the existing Wallet Slate v1 create/finalize/submit protocol:
+
+* create persists the offer, sender secrets and replay identity before response;
+* finalize is keyed by the persisted offer and returns the exact persisted
+  transaction on an identical retry while rejecting conflicting responses;
+* submit loads persisted canonical bytes, checks the expected transaction hash,
+  treats exact chain/mempool replay idempotently, and journals Submitted before
+  acknowledgement.
+
+A router regression checks that authenticated Mainnet use returns 409 and the
+specific recovery guidance rather than reaching the wallet implementation.
+Existing authenticated Regtest coverage preserves the intended development
+convenience.
+
+Other mutation paths audited
+============================
+* Ordinary transaction submission derives identity from canonical bytes. Exact
+  confirmed and mempool retries return the existing state. New admission is
+  serialized under chain-before-mempool locking. Relay occurs only after local
+  admission. A failure while removing a legacy persisted mempool snapshot may
+  leave the volatile exact transaction admitted, but a retry resolves that
+  identity; it cannot create a different transaction.
+* Native USDOM private transfer, private burn, finalized-deposit issuance and
+  candidate-V2 endpoints validate bounded canonical payloads and derive
+  deterministic transition/candidate identities before entering the runtime.
+  V1/V2 volatile candidate pools accept exact duplicates idempotently and are
+  bounded to 16 candidates and 16 MiB total with checked arithmetic. Restart
+  deliberately loses only unmined candidates, not consensus state; callers can
+  safely resubmit the same canonical candidate. State mutation occurs during
+  block ingress and retains the chain/store atomicity and undo boundaries
+  audited elsewhere.
+* Candidate admission does not claim durability in its response. Its returned
+  deterministic identity is an acceptance-to-volatile-pool receipt, not proof
+  of mining or finality.
+* Regtest bounded mining commits blocks progressively. Cancellation or a lost
+  response can therefore leave a durable prefix of the requested count. This
+  endpoint is authenticated, Regtest-only, excludes continuous mining, is
+  single-flight, and has a count bound of 1..=1000. Its progressive semantics
+  do not cross the public-network funds boundary. Closed-Mainnet mining uses a
+  separate one-block request bound to the exact expected tip, preventing an
+  ambiguous retry from mining an additional block.
+* Response timeout/cancellation cannot roll back a transaction or block already
+  durably committed. The public mutation paths therefore either expose an exact
+  replay identity (transaction hash, Slate pending key/candidate id, or expected
+  tip) or, for the remaining one-message legacy operation, are restricted to
+  Regtest by this stage.
+
+Light validation
+================
+* rustfmt on the modified RPC source: PASS
+* git diff whitespace/integrity check: PASS
+* structural assertions: public-network guard precedes wallet_spend invocation;
+  Slate guidance and Mainnet regression present; native candidate count/byte
+  caps and duplicate-idempotency branches present.
+* Cargo execution is queued until the active RandomX proof releases the shared
+  compiler and memory resources.
+
+No readiness fact, commit, push, deploy, signature, external RPC, transaction,
+mining or funds action occurred.

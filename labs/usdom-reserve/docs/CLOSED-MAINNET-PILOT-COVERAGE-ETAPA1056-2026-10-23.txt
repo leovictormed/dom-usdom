@@ -1,0 +1,50 @@
+ETAPA1056 — closed-mainnet pilot operational coverage inventory
+
+Review result
+-------------
+A complete static review of the deposit/redemption executors, generated phases,
+semantic DAG and focused gates found no additional concrete implementation defect in
+this area. No speculative code change was introduced.
+
+Covered implementation boundaries
+---------------------------------
+- packages default broadcastAuthorized=false and bind chain 1, current release,
+  reserve, verifier generation, exact calldata and zero value;
+- Ledger identity, exact nonce, canonical type-2 raw transaction, gas/fee/absolute
+  cost caps and dual-RPC ETH funding are checked before sign/publish;
+- sign and publish require separate literal prompts per transaction;
+- crash recovery accepts only unchanged nonce or its exact successor and recovers
+  only the authenticated transaction hash without rebroadcast;
+- receipts bind tx/from/to/status/block/hash/gas fields across two RPCs, canonical
+  block inclusion and both finalized heads;
+- actual gas cost equals gasUsed*effectiveGasPrice and remains within signed maximum;
+- deposit proves exact funder/reserve/totalDeposited/outstanding deltas, depositId
+  record and allowance reset;
+- redemption proves recipient/reserve/totalReleased/outstanding deltas and permanent
+  burn/request replay flags;
+- output-last evidence is hash-bound, mode-0600, restart-authenticated and bytewise
+  idempotent;
+- generated phases require semantic deposit/pilot completion rather than existence.
+
+Remaining evidence, not missing implementation
+----------------------------------------------
+1. Real RPC agreement, finalized receipts and canonical block hashes can exist only
+   during the authorized mainnet ceremony.
+2. Ledger identity/signature behavior and physical separation require the operator's
+   hardware; no secret was generated or requested here.
+3. Exact live USDT balances, allowance behavior, blacklist/pause policy and reserve
+   state require read-only/live observations followed by explicitly authorized funds.
+4. Proof production and verifier acceptance require the separately running RISC Zero
+   release evidence. This inventory does not substitute for it.
+5. Two public RPC URLs reduce a single-endpoint fault but cannot prove organizational
+   independence or eliminate common upstream correlation. Any disagreement fails
+   closed; operator source diversification remains an operational prerequisite.
+6. Unrelated balance transfers during baseline windows deliberately stop exact-delta
+   reconciliation and require investigation/restart; they are not auto-accepted.
+
+Validation
+----------
+Pinned Node 24.19.0 full generated-command and pilot operational set passed 27/27,
+zero failures. Targeted source inventory found no TODO/FIXME/placeholder or enabled
+broadcast flag in the operational surface. No network, hardware, proof, signing,
+deployment, publication, push or funds were used.

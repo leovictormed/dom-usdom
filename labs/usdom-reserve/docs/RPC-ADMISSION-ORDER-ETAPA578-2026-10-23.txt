@@ -1,0 +1,45 @@
+RPC expensive-work admission order — stage 578
+Date: 2026-10-23
+Scope: crates/dom-rpc/src/lib.rs
+
+Finding corrected
+=================
+The candidate-V2, finalized-issuance, private transfer/burn and isolated
+Mainnet mining routers attached their per-source governor directly to each
+method and then wrapped the route in a concurrency limiter. Tower evaluates
+the later outer layer first, so a request could wait for the single expensive
+work permit before reaching the rate limit. Excess authenticated traffic could
+therefore accumulate waiting service futures for the ordinary 30-second,
+issuance 120-second, or mining four-hour timeout window instead of receiving an
+immediate 429.
+
+Correction
+==========
+Each expensive route group now wraps its concurrency/body/timeout stack with
+the governor. After bearer authentication, per-source rate admission therefore
+happens before waiting for the serialized proof or mining permit. Candidate-V2,
+issuance and isolated mining retain their prior independent buckets. Private
+transfer and private burn share both the same proof-verifying runtime and one
+submit bucket, preventing a caller from multiplying admission capacity by
+alternating the two route names.
+
+Body limits and timeouts remain outside or alongside the work queue as
+appropriate: queued bodies are not decoded by handlers, every ordinary wait is
+bounded by 30 seconds, issuance by 120 seconds and isolated mining by four
+hours. The change only rejects over-quota work sooner; it does not grant any
+new capability or change consensus validation.
+
+Light validation
+================
+* rustfmt for lib.rs and middleware.rs: PASS
+* git diff --check for both Rust files: PASS
+* structural assertions confirm each of the four expensive route groups places
+  its governor after (and therefore outside) its concurrency layer: PASS
+* Added an async router regression using the existing candidate gate and an
+  injected burst of one. While the first request holds the sole permit, the
+  second must complete within one second with 429 and must never enter the node
+  handler; the first then completes normally after release.
+
+Cargo execution remains queued while the pinned RandomX proof is actively
+compiling/proving. No readiness fact, push, deploy, signature, transaction,
+mining or funds action occurred.

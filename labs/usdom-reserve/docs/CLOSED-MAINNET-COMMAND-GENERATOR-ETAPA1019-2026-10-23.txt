@@ -1,0 +1,45 @@
+ETAPA1019 — audit of closed-mainnet runbook commands
+Date: 2026-10-23
+
+Scope
+-----
+The canonical CLOSED-MAINNET-LINUX-RUNBOOK and every other top-level document
+whose name identifies it as a closed-mainnet/mainnet command runbook were
+inventoried. There is one canonical runbook in this tree.
+
+Concrete defect fixed
+---------------------
+The Safe package was created as control-plane/safe-package.json, while three
+later recovery/release phases referred to safe-package-primary.json. A clean
+operator session would stop on a file that no producer creates. All phases now
+use the single canonical safe-package.json path.
+
+Operational hardening
+---------------------
+- generate-closed-mainnet-phase-command.sh emits complete Bash programs for
+  eight named phases with fixed project/evidence paths and public RPC catalog.
+- Every generated phase reconstructs its environment; no export from an older
+  terminal is assumed.
+- The prerequisites phase checks each required runtime before work begins.
+- Secret-dependent public-identity enrollment is isolated in explicitly named
+  *-secret phases. It reads only public Ledger addresses twice. No seed, private
+  key or password is accepted, printed or stored.
+- Three independent owners and threshold 2/3 remain mandatory.
+- Materialization is retry-safe: an existing identity is strictly validated;
+  generated public packages are recreated into a temporary candidate and must
+  byte-match an existing immutable artifact.
+- The checklist is read-only and identifies which canonical artifacts exist.
+- The generator intentionally emits no broadcast command. Existing resumable
+  executors retain their literal authorization and reconciliation boundaries.
+
+Validation
+----------
+- Bash syntax passed for the generator and all eight generated phase programs.
+- Unknown phase fails closed.
+- Lightweight structural assertions passed.
+- git diff --check passed for the focused files.
+- Node tests were not run because Node is unavailable in this agent's PATH;
+  the generated prerequisites phase reports that condition before any work.
+
+No network request, secret generation, signature, deployment, broadcast, push
+or movement of funds was performed.

@@ -1,0 +1,33 @@
+ETAPA757 — normalized closed deployment-receipt evidence
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+The persisted receipt was the provider-shaped RPC object. Duplicate keys were
+rejected, but optional/provider-specific keys remained authoritative and could
+drift across clients or acquire conflicting interpretation.
+
+Every RPC receipt is now fatal-UTF-8/duplicate-key parsed from a bounded private
+file and projected into one canonical eight-key v1 object containing only
+transaction hash, canonical block number/hash, success status, checksummed
+sender, null destination and checksummed created contract. Status `0x01` is
+normalized to `0x1`; malformed status, address, hash, quantity or CREATE shape
+fails. Provider extras never enter authority.
+
+All initial, repeat, stable and final-barrier cross-RPC comparisons use the
+canonical projection. Only that projection is persisted create-once. Recovery
+requires its exact closed schema, projects every newly queried provider receipt
+with the same code and byte-compares it to persisted evidence before checking
+canonical/finalized ancestry.
+
+Verification
+============
+
+- Provider fixture with harmless extras projects deterministically.
+- Projection extra/missing/nested fields, version/status/to/type and quantity
+  drift fail.
+- Focused Node tests: 15/15 passed.
+- Bash/Node syntax and `git diff --check`: passed.
+
+No real RPC, signature, deployment, funds action, commit or push occurred.

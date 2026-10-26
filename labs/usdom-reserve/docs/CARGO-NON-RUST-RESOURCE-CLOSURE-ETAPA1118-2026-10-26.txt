@@ -1,0 +1,19 @@
+CARGO NON-RUST RESOURCE CLOSURE — STAGE 1118 (2026-10-26)
+
+Scope
+- Extended the verify-only Cargo closure to non-Rust inputs compiled into or consumed by the reachable crates, without invoking Cargo or regenerating MANIFEST.sha256.
+
+Finding and correction
+- Manifest/Rust/lock pins did not cover `include_str!`/`include_bytes!` resources, guest ELF/ImageID/binary fixtures or Cargo compile-time environment values. Those inputs can change compiled/test behavior without changing a `.rs` file.
+- The closure derivation now parses every reachable Rust source for literal `include_str!`/`include_bytes!`, fixture/artifact path literals and build-script `cargo:rerun-if-changed` resources. Paths resolve relative to their source/crate, must remain in-repository and must exist as direct single-link files.
+- Nonliteral include macros are rejected. Compile-time `env!`/`option_env!` names must exactly match a reasoned allowlist; the current four values are Cargo-generated test-binary paths whose authority follows the pinned target graph.
+- Nested unrelated Cargo packages are pruned from each crate walk; only statically reachable path crates contribute source. This corrected the earlier overbroad vendor-directory inclusion.
+- The exact repository pin set is now 268 files: 221 Rust sources, 23 manifests, Cargo.lock, 14 JSON fixtures, two `.hex`, one `.txt`, and two each of guest `.elf`, `.bin` and `.iid` artifacts. Binary resources have a separate 64 MiB bound while source files retain the 1 MiB/source-text policy.
+
+Validation
+- Adversarial mini-workspace test proves a literal binary fixture and compile environment enter the closure, and rejects a dynamically constructed include path.
+- Live closure and exact hashes: PASS, 268 repository files plus 238 lab sources.
+- Pinned Node 24.19.0 focused suite: 2/2 PASS.
+- Python compilation and diff integrity: PASS.
+
+No Cargo, Forge, network, MANIFEST regeneration, deploy, signing, funds, commit or push occurred.

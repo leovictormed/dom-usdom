@@ -1,0 +1,63 @@
+USD + DOM — reserve governance and economic-policy bounds audit
+Stage 554 — 2026-10-23
+
+Scope
+-----
+Reviewed USDOMProofReserve and the prototype USDOMReserve constructor policy,
+pause/resume authority, withdrawal and governance delays, exposure ceiling,
+24-hour token-bucket capacity, immutable deployment commitments, the fixed
+one-USDT pilot materializer, and the JavaScript configuration gates that feed
+deployment tooling.
+
+Finding and correction
+----------------------
+Both Solidity constructors declare withdrawalDelay, governanceDelay,
+maxOutstanding and outflowCapacity as uint64. The final deployment-commitment
+calculator already parsed all four as uint64, and the Solidity ABI therefore
+could not deploy an out-of-range value. However, validateConfiguration and
+validateProofConfiguration initially parsed them as unrestricted uint256.
+
+Consequently, an exposure or capacity at or above 2^64 could pass the first
+syntax/policy gate and fail only at the later commitment or ABI-encoding stage.
+This was a fail-closed deployment inconsistency rather than a route to an
+incorrect mainnet contract, but it made validation non-compositional and could
+waste an operator ceremony after earlier acceptance.
+
+Both preliminary validators now parse all four constructor parameters directly
+as uint64. Focused regression vectors assert rejection of 2^64 independently
+for every field in both the prototype and proof-authorized configurations.
+
+Invariant assessment
+--------------------
+- Solidity enforces withdrawal delay in [6 hours, 3 days] and governance delay
+  in [2 days, 30 days]. The maximum withdrawal delay plus the one-hour minimum
+  execution window remains below the seven-day queue lease.
+- Exposure and outflow are nonzero uint64 values, and outflow cannot exceed
+  maximum outstanding credit.
+- The rate limiter starts at one burst capacity, refills linearly over 24 hours,
+  caps at capacity and is not reset by pause/resume. The proof reserve also
+  invalidates the pending queue generation on the first emergency pause.
+- Governance and guardian cannot change economic parameters after deployment.
+  Resume requires governance scheduling, the immutable governance delay, and
+  fresh control-plane, verifier and token-policy checks.
+- Mainnet constructor policy is included in the preactivation/deployment config
+  hash and is pinned into production bytecode. A policy change therefore needs
+  a separately reviewed deployment and native activation rather than an admin
+  transaction.
+- The closed pilot materializer fixes both maximum outstanding credit and daily
+  burst capacity to 1,000,000 base units (1 USDT), preserves both authorization
+  flags as false and rejects a pre-existing conflicting policy.
+
+Validation
+----------
+`node --test test/node/configuration.test.mjs` passed 7/7, including the new
+eight uint64 overflow cases. Inspection found no parameter mutation, bucket
+reset, delay bypass, governance sweep or policy-hash omission. No Cargo,
+Foundry, network, proof-runner, deployment, signing or funds operation ran.
+
+Residual scope
+--------------
+The chosen one-USDT pilot values are a release policy decision; this audit
+proves their exact encoding and enforcement, not an economic claim that any
+larger future limit is safe. Full integrated regression remains pending until
+the active RandomX proof releases local resources.

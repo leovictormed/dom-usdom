@@ -19,9 +19,9 @@ IID = GUEST / "elfs/usdom-finalized-burn.iid"
 PROVENANCE = GUEST / "PROVENANCE.json"
 GUEST_LOCK = GUEST / "Cargo.lock"
 
-EXPECTED_ARTIFACT_SHA = "438adf4a9a50832da0dfbb77c0b8588d9ba1fbb41d216875e874dfa1db5dfcb0"
-EXPECTED_IMAGE_ID = "3975a5f01dc85b6e89925913c5555ade4aefb951c65261142384fd829a70f88a"
-EXPECTED_BUILD_LOCK_SHA = "3e9768113e223032ee85e0bce6128a59bc44be55b301b63a5d11400ad272e08d"
+EXPECTED_ARTIFACT_SHA = "883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21"
+EXPECTED_IMAGE_ID = "2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea"
+EXPECTED_BUILD_LOCK_SHA = "4b121d8cd50110e8235933ac405b7dfac3bb92d43f959082af638a24ea539765"
 EXPECTED_BUILDER_DIGEST = "sha256:7ae0a27fa72b10fb5c1066005bd949ae43dc4ead8a284f2d6572b99c82ab4468"
 
 
@@ -95,8 +95,11 @@ def main() -> None:
         "#![no_main]",
         "MAX_FINALIZED_BURN_PROVER_INPUT_BYTES",
         "env::read_slice(&mut input)",
-        "let output = execute(&input)",
-        "env::commit_slice(output.as_bytes())",
+        "execute_with_checkpoint_assumption(&input)",
+        "env::verify(",
+        "checkpoint.image_id()",
+        "checkpoint.journal()",
+        "env::commit_slice(execution.output().as_bytes())",
         "risc0_zkvm::guest::entry!(guest_main)",
     ]:
         if marker not in source:
@@ -114,7 +117,7 @@ def main() -> None:
 
     provenance = json.loads(PROVENANCE.read_text(encoding="utf-8"))
     expected_provenance = {
-        "schema": "dom-usdom-finalized-burn-risc0-guest-provenance-v1",
+        "schema": "dom-usdom-finalized-burn-risc0-guest-provenance-v2",
         "risc0ZkvmVersion": "3.0.6",
         "risc0BinfmtVersion": "3.0.5",
         "risc0PlatformVersion": "2.2.3",
@@ -124,6 +127,11 @@ def main() -> None:
         "cargoLockSha256": EXPECTED_BUILD_LOCK_SHA,
         "programBinarySha256": EXPECTED_ARTIFACT_SHA,
         "imageId": EXPECTED_IMAGE_ID,
+        "workspaceCargoLockSha256": "571022e832a552ef7710cdd2dc8643e974436fae44c7c2f003acd05ee0106c34",
+        "sourceManifestSha256": "08ad4751e4540705eaf43bfd8cebb5738b924cbdccab22be52bed33b62970be7",
+        "reproducibleBuilds": 2,
+        "byteIdentical": True,
+        "guestRustReleaseAssetSha256": "100b597d605b706bec94e1d32bfaaf5851df8d75173f986d4b56a3e90916be53",
         "productionApproved": False,
     }
     if provenance != expected_provenance:

@@ -1,0 +1,24 @@
+ETAPA 657 — RESPOSTAS RPC PRÉ-PUBLICAÇÃO DO DEPLOY EM JSON ESTRITO
+Data: 2026-10-23
+
+A busca global confirmou que checkpoint e finalized-burn mantêm respostas
+externas nos coletores Node com parsing estrito. O maior risco restante estava
+nas duas decisões `eth_getTransactionByHash` do executor de implantação: uma
+antes do prompt de transmissão e outra depois da autorização, imediatamente
+antes de publicar.
+
+As respostas eram variáveis de shell entregues diretamente ao `jq`, permissivo
+a chaves duplicadas. Agora cada resposta de cada fonte é materializada em um
+arquivo privado temporário com índice não sensível, validada por
+`check-private-strict-json-file.mjs` e somente depois interpretada. Isso cobre a
+decisão null/hash esperado e a exigência null após a autorização.
+
+Permanecem múltiplos RPCs, rechecagem de nonce finalized/pending e endereço
+CREATE vazio após autorização, transação/raw/validation/hash snapshots,
+autorização interativa, validação de recibos/finalidade/código e persistência
+create-once.
+
+Validação reutiliza ataques malformed-identical com duplicata escapada e 0xff,
+e confirma os cinco pontos do checker no executor. Testes focados passaram 2/2;
+`bash -n` e `git diff --check` passaram. Nenhum RPC, assinatura, transmissão,
+deploy, commit, push ou fundos foram usados.

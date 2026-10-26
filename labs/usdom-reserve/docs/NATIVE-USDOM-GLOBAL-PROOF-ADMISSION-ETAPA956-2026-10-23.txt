@@ -1,0 +1,25 @@
+ETAPA 956 — admissão global de provas USDOM nativas
+Data: 2026-10-23
+
+Achado corrigido
+- A ETAPA953 limitou cada conexão, mas peers Sybil mantinham limitadores independentes. Cada conexão podia chegar ao ingresso e aguardar locks com payload proof-bearing retido; o lock chain/runtime serializava commit, não admissão/memória.
+- Um único `Arc<Semaphore>` de capacidade 1 agora pertence ao DomNode e é compartilhado por inbound, outbound, IBD, future-queue replay e APIs locais v4/v2. O permit é obtido por `try_acquire_owned` antes de metadata parsing, clone para fila, locks ou spawn_blocking. Saturação falha imediatamente com PolicyRejected, sem criar fila.
+
+Propriedades
+- V1 e V2 compartilham exatamente o mesmo gate; peers e rotas diferentes não multiplicam capacidade.
+- O permit RAII cobre toda a ingestão, inclusive prova/commit/reprocessamento, e libera em retorno/erro/cancelamento do future. Um job spawn_blocking já iniciado não é interrompível pelo Tokio, mas permanece o único job admitido; nenhum backlog atacante é retido.
+- A capacidade 1 acompanha a ordem exclusiva chain -> runtime já existente. Blocos PoW, Ping, sync e demais handlers não usam o gate e não perdem seus budgets; podem aguardar apenas o único commit atualmente ativo, não uma fila de provas.
+- Replay/AlreadyHave permanece no runtime canônico. Future/orphan mantêm seus caps de bytes/count; a drenagem também usa o gate e reintenta em ticks posteriores se houver concorrência.
+- Shutdown/cancel antes ou durante await solta o permit. O trabalho blocking ativo segue a semântica segura existente do supervisor e conclui no máximo um transition attempt.
+
+Regressão
+- `native_proof_admission_is_global_fail_fast_and_releases` prova primeiro permit, rejeição imediata do concorrente e readmissão após drop.
+- Gate estrutural confirma capacidade 1, helper fail-fast, uso nos dois ingressos e propagação por todos os oito construtores.
+
+Validação leve
+- rustfmt --check: aprovado.
+- Gate estrutural 7/7: aprovado.
+- git diff --check: aprovado.
+- Cargo não executado durante prova concorrente; regressão fica na suíte agregada pós-prova.
+
+Sem rede, node, commit, push, deploy, assinatura ou fundos.

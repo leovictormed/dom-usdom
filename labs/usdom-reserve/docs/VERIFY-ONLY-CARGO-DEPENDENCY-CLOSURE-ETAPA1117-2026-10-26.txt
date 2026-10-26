@@ -1,0 +1,18 @@
+VERIFY-ONLY CARGO DEPENDENCY CLOSURE — STAGE 1117 (2026-10-26)
+
+Scope
+- Closed the local Rust/Cargo source graph that determines the verify-only RISC Zero receipt executable, without invoking Cargo or changing Rust.
+
+Finding and correction
+- The previous three repository pins covered the host manifest, library and verify-only binary, but not `dom-usdom-checkpoint-program`, inherited workspace path dependencies, their transitive local crates, root workspace policy or Cargo.lock. A dependency change could therefore alter the verifier while all three pins remained unchanged.
+- The checker now parses the root Cargo.toml using Python tomllib, resolves normal/build/dev path dependencies including `workspace = true` entries relative to the correct manifest, rejects repository escapes, and recursively derives the exact local crate closure rooted at `dom-usdom-checkpoint-proof-host`.
+- The derived closure contains 22 local crates and 410 pinned files: root Cargo.toml/Cargo.lock, every reachable crate manifest and all Rust source files beneath those crates. Target/.git trees are excluded.
+- `repositoryCriticalSources` must equal this derived set exactly and remain lexically ordered. Every source is subjected to direct bounded O_NOFOLLOW validation and exact SHA-256 comparison. A missing/extra file, changed manifest/source/lock, new local dependency or path escape fails closed.
+
+Validation
+- Adversarial self-test constructs a miniature workspace with an inherited path dependency and proves its manifest/source and Cargo.lock enter the closure; changed hash pins are rejected.
+- Live closure: PASS, 22 crates / 410 pinned repository files, alongside 238 lab sources.
+- Pinned Node 24.19.0 focused suite: 2/2 PASS.
+- Python compilation and diff integrity: PASS.
+
+No Cargo, Forge, network, MANIFEST regeneration, deploy, signing, funds, commit or push occurred.

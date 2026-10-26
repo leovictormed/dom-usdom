@@ -1,0 +1,22 @@
+ETAPA 739 — signing ceremony SHA-256 executable pinning
+Date: 2026-10-23
+
+Finding
+=======
+The three signing ceremonies used PATH-resolved `sha256sum` and `awk` to establish and recheck
+the hashes of Cast, Node and JQ. Replacement after consent could make all executable hash checks
+accept a substituted tool.
+
+Correction
+==========
+Each ceremony now resolves `sha256sum` once, validates its path, file/link/owner/mode/directory
+properties, snapshots metadata and its self-hash, and rechecks these before hashing Cast, Node or
+JQ. A shell reader validates the exact lowercase 64-hex digest, removing `awk` from the trust path.
+Checkpoint request/signature hashes also use the pinned helper.
+
+Validation
+==========
+Combined structural tests pass 3/3. All three scripts pass `bash -n`; Node syntax and diff checks
+pass. No ceremony, Ledger, RPC or signing ran.
+
+No commit, push, deploy, transmission or funds were used.

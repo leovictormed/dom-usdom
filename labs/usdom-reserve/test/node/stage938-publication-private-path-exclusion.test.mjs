@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';
+for(const name of ['commit-release-source.sh','commit-release-evidence.sh'])test(`${name} rejects private path classes`,async()=>{const s=await readFile(new URL(`../../scripts/${name}`,import.meta.url),'utf8');for(const token of ['*.key','*.raw','*.witness','*.tmp','*private-input*','*private-witness*','*credential*','*owner-auth*','*password*'])assert.ok(s.includes(token),token);});

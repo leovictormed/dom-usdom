@@ -1,0 +1,30 @@
+USDOM stage 523 — finalized-burn artifact collector snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The release artifact collector read each of eleven private finalized-burn
+artifacts through a stable descriptor, but the complete graph could span
+multiple filesystem generations. It did not revalidate all origins after
+semantic report construction.
+
+Correction
+==========
+
+The collector now captures the fixed canonical eleven-file catalog with
+per-class byte bounds, durably writes those exact bytes into one private
+0700/0600 replica and constructs the authenticated submission and collected
+report only from descriptor reads inside that replica. Immediately before
+returning, it rereads every original path and compares size, SHA-256 and bytes
+with the captured generation. Any concurrent mutation or substitution fails
+closed, and the private replica is removed on success or failure.
+
+Evidence and scope
+==================
+
+The focused collector regression mutates the original seal after replica
+construction and requires explicit rejection. Existing substitution, symlink,
+hardlink, mode and complete-graph tests remain active. Readiness requires
+production_finalized_burn_artifact_collector_uses_one_revalidated_replica=true.
+No proof, Anvil, network, signing, deployment or funds operation is performed.

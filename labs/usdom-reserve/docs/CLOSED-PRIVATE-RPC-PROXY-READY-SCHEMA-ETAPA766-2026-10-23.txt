@@ -1,0 +1,36 @@
+ETAPA 766 — closed private RPC proxy readiness schema
+Date: 2026-10-23
+
+Finding
+
+The ephemeral proxy published an owner-only ready JSON, but its two authority
+consumers extracted individual fields with jq. Unknown fields, type drift and
+duplicate/cross-index URLs were not governed by the producer's definition. A
+valid replacement file could also change the loopback capability after initial
+admission while the proxy PID remained alive.
+
+Correction
+
+- Added one shared exact-key v1 validator for schema, PID and URLs.
+- PID is a canonical positive bounded JSON integer. The URL array contains two
+  through five unique entries, one common loopback port and 256-bit lowercase
+  capability, and exact contiguous indices starting at zero.
+- The producer validates before its create-once write.
+- The shared reader uses direct owner-only mode-0600 bounded capture, fatal
+  UTF-8 and duplicate-key rejection and returns a digest of the captured bytes.
+- Deployment and Safe-recovery consumers bind that digest and rerun the shared
+  validator before every RPC command, in addition to checking that the exact
+  child PID remains alive. Replacement or mutation therefore fails closed.
+
+Validation
+
+- Focused Node tests: 16/16 pass, including extra/missing/type/PID, duplicate
+  URL, capability/index/port drift, duplicate JSON keys, invalid UTF-8 and
+  post-capture byte mutation.
+- Both executor shell syntax checks pass; Node syntax and git diff checks pass.
+- Pinned Node used for tests:
+  `/usr/lib/chatgpt/resources/cua_node/bin/node`, root:root 0755, one link,
+  SHA-256 bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12.
+
+No proxy was started and no RPC, deploy, signature, commit, push or fund action
+was performed.

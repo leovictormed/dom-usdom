@@ -1,0 +1,6 @@
++# Stage 1134 — bootstrap ratification RPC authority (2026-10-26)
+
+The checkpoint-bootstrap EIP-1271 collector now verifies canonical Ethereum mainnet genesis independently on every catalogued source before accepting any finalized governance approval. Its RPC boundary accepts only canonical public root HTTPS origins and rejects credentials, route paths, queries, fragments, local hostnames and IP literals. Existing 2–5-source exact finalized snapshot consensus, governance runtime binding and EIP-1271 rechecks remain fail closed.
+
+Validation: collector/report focal suites and syntax pass 11/11. No Cargo, Forge, real network, signing, deployment, commit or push ran.
+

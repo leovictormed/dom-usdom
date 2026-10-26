@@ -1,0 +1,35 @@
+DOM/USDOM hardening stage 391 — central RISC Zero program packager
+
+Date: 2026-10-22
+
+The complete and aggregate RandomX reproducible-build scripts now use the
+single workspace program packager. The two duplicated example packagers were
+removed, eliminating divergent unbounded pathname reads and direct writes.
+
+The central packager now captures the input through a retained direct parent
+descriptor, rejects symbolic parents, symbolic files and multiply-linked
+files, bounds the user ELF to 64 MiB, and verifies identity, length and parent
+stability after the read. ProgramBinary output is bounded to 128 MiB and
+published through an audited, singly-linked mode-0600 temporary file, fsync,
+retained-parent rename, directory fsync and an exact descriptor-captured
+reread. A failed post-publication check removes only the destination whose
+device/inode still matches the temporary file, leaving no known-invalid output.
+
+The pinned guest dev-dependency entries remain in their manifests solely to
+preserve the existing locked dependency graph and reproducible-build lock
+hashes. They no longer contain or select a second packager implementation.
+
+Validation completed:
+
+- central packager tests: 2/2 passed, covering exact direct reads, oversized
+  inputs, symbolic parents/files, hard links, atomic replacement and output
+  mode;
+- both reproducible-build scripts pass shell syntax validation;
+- the existing Cargo.lock is accepted with --offline --locked;
+- formatting and repository whitespace validation pass;
+- the complete laboratory source manifest verifies 1,172 ordered sources.
+
+The expensive guest rebuild was not repeated while the one-worker finalized-
+burn capacity proof is active. The build scripts retain their fixed ELF,
+ProgramBinary and ImageID comparisons, so a later reproducibility run will
+also prove that centralization did not change either committed program.

@@ -1,0 +1,44 @@
+ETAPA728 — create-once deployment evidence graph
+Date: 2026-10-23
+
+Finding
+=======
+
+Prior-deployment recovery authenticated transaction provenance on-chain, but
+its persisted JSON was consumed without binding every file to the current
+release/package/RPC catalog. A valid prior transaction from a different
+ceremony could therefore be considered before later checks happened to reject
+it. Direct multi-read use also left a same-user TOCTOU window.
+
+Correction
+==========
+
+The Ledger handoff and raw-validation evidence now carry chain ID, release
+configuration SHA-256, deployment package SHA-256, RPC catalog SHA-256,
+identity-observation SHA-256 and observation hash. The catalog is read with
+fixed regular-file mode, strictly parsed, hashed and byte-rechecked during the
+handoff.
+
+For every prior role the executor requires exact private regular files with one
+link and mode 0600 for raw transaction, validation, submission hash and receipt.
+It snapshots each through the bounded private-file reader, rejects duplicate
+JSON keys/malformed bytes with the strict parser, and validates exact role
+index, sender, nonce, expected contract and transaction hash. The raw file hash
+must match validation evidence; all context hashes must match the active
+package, release, chain, observation and RPC catalog.
+
+After cross-RPC provenance/finality/runtime checks, all four evidence files and
+the catalog are reread and byte/hash compared. Symlink substitution, permission
+drift, stale evidence, mixed releases/packages/catalogs and mutation during use
+therefore fail closed.
+
+Evidence
+========
+
+- Focused Node tests: 19/19 passed.
+- Node and Bash syntax checks plus `git diff --check`: passed.
+- Structural regressions require all context commitments, strict JSON parsing,
+  raw hash binding and post-observation evidence rereads.
+
+No RPC call, materialization, signing, transmission, deployment, funds action,
+commit or push was performed.

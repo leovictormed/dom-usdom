@@ -1,0 +1,22 @@
+Stage 482 — checkpoint finalized transaction reference binding
+Date: 2026-10-23
+
+The finalized-checkpoint collector previously accepted a transaction hash
+directly from the environment. Although it validated the receipt and registry
+state, the durable observation did not prove that the selected transaction came
+from the exact authenticated checkpoint submission package.
+
+A create-once mode-0600 transaction reference now binds the transaction hash to
+the release identity, checkpoint registry and configuration hash, and SHA-256 of
+the exact checkpoint-submission document. A separate create-once SHA-256 sidecar
+commits to the reference bytes. The collector no longer reads the transaction
+hash from the environment: it rereads the submission, reference and sidecar,
+recomputes both hashes and release bindings, and only then performs its existing
+multi-RPC finalized receipt and registry-state validation.
+
+`production_checkpoint_finalized_transaction_reference_bound` is a structural
+fact. It does not claim that a transaction was signed, published or finalized.
+No network access, signature, deployment, funds, mining, commit or push occurred.
+
+Validation: finalized-event collector 3/3; operator runbook 71/71; readiness
+60/60.

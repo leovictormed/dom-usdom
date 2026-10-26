@@ -362,6 +362,9 @@ impl From<dom_wallet_crypto::EnvelopeError> for WalletError {
     fn from(e: dom_wallet_crypto::EnvelopeError) -> Self {
         use dom_wallet_crypto::EnvelopeError as E;
         match e {
+            E::RandomnessUnavailable => {
+                WalletError::Crypto("operating-system randomness unavailable".into())
+            }
             E::Kdf(s) => WalletError::Crypto(s),
             E::Encryption => WalletError::Encryption,
             E::Decryption => WalletError::Decryption,
@@ -381,6 +384,15 @@ impl From<dom_wallet_crypto::EnvelopeError> for WalletError {
 #[cfg(test)]
 mod tests {
     use super::WalletError;
+
+    #[test]
+    fn unavailable_os_randomness_remains_a_distinct_crypto_failure() {
+        let error = WalletError::from(dom_wallet_crypto::EnvelopeError::RandomnessUnavailable);
+        assert_eq!(
+            error.to_string(),
+            "crypto error: operating-system randomness unavailable"
+        );
+    }
 
     #[test]
     fn no_clobber_envelope_error_remains_an_explicit_wallet_io_failure() {

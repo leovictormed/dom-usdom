@@ -1,0 +1,30 @@
+USDOM stage 375 — descriptor-anchored proof-source output generations
+
+The retained private-directory authority now supports complete file
+generations. It validates every canonical child name and duplicate before any
+mutation, creates unpredictable mode-0600 files with openat CREATE|EXCL and
+NOFOLLOW, writes and fsyncs all content, revalidates the named directory, and
+renames only below the retained directory descriptor.
+
+After publication it fsyncs the directory, reopens every target without
+following links, validates owner/mode/link count/size and compares the exact
+bytes. A publication failure removes every target in that generation so a
+consumer cannot mistake a mixed partial set for complete evidence. Invalid
+input is rejected before touching the prior generation. Stale-output
+invalidation also traverses and unlinks through the retained descriptor.
+
+The checkpoint source, checkpoint source-set, finalized-burn source and
+RandomX statement-set exporters all use this authority. The RandomX outputs
+are now owner-only rather than explicitly mode 0644.
+
+Validation:
+
+- retained directory/staging unit tests: 3/3 pass
+- four exporter unit suites: 12/12 pass
+- native-only bin compilation with --locked and one build job: pass
+- proof inventory: 46 sources, hashes and panic boundaries pass
+- cargo fmt --check and git diff --check pass
+
+No live RPC, secret, signing, transaction, deployment, funds, mining, commit,
+tag or push was used. The detached finalized-burn proof remained active and
+was not restarted.

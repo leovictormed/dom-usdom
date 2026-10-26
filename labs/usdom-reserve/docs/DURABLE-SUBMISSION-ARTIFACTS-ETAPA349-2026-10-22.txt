@@ -1,0 +1,46 @@
+USD + DOM — persistência durável dos artefatos de submissão
+Etapa 349 — 2026-10-22
+
+Problema corrigido
+
+Quatro fluxos operacionais gravavam JSON por arquivo temporário e `rename`, mas
+sem sincronizar o arquivo e o diretório, sem verificar os bytes instalados e em
+modo 0644:
+
+- pacote autenticado de checkpoint;
+- pacote autenticado de queima finalizada;
+- observação finalizada da submissão de checkpoint;
+- fonte finalizada de depósito para emissão nativa.
+
+Uma queda de energia imediatamente depois do anúncio de sucesso podia deixar a
+evidência ausente. O modo público ampliava desnecessariamente a leitura local.
+O coletor de depósito também fazia `lstat(path)` seguido por `readFile(path)` em
+três inputs, reabrindo a janela de substituição entre as duas operações.
+
+Correção
+
+Os quatro fluxos agora usam `writePrivateFileDurable`, que cria um temporário
+aleatório 0600 com O_EXCL/O_NOFOLLOW, sincroniza o conteúdo, faz rename,
+sincroniza o diretório e reabre o destino pela fronteira direta para conferir
+modo e bytes. Destino simbólico, hard-linked, de outro proprietário ou em
+diretório indireto é rejeitado.
+
+Manifesto nativo, pin do manifesto e hash da transação de depósito agora usam
+`readDirectFile`, vinculando a leitura ao mesmo descritor validado e rejeitando
+mudança de inode, tamanho, mtime ou ctime durante a leitura.
+
+Validação
+
+- teste estático impede os quatro scripts de reintroduzirem `writeFile` ou
+  `rename` e exige a fronteira durável;
+- teste da escrita durável cobre modo 0600, conteúdo, tamanho, symlink de alvo e
+  diretório indireto;
+- testes focados de submissão, observação, depósito e runbook: 72/72 aprovados;
+- lint de produção, build Solidity forçado de 44 arquivos e regressão Node
+  completa: 291/291 aprovados.
+
+Os avisos do build são os avisos Foundry/OpenZeppelin já avaliados. A prova RISC
+Zero ativa permaneceu em execução e não foi reiniciada.
+
+Nenhuma chave, assinatura, publicação, implantação, mineração, transmissão ou
+movimentação de fundos foi realizada.

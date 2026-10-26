@@ -1,0 +1,69 @@
+ETAPA 1072 — FRONTEIRA DO COMMIT DE FONTE E PUBLICAÇÃO
+Data: 2026-10-26
+
+Escopo
+Auditoria leve e sem commit do conjunto que formará o primeiro commit limpo da
+implementação atual. Não houve push, rede, build, assinatura, deploy ou fundos.
+
+Achado corrigido
+`scripts/source-manifest.py` já excluía `results-stage*`, porém o `.gitignore` do
+laboratório não. Como `commit-release-source.sh` usa `git add -A`, resultados de
+execuções antigas poderiam entrar no commit mesmo sem cobertura por MANIFEST.sha256.
+
+Correção
+- `labs/usdom-reserve/.gitignore` agora exclui `results-stage*/`, alinhado ao
+  source-manifest.
+- `check-publication-snapshot.py` recusa caminhos locais mesmo se alguém os adicionar
+  com `git add -f`: qualquer componente results/results-stage*, caches, out, target,
+  node_modules, .codex, .agents e qualquer `docs/CONTINUATION-STATE.md`.
+- O gate não depende apenas do ignore: um arquivo local já indexado também falha.
+
+Conjunto exato proposto para o commit de fonte
+O conjunto é definido pelo pathspec já usado pela cerimônia, após aplicar os ignores:
+
+  git add -A -- . ':(top,exclude)labs/usdom-reserve/evidence/**'
+
+Isso inclui:
+1. todas as alterações rastreadas da implementação DOM;
+2. novos crates, fontes, testes, fuzz targets e configurações do workspace;
+3. `labs/usdom-ethereum-finality/**` como implementação verificadora;
+4. no laboratório USDOM: contratos, SDK, scripts, testes, vendor autenticado,
+   configurações sem segredo, lockfiles, manifests, especificações, runbook e relatórios
+   técnicos ETAPA cobertos pelo source-manifest;
+5. scripts e testes raiz de política/publicação.
+
+Isso exclui do commit de fonte:
+- `labs/usdom-reserve/evidence/**`, reservado exclusivamente ao commit-filho de
+  evidências depois do sourceCommit;
+- `labs/usdom-reserve/results/**` e `results-stage*/**`;
+- os dois `docs/CONTINUATION-STATE.md`;
+- target/out/cache/node_modules, corpora e artefatos de fuzz, logs, dados LMDB,
+  worktrees auxiliares, ratificações executadas e demais padrões locais do ignore;
+- chaves, seeds, mnemonics, credentials, raw/witness privados e nomes equivalentes,
+  rejeitados adicionalmente pela cerimônia;
+- conteúdo com formato de chave privada, token ou credential URL, rejeitado pelo
+  scanner de conteúdo staged.
+
+Decisões explícitas
+- `evidence/` não foi colocado no `.gitignore`: a cerimônia de fonte o exclui por
+  pathspec, enquanto a cerimônia posterior precisa adicioná-lo ao commit-filho.
+- `AGENTS.md` do laboratório e relatórios `*ETAPA*.txt` permanecem no escopo. O
+  MANIFEST.sha256 vigente já os trata como política/proveniência técnica (AGENTS e
+  413 relatórios pinados); removê-los seria uma mudança separada da política de fonte.
+- `config/mainnet-toolchain-lock.json` permanece no escopo porque é a identidade
+  autenticada do toolchain usado pela release. Não contém segredo.
+- O handoff e o cache/manifest offline reais ficam fora da árvore até o sourceCommit;
+  identidades necessárias ao rebuild entram na camada de evidência apropriada.
+
+Validação leve
+- `python3 -m unittest scripts.tests.test_publication_snapshot`: 4/4 PASS.
+- `git check-ignore` confirmou results-stage e ambas as continuações.
+- `git diff --check`: PASS.
+- Não foi criado index temporário final nem executado scan adicional porque um único
+  Cargo `--no-run` autorizado ocupava o host; o conjunto acima é o pathspec autoritativo
+  já implementado na cerimônia, não uma seleção manual incompleta.
+
+Próximo passo
+Depois do teste Cargo atual e antes de qualquer commit, atualizar/verificar
+MANIFEST.sha256 contra a árvore final, executar todos os gates da cerimônia e revisar o
+diff staged produzido pelo pathspec acima. A autorização de push continua ausente.

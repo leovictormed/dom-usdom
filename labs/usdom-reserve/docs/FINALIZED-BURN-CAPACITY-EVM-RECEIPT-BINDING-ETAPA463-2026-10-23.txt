@@ -1,0 +1,41 @@
+Stage 463 — finalized-burn capacity EVM receipt binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The finalized-burn capacity report recorded adapter acceptance and gas but did
+not commit the exact isolated Anvil receipt that produced those values. The
+transaction and block identity could be replaced while leaving the report's
+derived result unchanged.
+
+Remediation
+===========
+
+Capacity schema v2 requires a canonical
+`usdom-finalized-burn-isolated-evm-receipt-v1` transcript. It binds transaction
+hash, block hash and nonzero block number to the deployed adapter address,
+runtime code hash, verifier configuration hash, finalized-burn statement,
+EVM-seal SHA-256 and measured gas. The executor builds this transcript from
+the successful receipt and exact call inputs, writes the exact bytes it hashes,
+and includes the transcript SHA-256 in the capacity report.
+
+The validator independently reconstructs the transcript and fails closed on
+legacy schema or any receipt/input substitution. Mutation tests cover the
+transaction hash, block hash, block number and transcript hash.
+
+Evidence boundary
+=================
+
+`production_finalized_burn_isolated_evm_receipt_bound_to_capacity_report` is a
+true structural fact. It does not claim that the pending production capacity
+proof has run. No network, signing, deployment, funds, mining, commit or push
+occurred.
+
+Validation
+==========
+
+- Changed Node modules pass syntax checks.
+- Focused finalized-burn capacity tests pass 4/4.
+- JSON and diff checks pass.
+- Full readiness passes 60/60 after the UDFINL04 build released resources.

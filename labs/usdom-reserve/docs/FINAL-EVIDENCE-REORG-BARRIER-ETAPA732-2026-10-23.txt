@@ -1,0 +1,33 @@
+ETAPA732 — final receipt/evidence reorg barrier
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+The current deployment performed stable receipt and ancestry checks per RPC,
+then reread local evidence before persistence. Source zero could still reorganize
+while later sources were checked. The persisted completion manifest therefore
+did not represent one final all-source observation immediately preceding its
+create-once write.
+
+A final barrier now runs after every earlier validation and immediately before
+receipt/evidence persistence. It refetches the exact receipt from every RPC,
+requires byte-normalized receipt agreement, rechecks the receipt block by
+number and hash, and requires the receipt height at or below a single identical
+finalized head number/hash reported by all sources. Approved runtime bytecode is
+read at that exact finalized block. Raw, validation, submission-hash and RPC
+catalog evidence are reread after the network sweep.
+
+The create-once completion manifest now records that final barrier block number
+and hash in addition to the receipt block. Any receipt drift, reorg, mixed
+finalized head, runtime drift or local evidence mutation stops persistence.
+
+Verification
+============
+
+- Focused positive/negative structural barrier regression: 8/8 Node tests.
+- Combined deployment/identity/package suite: 20/20 tests after correction.
+- Bash syntax and `git diff --check`: passed.
+
+No real RPC, signature, deployment, materialization, funds action, commit or
+push occurred.

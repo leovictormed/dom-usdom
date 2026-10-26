@@ -1,0 +1,44 @@
+USD + DOM — fixed limited Ethereum mainnet pilot policy
+Stage 438 — 2026-10-22
+
+Problem closed
+--------------
+The runbook still listed seven policy fields as null and told the operator to
+return the diagnostic output. The operator explicitly requires complete
+commands and will not edit or fill command fields manually.
+
+Implementation
+--------------
+`npm run --silent materialize:limited-mainnet-policy` now installs one fixed
+policy for the first isolated public-mainnet pilot:
+
+- maximum outstanding collateral: 1,000,000 base units (1 USDT);
+- maximum daily outflow: 1,000,000 base units (1 USDT);
+- withdrawal delay: 86,400 seconds;
+- governance delay: 172,800 seconds;
+- native relay safety margin: 3,600 seconds;
+- maximum Ethereum anchor age: 1,800 seconds;
+- maximum DOM clock lead: 7,200 seconds.
+
+The preparer accepts no arguments, reads one direct 0644 release config,
+rejects non-mainnet or non-USDT templates, refuses any pre-existing different
+policy and rereads the exact source bytes before returning. The locked shell
+wrapper uses the fsync-backed release-config installer and preserves both
+`productionReady=false` and `realFundsAuthorized=false`. Repeated execution is
+idempotent.
+
+This policy is intentionally bounded to the exact 1 USDT closed pilot already
+specified by the deposit command. Increasing exposure requires a distinct
+release and authorization; it is not an editable command parameter.
+
+Validation
+----------
+- positive, idempotence and adversarial policy tests pass;
+- fixed materializer and operator tests pass 71/71;
+- Bash syntax and ShellCheck pass;
+- complete Node regression and forced 44-file Solidity build pass 319/319;
+- complete provenance passes for 169 imports, every proof/panic boundary and
+  1,233 source-manifest entries;
+- expected gates remain at 169 closed-mainnet and 176 real-funds blockers;
+- no RPC, key, signature, deployment, funds, mining, commit, tag or push is
+  available to this materializer.

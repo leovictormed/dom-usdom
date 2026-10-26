@@ -1,0 +1,54 @@
+Stage 597 — USDOM wallet snapshot decoder bounds (2026-10-23)
+
+Scope
+
+- Audited every count, list, variable payload and history boundary in the
+  canonical encrypted USDOM wallet snapshot decoder.
+- Checked allocation order, checked arithmetic, truncation, duplicate/map-key
+  handling, encoded order and trailing-byte rejection.
+- The RandomX proof was not interrupted by this work; it later exited on its
+  own during the checks because a RISC Zero build artifact download returned
+  HTTP 400. No Cargo test/build, commit, push, deployment, signing or funds
+  operation was performed by this stage.
+
+Concrete defects corrected
+
+1. `Reader::count` capped values at 1,000,000, but top-level commitment and
+   history vectors called `Vec::with_capacity(count)` before proving that the
+   decrypted snapshot retained even one minimum-size record per declared item.
+   A tiny authenticated-but-malformed plaintext could therefore request a
+   large allocation before failing on its first read.
+
+2. Notes, expected issuances, pending transfers and pending burns did not
+   preflight their complete declared record count against remaining bytes.
+   They did not reserve the whole count, but could enter attacker-sized loops
+   and incrementally allocate maps before the surrounding snapshot was shown
+   structurally capable of carrying the records.
+
+3. The four BTreeMap-backed sections rejected duplicate keys but accepted
+   unique keys in arbitrary encoded order. Since the encoder always emits
+   strict ascending key order, such snapshots were semantically recoverable
+   but noncanonical.
+
+Implementation
+
+- Added `Reader::require_records`, using checked multiplication and the exact
+  remaining slice length before any top-level allocation/loop.
+- Applied exact conservative minimum widths: commitment 32, note 116,
+  issuance 212, pending transfer/burn 137 and history undo 120 bytes.
+- Added strict ascending-key enforcement for notes, issuances, pending
+  transfers and pending burns.
+- Existing `Reader::list` already checks `count * 32` through division before
+  collection. Variable payloads already obtain a bounded count and call
+  `take(length)` before `to_vec`, so allocation cannot precede the remaining-
+  bytes check. Checked cursor addition and final empty-reader enforcement cover
+  overflow, truncation and trailing data.
+
+Verification
+
+- Added a focused unit regression that exercises all five minimum-record
+  preflights at the maximum legal item count, the list preflight, and duplicate/
+  descending canonical map keys.
+- Eight structural assertions pass; direct rustfmt check and `git diff --check`
+  pass. Cargo execution remains queued while an independent external build owns
+  the available build resources.

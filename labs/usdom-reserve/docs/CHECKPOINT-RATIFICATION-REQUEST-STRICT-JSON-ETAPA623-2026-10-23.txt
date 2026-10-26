@@ -1,0 +1,35 @@
+DOM / USDOM — pedido de ratificação de checkpoint com JSON estrito
+Etapa 623 — 2026-10-23
+
+Fronteira auditada
+==================
+
+A próxima autoridade JSON do catálogo era
+`checkpoint-bootstrap/ratification-signing-request.json`. Ela compromete o
+bootstrap, a governança finalizada, identidades RPC e o digest que dois owners
+Ledger assinam antes da ratificação do checkpoint.
+
+Achado e correção
+=================
+
+O writer gerava JSON e seu SHA-256, mas instalava ambos pelo modo binário. O
+arquivo de hash é corretamente textual; o pedido JSON, porém, ainda dependia de
+parsing permissivo anterior e podia representar chaves duplicadas ou UTF-8
+inválido antes de se tornar autoridade de assinatura.
+
+O pedido agora usa `install-private-file-immutable-stdin.mjs --json`. Seu
+`.sha256` permanece deliberadamente fora do modo JSON. A validação fatal UTF-8
+e duplicate-key-aware ocorre antes de qualquer filesystem action, conservando
+create-once/identical, owner 0600, single-link, O_NOFOLLOW, inode estável e
+fsync.
+
+Validação
+=========
+
+O teste estrutural exige `--json` exatamente no request, sem aplicá-lo ao hash.
+O teste comportamental compartilhado mantém alvo válido e confirma que
+duplicate key escapada e UTF-8 inválido falham sem alterar seus bytes. Testes
+focados passaram 2/2; shell syntax e diff integrity passaram.
+
+Nenhum Rust/Cargo/Solidity/RISC0, staging, commit, push, deploy, assinatura,
+transmissão ou uso de fundos foi executado.

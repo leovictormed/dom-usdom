@@ -1,0 +1,25 @@
+ETAPA 1102 — REBUILD V3 CRASH / RECOVERY AUDIT
+Date: 2026-10-26
+
+Two concrete generation-confusion gaps were closed. First, a receipts output
+already tracked in the pinned source snapshot could be accepted after a producer
+returned success, allowing a valid receipt from an earlier generation to enter
+the new verification chain. Receipts outputs must now be absent before their
+producer runs; verify-only outputs already had the same create-once rule.
+
+Second, hashing a tool before and after pathname-based execution left a narrow
+hash-to-exec inode substitution window. Every producer, verify-only checker and
+aggregator is now opened O_NOFOLLOW, checked as executable regular single-link,
+hashed through its retained descriptor and executed through /proc/self/fd with
+that descriptor inherited. Its inode/size/timestamps are checked again after
+exit. Path replacement cannot select the executed bytes.
+
+The existing temporary-candidate/atomic-publication design never resumes an
+orphan after a crash. New tests demonstrate that an orphan containing a valid
+old receipt remains untouched and cannot enter a fresh candidate, a prior
+receipt in the source snapshot is rejected, verify-only cannot roll back the
+authenticated predecessor, and an aliased executable inode is rejected.
+
+Python compilation and the full lightweight suite pass 20/20; the focused
+executable-inode regression passes 1/1 after its addition. Diff check passes.
+No Rust/Solidity edits, Cargo, Forge, network, deploy, funds, commit or push.

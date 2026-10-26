@@ -1,0 +1,65 @@
+USDOM — orçamento de código, calldata, gás e ETH do piloto
+ETAPA 1093 — 2026-10-26
+
+Achado corrigido
+================
+
+O valor antigo `reserve: 4.228.726` usado como teto da execução CREATE ficou
+menor que o custo inevitável de code deposit indicado pelo artifact diagnóstico:
+22.792 bytes × 200 gas = 4.558.400 gas, antes mesmo do construtor. Isso podia
+rejeitar a estimativa RPC real e tornar impossível gerar a transação correta.
+
+Os valores foram convertidos em ceilings conservadores: 750k para cada adapter,
+3,5M para Registry e 6,5M para Reserve. Eles não substituem medição: cada deploy
+continua exigindo o maior `eth_estimateGas` de múltiplos RPCs, abaixo do ceiling,
+e usa limite com margem de 25%. O gate compara cada ceiling com o code-deposit
+mínimo do artifact; crescimento futuro falha fechado.
+
+Limites confirmados
+===================
+
+- EIP-170: limite 24.576 bytes e margem obrigatória de 4.096 bytes no artifact
+  reconstruído.
+- EIP-3860: limite 49.152 bytes e margem de 8.192 bytes aplicada também ao
+  initcode completo com argumentos, não somente ao creation bytecode.
+- Inclusão: gas da transação não pode superar metade do menor block gas limit
+  finalizado observado por todos os RPCs; a condição é repetida antes da
+  assinatura.
+- EIP-1559: projeção de 12 blocos no pior crescimento de 12,5%, priority fee de
+  2 gwei, max fee 100 gwei, 0,6 ETH por deploy e 1 ETH pela sequência.
+- Safe: estimate multi-RPC inclui `execTransaction`; margem 25%, teto 500k e
+  projeção EIP-1559 de 12 blocos. A medição final ainda é evidência pendente.
+- Calldata: proof RISC Zero é fixo; prune aceita no máximo 256 IDs, cujo pior
+  framing ABI é 8.260 bytes, abaixo do limite de política de 16 KiB.
+
+Artifact diagnóstico e bloqueio restante
+=========================================
+
+Os artifacts em `out/` não foram promovidos como evidência fresca. Seus números
+servem apenas para localizar risco antes do rebuild:
+
+- finalized-burn adapter: runtime 2.036, headroom EIP-170 22.540 bytes;
+- checkpoint adapter: runtime 2.037, headroom 22.539 bytes;
+- Registry: runtime 10.989, headroom 13.587 bytes;
+- Reserve: runtime 22.792, headroom somente 1.784 bytes.
+
+O Reserve ainda cabe no limite duro, mas viola o buffer obrigatório de 4.096
+bytes. O checker de publicação já bloqueia esse artifact. A próxima ação de
+código é reduzir/refatorar o runtime e executar rebuild limpo; atualizar hash ou
+reduzir o buffer sem mudança de código não é aceito.
+
+Também passam a bloquear explicitamente a prontidão as medições frescas de:
+queueWithdrawal com prova/eventos atuais, pruneExpired(256),
+pruneDiscardable(256), overhead administrativo Safe, adapters burn e checkpoint.
+As seis flags continuam `false`; são evidências operacionais a produzir após o
+rebuild, sem alegação de risco zero ou auditoria externa.
+
+Validação leve
+==============
+
+- checker de orçamento e self-test: PASS;
+- planner/raw validator focal: 2/2 PASS; regressão EIP-3860: 1/1 PASS;
+- readiness positiva e regra “auditoria externa/risco zero não bloqueiam”: 2/2;
+- sintaxe Node, JSON, pycompile e diff-check: PASS.
+
+Nenhum Forge/Cargo, deploy, rede, assinatura, push ou fundo foi usado.

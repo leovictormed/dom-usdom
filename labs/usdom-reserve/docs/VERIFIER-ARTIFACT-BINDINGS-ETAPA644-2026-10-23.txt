@@ -1,0 +1,34 @@
+ETAPA 644 — bindings dos verificadores e checkpoint registry
+Data: 2026-10-23
+
+Achado
+Os derivadores de runtime/initcode dos dois adapters RISC Zero validavam seus
+manifests, mas os consumidores de deployment, readiness e build reproduzível
+derivavam os hashes separadamente sem exigir que verifierConfigHash coincidisse
+com o release. Um manifesto válido, porém pertencente a outra ImageID, chain ou
+verifier, podia assim alimentar a derivação antes de uma comparação indireta.
+
+Correção
+- deriveFinalizedBurnVerifierArtifactBinding e
+  deriveCheckpointVerifierArtifactBinding recalculam o adapter config hash,
+  exigem igualdade com o release e derivam runtime/initcode de uma única fonte.
+- Deployment, readiness e os dois relatórios reproduzíveis usam essas fronteiras.
+- Checkpoint registry já possuía binding integral; readiness deixou de chamar os
+  dois derivadores soltos e passou a usar esse binding.
+- Regressões provam rejeição de config hash stale para ambos adapters.
+
+Reconciliação ETAPA639
+Os novos staticcalls de construtor a PROOF_ACCEPTED alteraram legitimamente os
+initcodes da reserve e do registry. Os vetores foram atualizados para os artefatos
+recompilados: reserve 0x8e66607e7f3787cd1fefd0480d46a15ee069649c5da76e9a3729512b13be403e
+(24770 bytes), registry 0x7e281e78282c7ef6b36ab2cfeab3a62ff5fc163e4d559bffd6d5569ad90e341b
+(13653 bytes). Testes Solidity confirmam capability, chain, selector, ImageID,
+journal e falha fechada dos construtores; pins anteriores não são aceitos.
+
+Validação
+- Node de config, bytecode, deployment e manifests: 30/30.
+- Solidity diferencial dos adapters: 3/3.
+- Solidity construtores reserve/registry: 2/2.
+- Sintaxe Node e git diff --check: aprovados.
+
+Nenhum commit, push, deploy, assinatura, transmissão ou fundo foi usado.

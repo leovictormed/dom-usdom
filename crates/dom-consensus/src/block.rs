@@ -226,6 +226,14 @@ impl DomDeserialize for BlockHeader {
 
 /// Validate block header syntax (step 2 of RFC-0007 block validation).
 pub fn validate_header_syntax(header: &BlockHeader, network_magic: u32) -> Result<(), DomError> {
+    if !matches!(
+        network_magic,
+        NETWORK_MAGIC_MAINNET | NETWORK_MAGIC_TESTNET | NETWORK_MAGIC_REGTEST
+    ) {
+        return Err(DomError::Invalid(
+            "block header names an unknown network".into(),
+        ));
+    }
     let required_version = required_block_version_for_network(network_magic, header.height.0);
     validate_header_syntax_with_required_version(header, required_version)
 }
@@ -538,6 +546,14 @@ mod tests {
         let mut h = dummy_header();
         h.version = 99;
         assert!(validate_header_syntax(&h, NETWORK_MAGIC_MAINNET).is_err());
+    }
+
+    #[test]
+    fn unknown_network_cannot_inherit_mainnet_version_policy() {
+        assert!(matches!(
+            validate_header_syntax(&dummy_header(), 0xdead_beef),
+            Err(DomError::Invalid(_))
+        ));
     }
 
     #[test]

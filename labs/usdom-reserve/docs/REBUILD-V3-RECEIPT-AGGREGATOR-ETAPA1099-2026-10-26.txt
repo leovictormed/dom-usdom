@@ -1,0 +1,27 @@
+ETAPA 1099 — REBUILD V3 RECEIPT AGGREGATOR
+Date: 2026-10-26
+
+Implemented the independent receipt-stage aggregator required between the
+verify-only RISC Zero host and the V3 rebuild orchestrator. It captures bounded
+direct single-link JSON records, authenticates its index against the stage
+input map, and requires every receipt and verify-only record to appear exactly
+once in the authenticated output map. Extra or missing outputs fail closed.
+
+For every receipt it recomputes the artifact and record hashes, checks exact
+size, requires the closed verify-only schema and a true cryptographic result,
+binds the predecessor chain, and compares the method ImageID and exact journal
+to a separately hash-pinned ProgramBinary verification record. Duplicate
+receipt content and path reuse are rejected. Only after the complete graph
+passes does it emit the closed `usdom-rebuild-stage-verification-v1` receipts
+record, with create-once mode 0600 and file/directory fsync.
+
+Adversarial tests prove rejection of a false cryptographic claim despite
+correct artifact hashes and rejection of cross-method receipt replay. Python
+compilation, Node tests 3/3, template validation and diff checks pass.
+
+The stage template now tracks both verifier and aggregator executables and
+remains deliberately non-materializable while either executable is null. It
+can only be enabled after the Rust verifier binary and Python aggregator are
+individually pinned in a reviewed production manifest.
+
+No Cargo, Forge, network, proof rebuild, deploy, signing, funds, commit or push.

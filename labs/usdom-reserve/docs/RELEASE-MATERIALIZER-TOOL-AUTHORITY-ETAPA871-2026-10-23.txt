@@ -1,0 +1,12 @@
+ETAPA871 — RELEASE MATERIALIZER TOOL AUTHORITY
+Date: 2026-10-23
+
+Three release authorization/native/safe metadata materializers executed Node
+and jq through PATH and removed signature-bearing temporary trees through an
+unauthenticated cleanup utility. They now pin bounded (1..512 MiB) tools,
+canonical parent identity and hashes, recheck before each use, and clean up
+through authenticated Node while preserving exit status.
+
+Focused materializer ordering/tool tests pass 3/3; Bash syntax and diff checks
+pass. The signing-key configurator was audited separately and not modified in
+this stage. No signing, materialization, commit or push ran.

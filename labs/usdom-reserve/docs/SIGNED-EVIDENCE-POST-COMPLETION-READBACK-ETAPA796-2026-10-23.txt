@@ -1,0 +1,23 @@
+ETAPA 796 — signed evidence post-completion stable rereads
+Date: 2026-10-23
+
+Findings and corrections
+Two remaining release materializers verified immutable precursors before publishing their mutable aggregate completion marker but did not reread the complete precursor set afterward.
+
+Native attestations
+- Four signed attestations plus the finalized EIP-1271 observation are immutable precursors.
+- Release evidence is the aggregate completion marker.
+- After exact-reading installed metadata, the materializer now invokes `verify_published_outputs` again, rereading all five immutable files and comparing them with the prepared generation.
+
+Release authorization
+- Signed authorization and finalized observation are immutable precursors.
+- Operator intent is the aggregate completion marker.
+- After exact-reading installed intent, the materializer now rereads both immutable files and exact-compares them with the prepared generation.
+
+Both retain precursor-first/completion-last ordering and exact-or-reject immutable retry. A precursor-only crash remains recoverable; mixed post-completion generations fail before success.
+
+Validation
+- fixed multi-file inventory: 1/1 passed.
+- `bash -n` on both materializers: passed.
+- `git diff --check`: passed.
+No signing, Git mutation, RPC, commit, push, broadcast or funds operation ran.

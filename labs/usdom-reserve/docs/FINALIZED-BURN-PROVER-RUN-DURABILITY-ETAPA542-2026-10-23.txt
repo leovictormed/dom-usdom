@@ -1,0 +1,36 @@
+Stage 542 — finalized-burn prover run durability
+Date: 2026-10-23
+
+Finding
+
+The long finalized-burn prover used temporary-file rename for status and copied
+artifacts, but did not synchronize the temporary bytes before rename. The
+`running` publication also did not synchronize the run directory. Rename gives
+atomic visibility, not power-loss durability. A crash could therefore leave an
+orphan directory without its initial classification or retain a terminal
+`succeeded` name while receipt/log bytes were not durably ordered before it.
+
+Correction
+
+`write_run_status` now follows `write temporary -> chmod -> fsync temporary ->
+rename -> fsync run directory` for running, failed and succeeded states.
+`atomic_copy_to` applies the same sequence to every diagnostic, receipt and
+cache artifact. Since finalization copies all evidence before calling
+`write_run_status succeeded`, the terminal marker remains last and is now
+durably ordered after the artifact bytes and names.
+
+The existing lifecycle semantics remain fail closed: EXIT maps nonzero and
+HUP/INT/TERM to failed status with their shell exit codes; selectors accept only
+canonical `succeeded` status and reject the newest stale `running` directory.
+The schema was deliberately preserved so historical selection cannot confuse
+new and old evidence.
+
+Adversarial validation
+
+The focused operator test asserts both publication sequences place file fsync
+before rename and directory fsync after rename. Existing lightweight failure
+tests continue to require a failed terminal status and preserved diagnostics.
+
+The active RandomX service was not inspected, altered or restarted. No full
+readiness, Cargo, Foundry, Anvil, proof, network, signing, funds, deploy, push or
+publication operation was run.

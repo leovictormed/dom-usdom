@@ -1,0 +1,24 @@
+USDOM stage 377 — staging child openat publication
+
+The shared private staging authority now creates exact child files directly
+under its retained directory descriptor with openat CREATE|EXCL, NOFOLLOW and
+mode 0600. It fsyncs and validates type, owner, link count, mode and length. A
+failure removes only a child created by that invocation; an existing child is
+never deleted or replaced.
+
+Finalized-deposit registration and observation, private-burn preparation and
+checkpoint recovery no longer use path-based OpenOptions for seals, metadata,
+payloads, evidence or copied predecessor snapshots. Encrypted wallet snapshot
+updates still use their audited atomic envelope writer through the retained
+`/proc/self/fd` staging path.
+
+Validation:
+
+- staging/output authority tests: 3/3 pass, including no-clobber preservation
+- all TPM-operator bins compile with --locked and one build job
+- cargo fmt --check and git diff --check pass
+- proof manifest hashes updated for all five affected critical sources
+
+No live RPC, secret, TPM, signing, transaction, deployment, funds, mining,
+commit, tag or push was used. The detached finalized-burn proof remained
+active and was not restarted.

@@ -20,7 +20,7 @@ struct Arguments {
     network: Network,
 }
 
-fn main() -> anyhow::Result<()> {
+fn run() -> anyhow::Result<()> {
     match parse_arguments(std::env::args_os())? {
         Action::Help => {
             print_help();
@@ -47,6 +47,24 @@ fn check(arguments: Arguments) -> anyhow::Result<()> {
         bundle
             .candidate_v2_first_height
             .map_or_else(|| "disabled".to_owned(), |height| height.to_string())
+    );
+    println!(
+        "checkpoint_interval_blocks: {}",
+        bundle
+            .checkpoint_interval_blocks
+            .map_or_else(|| "disabled".to_owned(), |value| value.to_string())
+    );
+    println!(
+        "checkpoint_confirmation_depth_blocks: {}",
+        bundle
+            .checkpoint_confirmation_depth_blocks
+            .map_or_else(|| "disabled".to_owned(), |value| value.to_string())
+    );
+    println!(
+        "randomx_receipt_image_id: {}",
+        bundle
+            .randomx_receipt_image_id
+            .map_or_else(|| "disabled".to_owned(), hex::encode)
     );
     println!(
         "empty_state_root: {}",
@@ -278,5 +296,12 @@ mod tests {
             Action::Help
         ));
         assert!(parse_arguments(args(&["--help", "extra"])).is_err());
+    }
+}
+
+fn main() {
+    if let Err(_error) = run() {
+        eprintln!("USDOM manifest validation failed");
+        std::process::exit(1);
     }
 }

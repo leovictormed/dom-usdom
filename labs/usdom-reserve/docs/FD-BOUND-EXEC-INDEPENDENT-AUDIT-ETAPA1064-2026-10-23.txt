@@ -1,0 +1,100 @@
+Stage 1064 — independent fd-bound execution security audit
+Date: 2026-10-23 (America/Sao_Paulo)
+Status: concrete TOCTOU and environment gaps corrected
+
+Scope
+=====
+Reviewed `tools/usdom-fd-exec.c`, both credential-bearing integrations and the
+Stage-1063 fixture for syscall flags, descriptor lifetime, EVP SHA-256, path and
+inode races, argv/environment construction, owner/mode policy, mount behavior,
+dynamic-loader influence and error propagation.
+
+Findings and corrections
+========================
+1. Material inode race. `openat2` plus execution of the same descriptor prevents
+path substitution, but does not prevent a current-owner writer holding another
+file descriptor from changing the inode after hashing and before the kernel
+loads it. The launcher now copies bytes while hashing into a private
+`memfd_create(MFD_CLOEXEC|MFD_ALLOW_SEALING)` image, authenticates the completed
+copy, changes it to mode 0500, applies and verifies WRITE/GROW/SHRINK/SEAL seals,
+and executes that immutable descriptor. Mutation of the source can now only
+produce the expected authenticated image or a hash failure; it cannot change
+bytes after authentication.
+
+2. Caller PATH propagation. The prior environment copied caller-controlled
+PATH into a credential-bearing child. The launcher now supplies a fixed system
+PATH and accepts only an absolute HOME. The receiving-wallet entrypoint now
+validates HOME as a direct current-user absolute directory, matching the
+recovery drill.
+
+3. Loader and privilege environment. Both integrations now remove every
+inherited `LD_*` variable before compiling or starting the dynamically linked
+launcher. The child already receives an allowlisted environment. The launcher
+also rejects setuid/setgid sources and applies `PR_SET_NO_NEW_PRIVS` before
+execution.
+
+4. Robustness. Replaced the argc-sized stack VLA with checked heap allocation,
+bounded authenticated images to 512 MiB, retries interrupted reads/writes,
+closes the root/source descriptors before execution, and preserves exit 126 for
+all launcher-boundary failures.
+
+Preserved boundaries and residual trust
+=======================================
+- `openat2` still requires BENEATH, NO_SYMLINKS, NO_MAGICLINKS and NO_XDEV for
+  the executable lookup; unsupported kernels fail closed.
+- Source must be regular, single-link, root/current-user owned, executable,
+  nonempty, bounded and not group/other writable.
+- EVP SHA-256 is finalized at exactly 32 bytes; lowercase 64-hex input remains
+  canonical. Digest equality is not secret-dependent.
+- Root-owned kernel, dynamic loader, system shared libraries, compiler and
+  `/etc/ld.so.preload` remain ceremony-host trust. User environment injection
+  is removed, but this helper is not a defense against a compromised root or
+  hostile mount namespace controlled by root.
+
+Validation
+==========
+The C source compiles with `-O2 -Wall -Wextra -Werror`. The focused Node fixture
+passes authenticated sealed execution and exact argv propagation, observes
+fixed PATH and `no_new_privs=1`, and rejects wrong digest, relative HOME,
+setuid, symlink and hardlink inputs. The structural gate requires openat2,
+execveat, memfd sealing, SHA-256 and no-new-privileges; both shell integrations
+pass syntax validation and carry the exact new source hash
+`e3eacf90ba359bc4baa1c43a05c244367b1c5d3488d623624ac0a606a176f3ed`.
+Focused test 1/1, gate and diff integrity pass.
+
+No Cargo/Forge build, wallet operation, secret, signature, network request,
+deployment, broadcast, funds action, commit or push occurred.
+
+Post-change broad regression (completion addendum)
+==================================================
+After the memfd/seal implementation and source-pin update:
+- the complete authoritative mainnet-readiness suite passes 62/62;
+- the additional byte-strict readiness suite passes 8/8 (combined 70/70);
+- the complete focused launcher/wallet/credential set passes 38/38.
+
+One focused fixture still expected direct execution of the two recovery
+binaries. It was corrected to require the fd launcher, repository root,
+repository-relative executable, exact binary SHA-256 and argument delimiter.
+The assertion was strengthened around the new authority path; no production
+check was relaxed.
+
+Final area inventory
+====================
+Covered and green:
+- path resolution and filesystem crossing policy;
+- regular-file ownership, links, modes, setid and size policy;
+- source-byte SHA-256 and immutable sealed execution image;
+- descriptor closure, EINTR behavior and fail-closed exit status;
+- argv preservation without a stack-sized VLA;
+- allowlisted child environment, fixed PATH, validated HOME, removal of LD
+  controls and no-new-privileges;
+- exact helper-source pins in both wallet workflows;
+- receiving-wallet and checkpoint-recovery binary identity/recheck paths;
+- readiness release gates and strict JSON authority boundaries.
+
+No additional implementation gap is established in this area. Remaining work
+is operational: execute the interactive wallet/TPM recovery ceremonies on the
+final hardened host and retain their release-bound evidence. The host kernel,
+root account, dynamic loader, system libraries, compiler and mount namespace
+remain explicit ceremony-platform trust and require the existing platform
+hardening/attestation evidence; they cannot be removed by this userspace helper.

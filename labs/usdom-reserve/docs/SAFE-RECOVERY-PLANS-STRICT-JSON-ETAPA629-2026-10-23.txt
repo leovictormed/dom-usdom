@@ -1,0 +1,36 @@
+DOM / USDOM — planos de recuperação Safe com JSON estrito
+Etapa 629 — 2026-10-23
+
+Fronteira auditada
+==================
+
+Os próximos documentos prioritários do catálogo eram o par independente
+`safe-recovery-plan-primary.json` e `safe-recovery-plan-secondary.json`. Eles
+fixam o owner perdido, replacement owner, dois signers sobreviventes, estados
+Safe finalizados, nonces, typed data e safeTxHash dos três `swapOwner` que serão
+assinados e depois executados em mainnet.
+
+Achado e correção
+=================
+
+Ambos eram criados com o instalador privado create-once em modo byte-oriented e
+normalizados depois por `jq`. Duplicate keys ou UTF-8 inválido não pertencem a
+essa autoridade e podiam gerar divergência antes da comparação primária/
+secundária e da assinatura Ledger.
+
+Os dois comandos do runbook agora usam
+`install-private-file-new-stdin.mjs --json`. A validação fatal UTF-8 e JSON
+duplicate-key-aware ocorre antes de qualquer write. O par continua vindo de
+RPCs independentes e sendo comparado sem os campos específicos do anchor.
+Nenhum hash, assinatura, raw transaction ou prova binária foi retipado.
+
+Validação
+=========
+
+O teste estrutural exige `--json` nos dois planos e mantém os demais artefatos
+em seus modos anteriores. O teste comportamental create-once recusa duplicate
+key escapada e UTF-8 inválido sem alterar o alvo válido. Testes focados passaram
+2/2; diff integrity passou.
+
+Nenhum Rust/Cargo/Solidity/RISC0, staging, commit, push, deploy, assinatura,
+transmissão ou uso de fundos foi executado.

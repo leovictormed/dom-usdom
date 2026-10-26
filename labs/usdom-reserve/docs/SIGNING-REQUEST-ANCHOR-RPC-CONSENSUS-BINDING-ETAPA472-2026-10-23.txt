@@ -1,0 +1,20 @@
+Stage 472 — signing-request finalized-anchor RPC-consensus binding
+Date: 2026-10-23
+
+Release-authorization and native-attestation signing requests used an anchor
+reconciled across cataloged finalized RPCs, but their durable finalizedAnchor
+retained only the shared block and governance result. The anchor collector now
+requires provider/source cardinality equality and includes canonical
+RPC-consensus evidence with ordered operator/origin identities and a
+domain-separated source-set commitment.
+
+Both offline signing-request validators require and recompute that evidence.
+Omission, substitution, malformed commitment and provider/source mismatch fail
+closed. The request writers continue to compare every fixed input before
+publication.
+
+`production_signing_request_finalized_anchors_bind_rpc_consensus` is structural.
+No live anchor, network, signature, deployment, funds, mining, commit or push is
+claimed.
+
+Validation: combined focused and readiness tests pass 70/70.

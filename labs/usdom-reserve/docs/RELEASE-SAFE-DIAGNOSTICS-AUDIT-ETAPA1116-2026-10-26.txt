@@ -1,0 +1,42 @@
+USDOM release-wide safe diagnostics audit — Stage 1116
+Date: 2026-10-26
+
+Scope
+=====
+All JavaScript release entry points, including Safe, deployment, checkpoint,
+rebuild/proof, wallet, authorization, health, preactivation and evidence flows.
+Shell launchers were searched for xtrace, raw/witness output and secret-variable
+echoes. No secret-bearing xtrace/output path was found in the reviewed launchers.
+
+Findings and correction
+=======================
+Observable exception interpolation was widespread: 92 entry points could write
+Error.message or a derivative to stderr/JSON. URL replacement was insufficient,
+because parser, RPC, child-process, argv/env and private JSON errors can embed raw
+transactions, witnesses, credentials or cross-phase identities.
+
+Added a release-wide closed diagnostic record with a constant code and a bounded,
+constant operation slug. It never reads Error.message, stack, cause, stderr,
+stdout, argv, env or attached private JSON. Migrated all 92 entry points. Persistent
+failure status for finalized-burn/checkpoint proof runs now stores only the constant
+rejection code. RPC wrapper failures retain only cataloged public source IDs. The
+local proof fixture no longer throws child stderr.
+
+The static gate scans every scripts/*.mjs and rejects observable exception
+interpolation, persisted String(error) fields, and throwing child stdout/stderr.
+Adversarial tests attach sentinel raw transaction, witness, rho, nullifier secret,
+plaintext memo, deposit and burn identities, RPC secret, stdout/stderr, argv, env
+and private JSON; none reaches the diagnostic record.
+
+Validation
+==========
+Pinned Node 24.19.0 diagnostic gate: 11 pilot entry points, 92 release entry points,
+9 sentinel families; passed.
+All JavaScript entry points passed node --check.
+Focused Safe/deployment/checkpoint/burn/wallet/authorization suites: 52/52 passed.
+The broad Node run additionally exposed Anvil-unavailable tests; those failures are
+environmental and were not treated as diagnostic regressions.
+
+The schema-v2 critical-source inventory was deliberately not edited during its
+concurrent transition. No Cargo, Forge, network, signing, deployment, funds,
+commit or push was used.

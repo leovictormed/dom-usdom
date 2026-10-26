@@ -1,0 +1,45 @@
+ETAPA718 — deployment package four-artifact binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The deployment-package boundary validated each CREATE plan internally, but did
+not independently bind its role to the artifact identity approved by the
+production release. A caller could therefore exchange two otherwise valid
+plans as complete objects. The production preparer supplied the correct roles,
+but this SDK boundary did not reject the mix-and-match itself. The preparer
+also compared runtime hashes for both verifier adapters without making the
+corresponding initcode comparisons explicit at that boundary.
+
+Correction
+==========
+
+`buildMainnetDeploymentPackage` now requires an exact four-role
+`approvedArtifacts` catalog. For every role it validates and reconciles the
+predicted CREATE address, initcode hash and runtime code hash against the
+canonical plan. Null, zero, partial, extra-field and cross-role artifacts fail
+closed. Existing distinct-address, nonce uniqueness and deployment order
+checks remain in force.
+
+The mainnet deployment producer constructs that catalog solely from the final
+release and explicitly compares source-derived initcode and runtime hashes for
+all four contracts. Mainnet preflight now requires a production-ready,
+real-funds-still-unauthorized release and complete nonzero runtime/initcode/
+config identities for all four artifact state machines before assessing either
+phase. Receipt input hashes, deployed code hashes and CREATE addresses continue
+to be reconciled independently.
+
+Evidence
+========
+
+- Cross-contract plan exchange and altered/partial approved catalogs are
+  rejected.
+- Null pins from each of the four state machines are rejected by preflight.
+- The producer structurally retains all four source-derived binding functions
+  and explicit verifier initcode reconciliation.
+- Focused Node tests: 17/17 passed.
+- Node syntax checks and `git diff --check`: passed.
+
+No RPC call, materialization, signing, transmission, deployment, funds action,
+commit or push was performed.

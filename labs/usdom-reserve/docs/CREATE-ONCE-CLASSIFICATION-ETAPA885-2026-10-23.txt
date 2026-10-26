@@ -1,0 +1,13 @@
+ETAPA 885 — classificação create-once e família reproducible-build
+
+Base do inventário da ETAPA883: 48 scripts marcados, dos quais 36 usam os instaladores duráveis inventariados e 12 mantêm recusa explícita fora dessa família.
+
+Classificação dos 12: 12 imutáveis legítimos, 0 derivados retryable stale. Eles cobrem material secreto/autoridade TPM, intent de burn, registro de carteira, assinaturas e transações Safe/release, evidência de consenso Ethereum, catálogo-fonte de confiança e catálogos RPC públicos create-once. A recusa preserva identidade, anti-replay ou mudança explícita de raiz de confiança. Os observers/executores que contêm testes internos de ausência já invalidam seus outputs derivados sob lock antes de RPC conforme as etapas 850–867 e não formam completion marker stale.
+
+Os 12 são: `bootstrap-closed-mainnet-tpm-authority.sh`, `provision-closed-mainnet-tpm-keystore.sh`, `drill-closed-mainnet-wallet-recovery.sh`, `prepare-closed-mainnet-private-burn.sh`, `register-finalized-deposit-wallet.sh`, `sign-recoverable-safe-recovery.sh`, `sign-release-authorizations.sh`, `collect-ethereum-checkpoint-consensus.sh`, `materialize-ethereum-checkpoint-source-catalog.sh`, `write-checkpoint-bootstrap-rpc-catalog.sh`, `write-checkpoint-finalized-event-rpc-catalog.sh` e `write-mainnet-preflight-rpc-catalog.sh`.
+
+Família coerente corrigida: além da reserva corrigida na ETAPA883, os três writers verifier, checkpoint-verifier e checkpoint-registry agora, sob os locks de config/output, publicam metadata com o respectivo ponteiro nulo e fsync, removem duravelmente o report antigo, geram e instalam o novo report e publicam/releem o ponteiro somente por último.
+
+Contagens após a correção: 4/4 writers reproducible-build protegidos; 0/4 pares report+ponteiro derivados permanecem stale em retry; 12/12 recusas externas classificadas como imutabilidade legítima; 0/12 derivados retryable pendentes nessa classe.
+
+Validação: teste estrutural parametrizado 4/4, bash -n nos quatro writers e git diff --check aprovados. Nenhum build, prova ou RPC foi executado.

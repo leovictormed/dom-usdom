@@ -1,0 +1,29 @@
+ETAPA 668 — ÍNDICES DE CAPACIDADE CHECKPOINT COM BYTES ESTRITOS
+Data: 2026-10-23
+
+Correção
+A fronteira comum `strictIndex` do checkpoint-capacity-artifact-collector deixou
+de converter bytes com Buffer.toString('utf8') e agora usa parseStrictJsonBytes.
+Todos os índices autoritativos do grafo passam pela mesma função: RandomX jobs e
+receipts, agregado RandomX, economic chunks/blocks, segmentos, outer receipt e
+prova EVM.
+
+Garantias preservadas
+- limite por índice de 64 MiB e profundidade JSON 32;
+- arquivos privados diretos e diretórios owner-only, sem links;
+- hashes de jobs, inputs, programas, receipts, images, journals e seals;
+- receipt_verified/dev_mode/generates_proofs e metadados canônicos;
+- statement hash, image IDs, journal digest e framing do seal EVM;
+- leitura/rechecagem e vínculos do grafo existentes não foram relaxados.
+
+Testes focados leves
+- schema duplicado por escape é rejeitado antes da autoridade do grafo;
+- byte UTF-8 inválido é rejeitado antes do parser;
+- regra estrutural exige parseStrictJsonBytes(artifact.bytes) e proíbe toString;
+- 2/2 regressões passaram em ~1,7 s;
+- node --check e git diff --check passaram.
+A suíte integral não foi iniciada para não competir com o build RandomX ativo.
+A busca específica não encontrou outra fronteira artifact.bytes.toString('utf8')
+nos módulos SDK.
+
+Nenhum RPC, Cargo/Rust, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

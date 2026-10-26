@@ -1,0 +1,26 @@
+Stage 1146 — ECDSA notary type gate
+Date: 2026-10-26
+
+Finding and correction
+======================
+
+The quorum prototype authenticates notaries exclusively through ECDSA.recover;
+it does not implement EIP-1271 contract signatures. Configuration nevertheless
+accepted an address with deployed code as a notary. Such a member has no usable
+contract-signature path and could leave the configured threshold operationally
+unreachable. Notary validation now requires every signer to have no deployed
+code at construction and delayed rotation execution/proposal validation.
+
+Evidence
+========
+
+- The unsafe-quorum regression now inserts a separately deployed contract into
+  a canonically sorted three-member set and proves both constructor and proposal
+  reject it with InvalidConfiguration.
+- Focused regression passes 1/1.
+- Complete USDOMReserve unit, invariant and USDT policy contract selection exits
+  0 using pinned Forge and solc 0.8.37.
+- Runtime is 14,539 bytes, leaving 10,037 bytes below EIP-170.
+- git diff --check passes.
+
+No Cargo, Rust, network, signing, deployment, funds, commit or push was used.

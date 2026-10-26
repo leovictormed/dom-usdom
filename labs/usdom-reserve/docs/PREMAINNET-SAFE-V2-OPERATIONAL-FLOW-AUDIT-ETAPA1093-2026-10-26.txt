@@ -1,0 +1,55 @@
+USDOM Stage 1093 — pre-mainnet Safe v2 operational flow
+Date: 2026-10-26
+Scope: generated commands/static checks only; no secret access, signature, network, broadcast, deployment, Forge, Cargo, commit or push
+
+Result
+------
+The command generator now covers the complete non-broadcast preparation chain:
+public hardware identity and custody proofs, unsigned three-Safe creation,
+recovery planning/signing, and release-configuration materialization after
+finalized recovery evidence exists. Commands contain no address placeholders.
+
+Hardening findings and corrections
+----------------------------------
+1. The generator still exported RPC endpoints as ambient JSON, while current
+   credential-bound readers reject that legacy variable. It now creates a
+   current-user 0600 RPC source file once and exports only the `_FILE` variable.
+2. Custody verification accepted a valid EIP-712 signature without comparing
+   the complete type arrays. It now requires exact domain/message type layouts,
+   role, slot, owner, Safe, chain ID and package hash before signature recovery.
+3. Software staging identities could previously feed Safe preparation. The
+   supported preparation phase now reads only the active hardware identity and
+   matching nine-proof bundle.
+4. Recovery replacement addresses previously lacked a possession proof. Each
+   replacement now signs an offline EIP-712 proof bound to its role, Safe,
+   chain ID and exact recovery plan hash before any recovery artifacts publish.
+
+Generated phases
+----------------
+- `migrate-safe-owners-hardware-secret`: public identities and nine EIP-712
+  custody proofs; no Safe transaction.
+- `prepare-safe-controls`: rederives and stores the unsigned CREATE2 package
+  for three 2-of-3 Safes; no broadcast primitive is present.
+- `prepare-safe-recovery-secret`: chooses three globally new replacement
+  hardware keys, proves their possession, prepares the v2 recovery plan and
+  obtains the two surviving-owner signatures for each Safe. Output is calldata
+  only; execution is absent.
+- `materialize-safe-control-config`: requires the separately collected finalized
+  recovery report, writes hash-addressed evidence, and materializes the three
+  independent owner sets while keeping productionReady and realFundsAuthorized
+  false.
+
+Rollback boundary
+-----------------
+Hardware and replacement proofs are assembled in mode-0700 `/dev/shm` staging.
+A failure in any role occurs before active identity/recovery publication and no
+on-chain mutation exists to roll back. Once on-chain execution is separately
+authorized, rollback requires the already implemented signed Safe recovery
+path and finalized evidence; this stage does not claim cross-Safe atomicity.
+
+Checks
+------
+- generator and all newly emitted programs pass `bash -n`;
+- command-generator/pilot DAG suites pass 6/6;
+- generator contains no deploy/broadcast command for Safe creation or recovery;
+- no keys, signatures or network calls were executed by this audit.

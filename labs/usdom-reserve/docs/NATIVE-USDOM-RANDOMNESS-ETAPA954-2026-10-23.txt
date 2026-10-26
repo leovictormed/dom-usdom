@@ -1,0 +1,37 @@
+ETAPA 954 — randomness, nonces e derivação de chaves USDOM
+Data: 2026-10-23
+
+Achado corrigido
+Dois geradores TPM de produção usavam `OsRng.fill_bytes`, cuja falha do CSPRNG termina
+por panic. A autoridade NV e o segredo do keystore agora usam `try_fill_bytes` e propagam
+`RandomnessUnavailable`; nenhum credential/record é criado parcialmente.
+
+Geradores auditados (9)
+1. recovery seed: caller `RngCore + CryptoRng`, rejeita zero;
+2. owner scalar: rejection sampling canônico, rejeita zero (sem redução enviesada);
+3. scan secret X25519: `StaticSecret::random_from_rng`;
+4. rho de cada note/change: rejection sampling canônico e não zero;
+5. ephemeral X25519 por memo output: fresh caller CryptoRng;
+6. nonce XChaCha20 por output: 192 bits, par `(ephemeral,nonce)` único no memo;
+7. requestId de burn: 256 bits, rejeita zero/burnId/pending collision, 128 tentativas;
+8. TPM NV authorization: OS CSPRNG com erro propagado;
+9. TPM wallet-keystore secret: OS CSPRNG, zero rejeitado, erro propagado.
+
+Derivações confirmadas
+- recovery owner/scan usam HKDF-SHA256 com salt versionado, tags de propósito distintas,
+  chain scalar e counter; a mesma seed reproduz endereço somente na mesma chain;
+- memo key usa HKDF salt separado e contexto/AAD com chain, owner, scan key, ephemeral,
+  commitment e output slot;
+- prova Groth16 recebe o mesmo caller CryptoRng, mas randomness da prova não é derivação
+  de chave e não altera a identidade recuperável;
+- `StdRng::seed_from_u64` aparece somente sob `#[cfg(test)]`/test modules.
+
+Backup e recuperação
+Owner e scan são reproduzidos deterministicamente da seed; rho, memo ephemeral/nonce,
+requestId e randomness de prova permanecem frescos para novas transações após recovery.
+Histórico/snapshot preserva openings existentes em vez de regenerar seus nonces.
+
+Validação
+- `native-usdom-randomness-stage954.test.mjs`: 3/3 passou.
+- rustfmt --check e git diff --check: passaram.
+- Sem Cargo pesado.

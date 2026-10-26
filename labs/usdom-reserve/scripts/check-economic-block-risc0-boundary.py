@@ -74,7 +74,7 @@ def main() -> None:
     tree = subprocess.run(
         [cargo, "+risc0", "tree", "--locked", "--target", "riscv32im-risc0-zkvm-elf",
          "-p", "dom-usdom-economic-block-risc0-guest"],
-        cwd=REPO, check=True, capture_output=True, text=True,
+        cwd=REPO, check=True, capture_output=True, text=True, timeout=120,
     ).stdout
     for forbidden in ["randomx-rs", "secp256k1-zkp-sys", "grin_secp256k1zkp", "dom-chain"]:
         if forbidden in tree:
@@ -95,4 +95,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except subprocess.TimeoutExpired as error:
+        fail(f"Cargo dependency graph command timed out after {error.timeout} seconds")

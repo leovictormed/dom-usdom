@@ -1,0 +1,7 @@
+ETAPA879 — REPORT MATERIALIZER TOOL AUTHORITY
+Date: 2026-10-23
+
+Checkpoint catalog, residual-risk and trusted-setup writers now pin bounded
+Node/jq, canonical parent identities and authenticated cleanup. Stale-output
+logic is unchanged. Release provenance was audited and left unchanged because
+its Git boundary is separately pinned. Focused tests pass 3/3; no operation ran.

@@ -1,6 +1,6 @@
 # USDOM complete checkpoint-segment RISC Zero guest
 
-This guest proves one bounded `UDCSTN02` transition of at most 32 consecutive
+This guest proves one bounded `UDCSTN04` transition of at most 32 consecutive
 DOM blocks. It authenticates `UDCSPOL1` policy preimages and the `UDCSNS01`
 previous native-state opening, executes native USDOM candidate-v2 state, verifies ordinary DOM economics either directly or through the pinned complete economic-block receipt, and verifies one state-pinned complete RandomX receipt per header. Its journal is the exact 32-byte transition commitment.
 

@@ -1,0 +1,49 @@
+ETAPA 605 — robustez da configuracao do rate limit P2P
+Data: 2026-10-23
+
+Escopo
+------
+Auditoria da configuracao operacional do limitador de mensagens recebido por
+conexao em crates/dom-node/src/msg_rate_limit.rs. Nenhum script RISC Zero,
+publicacao, segredo, deploy, assinatura, fundo ou estado externo foi tocado.
+
+Achado concreto
+---------------
+Os cinco overrides DOM_TEST_RATELIMIT_* sao compilados no binario de producao
+e aceitavam qualquer u64 parseavel. DOM_TEST_RATELIMIT_WINDOW_SECS=0 fazia
+Window::observe_at reiniciar o contador em toda mensagem, permitindo flood
+ilimitado de Ping/Pong, sincronizacao, transacoes e blocos. Orcamentos maiores
+que o padrao enfraqueciam a protecao; valores acima de u32::MAX eram truncados
+por `as u32`, com comportamento operacional inesperado. Uma janela curta
+tambem elevava a taxa sustentada permitida.
+
+Correcao
+--------
+- Orcamentos de teste aceitam apenas decimal canonico no intervalo
+  1..=limite compilado. Portanto podem tornar o teste mais estrito, nunca
+  ampliar a taxa de producao.
+- A janela aceita apenas decimal canonico entre os 10 segundos compilados e
+  uma hora. Uma hora preserva a integracao P2P existente e e mais estrita que
+  producao; zero e janelas menores nao podem mais desativar/enfraquecer o cap.
+- Vazio, zero, zeros a esquerda, sinal, espacos, overflow e valores fora do
+  intervalo retornam ao default seguro. A conversao para u32 ocorre somente
+  depois de provar que o valor cabe no proprio default u32.
+- Regressao pura cobre limites validos e todas essas classes invalidas.
+
+Verificacao
+-----------
+- rustfmt direto do arquivo: passou.
+- git diff --check do arquivo: passou.
+- busca estrutural confirmou que a integracao usa janela 3600, ainda aceita,
+  e que nao restou o parser permissivo env_override.
+- O teste Cargo focado ficou pendente: outro processo do operador (PID 2296629,
+  dom-interopd em /home/leonardov/dom-legs-codex) detem o package-cache lock.
+  Ele nao foi interrompido, conforme requisito. Executar depois de sua saida:
+  cargo test -p dom-node --lib --locked msg_rate_limit::tests -- --test-threads=1
+
+Conclusao
+---------
+O rate limit P2P deixa de falhar aberto por configuracao de teste herdada no
+ambiente de um binario de producao. A validacao comportamental Rust permanece
+explicitamente pendente apenas pelo lock externo; as verificacoes locais que
+nao disputam Cargo passaram.

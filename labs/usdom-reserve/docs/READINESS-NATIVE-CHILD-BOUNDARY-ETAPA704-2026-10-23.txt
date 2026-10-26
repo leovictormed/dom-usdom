@@ -1,0 +1,30 @@
+ETAPA 704 — aggregate readiness native child boundary
+Date: 2026-10-23
+
+Finding
+=======
+Aggregate mainnet readiness uses native manifest-checker fields as semantic inputs to release
+assessment. The subprocess was selected by an environment/PATH Cargo command, decoded with
+non-fatal string encoding, permissively trimmed and allowed stderr. A substituted executable
+or ambiguous diagnostics/framing could influence the aggregated decision.
+
+Correction
+==========
+The checker now snapshots safely owned Cargo, invokes its resolved absolute path and rechecks
+executable bytes/metadata and containing directory after the child exits. The command override
+is removed. Stdout is bounded Buffer data, decoded with fatal UTF-8 and requires exactly one
+terminal newline, no CR or blank terminal record, plus existing malformed/duplicate field
+rejection. Any stderr byte fails closed.
+
+The native manifest remains included in the one-read evidence byte snapshot and SHA inventory.
+The child receives the configured SHA-256 and mainnet network argument, so its file view must
+match the same digest before its semantic output can be accepted.
+
+Validation
+==========
+Focused aggregate-readiness boundary tests: 4/4 pass. Structural coverage requires executable
+snapshot/recheck, absolute invocation, bounded bytes, fatal decoding, exact framing and empty
+stderr. Node syntax and git diff checks pass. The aggregate checker/native child was not run.
+
+No heavy build, Cargo execution, Rust, Solidity, RISC0 proof, RPC, signing, transmission,
+deployment, funds, staging, commit or push was performed.

@@ -1,0 +1,66 @@
+Stage 260 - Authenticated RandomX aggregate receipt jobs
+Date: 2026-10-20
+
+Finding
+
+Stage 259 produced a deterministic one-receipt-per-block proving lifecycle, but
+there was no host path that verified those receipts and supplied them as exact
+ordered assumptions to the pinned per-segment RandomX aggregate guest. A file
+list or unverified receipt index would not establish that the aggregate journal
+belongs to the authenticated DOM checkpoint source.
+
+Implemented boundary
+
+The `dom-usdom-randomx-proof-host` crate now has separate aggregate planning and
+proving binaries. Planning rebuilds and byte-compares the stage-259 job index,
+validates the exact receipt-set schema and every bounded direct receipt file,
+cryptographically verifies each succinct receipt against the pinned complete
+RandomX ImageID and exact journal, and binds the statement source-set hash to the
+exact checkpoint source-set index.
+
+Every source segment must have checked cadence and span arithmetic, canonical
+names and hashes, contiguous complete public state, one DOM genesis, the pinned
+inner ImageID, an exact target boundary and the final confirmation height. The
+planner derives the aggregate journal from the exact transition/private/policy
+inputs and matches every inner receipt to the derived ordered binding. It pins
+the aggregate ProgramBinary SHA-256, ImageID file SHA-256 and candidate ImageID.
+
+The separate proving command accepts no arguments or field overrides. It unsets
+remote Bonsai/server settings, fixes `RISC0_PROVER=local`, disables development
+mode and requests succinct receipts in a release build. It verifies the exact
+aggregate ImageID and journal before atomic publication, resumes only from an
+already valid direct receipt, rejects symlinks/non-files and invalidates the
+final index before work. It never mines DOM or any other asset.
+
+Fixed commands
+
+  npm run --silent plan:authenticated-randomx-aggregate-set
+
+  npm run --silent prove:authenticated-randomx-aggregate-set
+
+The proof command is prepared but was not executed because expensive RISC Zero
+proving has not been authorized. The planner also correctly remains unable to
+produce a positive plan until the stage-259 cryptographic receipt set exists.
+With current production evidence absent, the fixed planner exits 1 before Cargo
+with an exact missing non-symlink input error.
+
+Validation
+
+Both aggregate binaries compile under locked `verify` and `prove` feature
+sets. The proof-host tests pass 3/3 with both features, including malicious
+height underflow and target-crossing rejection. Focused readiness and operator
+tests pass 46/46. Both wrappers pass shell parsing and contain no secret prompt,
+placeholder or positional field. The critical proof inventory includes the
+aggregate module and both binaries.
+
+Security status
+
+This stage implements and statically validates the authenticated aggregate
+receipt lifecycle. It does not claim a positive complete RandomX receipt, a
+positive aggregate receipt, measured proving cost, a production-approved
+ImageID, or an outer Ethereum checkpoint proof. The aggregate guest proves only
+the ordered RandomX relations for one source segment; it does not replace the
+complete segment or outer checkpoint guests. Those objective facts remain
+fail-closed. External audit absence and an impossible zero-risk guarantee are
+not blockers. No public network action, deployment, funds, proof, mining,
+commit or push occurred.

@@ -1,0 +1,45 @@
+ETAPA716 — máquinas de estado dos adapters e checkpoint registry
+Data: 2026-10-23
+
+Achados corrigidos
+
+- Os dois adapters eram reconciliados campo a campo. Um template parcialmente
+  preenchido poderia ter o restante completado silenciosamente se o campo já
+  presente coincidisse.
+- O release core derivava `checkpointRegistryConfigHash`, mas o produtor raiz
+  ainda não compilava nem reconciliava runtime/initcode do checkpoint registry.
+- Não havia rejeição nominal da combinação runtime/null ou null/initcode do
+  registry nem exigência dos dois pins no wrapper final.
+
+Correções
+
+- Finalized-burn e checkpoint verifier agora usam triplets atômicos
+  runtime/initcode/config. Cada triplet de entrada deve estar completamente
+  nulo ou completamente preenchido; estado parcial falha antes de assignments.
+  Triplets preenchidos só sobrevivem se forem exatamente iguais aos bindings
+  derivados dos artefatos e respectivas configurações.
+- Preactivation deriva e preenche os dois triplets dos adapters juntos. O
+  checkpoint registry permanece null/null nessa fase porque schedule, empty
+  root e config final ainda são dependências de ativação; qualquer pin precoce
+  ou parcial é rejeitado.
+- Release core possui uma transição deferred explícita para o registry apenas
+  no estado null/null. Depois de reconciliar fatos/config, o produtor
+  source-verifica `DOMCheckpointRegistry`, deriva runtime/initcode/config e
+  preenche o par atomicamente.
+- Release já preenchida é rederivada e aceita somente se idêntica. Config stale,
+  artifact ausente, par parcial, defer-after-fill ou divergência dos adapters
+  falham fechados.
+- O wrapper exige reserve e registry runtime/initcode não nulos antes da escrita
+  e mantém flock, snapshot/recheck das fontes, SHA do template e instalação
+  idempotente.
+
+Validação
+
+- Regressões incluem triplets parciais dos dois adapters, par parcial do
+  registry, pin precoce em preactivation, artifact/config ausente ou stale e
+  rerun idêntico.
+- Node state-machine: 6/6; compiled-runtime diferencial: 3/3.
+- Node/Bash syntax e `git diff --check`: aprovados.
+
+Nenhuma materialização real, RPC, Rust/Cargo/RISC0, commit, push, deploy,
+assinatura, transmissão ou fundo foi usado.

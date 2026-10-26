@@ -1,0 +1,31 @@
+ETAPA744 — recovery runtime pinned to authenticated finalized anchor
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+Partial recovery authenticated the predecessor's persisted finalized anchor,
+but subsequently requested runtime code with the moving `finalized` tag. A head
+advance between those calls could mix snapshots and detach runtime authority
+from the block whose hash had been proved.
+
+Recovery now requests `eth_getCode` at the exact canonical quantity stored in
+the completion manifest. For every RPC it authenticates that anchor's number
+and hash, reads and hashes runtime at the same number, then refetches the anchor
+and requires byte-identical block evidence and exact number/hash. The moving
+`finalized` tag is used only to prove no finality regression below the stored
+anchor, never to select authoritative runtime state.
+
+Transaction and receipt reads are already bound by exact transaction hash and
+canonical receipt block; no other moving-tag state read remained in this
+recovery function.
+
+Verification
+============
+
+- Adversarial structural regression rejects moving-tag runtime and requires
+  anchor before/after identity.
+- Focused Node tests: 15/15 passed.
+- Bash syntax and `git diff --check`: passed.
+
+No real RPC, signature, deployment, funds action, commit or push occurred.

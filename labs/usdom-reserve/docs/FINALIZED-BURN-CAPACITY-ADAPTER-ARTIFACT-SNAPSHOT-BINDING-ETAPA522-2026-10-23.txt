@@ -1,0 +1,30 @@
+USD0M stage 522 — finalized-burn capacity adapter-artifact snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The finalized-burn capacity runner opened its compiled adapter artifact from
+the live project only after local compression and after isolated Anvil started.
+Replacement during that window could select a different artifact generation
+for the reported capacity evidence.
+
+Correction
+==========
+
+After compression and before runtime observation or Anvil, the runner reads the
+bounded direct artifact once, parses those bytes, and durably installs them in
+an owner-only input-snapshots directory. It rereads the installed snapshot and
+requires exact byte and SHA-256 equality. Isolated deployment uses only the
+parsed snapshot and no longer opens the live artifact. The validated capacity
+report remains durable before the succeeded run-status completion marker.
+
+Evidence and scope
+==================
+
+Focused tests enforce snapshot ordering, private durable installation, exact
+byte/hash reread, absence of the live path in the isolated verifier and
+report-before-completion publication. Readiness requires
+`production_finalized_burn_capacity_adapter_artifact_snapshotted=true`. No
+proof, Anvil, network, signing, deployment, funds operation, commit or push was
+run.

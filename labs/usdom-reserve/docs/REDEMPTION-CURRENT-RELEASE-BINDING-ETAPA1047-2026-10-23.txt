@@ -1,0 +1,25 @@
+ETAPA1047 — redemption current-release binding
+
+Concrete gap
+------------
+The redemption package and proof were internally canonical, but the operational
+executor did not re-bind them to the release and verifier manifest currently present
+at ceremony time. A valid package retained from an older deployment generation could
+therefore survive package validation and target its old reserve while the readiness
+gate described a newer approved release.
+
+Correction
+----------
+A pure current-release validator now requires chain 1 across release/submission/
+package, exact current release SHA-256, exact current finalized-burn verifier manifest
+SHA-256, identical current reserve in release/submission/package, identical statement
+and calldata commitments, and broadcastAuthorized=false in both package layers.
+The executor performs this gate before Ledger access, nonce observation or any publish
+path. The offline DAG/checklist performs the same binding independently.
+
+Validation
+----------
+Pinned Node 24.19.0 release-binding and redemption suites passed 5/5, including
+mutations of both hashes, reserve, chain, statement, calldata and authorization.
+Bash syntax, Node syntax and focused diff check passed. No network, signer, proof,
+deployment, publication, push or funds were used.

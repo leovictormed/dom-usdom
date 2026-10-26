@@ -1,0 +1,23 @@
+USDOM stage 378 — finalized-burn proof-host dirfd writer
+
+Every finalized-burn proof-host publication now uses the shared private-byte
+writer. Job inputs and indices, succinct/composite/Groth16 receipts, EVM seals
+and their indices are created through a retained owner-only parent descriptor,
+with random exclusive temporaries, exact mode 0600, fsync, atomic replacement
+and post-publication inode/path audits.
+
+The former PID-derived temporary names and pathname rename implementation were
+removed. The pair-failure test now blocks the final index destination itself;
+it proves a first-file success followed by a second-file failure invalidates
+the readable input output and leaves no false regular-file index.
+
+Validation:
+
+- finalized-burn proof-host library tests: 4/4 pass offline and with --locked
+- locked library compilation is warning-free
+- cargo fmt --check and git diff --check pass
+
+The detached capacity proof uses the already loaded prior executable and was
+not restarted; this change requires the eventual final source-bound release
+proof to use the new host binary. No live RPC, secret, signing, transaction,
+deployment, funds, mining, commit, tag or push was used.

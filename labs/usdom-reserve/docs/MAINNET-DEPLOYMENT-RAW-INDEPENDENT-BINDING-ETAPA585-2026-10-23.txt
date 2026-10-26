@@ -1,0 +1,42 @@
+USDOM stage 585 — independent signed deployment binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The source-derived deployment package already checked the approved initcode
+hash and the deterministic CREATE address. The final signed-transaction
+validator compared the exact initcode and deployment fields, but trusted the
+package's expected contract address and did not itself recompute the package's
+initcode commitment. This made the last pre-publication boundary dependent on
+the correctness of an earlier validation layer.
+
+Correction
+==========
+
+`sdk/mainnet-deployment-execution.mjs` now:
+
+* accepts only a canonical decimal uint64 nonce;
+* canonicalizes and rejects zero deployer/contract identities;
+* requires canonical lowercase, nonempty, even-length initcode;
+* requires a canonical lowercase approved initcode hash and recomputes it;
+* independently derives the CREATE address from deployer and nonce; and
+* binds each numeric execution index to its canonical contract role name; and
+* uses those validated values when comparing the recovered signed transaction.
+
+Evidence
+========
+
+Command:
+
+  PATH=/usr/lib/chatgpt/resources/cua_node/bin:/home/leonardov/.foundry/bin:/home/leonardov/.cargo/bin:/home/leonardov/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    node --test test/node/mainnet-deployment-execution.test.mjs
+
+Result: 4 tests passed, 0 failed. One integration regression feeds the exact
+transaction schema emitted by `buildMainnetDeploymentPackage`; mutations cover
+the CREATE address, initcode commitment, commitment case, noncanonical nonce
+and uint64 overflow in addition to the existing transaction-field campaign.
+`git diff --check` for the changed implementation and test passed.
+
+No transaction was signed or broadcast. No deployment, commit or push was
+performed.

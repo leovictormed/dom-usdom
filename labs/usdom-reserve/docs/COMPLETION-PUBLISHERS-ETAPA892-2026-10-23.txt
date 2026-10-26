@@ -1,0 +1,13 @@
+ETAPA 892 — auditoria nominal dos completion/index publishers
+
+Universo nominal (9): `install-release-config-stdin.mjs`; os packagers checkpoint-outer e finalized-burn; e os provers checkpoint-outer, checkpoint-segment-set, economic-receipt-set, finalized-burn, randomx-aggregate-set e randomx-receipt-set.
+
+Critério: a escrita genérica de config deve ser uma troca durável única. Nos oito publishers multi-file, o índice anterior pode permanecer válido durante snapshot/proving para disponibilidade, pois nenhum artefato público é alterado nessa fase; depois que a nova geração completa existe no snapshot privado, o índice precisa ser removido e o diretório sincronizado antes de qualquer artefato público novo, todos os artefatos precisam ser instalados antes do índice, e o índice precisa ser a última instalação.
+
+Achado: economic, randomx-receipt e randomx-aggregate instalavam novos artefatos sem invalidar duravelmente o índice anterior. O aggregate também publicava por ordem de `find`, sem garantir o índice por último. Uma queda podia expor índice velho junto de artefatos parcialmente substituídos.
+
+Correção da família: os três agora nomeiam `final_index`, removem-no e executam `sync -d` imediatamente antes da publicação. Economic e randomx-receipt instalam suas listas e depois o índice. Aggregate separa explicitamente o índice do loop de artefatos e o instala por último.
+
+Resultado nominal: antes, 6/9 conformes e 3/9 pendentes; depois, 9/9 conformes e 0/9 pendentes. A invalidação deliberadamente ocorre após o trabalho pesado, mas antes da primeira mutação pública, preservando disponibilidade sem permitir mixed generation.
+
+Validação: inventário estrutural 1/1 sobre os nove publishers, `bash -n` nos oito shells e `git diff --check` aprovados. Nenhum build, prover ou RPC foi executado.

@@ -1,0 +1,19 @@
+ETAPA 890 — fechamento dos sites operacionais sem deadline
+Data: 2026-10-23
+
+Resultado
+- Os 24 candidatos operacionais pendentes pertenciam à família Node de snapshot, leitura privada e instalação de resultados nos oito planners/exporters de prova.
+- Para manter a política uniforme, também foram limitados 21 sites irmãos antes classificados como transformação local instantânea.
+- Total alterado nesta etapa: 45 sites Node finitos, todos com TERM em 120 s e KILL 2 s depois.
+- Os três serviços contínuos intencionais permanecem inalterados.
+
+Inventário final (soma exata: 357)
+- Serviço contínuo intencional: 3.
+- Chamada limitada por deadline/process-group runner: 204.
+- Check instantâneo ou transformação local que não cria filho operacional: 129.
+- Build/test não operacional: 21.
+- Chamada operacional sem deadline: 0.
+
+Validação
+- Teste parametrizado cobre os oito scripts e as contagens 5, 4, 7, 5, 5, 6, 10 e 3, totalizando 45 filhos Node.
+- `bash -n` aprovado em todos os oito scripts.

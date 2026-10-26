@@ -249,24 +249,12 @@ impl Metrics {
                 "counter",
                 &self.mining_hashes,
             ),
-            (
-                "dom_mempool_size",
-                "Mempool size",
-                "gauge",
-                &self.mempool_size,
-            ),
-            (
-                "dom_txs_received",
-                "Total txs received",
-                "counter",
-                &self.txs_received,
-            ),
-            (
-                "dom_txs_relayed",
-                "Total txs relayed",
-                "counter",
-                &self.txs_relayed,
-            ),
+            // Do not export mempool cardinality or transaction receive/relay
+            // counters. The metrics socket is loopback-only but unauthenticated;
+            // exposing these lets another local account reconstruct the same
+            // propagation-front timing that `/mempool` and `/tx/:hash` keep
+            // behind the RPC bearer for Dandelion++ privacy. The atomics remain
+            // available to internal node policy and authenticated projections.
             (
                 "dom_block_validation_time_ms",
                 "Block validation time",
@@ -351,18 +339,9 @@ impl Metrics {
                 "counter",
                 &self.native_usdom_v4_orphan_admission_rejected,
             ),
-            (
-                "dom_native_usdom_v4_mining_candidates",
-                "Canonical native USDOM v4 envelopes retained for local mining",
-                "gauge",
-                &self.native_usdom_v4_mining_candidates,
-            ),
-            (
-                "dom_native_usdom_v4_mining_candidate_bytes",
-                "Canonical native USDOM v4 mining-envelope bytes retained in memory",
-                "gauge",
-                &self.native_usdom_v4_mining_candidate_bytes,
-            ),
+            // Pending native USDOM mining envelopes include private transfers,
+            // burns and issuance. Exact queue count/bytes would disclose local
+            // private-activity timing through an unauthenticated surface.
             (
                 "dom_native_usdom_v4_mining_admission_rejected_total",
                 "Native USDOM v4 mining envelopes rejected by framing proof or pool policy",
@@ -509,8 +488,11 @@ mod tests {
         assert!(output.contains("dom_native_usdom_v4_orphan_bytes 4096"));
         assert!(output.contains("dom_native_usdom_v4_orphan_evictions_total 1"));
         assert!(output.contains("dom_native_usdom_v4_future_evictions_total 4"));
-        assert!(output.contains("dom_native_usdom_v4_mining_candidates 2"));
-        assert!(output.contains("dom_native_usdom_v4_mining_candidate_bytes 8192"));
+        assert!(!output.contains("dom_mempool_size"));
+        assert!(!output.contains("dom_txs_received"));
+        assert!(!output.contains("dom_txs_relayed"));
+        assert!(!output.contains("dom_native_usdom_v4_mining_candidates"));
+        assert!(!output.contains("dom_native_usdom_v4_mining_candidate_bytes"));
         assert!(output.contains("dom_native_usdom_v4_mining_admission_rejected_total 5"));
         assert!(output.contains("dom_native_usdom_v4_mining_stale_dropped_total 1"));
     }

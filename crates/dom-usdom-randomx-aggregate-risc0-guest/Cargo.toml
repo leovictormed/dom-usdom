@@ -20,5 +20,6 @@ dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", featu
 risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std", "getrandom"] }
 
 [dev-dependencies]
+# Retained to preserve the pinned workspace lock used by reproducible guest builds.
 risc0-binfmt = "=3.0.5"
 risc0-zkos-v1compat = "=2.2.3"

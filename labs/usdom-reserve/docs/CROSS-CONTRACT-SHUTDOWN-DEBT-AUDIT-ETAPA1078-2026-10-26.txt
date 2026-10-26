@@ -1,0 +1,59 @@
+Stage 1078 — Registry/ProofReserve cross-contract shutdown audit
+Date: 2026-10-26
+
+Scope
+- Audited terminal-state ordering and races across DOMCheckpointRegistry and
+  USDOMProofReserve after permanent proved-debt accounting.
+- Covered finalized issuance closure, zero native circulation, irreversible
+  deposit closure, active/expired/emergency-invalidated debts, pause/resume,
+  immutable code/config identities, checkpoint candidates and transaction order.
+
+Finding (cross-ledger defense)
+The reserve required its local ledger to be fully settled and independently
+required the registry to report issuance closure with totalIssued == totalBurned.
+It did not directly require registry totalIssued == reserve totalDeposited at the
+terminal call. The authenticated native issuance-closure record already derives
+that equality from DepositsClosedV2, but leaving it implicit weakened the final
+cross-contract assertion and could allow two internally balanced, unrelated
+ledger totals to satisfy the Solidity terminal predicate if an upstream defect
+or misconfiguration escaped earlier validation.
+
+Correction
+- finalizeGracefulShutdown now reads issued and burned totals once from the
+  pinned registry and requires:
+    registry gracefullyShutdown == true;
+    registry latestIssuanceClosed == true;
+    registry latestTotalIssued == reserve totalDeposited; and
+    registry latestTotalBurned == registry latestTotalIssued.
+- Existing local requirements remain: deposits closed, reserve unpaused,
+  deposited == released, zero outstanding, zero permanent proved debt, and an
+  empty canonical queue.
+- Added a Solidity regression rejecting an internally balanced registry total
+  that differs from an empty reserve's cumulative deposits.
+
+Race and state-machine conclusions
+- Closing deposits is irreversible and precedes native closure evidence.
+- Registry graceful shutdown atomically sets halted and deletes any candidate;
+  both submission and candidate finalization reject halted state before writes.
+- Emergency registry halt never sets gracefullyShutdown, so it cannot authorize
+  reserve shutdown.
+- Emergency reserve pause invalidates queue leases but does not erase permanent
+  debt; reserve shutdown also requires unpaused state and every debt paid.
+- Registry, verifier and control-plane code/config identities are rechecked at
+  the terminal boundary. Static calls cannot mutate or reenter either state
+  machine, and Ethereum transaction serialization closes inter-transaction
+  observation races.
+
+Evidence
+- Focused Node state-machine regressions and existing shutdown suites: 10/10.
+- Stage 1045 and 1046 graceful-shutdown Python gates passed.
+- Focused ProofReserve Foundry mismatch regression passed 1/1 with the pinned
+  solc 0.8.37. Registry shutdown regressions passed 3/3 with via-IR.
+- Repaired four stale DOMCheckpointRegistryInvariant candidate getter
+  destructurings that still expected 12 fields after the struct gained its 13th
+  field. The standard non-via-IR Registry-only compile subsequently exposed an
+  unlocated stack-too-deep compiler error; this is recorded for the parent build
+  audit and was not hidden by the successful via-IR behavioral run.
+- Diff integrity passed.
+
+No commit, push, deploy, signature, broadcast or funds operation occurred.

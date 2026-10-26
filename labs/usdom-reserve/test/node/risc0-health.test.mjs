@@ -7,7 +7,9 @@ const hash=byte=>'0x'+byte.repeat(32);
 const address=n=>'0x'+n.toString(16).padStart(40,'0');
 
 function observation() {
-  return {chainId:'1',finalizedBlockNumber:'24000000',finalizedBlockHash:hash('11'),
+  return {chainId:'1',
+    genesisBlockHash:'0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3',
+    finalizedBlockNumber:'24000000',finalizedBlockHash:hash('11'),
     snapshotBlockHashAfter:hash('11'),
     riscZeroVerifier:{address:PINNED_RISC0_MAINNET_V3.verifier_address,
       codeHash:PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash,
@@ -32,7 +34,8 @@ test('RISC Zero upstream health fails closed for every identity or emergency-sto
   const changes=[
     o=>{o.extra=true;},o=>{o.riscZeroVerifier.extra=true;},o=>{o.riscZeroEmergencyStop.extra=true;},
     o=>{delete o.riscZeroVerifier.version;},o=>{delete o.riscZeroEmergencyStop.verifier;},
-    o=>{o.chainId='31337';},o=>{o.chainId=1;},o=>{o.finalizedBlockNumber='invalid';},
+    o=>{o.chainId='31337';},o=>{o.chainId=1;},o=>{o.genesisBlockHash=hash('99');},
+    o=>{o.finalizedBlockNumber='invalid';},
     o=>{o.finalizedBlockNumber=null;},o=>{o.finalizedBlockNumber=false;},
     o=>{o.finalizedBlockNumber='';},o=>{o.finalizedBlockNumber=' ';},
     o=>{o.finalizedBlockNumber='0x016e3600';},o=>{o.finalizedBlockNumber='024000000';},

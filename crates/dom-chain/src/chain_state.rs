@@ -84,8 +84,9 @@ pub struct ChainState {
     /// the network-specific rule without re-deriving on every block —
     /// and without dragging `dom-config` into the consensus crate.
     pub coinbase_maturity: u64,
-    /// In-memory high-water mark restored from consensus state. Only the legacy
-    /// local-metadata experiment still requires an external floor on restart.
+    /// In-memory high-water mark restored only after an independently retained
+    /// restart floor has been supplied. Persisted state alone cannot detect an
+    /// internally consistent rollback to an older database snapshot.
     #[cfg(feature = "ethereum-checkpoint-poc")]
     checkpoint_floor: Option<crate::ethereum_checkpoint_poc::TestOracleCheckpoint>,
 }
@@ -234,7 +235,7 @@ impl ChainState {
         Self::open_inner(store, genesis_hash, network_magic, false, Some(floor))
     }
 
-    /// Reopen Regtest with an independently retained, cryptographically
+    /// Reopen with an independently retained, cryptographically
     /// verified checkpoint floor. The caller must supply the immutable policy
     /// hash from trusted configuration; a decoded database record is not an
     /// acceptable substitute for this opaque capability.
@@ -246,18 +247,17 @@ impl ChainState {
         verified: &usdom_ethereum_finality_experiment::checkpoints::VerifiedCheckpoint,
         expected_policy_hash: [u8; 32],
     ) -> Result<Self, DomError> {
-        if network_magic != dom_core::NETWORK_MAGIC_REGTEST
-            || expected_policy_hash == [0; 32]
+        if expected_policy_hash == [0; 32]
             || verified.trust_policy_hash().as_slice() != expected_policy_hash
         {
             return Err(DomError::PolicyRejected(
-                "CHECKPOINT_POC: verified restart floor policy mismatch".into(),
+                "CHECKPOINT_POC: verified external restart floor policy mismatch".into(),
             ));
         }
         let floor = crate::ethereum_checkpoint_poc::decode_test_oracle_v2(verified.record())?;
         if floor.dom_network_magic != network_magic {
             return Err(DomError::PolicyRejected(
-                "CHECKPOINT_POC: verified restart floor network mismatch".into(),
+                "CHECKPOINT_POC: verified external restart floor network mismatch".into(),
             ));
         }
         Self::open_inner(store, genesis_hash, network_magic, false, Some(floor))
@@ -375,20 +375,6 @@ impl ChainState {
         let asert_anchor = genesis_anchor(network_magic)
             .map_err(|e| DomError::Internal(format!("genesis anchor: {e}")))?;
 
-        // Legacy local metadata still needs an independently retained floor.
-        // A checkpoint carried by and atomically committed with a canonical
-        // native block is consensus state, so every node can restore that floor
-        // deterministically without a separate operator handoff.
-        #[cfg(feature = "ethereum-checkpoint-poc")]
-        if checkpoint_floor.is_none()
-            && crate::ethereum_checkpoint_poc::load(&store)?.is_some()
-            && crate::ethereum_checkpoint_poc::load_consensus(&store)?.is_none()
-        {
-            return Err(DomError::PolicyRejected(
-                "CHECKPOINT_POC: persisted checkpoint requires external floor".into(),
-            ));
-        }
-
         let (tip_hash, tip_height, tip_difficulty) = match store.get_chain_tip()? {
             Some(hash) => {
                 let header_bytes = store.get_block_header(&hash)?.ok_or_else(|| {
@@ -434,7 +420,7 @@ impl ChainState {
                 }
                 // Check before index rebuilding, UTXO repair, or branch pruning.
                 #[cfg(feature = "ethereum-checkpoint-poc")]
-                crate::ethereum_checkpoint_poc::ensure_at_least(
+                crate::ethereum_checkpoint_poc::ensure_restart_floor(
                     &store,
                     header.height.0,
                     checkpoint_floor,
@@ -450,7 +436,7 @@ impl ChainState {
             }
             None => {
                 #[cfg(feature = "ethereum-checkpoint-poc")]
-                crate::ethereum_checkpoint_poc::ensure_at_least(&store, 0, checkpoint_floor)?;
+                crate::ethereum_checkpoint_poc::ensure_restart_floor(&store, 0, checkpoint_floor)?;
                 prune_retained_side_chains(&store, BlockHeight::GENESIS, [0u8; 32])?;
                 (Hash256::ZERO, BlockHeight::GENESIS, U256::zero())
             }
@@ -459,7 +445,7 @@ impl ChainState {
         validate_persisted_genesis_identity(&store, genesis_hash)?;
 
         #[cfg(feature = "ethereum-checkpoint-poc")]
-        let checkpoint_floor = crate::ethereum_checkpoint_poc::ensure_at_least(
+        let checkpoint_floor = crate::ethereum_checkpoint_poc::ensure_restart_floor(
             &store,
             tip_height.0,
             checkpoint_floor,
@@ -716,6 +702,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: Option<&dom_usdom_privacy::verifier::SpendVerifier>,
     ) -> Result<ConnectResult, DomError> {
         if self.network_magic != dom_core::NETWORK_MAGIC_REGTEST {
@@ -731,6 +720,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             schedule,
             None,
@@ -752,6 +742,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: &dom_usdom_privacy::verifier::SpendVerifier,
         schedule: crate::NativeUsdomV4ActivationSchedule,
     ) -> Result<ConnectResult, DomError> {
@@ -762,6 +755,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             Some(spend_verifier),
             schedule,
             None,
@@ -783,6 +777,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: &dom_usdom_privacy::verifier::SpendVerifier,
         v1_schedule: crate::NativeUsdomV4ActivationSchedule,
         first_v2_height: u64,
@@ -794,6 +791,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             Some(spend_verifier),
             v1_schedule,
             Some(first_v2_height),
@@ -814,6 +812,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: Option<&dom_usdom_privacy::verifier::SpendVerifier>,
         schedule: crate::NativeUsdomV4ActivationSchedule,
         v2_activation_height: Option<u64>,
@@ -970,6 +971,7 @@ impl ChainState {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
                 spend_verifier,
                 schedule,
             )?;
@@ -1023,6 +1025,12 @@ impl ChainState {
         };
         let mut consensus_updates =
             verified.consensus_state_updates(current_usdom_state, package_bytes)?;
+        if let Some(update) = crate::native_usdom_v4::native_usdom_v4_undo_retention_update(
+            &self.store,
+            header.height.0,
+        )? {
+            consensus_updates.push(update);
+        }
         if let Some(v2_schedule) = activated_schedule {
             consensus_updates.extend(crate::native_usdom_v2_activation_updates(
                 &next_usdom_state,
@@ -1116,6 +1124,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: &dom_usdom_privacy::verifier::SpendVerifier,
         schedule: crate::NativeUsdomV2ActivationSchedule,
     ) -> Result<ConnectResult, DomError> {
@@ -1133,6 +1144,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             schedule,
         )?;
@@ -1244,6 +1256,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             schedule,
         )?;
@@ -1328,6 +1341,16 @@ impl ChainState {
             }
             committed_checkpoint = Some(checkpoint);
         }
+        if let Some(floor) = committed_checkpoint.or(self.checkpoint_floor) {
+            consensus_updates.extend(
+                crate::native_usdom_v4::native_usdom_v2_history_compaction_updates(
+                    &self.store,
+                    schedule,
+                    header.height.0,
+                    floor.height,
+                )?,
+            );
+        }
         dom_store::validate_consensus_state_updates(&consensus_updates)?;
         let next_usdom_state = candidate.next_state();
         let (new_utxos, spent_utxos) = build_utxo_changeset(block);
@@ -1371,6 +1394,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: Option<&dom_usdom_privacy::verifier::SpendVerifier>,
     ) -> Result<Hash256, DomError> {
         if self.network_magic != dom_core::NETWORK_MAGIC_REGTEST {
@@ -1386,6 +1412,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             schedule,
         )
@@ -1404,6 +1431,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: &dom_usdom_privacy::verifier::SpendVerifier,
         schedule: crate::NativeUsdomV4ActivationSchedule,
     ) -> Result<Hash256, DomError> {
@@ -1414,6 +1444,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             Some(spend_verifier),
             schedule,
         )
@@ -1429,6 +1460,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: Option<&dom_usdom_privacy::verifier::SpendVerifier>,
         schedule: crate::NativeUsdomV4ActivationSchedule,
     ) -> Result<Hash256, DomError> {
@@ -1553,6 +1587,7 @@ impl ChainState {
                     bridge,
                     checkpoint_policy,
                     deposit_policy,
+                    closure_policy,
                     spend_verifier,
                     schedule,
                 )?;
@@ -1572,6 +1607,7 @@ impl ChainState {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
                 spend_verifier,
                 schedule,
             )?;
@@ -1606,6 +1642,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: &dom_usdom_privacy::verifier::SpendVerifier,
         schedule: crate::NativeUsdomV2ActivationSchedule,
     ) -> Result<Hash256, DomError> {
@@ -1622,6 +1661,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             schedule,
         )?;
@@ -1758,6 +1798,7 @@ impl ChainState {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
                 spend_verifier,
                 schedule,
             )?;
@@ -1786,6 +1827,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             schedule,
         )?;
@@ -1824,6 +1866,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: Option<&dom_usdom_privacy::verifier::SpendVerifier>,
     ) -> Result<ReorgDelta, DomError> {
         if self.network_magic != dom_core::NETWORK_MAGIC_REGTEST {
@@ -1839,6 +1884,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             schedule,
         )
@@ -1856,6 +1902,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: &dom_usdom_privacy::verifier::SpendVerifier,
         schedule: crate::NativeUsdomV4ActivationSchedule,
     ) -> Result<ReorgDelta, DomError> {
@@ -1866,6 +1915,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             Some(spend_verifier),
             schedule,
         )
@@ -1881,6 +1931,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: Option<&dom_usdom_privacy::verifier::SpendVerifier>,
         schedule: crate::NativeUsdomV4ActivationSchedule,
     ) -> Result<ReorgDelta, DomError> {
@@ -2044,6 +2097,7 @@ impl ChainState {
                     bridge,
                     checkpoint_policy,
                     deposit_policy,
+                    closure_policy,
                     spend_verifier,
                     schedule,
                 )?;
@@ -2114,6 +2168,18 @@ impl ChainState {
                 DomError::Invalid(format!("native USDOM reorg delta failed: {error}"))
             })?
         {
+            consensus_overlay.insert(update.key, update.value);
+        }
+        for (block_hash, _) in &disconnect_blocks {
+            consensus_overlay.insert(
+                crate::native_usdom_v4::native_usdom_v4_undo_key(*block_hash),
+                None,
+            );
+        }
+        if let Some(update) = crate::native_usdom_v4::native_usdom_v4_undo_retention_update(
+            &self.store,
+            new_tip_header.height.0,
+        )? {
             consensus_overlay.insert(update.key, update.value);
         }
         let consensus_updates: Vec<dom_store::ConsensusStateUpdate> = consensus_overlay
@@ -2237,6 +2303,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: &dom_usdom_privacy::verifier::SpendVerifier,
         schedule: crate::NativeUsdomV2ActivationSchedule,
     ) -> Result<ReorgDelta, DomError> {
@@ -2254,6 +2323,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             schedule,
         )?;
@@ -2344,6 +2414,26 @@ impl ChainState {
         branch_targets.insert(ancestor, (ancestor_height, branch_state.root()));
         let mut promoted_checkpoint = self.checkpoint_floor;
         let mut consensus_overlay: BTreeMap<Vec<u8>, Option<Vec<u8>>> = BTreeMap::new();
+        for (block_hash, _) in &disconnect_blocks {
+            let package_bytes = crate::load_persisted_usdom_v4_package(
+                &self.store,
+                self.network_magic,
+                *block_hash,
+            )?
+            .ok_or_else(|| {
+                DomError::Internal(
+                    "disconnected native USDOM V2 package is missing during archive rollback"
+                        .into(),
+                )
+            })?;
+            let package = crate::UsdomV4BlockPackage::from_bytes(&package_bytes)?;
+            for burn in package.proof_envelope().public_burn_records()? {
+                consensus_overlay.insert(
+                    crate::native_usdom_v4::v2_burn_archive_delete_key(burn.burn_id),
+                    None,
+                );
+            }
+        }
         for (block_hash, block) in &connect_blocks {
             let header = &block.header;
             let header_bytes = header.to_bytes()?;
@@ -2411,6 +2501,7 @@ impl ChainState {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
                 spend_verifier,
                 schedule,
             )?;
@@ -2557,13 +2648,22 @@ impl ChainState {
         let utxo_updates = build_utxo_updates(&self.store, &utxo_overlay)?;
         let kernel_updates = build_kernel_updates(&self.store, &kernel_overlay)?;
 
-        self.store.apply_reorg_with_consensus_state(
-            new_tip_hash.as_bytes(),
-            &height_updates,
-            &utxo_updates,
-            &kernel_updates,
-            &consensus_updates,
-        )?;
+        let promoted_sidecar_deletes: Vec<[u8; 32]> = connect_blocks
+            .iter()
+            .map(|(block_hash, _)| *block_hash.as_bytes())
+            .collect();
+        self.store
+            .apply_reorg_with_consensus_state_and_sidecar_changes(
+                new_tip_hash.as_bytes(),
+                &height_updates,
+                &utxo_updates,
+                &kernel_updates,
+                &consensus_updates,
+                dom_store::ReorgSidecarChanges {
+                    inserts: &[],
+                    deletes: &promoted_sidecar_deletes,
+                },
+            )?;
         self.tip_hash = new_tip_hash;
         self.tip_height = new_tip_header.height;
         self.tip_difficulty = new_tip_header.total_difficulty;
@@ -2592,6 +2692,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: &dom_usdom_privacy::verifier::SpendVerifier,
         schedule: crate::NativeUsdomV2ActivationSchedule,
     ) -> Result<ConnectResult, DomError> {
@@ -2608,6 +2711,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             schedule,
         )?;
@@ -2663,6 +2767,7 @@ impl ChainState {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
                 spend_verifier,
                 schedule,
             );
@@ -2676,6 +2781,7 @@ impl ChainState {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
                 spend_verifier,
                 schedule,
             )?;
@@ -2693,6 +2799,7 @@ impl ChainState {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
                 spend_verifier,
                 schedule,
             )?;
@@ -2719,6 +2826,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: Option<&dom_usdom_privacy::verifier::SpendVerifier>,
     ) -> Result<ConnectResult, DomError> {
         if self.network_magic != dom_core::NETWORK_MAGIC_REGTEST {
@@ -2734,6 +2844,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             schedule,
         )
@@ -2752,6 +2863,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: &dom_usdom_privacy::verifier::SpendVerifier,
         schedule: crate::NativeUsdomV4ActivationSchedule,
     ) -> Result<ConnectResult, DomError> {
@@ -2762,6 +2876,7 @@ impl ChainState {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             Some(spend_verifier),
             schedule,
         )
@@ -2777,6 +2892,9 @@ impl ChainState {
         bridge: dom_usdom_state::BridgeIdentity,
         checkpoint_policy: &usdom_ethereum_finality_experiment::checkpoints::StaticCheckpointTrustPolicy,
         deposit_policy: &usdom_ethereum_finality_experiment::deposits::StaticDepositTrustPolicy,
+        closure_policy: Option<
+            &usdom_ethereum_finality_experiment::closures::StaticIssuanceClosureTrustPolicy,
+        >,
         spend_verifier: Option<&dom_usdom_privacy::verifier::SpendVerifier>,
         schedule: crate::NativeUsdomV4ActivationSchedule,
     ) -> Result<ConnectResult, DomError> {
@@ -2842,6 +2960,7 @@ impl ChainState {
                     bridge,
                     checkpoint_policy,
                     deposit_policy,
+                    closure_policy,
                     spend_verifier,
                     schedule,
                     None,
@@ -2856,6 +2975,7 @@ impl ChainState {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
                 spend_verifier,
                 schedule,
             )?;
@@ -2873,6 +2993,7 @@ impl ChainState {
                 bridge,
                 checkpoint_policy,
                 deposit_policy,
+                closure_policy,
                 spend_verifier,
                 schedule,
             )?;
@@ -3356,7 +3477,11 @@ impl ChainState {
                     } else {
                         decoded_prefix
                             .last()
-                            .expect("decoded prefix not empty")
+                            .ok_or_else(|| {
+                                DomError::Internal(
+                                    "decoded IBD prefix disappeared during parent lookup".into(),
+                                )
+                            })?
                             .0
                             .clone()
                     };
@@ -3394,7 +3519,11 @@ impl ChainState {
                 } else {
                     decoded_prefix
                         .last()
-                        .expect("decoded prefix not empty")
+                        .ok_or_else(|| {
+                            DomError::Internal(
+                                "decoded IBD prefix disappeared during difficulty lookup".into(),
+                            )
+                        })?
                         .0
                         .total_difficulty
                 };

@@ -1,0 +1,18 @@
+VERIFY-ONLY RECIPE BUILD BINDING — STAGE 1124 (2026-10-26)
+
+Scope
+- Audited the verify-only build attestation and V3 manifest materializer for substitution and replay of an older, internally coherent build bundle.
+- No Rust source, Cargo manifest/lock, rust-toolchain, MANIFEST, Cargo, Forge, network, deploy, signing, funds, commit or push was used.
+
+Finding and correction
+- The reviewed materialization recipe previously did not name the verifier binary, build-policy and build-attestation hashes. The command line pinned each file, but a caller could replace the complete binary/policy/attestation tuple with an older coherent tuple without contradicting the authenticated recipe itself.
+- Recipe schema v2 now binds the binary SHA-256, policy SHA-256, attestation SHA-256, source-closure SHA-256 and canonical build-input commitment. Materialization requires every binding to equal the independently captured binary and strict policy/attestation evidence.
+- Recipe parsing now rejects duplicate JSON keys. All materializer inputs must be owner-controlled, single-link, non-group/world-writable regular files read through stable descriptors.
+- Attestation hash fields and binary size now require canonical types; JSON strings, booleans and malformed digests cannot compare equal through Python coercion.
+
+Validation
+- Focused materializer tests: 5/5 PASS, including coherent older-bundle replay rejection.
+- Focused installer tests: 4/4 PASS, including non-integer binary-size rejection and duplicate-key rejection.
+- Python bytecode compilation: PASS.
+
+Final closure/policy pins were not refreshed because the coordinator's Cargo workspace run and Rust corrections remain active. Publication MANIFEST regeneration remains pending the separately required quiescent window.

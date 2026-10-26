@@ -1,0 +1,37 @@
+USD-native / USDOM — Stage 426: proof manifest canonical size
+Date: 2026-10-22
+
+Finding
+=======
+
+After the production adapters were restricted to the canonical 260-byte RISC
+Zero Groth16 EVM seal, the finalized-burn and checkpoint verifier manifests
+still declared maxProofBytes=65536. The contracts rejected the excess bytes,
+but a release reviewer could sign a proof-system policy that overstated the
+accepted encoding and disagreed with the executable boundary.
+
+Correction
+==========
+
+Both verifier-configuration validators now require maxProofBytes=260, derived
+from the same four-byte selector plus eight 32-byte BN254 words used by their
+submission validators. The checked-in unconfigured manifests, capacity
+collectors and all release/test fixtures use that exact value. Values of 259
+and 261 are independently rejected. Artifact collectors also reject a verifier
+configuration whose declared maximum differs from the canonical seal size.
+
+Verification
+============
+
+- Focused Node validation: 73/73 pass.
+- Complete Node suite: 309/309 pass.
+- Complete Solidity suite remains 146/146 from stage 425; no Solidity source
+  changed in this stage.
+- Production lint and repository whitespace checks pass.
+- Imported provenance: 169 files, including 16 declared modifications.
+- Proof-program boundary: 48 sources and 98 critical sources/artifacts pass.
+- Complete source manifest: 1,209 files, ordered and SHA-256 verified before
+  adding this report; it is regenerated and reverified as the final step.
+
+No public RPC, signature, transaction, deployment, funds, mining, commit, tag
+or push occurred.

@@ -1,6 +1,6 @@
 # USDOM RandomX aggregate RISC Zero guest
 
-This component guest parses one exact `UDCSTN02` transition and its committed
+This component guest parses one exact `UDCSTN04` transition and its committed
 `UDCSPI01` private input, derives one state-pinned `UDCRXST1` receipt requirement
 for every consecutive header, and verifies all inner receipts in order. Its
 journal is only the 32-byte commitment of the distinct `UDCRXAG1` aggregate.

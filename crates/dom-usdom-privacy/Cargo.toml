@@ -23,4 +23,3 @@ zeroize.workspace = true
 [dev-dependencies]
 hex.workspace = true
 rand = "0.8.6"
-

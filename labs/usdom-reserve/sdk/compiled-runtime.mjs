@@ -1,30 +1,41 @@
 import {
   AbiCoder,concat,getAddress,getBytes,hexlify,keccak256,toBeHex,zeroPadBytes,zeroPadValue,toUtf8Bytes,
 } from 'ethers';
-import {finalizedBurnVerifierConfigHash} from './verifier-config.mjs';
-import {checkpointVerifierConfigHash} from './checkpoint-verifier-config.mjs';
+import {finalizedBurnAdapterConfigHash,finalizedBurnVerifierConfigHash} from './verifier-config.mjs';
+import {checkpointAdapterConfigHash,checkpointVerifierConfigHash} from './checkpoint-verifier-config.mjs';
+import {checkpointRegistryConfigHash} from './checkpoint-registry.mjs';
+import {proofReserveDeploymentConfigHash,safeOwnersCommitment} from './configuration.mjs';
 
 const immutableFields={
   token:['token','address'],tokenCodeHash:['tokenCodeHash','bytes32'],verifier:['verifier','address'],
   verifierCodeHash:['verifierCodeHash','bytes32'],verifierConfigHash:['verifierConfigHash','bytes32'],
-  reserveConfigHash:['reserveConfigHash','bytes32'],domDomain:['domDomain','bytes32'],
-  activationScheduleCommitment:['activationScheduleCommitment','bytes32'],
+  checkpointRegistry:['checkpointRegistry','address'],
+  checkpointRegistryCodeHash:['checkpointRegistryRuntimeCodeHash','bytes32'],
+  checkpointRegistryConfigHash:['checkpointRegistryConfigHash','bytes32'],
+  domDomain:['domDomain','bytes32'],
   governance:['governance','address'],governanceCodeHash:['governanceCodeHash','bytes32'],
+  governanceImplementation:['governanceImplementation','address'],
+  governanceImplementationCodeHash:['governanceImplementationCodeHash','bytes32'],
+  governanceOwnersCommitment:['governanceOwnersCommitment','bytes32'],
   guardian:['guardian','address'],guardianCodeHash:['guardianCodeHash','bytes32'],
+  guardianImplementation:['guardianImplementation','address'],
+  guardianImplementationCodeHash:['guardianImplementationCodeHash','bytes32'],
+  guardianOwnersCommitment:['guardianOwnersCommitment','bytes32'],
   withdrawalDelay:['withdrawalDelaySeconds','uint64'],governanceDelay:['governanceDelaySeconds','uint64'],
   maxOutstanding:['maxOutstandingBaseUnits','uint64'],outflowCapacity:['outflowCapacityBaseUnitsPerDay','uint64'],
 };
 const checkpointRegistryImmutableFields={
   bridgeDomain:['domDomain','bytes32'],domNetworkMagic:['checkpointDomNetworkMagic','uint32'],
   domChainId:['checkpointDomChainId','bytes32'],firstV4Height:['checkpointFirstV4Height','uint64'],
-  activationEmptyStateRoot:['checkpointActivationEmptyStateRoot','bytes32'],
-  activationScheduleCommitment:['activationScheduleCommitment','bytes32'],
   checkpointInterval:['checkpointIntervalBlocks','uint32'],
   confirmationDepth:['checkpointConfirmationDepthBlocks','uint32'],
   challengePeriod:['checkpointChallengePeriodSeconds','uint64'],
   verifier:['checkpointVerifier','address'],verifierCodeHash:['checkpointVerifierCodeHash','bytes32'],
   verifierConfigHash:['checkpointVerifierConfigHash','bytes32'],
   guardian:['checkpointGuardian','address'],guardianCodeHash:['checkpointGuardianCodeHash','bytes32'],
+  guardianImplementation:['checkpointGuardianImplementation','address'],
+  guardianImplementationCodeHash:['checkpointGuardianImplementationCodeHash','bytes32'],
+  guardianOwnersCommitment:['checkpointGuardianOwnersCommitment','bytes32'],
 };
 const finalizedBurnAdapterImmutableFields={
   riscZeroVerifier:['riscZeroVerifier','address'],
@@ -48,12 +59,12 @@ export function verifyCompilerSettings(artifact,{target=expectedTarget,contract=
   const metadata=artifact?.metadata;
   const settings=metadata?.settings;
   if (metadata?.compiler?.version!==expectedCompiler) throw new Error('unexpected Solidity compiler version');
-  if (settings?.optimizer?.enabled!==true || settings.optimizer.runs!==200) {
+  if (settings?.optimizer?.enabled!==true || settings.optimizer.runs!==1) {
     throw new Error('unexpected optimizer configuration');
   }
   if (settings?.evmVersion!=='cancun') throw new Error('unexpected EVM version');
   if (settings?.metadata?.bytecodeHash!=='none') throw new Error('unexpected bytecode metadata hash mode');
-  if (settings?.viaIR===true) throw new Error('unexpected via-IR compilation');
+  if (settings?.viaIR!==true) throw new Error('unexpected non-via-IR compilation');
   const targets=settings?.compilationTarget;
   if (!targets || Object.keys(targets).length!==1 || targets[target]!==contract) {
     throw new Error('unexpected compilation target');
@@ -65,7 +76,7 @@ export function verifyCompilerSettings(artifact,{target=expectedTarget,contract=
       || remappings.some(value=>value.startsWith('@openzeppelin/contracts/=') && value!==expectedRemapping)) {
     throw new Error('unexpected OpenZeppelin remapping');
   }
-  return {compilerVersion:expectedCompiler,evmVersion:'cancun',optimizerRuns:200,bytecodeHash:'none'};
+  return {compilerVersion:expectedCompiler,evmVersion:'cancun',optimizerRuns:1,viaIR:true,bytecodeHash:'none'};
 }
 
 function immutableDeclarations(ast) {
@@ -81,6 +92,19 @@ function immutableDeclarations(ast) {
   };
   walk(ast);
   return declarations;
+}
+
+function verifyConstructorTuple(artifact,components,label) {
+  const constructors=artifact?.abi?.filter(item=>item?.type==='constructor')??[];
+  if(constructors.length!==1 || constructors[0].inputs?.length!==1
+      ||constructors[0].inputs[0]?.type!=='tuple') {
+    throw new Error(`${label} constructor ABI is not the exact supported tuple`);
+  }
+  const actual=constructors[0].inputs[0].components??[];
+  if(actual.length!==components.length || actual.some((value,index)=>
+    value.name!==components[index][0]||value.type!==components[index][1])) {
+    throw new Error(`${label} constructor tuple order or type drifted`);
+  }
 }
 
 function encodeImmutable(value,type) {
@@ -141,6 +165,8 @@ function deriveRuntimeCodeHash({artifact,releaseConfig,sourceContents,fields,tar
   }
   const runtime=getBytes(object);
   const seen=new Set();
+  const occupied=[];
+  const immutablePatchManifest=[];
   for(const [id,locations] of Object.entries(references)) {
     const name=declarations.get(id);
     const field=fields[name];
@@ -149,16 +175,38 @@ function deriveRuntimeCodeHash({artifact,releaseConfig,sourceContents,fields,tar
     }
     seen.add(name);
     const encoded=encodeImmutable(releaseConfig?.[field[0]],field[1]);
+    const starts=[];
     for(const location of locations) {
       if (!Number.isSafeInteger(location?.start) || location.start<0 || location.length!==32
           || location.start+32>runtime.length) throw new Error(`invalid immutable location: ${name}`);
+      const overlapping=occupied.find(value=>location.start<value.end&&location.start+32>value.start);
+      if(overlapping) throw new Error(`overlapping immutable locations: ${overlapping.name}/${name}`);
+      if(runtime.subarray(location.start,location.start+32).some(byte=>byte!==0)) {
+        throw new Error(`immutable placeholder is not zero-filled: ${name}`);
+      }
+      occupied.push({start:location.start,end:location.start+32,name});
       runtime.set(encoded,location.start);
+      if(!runtime.subarray(location.start,location.start+32).every((byte,index)=>byte===encoded[index])) {
+        throw new Error(`immutable patch verification failed: ${name}`);
+      }
+      starts.push(location.start);
     }
+    immutablePatchManifest.push({name,configField:field[0],type:field[1],encoded:hexlify(encoded),
+      locations:starts.sort((a,b)=>a-b)});
   }
   if (seen.size!==Object.keys(fields).length) throw new Error('not every immutable was patched');
+  occupied.sort((a,b)=>a.start-b.start);
+  for(let index=1;index<occupied.length;index++) {
+    if(occupied[index].start<occupied[index-1].end) {
+      throw new Error(`overlapping immutable locations: ${occupied[index-1].name}/${occupied[index].name}`);
+    }
+  }
+  immutablePatchManifest.sort((a,b)=>a.name.localeCompare(b.name));
   const sourceCount=sourceContents===undefined?null:verifyArtifactSources(artifact,sourceContents);
   return {runtimeCodeHash:keccak256(runtime),runtimeSize:runtime.length,
-    compilerVersion:compiler.compilerVersion,sourceCount,runtimeBytecode:hexlify(runtime)};
+    compilerVersion:compiler.compilerVersion,sourceCount,runtimeBytecode:hexlify(runtime),
+    immutableReferenceCount:occupied.length,immutablePatchManifest,
+    immutablePatchManifestHash:keccak256(toUtf8Bytes(JSON.stringify(immutablePatchManifest)))};
 }
 
 export function deriveReserveRuntimeCodeHash({artifact,releaseConfig,sourceContents}) {
@@ -166,8 +214,46 @@ export function deriveReserveRuntimeCodeHash({artifact,releaseConfig,sourceConte
     target:expectedTarget,contract:'USDOMProofReserve'});
 }
 
+/** Derive both reserve bytecode identities only after proving that the release
+ * fields (including canonical Safe owner-set commitments) form its declared config. */
+export function deriveReserveArtifactBinding({artifact,releaseConfig,sourceContents}) {
+  const configuration=proofReserveDeploymentConfigHash({
+    ethereumChainId:releaseConfig?.ethereumChainId,reserve:releaseConfig?.reserve,
+    token:releaseConfig?.token,tokenCodeHash:releaseConfig?.tokenCodeHash,
+    verifier:releaseConfig?.verifier,verifierCodeHash:releaseConfig?.verifierCodeHash,
+    verifierConfigHash:releaseConfig?.verifierConfigHash,
+    checkpointRegistry:releaseConfig?.checkpointRegistry,
+    checkpointRegistryRuntimeCodeHash:releaseConfig?.checkpointRegistryRuntimeCodeHash,
+    checkpointRegistryConfigHash:releaseConfig?.checkpointRegistryConfigHash,
+    domDomain:releaseConfig?.domDomain,
+    activationScheduleCommitment:releaseConfig?.activationScheduleCommitment,
+    governance:releaseConfig?.governance,governanceCodeHash:releaseConfig?.governanceCodeHash,
+    governanceImplementation:releaseConfig?.governanceImplementation,
+    governanceImplementationCodeHash:releaseConfig?.governanceImplementationCodeHash,
+    governanceOwnersCommitment:releaseConfig?.governanceOwnersCommitment,
+    guardian:releaseConfig?.guardian,guardianCodeHash:releaseConfig?.guardianCodeHash,
+    guardianImplementation:releaseConfig?.guardianImplementation,
+    guardianImplementationCodeHash:releaseConfig?.guardianImplementationCodeHash,
+    guardianOwnersCommitment:releaseConfig?.guardianOwnersCommitment,
+    withdrawalDelaySeconds:releaseConfig?.withdrawalDelaySeconds,
+    governanceDelaySeconds:releaseConfig?.governanceDelaySeconds,
+    maxOutstandingBaseUnits:releaseConfig?.maxOutstandingBaseUnits,
+    outflowCapacityBaseUnitsPerDay:releaseConfig?.outflowCapacityBaseUnitsPerDay,
+  });
+  if(typeof releaseConfig?.reserveConfigHash!=='string'
+      || releaseConfig.reserveConfigHash.toLowerCase()!==configuration.reserveConfigHash) {
+    throw new Error('reserveConfigHash does not match the exact owner-bound release');
+  }
+  const runtime=deriveReserveRuntimeCodeHash({artifact,releaseConfig,sourceContents});
+  const initcode=deriveReserveInitcodeHash({artifact,releaseConfig,sourceContents});
+  return {...runtime,initcodeHash:initcode.initcodeHash,initcodeSize:initcode.initcodeSize,
+    initcode:initcode.initcode,reserveConfigHash:configuration.reserveConfigHash};
+}
+
 export function deriveCheckpointRegistryRuntimeCodeHash({artifact,releaseConfig,sourceContents}) {
-  return deriveRuntimeCodeHash({artifact,releaseConfig,sourceContents,fields:checkpointRegistryImmutableFields,
+  const boundRelease={...releaseConfig,checkpointGuardianOwnersCommitment:
+    safeOwnersCommitment(releaseConfig?.checkpointGuardianOwners)};
+  return deriveRuntimeCodeHash({artifact,releaseConfig:boundRelease,sourceContents,fields:checkpointRegistryImmutableFields,
     target:'contracts/DOMCheckpointRegistry.sol',contract:'DOMCheckpointRegistry'});
 }
 
@@ -178,11 +264,54 @@ export function deriveFinalizedBurnVerifierRuntimeCodeHash({artifact,verifierCon
     target:'contracts/DOMFinalizedBurnRiscZeroVerifier.sol',contract:'DOMFinalizedBurnRiscZeroVerifier'});
 }
 
+export function deriveFinalizedBurnAdapterRuntimeCodeHash({artifact,adapterConfig,sourceContents}) {
+  const computed=finalizedBurnAdapterConfigHash(adapterConfig);
+  return deriveRuntimeCodeHash({artifact,releaseConfig:computed,sourceContents,
+    fields:finalizedBurnAdapterImmutableFields,
+    target:'contracts/DOMFinalizedBurnRiscZeroVerifier.sol',contract:'DOMFinalizedBurnRiscZeroVerifier'});
+}
+
 export function deriveCheckpointVerifierRuntimeCodeHash({artifact,verifierConfig,sourceContents}) {
   const computed=checkpointVerifierConfigHash(verifierConfig);
   return deriveRuntimeCodeHash({artifact,releaseConfig:computed,sourceContents,
     fields:checkpointAdapterImmutableFields,
     target:'contracts/DOMCheckpointRiscZeroVerifier.sol',contract:'DOMCheckpointRiscZeroVerifier'});
+}
+
+export function deriveCheckpointAdapterRuntimeCodeHash({artifact,adapterConfig,sourceContents}) {
+  const computed=checkpointAdapterConfigHash(adapterConfig);
+  return deriveRuntimeCodeHash({artifact,releaseConfig:computed,sourceContents,
+    fields:checkpointAdapterImmutableFields,
+    target:'contracts/DOMCheckpointRiscZeroVerifier.sol',contract:'DOMCheckpointRiscZeroVerifier'});
+}
+
+function verifierArtifactBinding({artifact,verifierConfig,sourceContents,expectedConfigHash,
+  runtimeDeriver,initcodeDeriver,label}) {
+  const computed=label==='finalized-burn'
+    ? finalizedBurnVerifierConfigHash(verifierConfig) : checkpointVerifierConfigHash(verifierConfig);
+  if(typeof expectedConfigHash!=='string'
+      || computed.verifierConfigHash!==expectedConfigHash.toLowerCase()) {
+    throw new Error(`${label} verifier config hash differs from exact release`);
+  }
+  const runtime=runtimeDeriver({artifact,verifierConfig,sourceContents});
+  const initcode=initcodeDeriver({artifact,verifierConfig,sourceContents});
+  if(runtime.sourceCount!==initcode.sourceCount) throw new Error(`${label} verifier source sets disagree`);
+  return Object.freeze({...runtime,initcodeHash:initcode.initcodeHash,initcodeSize:initcode.initcodeSize,
+    initcode:initcode.initcode,verifierConfigHash:computed.verifierConfigHash});
+}
+
+export function deriveFinalizedBurnVerifierArtifactBinding({artifact,verifierConfig,sourceContents,
+  expectedConfigHash}) {
+  return verifierArtifactBinding({artifact,verifierConfig,sourceContents,expectedConfigHash,
+    runtimeDeriver:deriveFinalizedBurnVerifierRuntimeCodeHash,
+    initcodeDeriver:deriveFinalizedBurnVerifierInitcodeHash,label:'finalized-burn'});
+}
+
+export function deriveCheckpointVerifierArtifactBinding({artifact,verifierConfig,sourceContents,
+  expectedConfigHash}) {
+  return verifierArtifactBinding({artifact,verifierConfig,sourceContents,expectedConfigHash,
+    runtimeDeriver:deriveCheckpointVerifierRuntimeCodeHash,
+    initcodeDeriver:deriveCheckpointVerifierInitcodeHash,label:'checkpoint'});
 }
 
 function deriveRiscZeroAdapterInitcode({
@@ -212,6 +341,42 @@ export function deriveCheckpointVerifierInitcodeHash({artifact,verifierConfig,so
     imageIdField:'checkpointGuestImageId',configuration:checkpointVerifierConfigHash});
 }
 
+export function deriveFinalizedBurnAdapterInitcodeHash({artifact,adapterConfig,sourceContents}) {
+  return deriveRiscZeroAdapterInitcode({artifact,verifierConfig:adapterConfig,sourceContents,
+    target:'contracts/DOMFinalizedBurnRiscZeroVerifier.sol',contract:'DOMFinalizedBurnRiscZeroVerifier',
+    imageIdField:'finalizedBurnGuestImageId',configuration:finalizedBurnAdapterConfigHash});
+}
+
+export function deriveCheckpointAdapterInitcodeHash({artifact,adapterConfig,sourceContents}) {
+  return deriveRiscZeroAdapterInitcode({artifact,verifierConfig:adapterConfig,sourceContents,
+    target:'contracts/DOMCheckpointRiscZeroVerifier.sol',contract:'DOMCheckpointRiscZeroVerifier',
+    imageIdField:'checkpointGuestImageId',configuration:checkpointAdapterConfigHash});
+}
+
+export function deriveFinalizedBurnAdapterArtifactBinding({artifact,adapterConfig,sourceContents,
+  expectedConfigHash}) {
+  const computed=finalizedBurnAdapterConfigHash(adapterConfig);
+  if(typeof expectedConfigHash!=='string'||computed.verifierConfigHash!==expectedConfigHash.toLowerCase()) {
+    throw new Error('finalized-burn adapter config hash differs from exact preactivation release');
+  }
+  const runtime=deriveFinalizedBurnAdapterRuntimeCodeHash({artifact,adapterConfig,sourceContents});
+  const initcode=deriveFinalizedBurnAdapterInitcodeHash({artifact,adapterConfig,sourceContents});
+  return Object.freeze({...runtime,initcodeHash:initcode.initcodeHash,initcodeSize:initcode.initcodeSize,
+    initcode:initcode.initcode,verifierConfigHash:computed.verifierConfigHash});
+}
+
+export function deriveCheckpointAdapterArtifactBinding({artifact,adapterConfig,sourceContents,
+  expectedConfigHash}) {
+  const computed=checkpointAdapterConfigHash(adapterConfig);
+  if(typeof expectedConfigHash!=='string'||computed.verifierConfigHash!==expectedConfigHash.toLowerCase()) {
+    throw new Error('checkpoint adapter config hash differs from exact preactivation release');
+  }
+  const runtime=deriveCheckpointAdapterRuntimeCodeHash({artifact,adapterConfig,sourceContents});
+  const initcode=deriveCheckpointAdapterInitcodeHash({artifact,adapterConfig,sourceContents});
+  return Object.freeze({...runtime,initcodeHash:initcode.initcodeHash,initcodeSize:initcode.initcodeSize,
+    initcode:initcode.initcode,verifierConfigHash:computed.verifierConfigHash});
+}
+
 export function deriveReserveInitcodeHash({artifact,releaseConfig,sourceContents}) {
   const compiler=verifyCompilerSettings(artifact);
   const creation=bytecodeObject(artifact?.bytecode,'creation');
@@ -227,9 +392,15 @@ export function deriveReserveInitcodeHash({artifact,releaseConfig,sourceContents
     if (value<0n || value>=(1n<<64n)) throw new Error(`constructor ${name} is out of uint64 range`);
     return value;
   };
-  const tuple='tuple(address token,address verifier,bytes32 domDomain,bytes32 activationScheduleCommitment,address governance,address guardian,uint64 withdrawalDelay,uint64 governanceDelay,uint64 maxOutstanding,uint64 outflowCapacity)';
+  const components=[['token','address'],['verifier','address'],['checkpointRegistry','address'],
+    ['domDomain','bytes32'],['activationScheduleCommitment','bytes32'],['governance','address'],
+    ['guardian','address'],['withdrawalDelay','uint64'],['governanceDelay','uint64'],
+    ['maxOutstanding','uint64'],['outflowCapacity','uint64']];
+  verifyConstructorTuple(artifact,components,'reserve');
+  const tuple='tuple(address token,address verifier,address checkpointRegistry,bytes32 domDomain,bytes32 activationScheduleCommitment,address governance,address guardian,uint64 withdrawalDelay,uint64 governanceDelay,uint64 maxOutstanding,uint64 outflowCapacity)';
   const encoded=AbiCoder.defaultAbiCoder().encode([tuple],[{
     token:getAddress(releaseConfig?.token),verifier:getAddress(releaseConfig?.verifier),
+    checkpointRegistry:getAddress(releaseConfig?.checkpointRegistry),
     domDomain:bytes32('domDomain'),activationScheduleCommitment:bytes32('activationScheduleCommitment'),
     governance:getAddress(releaseConfig?.governance),
     guardian:getAddress(releaseConfig?.guardian),withdrawalDelay:uint64('withdrawalDelaySeconds'),
@@ -277,4 +448,48 @@ export function deriveCheckpointRegistryInitcodeHash({artifact,releaseConfig,sou
   const initcode=concat([creation,encoded]);
   return {initcodeHash:keccak256(initcode),initcodeSize:getBytes(initcode).length,
     compilerVersion:compiler.compilerVersion,sourceCount,initcode};
+}
+
+/**
+ * Derive the complete checkpoint-registry artifact identity in one operation.
+ * This prevents callers from accepting runtime/initcode derived from one set
+ * of constructor fields while separately trusting a stale configuration hash.
+ */
+export function deriveCheckpointRegistryArtifactBinding({artifact,releaseConfig,sourceContents}) {
+  const configuration=checkpointRegistryConfigHash({
+    ethereumChainId:releaseConfig?.ethereumChainId,registry:releaseConfig?.checkpointRegistry,
+    bridgeDomain:releaseConfig?.domDomain,domNetworkMagic:releaseConfig?.checkpointDomNetworkMagic,
+    domChainId:releaseConfig?.checkpointDomChainId,firstV4Height:releaseConfig?.checkpointFirstV4Height,
+    activationEmptyStateRoot:releaseConfig?.checkpointActivationEmptyStateRoot,
+    activationScheduleCommitment:releaseConfig?.activationScheduleCommitment,
+    checkpointInterval:releaseConfig?.checkpointIntervalBlocks,
+    confirmationDepth:releaseConfig?.checkpointConfirmationDepthBlocks,
+    challengePeriod:releaseConfig?.checkpointChallengePeriodSeconds,
+    verifier:releaseConfig?.checkpointVerifier,verifierCodeHash:releaseConfig?.checkpointVerifierCodeHash,
+    verifierConfigHash:releaseConfig?.checkpointVerifierConfigHash,
+    guardian:releaseConfig?.checkpointGuardian,guardianCodeHash:releaseConfig?.checkpointGuardianCodeHash,
+    guardianImplementation:releaseConfig?.checkpointGuardianImplementation,
+    guardianImplementationCodeHash:releaseConfig?.checkpointGuardianImplementationCodeHash,
+    guardianOwnersCommitment:safeOwnersCommitment(releaseConfig?.checkpointGuardianOwners),
+    initialHeight:releaseConfig?.checkpointInitialHeight,initialBlock:releaseConfig?.checkpointInitialBlock,
+    initialStateRoot:releaseConfig?.checkpointInitialStateRoot,
+    initialContextHash:releaseConfig?.checkpointInitialContextHash,
+    initialTotalDifficulty:releaseConfig?.checkpointInitialTotalDifficulty,
+  });
+  if(typeof releaseConfig?.checkpointRegistryConfigHash!=='string'
+      || configuration.checkpointConfigHash!==releaseConfig.checkpointRegistryConfigHash.toLowerCase()) {
+    throw new Error('checkpoint registry configuration hash differs from exact release fields');
+  }
+  const runtime=deriveCheckpointRegistryRuntimeCodeHash({artifact,releaseConfig,sourceContents});
+  const initcode=deriveCheckpointRegistryInitcodeHash({artifact,releaseConfig,sourceContents});
+  if(runtime.sourceCount!==initcode.sourceCount) {
+    throw new Error('checkpoint registry runtime and initcode source sets disagree');
+  }
+  return Object.freeze({
+    checkpointRegistryConfigHash:configuration.checkpointConfigHash,
+    runtimeCodeHash:runtime.runtimeCodeHash,runtimeSize:runtime.runtimeSize,
+    initcodeHash:initcode.initcodeHash,initcodeSize:initcode.initcodeSize,
+    compilerVersion:runtime.compilerVersion,sourceCount:runtime.sourceCount,
+    runtimeBytecode:runtime.runtimeBytecode,initcode:initcode.initcode,
+  });
 }

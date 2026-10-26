@@ -1,0 +1,32 @@
+Stage 1143 — finalized issuance closure latch
+Date: 2026-10-26
+
+Finding
+=======
+
+DOMCheckpointRegistry already rejected a later checkpoint that changed
+issuanceClosed from true back to false. It nevertheless relied solely on the
+native proof program to reject a later increase of totalIssued while retaining
+issuanceClosed=true. A faulty future proof build could therefore have admitted
+new issuance after the irreversible closure checkpoint while satisfying the
+registry's local monotonicity checks.
+
+Correction
+==========
+
+The registry now requires totalIssued to equal the last finalized value after
+latestIssuanceClosed becomes true. Burns may continue advancing toward terminal
+zero circulation, but no later checkpoint can create another unit. This is an
+independent EVM-side economic latch in addition to the native proof invariant.
+
+Evidence
+========
+
+- Added a regression that finalizes issuance closure, constructs an otherwise
+  valid next-round checkpoint with issuance still closed and totalIssued+1,
+  and proves rejection with InvalidCheckpoint before verifier admission.
+- Focused regression: 1/1 passed with pinned Forge and solc 0.8.37.
+- Complete DOMCheckpointRegistryTest contract suite passed with exit status 0.
+- git diff --check passed for both changed Solidity files.
+
+No Cargo, Rust, network, signing, deployment, funds, commit or push was used.

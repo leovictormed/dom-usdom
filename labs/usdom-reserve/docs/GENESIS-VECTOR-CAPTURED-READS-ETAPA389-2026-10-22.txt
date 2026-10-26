@@ -1,0 +1,14 @@
+USDOM hardening stage 389 — genesis vector captured reads
+
+Date: 2026-10-22
+
+The offline DOM genesis ceremony no longer loads its Mainnet, Testnet and
+Regtest vectors with unbounded read_to_string pathname operations. Each vector
+is now captured through the shared retained-parent/no-follow reader, limited to
+one MiB, and parsed directly from the authenticated captured bytes.
+
+This prevents one vector from being inspected through one directory generation
+and consumed through another, while retaining support for repository-public
+file modes. The default-feature dom-genesis-ceremony binary compiles offline,
+single-job and warning-free. The ceremony itself was not run, so no RandomX
+dataset generation or mining was started.

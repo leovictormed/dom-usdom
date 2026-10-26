@@ -1,0 +1,53 @@
+Stage 595 — finalized-burn index coherence audit (2026-10-23)
+
+Scope
+
+- Audited the finalized-burn source, receipt, Groth16 proof, capacity and
+  release-report consumers for bounded counts, canonical identifiers,
+  cross-layer totals and positional consistency before artifact loops/reads.
+- The active RandomX proof was not interrupted. No Cargo/Foundry workload,
+  commit, push, deployment, signing or funds operation was performed.
+
+Concrete defects corrected
+
+1. The authenticated source index carried a checkpoint height, DOM block,
+   state root and Beacon slot next to the public burn tuple, but the submission
+   builder did not require those duplicated values to agree. An internally
+   inconsistent index could therefore preserve valid calldata while recording
+   false checkpoint provenance. The builder now requires exact equality with
+   the proved burn checkpoint and rejects a candidate activation height after
+   the proved height.
+
+2. The receipt index carried a program path and SHA-256, but the direct
+   submission builder accepted any canonical nonzero program hash. The full
+   filesystem collector pinned it independently, while callers of the pure
+   builder did not. The builder now requires the canonical guest path and the
+   exact provingProgramSha256 committed by the verifier configuration before
+   it processes the proof index or seal.
+
+Confirmed boundaries
+
+- Source, receipt and proof JSON objects require exact schemas, canonical raw
+  hashes and bounded positive byte counts.
+- Input length/SHA, statement hash, burn ID, chain, reserve and activation
+  schedule are linked across the source layer.
+- Receipt-index SHA, statement, ImageID, journal digest, receipt kind/version,
+  selector, verifier parameters, seal length/SHA and final calldata are linked
+  across the receipt, Groth16 and submission layers.
+- Capacity and release reports already enforce exact schemas, distinct ordered
+  observation sources, bounded timing/memory/artifact totals, release and
+  verifier identity, recomputed burn statement, isolated EVM transcript and
+  fixed execution claims. No additional defect was established there.
+
+Regression coverage and checks
+
+- Added mutations for checkpoint height/block/state-root/Beacon-slot,
+  activation height, guest path and proving-program SHA. Receipt mutations also
+  recompute their downstream receipt-index hash so rejection proves semantic
+  validation rather than a stale-link failure.
+- Updated synthetic fixtures to express the protocol's actual checkpoint/burn
+  identity and the pinned finalized-burn guest SHA-256.
+- Focused Node regressions pass 10/10 (submission 5/5 and filesystem artifact
+  collector 5/5), structural assertions pass 5/5 and `git diff --check`
+  passes. The preinstalled Node 24 runtime was invoked through its explicit
+  path; no runtime was installed and no heavy build was started.

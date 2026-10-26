@@ -1,0 +1,53 @@
+DOM / USDOM — auditoria de artefatos privados temporários e duráveis
+Etapa 599 — 2026-10-23
+
+Escopo
+======
+
+Foram examinados os launchers de planejamento/prova, os fluxos Ledger/Safe,
+os instaladores de arquivos privados e o ensaio E2E de queima finalizada. O
+foco foi material que pode conter witness, abertura privada, token RPC,
+senha/recovery ou assinatura: localização temporária, mode/owner, links,
+limpeza por sinal, publicação atômica, fsync, logs e artefatos de falha.
+Nenhum segredo real foi lido.
+
+Achados corrigidos
+==================
+
+1. Treze launchers de prova usavam ${TMPDIR:-/dev/shm}. Um TMPDIR herdado
+   podia deslocar réplicas privadas para armazenamento persistente. Eles agora
+   fixam /dev/shm, confirmam mode 0700 e limpam em EXIT/HUP/INT/TERM.
+2. Os dois ensaios finalized-burn criavam árvores que incluem input/witness em
+   /tmp. Agora usam exclusivamente /dev/shm, mode 0700 e a guarda de limpeza
+   aceita somente o prefixo fixo dentro desse tmpfs.
+3. Três cerimônias com rascunhos de assinatura/identidade em /dev/shm limpavam
+   somente em EXIT. A limpeza cobre explicitamente HUP/INT/TERM.
+
+Controles confirmados
+=====================
+
+- umask 077, diretórios 0700 e arquivos 0600 nos limites privados;
+- escrita durável valida diretório direto owner-only, recusa symlink/hardlink,
+  usa arquivo exclusivo aleatório, fsync do arquivo e do diretório, e confere
+  inode/conteúdo depois da publicação;
+- relatórios E2E duráveis ficam em árvores 0700/0600; logs não recebem tokens,
+  senha/recovery ou chaves via argv/env;
+- launchers credenciados desabilitam xtrace, backtraces e core dumps;
+- os arquivos de prova privados não entram em nomes previsíveis em /tmp nem
+  dependem de TMPDIR controlado pelo ambiente.
+
+Validação leve
+==============
+
+- Node: operator-runbook + private-proof-temporary-boundary: 79/79 passaram.
+- bash -n: os cinco scripts diretamente ajustados fora do conjunto de 13
+  passaram.
+- busca residual: nenhuma ocorrência de TMPDIR-/dev/shm, prefixo finalized-burn
+  via `mktemp -t`, ou guarda `/tmp/usdom-finalized-burn` permaneceu.
+
+Limites
+=======
+
+Apagar arquivos em tmpfs reduz persistência acidental, mas não promete
+zeroização física contra um host já comprometido. Nenhuma prova pesada, cargo,
+assinatura, transmissão, deploy, commit ou push foi executado nesta etapa.

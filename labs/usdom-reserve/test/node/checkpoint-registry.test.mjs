@@ -4,6 +4,7 @@ import {
   CHECKPOINT_BOOTSTRAP_EVENT_TOPIC0,
   CHECKPOINT_EVENT_TOPIC0,
   checkpointRegistryConfigHash,
+  checkpointRegistryPreActivationConfigHash,
   checkpointStatementHash,
 } from '../../sdk/checkpoint-registry.mjs';
 
@@ -15,6 +16,8 @@ const configuration=()=>({
   activationScheduleCommitment:hash('33'),checkpointInterval:'360',confirmationDepth:'30',
   challengePeriod:'172800',verifier:address('44'),verifierCodeHash:hash('55'),
   verifierConfigHash:hash('66'),guardian:address('77'),guardianCodeHash:hash('88'),
+  guardianImplementation:address('76'),guardianImplementationCodeHash:hash('87'),
+  guardianOwnersCommitment:hash('86'),
   initialHeight:'100000',initialBlock:hash('99'),initialStateRoot:hash('aa'),
   initialContextHash:hash('ee'),initialTotalDifficulty:'1000000',
 });
@@ -28,11 +31,15 @@ const checkpoint=()=>({
 
 test('checkpoint registry configuration and statement vectors are deterministic',()=>{
   const result=checkpointRegistryConfigHash(configuration());
-  assert.equal(result.identityHash,'0x51991663d2f95ef9dc42eb5d77d1cbd4ce8a66049a3966e58f73813d0bc1f282');
-  assert.equal(result.bootstrapHash,'0x1635e006cbe7f4554d6025cfa2ed032af863e8212f3284f2093ff7b63971f7c0');
-  assert.equal(result.checkpointConfigHash,'0x4ab7848ffc06d09ea7462a0ff65ec55e364749839a79a71815171dd1543a1615');
+  assert.equal(result.identityHash,'0x11cd228d22cdceda0b914d30e3dfeeaef819d6e2bad0034a946a5ddcd3e0c686');
+  assert.equal(result.bootstrapHash,'0xf8591c9c8169cc7215201eb029f31ca134dada9d0f2694d95e304a327d641191');
+  assert.equal(result.checkpointConfigHash,'0xd1bce3af1e93f8459bf52ce2b272557a3619a386df2266917071a3586fc09179');
+  const {activationScheduleCommitment: _activation,activationEmptyStateRoot: _empty,
+    initialStateRoot: _initial,...preActivation}=configuration();
+  assert.equal(checkpointRegistryPreActivationConfigHash(preActivation).checkpointConfigHash,
+    result.checkpointConfigHash);
   assert.equal(checkpointStatementHash(configuration(),checkpoint()),
-    '0xaea1d132059ed25184d27671e5c52061f53f6f767074d6aa10c0ce35fc11249e');
+    '0xa63ee4c9e2bc911751f9c3be20911042c0c114b8d0fba3fd9234a34f60136c19');
   assert.equal(CHECKPOINT_EVENT_TOPIC0,'0x620d9063aa9b939d1e51ea40c2e557313fcaacfde713bec8ad6844480561c30b');
   assert.notEqual(CHECKPOINT_BOOTSTRAP_EVENT_TOPIC0,CHECKPOINT_EVENT_TOPIC0);
 });
@@ -50,6 +57,7 @@ test('checkpoint registry hashing rejects ambiguity, zero identities and nonexte
     {...base,activationScheduleCommitment:hash('00')},{...base,verifier:base.guardian},
     {...base,verifierCodeHash:hash('00')},{...base,verifierConfigHash:hash('00')},
     {...base,guardianCodeHash:hash('00')},{...base,initialHeight:'0'},
+    {...base,guardianImplementation:address('00')},{...base,guardianImplementationCodeHash:hash('00')},
     {...base,initialBlock:hash('00')},{...base,initialStateRoot:hash('00')},
     {...base,initialContextHash:hash('00')},
     {...base,initialTotalDifficulty:'0'},
@@ -77,18 +85,27 @@ test('every checkpoint configuration and statement field changes its commitment'
   const initial=checkpointRegistryConfigHash(base).checkpointConfigHash;
   const replacements={
     ethereumChainId:'2',registry:address('12'),bridgeDomain:hash('23'),domNetworkMagic:'2712847315',
-    domChainId:hash('de'),activationScheduleCommitment:hash('34'),verifier:address('45'),
+    domChainId:hash('de'),verifier:address('45'),
     verifierCodeHash:hash('56'),verifierConfigHash:hash('67'),guardian:address('78'),
-    guardianCodeHash:hash('89'),initialBlock:hash('9a'),initialContextHash:hash('ef'),checkpointInterval:'359',
+    guardianCodeHash:hash('89'),guardianImplementation:address('79'),
+    guardianImplementationCodeHash:hash('8a'),initialBlock:hash('9a'),initialContextHash:hash('ef'),checkpointInterval:'359',
     confirmationDepth:'29',challengePeriod:'172801',initialTotalDifficulty:'1000001',
   };
   for(const [field,value] of Object.entries(replacements)) {
     assert.notEqual(checkpointRegistryConfigHash({...base,[field]:value}).checkpointConfigHash,initial,field);
   }
+  const changedActivation={...base,activationScheduleCommitment:hash('34')};
+  assert.equal(checkpointRegistryConfigHash(changedActivation).checkpointConfigHash,initial,
+    'pre-activation registry identity must not depend on activation');
+  assert.notEqual(checkpointStatementHash(changedActivation,checkpoint()),
+    checkpointStatementHash(base,checkpoint()),'checkpoint statement must bind activation');
   assert.notEqual(checkpointRegistryConfigHash({...base,initialHeight:'100001',firstV4Height:'100002'})
     .checkpointConfigHash,initial,'initialHeight/firstV4Height');
-  assert.notEqual(checkpointRegistryConfigHash({...base,initialStateRoot:hash('ab'),
-    activationEmptyStateRoot:hash('ab')}).checkpointConfigHash,initial,'initialStateRoot/emptyRoot');
+  const changedRoot={...base,initialStateRoot:hash('ab'),activationEmptyStateRoot:hash('ab')};
+  assert.equal(checkpointRegistryConfigHash(changedRoot).checkpointConfigHash,initial,
+    'pre-activation registry identity must not depend on the activation state root');
+  assert.notEqual(checkpointStatementHash(changedRoot,{...checkpoint(),previousStateRoot:hash('ab')}),
+    checkpointStatementHash(base,checkpoint()),'checkpoint statement must bind the activation state root');
   const statement=checkpoint();
   const statementHash=checkpointStatementHash(base,statement);
   for(const [field,value] of Object.entries({

@@ -1,0 +1,24 @@
+ETAPA1016 — critical USDOM hash/domain-separation inventory
+Date: 2026-10-23
+
+Result
+No exploitable ambiguous concatenation, cross-type domain reuse, endian divergence or missing version was found in the audited authorization/state paths. Added a permanent inventory gate covering 39 explicit DOM protocol domain literals.
+
+Inventory and encoding rules
+- Ethereum-facing Keccak statements use unique EIP-712-style type strings/type hashes and Solidity abi.encode 32-byte words. Rust and SDK mirrors use the same field order, left padding and big-endian integer words for burn intent, private burn ID, finalized burn, checkpoint V4, reserve and registry identities.
+- Checkpoint internal Keccak commitments use distinct versioned ASCII domains for RandomX statements, segment state, transition, private input, policy input, native opening, aggregates, receipt sets, economic state and sparse-tree nodes. Variable bodies are first encoded into canonical magic/version/length frames before hashing.
+- Native state/persistence uses distinct versioned BLAKE2 tags for state v1/v2, set empty/leaf/node, anchors, note payloads, transfer/burn payloads, transition/batch trees and batch commitments. Persistence frames use unique 8-byte magic plus explicit big-endian versions/lengths and canonical re-encoding.
+- Privacy SHA-256 hash-to-field includes a fixed tag, a separate u64 domain, a u64 big-endian byte length and payload before reduction. Poseidon namespaces use distinct field-domain constants; the policy commitment includes version, curve, tree depth, round parameters and canonical big-endian field elements.
+- Raw SHA-256 in host/SDK evidence is used as a file/content digest where type is supplied by schema/path/index fields. It is not reused as consensus authorization without those authenticated bindings.
+
+Ambiguity assessment
+No security-critical use of abi.encodePacked with adjacent dynamic values was found. Concatenations are fixed-width or length-framed. The only repeated semantic domains across Rust/SDK/Solidity are intentional cross-language mirrors of the same type. Numeric consensus encodings are big-endian; little-endian occurrences are confined to canonical DOM block wire fields and are decoded by the matching DOM parser before commitment.
+
+Permanent gate
+scripts/check-usdom-hash-domains.py checks the critical tags/type hashes, version/magic fields, length binding, big-endian mirrors and detects repeated domain literals within audited modules.
+
+Validation
+PASS check-usdom-hash-domains.py (39 domain literals)
+PASS python3 -m py_compile check-usdom-hash-domains.py
+PASS git diff --check for gate/report/continuations.
+No Cargo/Forge heavy build, network, push, deploy, signing, broadcast or funds operation occurred.

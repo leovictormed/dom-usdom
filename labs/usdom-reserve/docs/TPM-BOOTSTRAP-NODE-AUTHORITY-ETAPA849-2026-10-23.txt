@@ -1,0 +1,13 @@
+ETAPA849 — TPM BOOTSTRAP NODE AUTHORITY
+Date: 2026-10-23
+
+The closed-mainnet TPM bootstrap used a hashed Node executable to read runtime
+authority and delete secret temporaries, but did not bound its size or pin the
+canonical parent identity.  It now rejects empty/over-512 MiB Node binaries,
+pins canonical parent dev/inode/owner/mode, and rechecks file/hash/parent after
+initial hashing and before every use, including secret cleanup.
+
+Validation: TPM boundary/cleanup/crash/environment/descriptor suites pass
+11/11; Bash syntax and diff checks pass.  One stale descriptor expectation was
+updated to recognize the already-hardened absolute `$CARGO_BIN` invocation.
+No TPM, build, export, RPC, signature, commit or push ran.

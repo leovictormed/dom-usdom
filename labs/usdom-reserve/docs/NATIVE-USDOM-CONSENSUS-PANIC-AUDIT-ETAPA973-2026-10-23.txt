@@ -1,0 +1,70 @@
+Native USDOM consensus panic/abort audit — ETAPA 973 — 2026-10-23
+
+Scope
+=====
+
+Production block/transaction consensus, chain/IBD validation, native USDOM v4/v2
+package and transition validation, native state/privacy verification, checkpoint
+program parsing/replay, and finalized-burn parsing/execution. Test-only code was
+classified separately. RISC Zero guest `expect`/`assert` sites intentionally turn
+an invalid private witness into a failed proof execution; they are not host/node
+panic paths and cannot grant consensus authority.
+
+Finding and correction
+======================
+
+One concrete in-process abort surface existed: `Transaction::weight()` called
+`expect` even though `Transaction` has public vectors. Wire decoding bounds those
+vectors, but an in-process producer could construct an oversized value and abort
+the node before admission rejected it. `weight()` now maps every checked-policy
+failure to `u32::MAX`; all existing transaction and block weight gates therefore
+reject it fail-closed. A focused regression constructs 256 inputs, verifies
+`weight_checked()` returns `Err`, and verifies `weight()` returns `u32::MAX`
+without panic.
+
+Seven invariant-dependent abort/index sites were also removed defensively:
+
+* two coinbase diagnostic `expect` calls now propagate the already-defined
+  overflow error;
+* two IBD decoded-prefix `expect` calls now return explicit internal errors;
+* parallel native-proof result dispatch uses checked `get_mut` plus `Option::take`;
+* checkpoint reference replay and checkpoint-source construction use checked
+  seed-anchor slots and return typed errors on capacity mismatch.
+
+The latter seven sites were protected by local invariants (classification,
+non-empty branch, equal-length collection, and bounded seed schedule), so the
+audit did not establish an externally triggerable panic for them. Removing them
+prevents a future invariant drift from converting malformed peer/proof input into
+a process abort.
+
+Reviewed safe boundaries
+========================
+
+* Native/prover/package/state parsers bound the full input before fixed slicing,
+  use checked cursor addition, finish the cursor, and canonically re-encode.
+* Dynamic sparse/Merkle indexing is guarded by depth, length, partition, or
+  checked `get` invariants; monetary and height transitions use checked math.
+* Private statement fixed-array writes follow an explicit shape bound and cannot
+  exceed the two input/two output circuit slots.
+* Remaining scan hits before test modules are one compile-time constant assertion
+  and two rustdoc `todo!()` examples. There is no runtime `unwrap`, `expect`,
+  `panic!`, `unreachable!`, `todo!`, `unimplemented!`, or runtime assertion in
+  the audited host consensus/native USDOM production prefix.
+
+Verification
+============
+
+PASS: `rustfmt --edition 2021 --check` on all five edited Rust sources.
+PASS: `git diff --check` for the shared worktree.
+PASS: structural production-prefix scan; only the compile-time constant assertion
+      and rustdoc examples remain.
+PASS: stale unsafe forms removed (`private_results[index]`, production
+      `seed_anchors[index]`, the two IBD `expect` messages, coinbase-classification
+      `expect`, and transaction-weight `expect` all absent).
+ADDED, DEFERRED: focused Rust unit regression
+`programmatic_oversized_transaction_weight_fails_closed_without_panicking`.
+Cargo execution is deliberately deferred until the active long RISC Zero proof
+finishes, to avoid competing for its constrained CPU/disk budget.
+
+No commit, push, deploy, signing, broadcast, mining, wallet use, or funds action
+was performed.

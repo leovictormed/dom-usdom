@@ -1,0 +1,3 @@
+ETAPA 880 — montagem da geração de provenance
+
+Auditoria não confirmou bypass novo: inputs e HEAD são relidos, release evidence é instalado e verificado antes do operator intent completion-last, e ambos são relidos no final. Os committers exigem índice staged limpo/controlado, modos regulares e não foram executados. Regressão estrutural 3/3.

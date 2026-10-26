@@ -1,0 +1,49 @@
++USDOM Stage 1085 — Ethereum mainnet USDT identity and policy audit
+Date: 2026-10-26
+Scope: network-free static review and lightweight Node checks only
+
+Outcome
+-------
+The preflight now treats Ethereum USDT as the pinned legacy direct implementation,
+not as an assumed EIP-1967 proxy. It requires chain ID 1, the canonical execution
+genesis hash, the canonical USDT address, and the already approved runtime code
+hash. The collector reads every value at one numeric finalized snapshot and
+requires byte-for-byte agreement from the independently catalogued RPC sources.
+It rechecks the finalized block hash and immutable input files after collection.
+
+New finalized token evidence
+----------------------------
+- exact name "Tether USD", symbol "USDT", decimals 6, positive totalSupply;
+- reserve balance and total-supply consistency;
+- paused=false, deprecated=false, upgradedAddress=zero;
+- basisPointsRate=0, maximumFee=0;
+- reserve blacklist status;
+- legacy owner address and owner runtime code hash, both pinned to the release;
+- EIP-1967 implementation, admin and beacon slots all zero.
+
+The zero EIP-1967 slots plus the pinned runtime hash establish the expected direct
+legacy deployment boundary. The mutable legacy owner is still a real USDT trust
+dependency: it can pause, blacklist, change fees, deprecate or otherwise exercise
+the token's administrative powers. The release now records its exact identity,
+while reserve operations fail closed on the token states visible through the
+policy interface.
+
+Runtime correction
+------------------
+USDOMProofReserve now also rejects a nonzero upgradedAddress during deposit,
+proof admission, payout and resume policy checks. This closes the gap where the
+legacy forwarding target could be set while a malformed or noncanonical token
+implementation reported deprecated=false. The check is a bounded static call and
+runs before collateral/debt state mutation. A regression proves rejection leaves
+a deposit ID unused.
+
+Checks
+------
+- pinned Node 24.19.0 mainnet-preflight test: 8/8 pass;
+- focused mainnet-readiness preflight integration: 1/1 pass;
+- collateral/token accounting static regression: pass;
+- collector syntax check: pass;
+- git diff --check: pass.
+
+No RPC network access, Forge, Cargo, deploy, funds, commit or push occurred.
+

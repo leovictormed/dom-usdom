@@ -237,14 +237,31 @@ impl<'a> Reader<'a> {
 
     /// Read u64 little-endian.
     pub fn read_u64(&mut self) -> Result<u64, DomError> {
-        let b = self.consume(8)?;
-        Ok(u64::from_le_bytes(b.try_into().unwrap()))
+        Ok(u64::from_le_bytes(self.read_array::<8>()?))
     }
 
     /// Read u128 little-endian.
     pub fn read_u128(&mut self) -> Result<u128, DomError> {
-        let b = self.consume(16)?;
-        Ok(u128::from_le_bytes(b.try_into().unwrap()))
+        Ok(u128::from_le_bytes(self.read_array::<16>()?))
+    }
+
+    /// Read u16 big-endian for explicitly big-endian framed formats.
+    ///
+    /// DOM canonical serialization remains little-endian. This method exists
+    /// for versioned persistence and interoperability formats whose own wire
+    /// specification requires network byte order.
+    pub fn read_u16_be(&mut self) -> Result<u16, DomError> {
+        Ok(u16::from_be_bytes(self.read_array::<2>()?))
+    }
+
+    /// Read u32 big-endian for explicitly big-endian framed formats.
+    pub fn read_u32_be(&mut self) -> Result<u32, DomError> {
+        Ok(u32::from_be_bytes(self.read_array::<4>()?))
+    }
+
+    /// Read u64 big-endian for explicitly big-endian framed formats.
+    pub fn read_u64_be(&mut self) -> Result<u64, DomError> {
+        Ok(u64::from_be_bytes(self.read_array::<8>()?))
     }
 
     /// Read exactly `n` bytes.
@@ -471,6 +488,27 @@ mod tests {
         let mut r = Reader::new(&data);
         r.read_u64().unwrap();
         assert!(r.finish().is_err());
+    }
+
+    #[test]
+    fn explicit_big_endian_reads_are_bounded_and_reject_trailing_bytes() {
+        let data = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0xff,
+        ];
+        let mut reader = Reader::new(&data);
+        assert_eq!(reader.read_u16_be().unwrap(), 0x0102);
+        assert_eq!(reader.read_u32_be().unwrap(), 0x0304_0506);
+        assert!(reader.read_u64_be().is_err());
+
+        let mut exact = Reader::new(&data[..10]);
+        assert_eq!(exact.read_u16_be().unwrap(), 0x0102);
+        assert_eq!(exact.read_u64_be().unwrap(), 0x0304_0506_0708_090a);
+        exact.finish().unwrap();
+
+        let mut trailing = Reader::new(&data);
+        trailing.read_u16_be().unwrap();
+        trailing.read_u64_be().unwrap();
+        assert!(trailing.finish().is_err());
     }
 
     #[test]

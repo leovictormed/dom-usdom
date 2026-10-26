@@ -1,0 +1,20 @@
+ETAPA 828 — autoridade de índices/manifests dos sete hosts RISC Zero
+Data: 2026-10-23
+
+RESULTADO
+Nenhum novo bypass explorável foi confirmado. Todos os structs JSON desserializados pelos cinco hosts que cobrem os sete programas usam `serde(deny_unknown_fields)`; o derive de struct rejeita campos duplicados. As leituras passam por helpers de arquivo regular direto e limites máximos antes do parse.
+
+Os manifests fonte, embora não precisem de representação JSON única, ficam vinculados pelo SHA-256 dos bytes exatos; whitespace alternativo muda a identidade sem mudar silenciosamente a autoridade. Os job indexes gerados, que comandam prova, são reconstruídos e comparados byte a byte com a serialização canônica antes do prover. Finalized-burn faz a mesma comparação tanto para job quanto receipt index.
+
+Contagens são reconciliadas com arrays antes de loops/alocações relevantes; índices/ordem, spans e nomes de caminho são rederivados, e os nomes aceitos são canônicos em vez de joins arbitrários vindos do JSON.
+
+REGRESSÃO
+Novo `check-risc0-index-authority.py` inventaria todos os structs Deserialize dos cinco hosts, exige `deny_unknown_fields`, leitura limitada, coerência de counts/ordem/path e comparação canônica dos planos autoritativos. Self-tests removem strict fields e a comparação byte-canônica; ambos falham fechado.
+
+VALIDAÇÃO
+- `node --test test/node/risc0-index-authority.test.mjs`: 2/2.
+- checker `--self-test`: cinco hosts/sete caminhos aprovados; duas mutações rejeitadas.
+- `python3 -m py_compile`: passou.
+- `git diff --check`: passou.
+
+Sem prova pesada, RPC, deploy, assinatura, push ou operação externa.

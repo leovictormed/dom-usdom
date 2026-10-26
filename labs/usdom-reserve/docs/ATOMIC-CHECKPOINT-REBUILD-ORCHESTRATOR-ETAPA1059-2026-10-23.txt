@@ -1,0 +1,21 @@
+ETAPA 1059 — ORQUESTRADOR ATÔMICO DO REBUILD CHECKPOINT
+Data: 2026-10-23
+
+Problema
+O rebuild pós-prova precisava encadear segment -> outer -> finalized-burn e então propagar identidades, rerodar receipts e validar o gate. Executar esses passos diretamente na árvore de desenvolvimento permitiria misturar saídas parciais, fontes concorrentes ou artefatos antigos.
+
+Implementação
+`orchestrate-checkpoint-rebuild.py` aceita somente um manifesto externo cujo SHA-256 é informado separadamente. O manifesto fixa commit e tree Git completos, hashes dos executáveis e a ordem exata de seis estágios: segment, outer, finalized-burn, propagate, receipts e gate.
+
+Antes de executar, o orquestrador exige repositório limpo, HEAD/tree exatos, ferramentas regulares, diretas, executáveis e com SHA-256 correto. Ele adquire lock exclusivo não bloqueante, exporta o commit fixado via git archive para um diretório temporário, rejeita links no archive, executa cada argv sem shell e com ambiente mínimo/determinístico, e exige todos os outputs declarados.
+
+Os três rebuilds rejeitam output preexistente byte-idêntico, impedindo que um comando de sucesso aparente reutilize artefato stale. Propagação, receipts e gate são obrigatórios e ordenados. Qualquer falha apaga todo o temporário. Apenas depois do gate final o diretório completo recebe publicação por rename atômico. Candidatos publicados são imutáveis por política: um output existente nunca é sobrescrito.
+
+Validação leve
+- 6/6 testes Node passaram com Node v24.19.0 explícito.
+- Cobertura: dry-run, ordem exata, publicação completa, recusa de overwrite, rollback após gate falho, rejeição de artefato stale, fonte suja, manifesto substituído e lock concorrente.
+- py_compile e git diff --check passaram.
+- Nenhum Cargo/Forge pesado, rede, push, deploy ou fundo foi usado.
+
+Limite deliberado
+O manifesto de produção só pode ser materializado depois que as mudanças atuais estiverem em um commit limpo e os executáveis reais tiverem hashes medidos. O orquestrador não inventa esse commit, hashes, ImageIDs ou receipts. Os scripts de cada estágio continuam responsáveis por suas pinagens internas de Rust/RISC Zero/Docker; o orquestrador fixa a identidade do script/executável inicial e da árvore que contém esses controles.

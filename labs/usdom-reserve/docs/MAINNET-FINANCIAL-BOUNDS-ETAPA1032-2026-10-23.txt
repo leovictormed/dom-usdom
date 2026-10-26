@@ -1,0 +1,50 @@
+ETAPA1032 — closed-mainnet operational financial bounds
+Date: 2026-10-23
+
+Findings fixed
+--------------
+1. Deployment allowed 500 gwei and had no absolute ETH cost cap. A valid raw
+   transaction could reserve several ETH despite the 1-USDT pilot.
+2. Each deployment checked only its own balance. Four independently valid
+   envelopes could exceed a closed-pilot aggregate budget.
+3. The deposit builder allowed any maxOutstanding/outflow policy greater than
+   1 USDT. A release with production-scale limits could still produce a package
+   labeled as the closed 1-USDT pilot.
+4. Finalized receipt evidence discarded gasUsed/effectiveGasPrice, so actual
+   ETH expense was not arithmetically reconciled.
+
+Enforced policy
+---------------
+- isolated deployer balance must never exceed 1 ETH;
+- every predicted Safe/contract address must have zero ETH before CREATE;
+- every CREATE has value zero, max fee <=100 gwei and worst-case cost <=0.6 ETH;
+- the sum of immutable prior raw-validation maximumCost values plus the current
+  envelope must be <=1 ETH. This uses BigInt and is rechecked before signing
+  persistence and immediately before publication;
+- finalized receipt stores canonical gasUsed, effectiveGasPrice and actualCost,
+  with `actualCost == gasUsed * effectiveGasPrice` and all absolute caps;
+- the pilot package requires exactly 1,000,000 base units for both exposure and
+  daily outflow, resets allowance to zero, approves exactly 1,000,000, deposits
+  exactly 1,000,000, and all three transaction values remain zero;
+- deposit output remains `broadcastAuthorized:false`. There is no generic
+  broadcast executor in this stage, so preparing the package cannot spend USDT;
+- deployment replay is bound to chain 1, exact sender/nonce/initcode/raw hash;
+  finalized prior evidence is required and a consumed nonce cannot be signed or
+  published again.
+
+Residual balance
+----------------
+No automatic sweep was introduced. It would add another value-bearing authority
+and replay surface. The isolated deployer remains capped at 1 ETH throughout;
+actual fee evidence permits explicit reconciliation before any later, separately
+authorized residual transfer. Safe addresses must not be pre-funded.
+
+Validation
+----------
+- focused structural financial gate: 16/16 passed;
+- pinned Node focused tests: 20/20 passed across deployment raw bounds, receipt
+  accounting and closed-deposit policy;
+- deployment shell syntax and focused diff-check passed.
+
+No network, hardware, signature, deployment, broadcast, push or funds operation
+was performed.

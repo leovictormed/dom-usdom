@@ -1,0 +1,53 @@
+USDⓄM RESERVE — SAFE SHARED RECOVERY CUSTODY (STAGE 409)
+Date: 2026-10-22
+
+Decision
+
+The Stage 407 rule requiring disjoint owner addresses across governance and
+guardian Safes has been removed. It conflicted with the existing recoverable
+control package, which deliberately deploys three distinct Safe proxies backed
+by one exact 2-of-3 recovery set.
+
+Address disjointness would require nine EOAs, but would not by itself prove that
+the keys belong to independent people, devices, or administrative domains. It
+also invalidated the tested loss-of-one-key recovery workflow. Independence is
+an operational property and must be established by custody evidence rather
+than inferred from different addresses.
+
+Enforced production policy
+
+- governance, reserve guardian, and checkpoint guardian are distinct Safe
+  proxy addresses;
+- each Safe uses the pinned Safe v1.4.1 singleton and fallback handler;
+- each Safe has exactly three distinct, nonzero, code-free owner EOAs and an
+  exact threshold of two;
+- modules and guards are empty;
+- singleton, handler, owners, threshold, modules, guard, runtime code, and
+  finalized observation identity remain checked both where applicable on-chain
+  and by the mainnet preflight;
+- the recoverable package continues to bind all three Safes to one explicit
+  three-key set and tests loss of one key.
+
+Residual risk
+
+The shared recovery set creates a common-custody failure domain across the
+three roles. The release documentation must state this trust model and require
+the three keys to be held on separate hardware devices with independent
+backups. A future migration to independent operator groups requires an explicit
+versioned package and recovery design; it must not be introduced as an
+unreviewed address-count change.
+
+Validation
+
+- focused Safe deployment, observation, recovery, and preflight tests: 25/25;
+- USDOMProofReserve Solidity tests: 39/39;
+- complete Solidity regression: 145/145;
+- complete Node regression: 304/304;
+- production build completed successfully;
+- imported provenance: 169 files and 16 declared modifications;
+- source manifest: 1,190 ordered SHA-256 entries;
+- reserve runtime: 16,972 bytes;
+- reserve initcode: 23,087 bytes.
+
+No push, deployment, signing, transaction broadcast, funds, or mining was
+performed.

@@ -1,0 +1,20 @@
+ETAPA 730 — Structural test reconciliation
+Date: 2026-10-23
+
+Scope
+- Reconciled operator structural assertions with pinned $cast_bin, $git_bin and $jq_bin invocation forms.
+- Required every deployment strict-JSON checker invocation to use the pinned $node_bin; retained a baseline of at least 14 checks and explicitly covered the transmit fee checker. The equality assertion remains stable as further authority checks are added concurrently.
+- Updated finalized-deposit durable writer expectation to writePrivateFileDurableNew.
+- Made malformed deployment-handoff fixtures independent of the operator workspace by copying the parser and its two dependencies into a private temporary root and installing an explicit-mode 0644 test RPC catalog.
+- No production logic changed.
+
+Validation
+- Exact broad command requested:
+  PATH=/usr/lib/chatgpt/resources/cua_node/bin:/home/leonardov/.foundry/bin:/home/leonardov/.cargo/bin:/home/leonardov/.local/bin:/usr/local/bin:/usr/bin:/bin node --test test/node/mainnet-deployment-execution.test.mjs test/node/deployment-package.test.mjs test/node/deployment-executor-tool-pinning.test.mjs test/node/operator-runbook.test.mjs
+  Result: 99 passed, 0 failed.
+- Focused structural selection was rerun during reconciliation; its one transient failure was a concurrent JQ-pinning change, then reconciled and covered by the final broad zero-failure run.
+- node --check test/node/operator-runbook.test.mjs: passed before the concurrent reconciliation; final broad parse/execution passed.
+- git diff --check: passed.
+
+Safety
+No Cargo/Rust/RISC0, RPC, deployment, signing, transmission, funds, commit or push.

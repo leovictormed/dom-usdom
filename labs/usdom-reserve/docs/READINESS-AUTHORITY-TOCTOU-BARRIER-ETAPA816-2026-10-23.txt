@@ -1,0 +1,29 @@
+ETAPA 816 — aggregate readiness authority TOCTOU barrier
+Date: 2026-10-23
+
+Finding
+
+ETAPA815 rechecked hash-addressed evidence documents, but readiness authorities
+outside `evidenceFileBytes` remained exposed to the same long-check window. This
+included the release configuration, release-evidence root, requirements,
+operator intent, source manifest/runbook, contract sources, optional project
+configuration and compiled artifact/source inputs. A path could change after its
+parsed value affected assessment and before the final result.
+
+Correction
+
+- All direct project reads now pass through one capture boundary keyed by path.
+- A repeated read during collection must equal the first captured Buffer.
+- The final barrier rereads every captured authority through the raw safe reader
+  after child collection and assessment, immediately before output.
+- Contract sources and every compiled-artifact source were moved onto the same
+  boundary. Forge/Git executable identity checks remain independent and intact.
+
+Validation
+
+- Syntax check passes.
+- Aggregate and adversarial release/preflight/readiness suite: 82/82 pass.
+- Tests cover non-evidence mutation labels and require the final authority
+  barrier to occur after assessment and before output.
+- Diff check passes.
+- No RPC, build, deployment, signature, commit, push or funds operation ran.

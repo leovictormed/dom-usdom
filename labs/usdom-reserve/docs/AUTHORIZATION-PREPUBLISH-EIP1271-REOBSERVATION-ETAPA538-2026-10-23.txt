@@ -1,0 +1,36 @@
+Stage 538 — authorization prepublication EIP-1271 reobservation
+Date: 2026-10-23
+
+Finding
+
+The release-authorization and native-attestation materializers validated their
+two-owner Safe signature bundles against finalized Ethereum state, then built
+and synchronized several local documents before the first immutable write.
+They rechecked every file input during that interval, but did not refresh the
+on-chain EIP-1271 result. A finalized owner/policy change could invalidate the
+signature while the materializer still published the older valid observation.
+
+Correction
+
+Immediately before their first immutable publication, both materializers now
+rerun their complete source-bound preparation and finalized multi-RPC EIP-1271
+collection. The release flow requires exact equality of the authorization and
+next operator intent. The native flow requires exact equality of all four
+attestations. Each requires every refreshed approval to be valid and publishes
+the refreshed finalized observation. All file snapshots remain protected by
+their existing owner-only reads, locks and bytewise origin rechecks.
+
+The signed EIP-712 payloads already bind chain ID 1, governance Safe, release
+identity and request-specific commitments. Signing recovers each of two
+distinct expected hardware owners in canonical Safe order; materialization
+checks the combined bundle through the governance Safe itself.
+
+Adversarial validation
+
+The focused operator-runbook test requires the refreshed observation and signed
+payload equality checks to appear before the first immutable publish in each
+flow. Removing the refresh, accepting changed signed content or moving it after
+publication fails the test. Both shell scripts also pass syntax validation.
+
+No Cargo, Foundry, Anvil, full readiness, proof, network, signing, funds,
+deployment or publication operation was run.

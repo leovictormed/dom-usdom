@@ -1,0 +1,27 @@
+ETAPA1059 — WALLET RECOVERY TOOL TOCTOU
+Date: 2026-10-23
+
+Finding
+=======
+Both credential-bearing wallet workflows authenticated the Cargo executable before
+their bounded build, but did not reauthenticate it after the command returned. A
+concurrent replacement of Cargo or its containing directory during the build could
+therefore escape the recorded tool identity while the generated recovery binaries
+continued into secret-handling operations.
+
+Correction
+==========
+- Receiving-wallet and closed-mainnet recovery workflows now recheck Cargo path,
+  directory identity, inode metadata and SHA-256 immediately after each build.
+- The regression requires a post-build check rather than accepting the pre-build
+  check alone and recognizes the pinned timeout wrapper.
+
+Evidence
+========
+Explicit Node v24.19.0 restart/recovery suites passed 7/7.
+Gate: python3 labs/usdom-reserve/scripts/check-wallet-recovery-tool-toctou-stage1059.py
+Broad mainnet readiness remained green: 62/62 passed.
+
+Scope
+=====
+No Cargo build was run. No network, deployment, signing, push, secrets or funds.

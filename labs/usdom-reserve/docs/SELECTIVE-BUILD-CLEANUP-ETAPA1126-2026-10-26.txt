@@ -1,0 +1,21 @@
+Selective compilation-artifact cleanup — Stage 1126 — 2026-10-26
+
+Removed regenerable data:
+- labs/usdom-reserve/out
+- labs/usdom-reserve/cache contents
+- ~/.local/share/dom-usdom/rebuilds/udfinl04-recursive/target-1
+- ~/.local/share/dom-usdom/rebuilds/udfinl04-recursive/target-2
+
+Preserved reusable evidence:
+- usdom-finalized-burn-1.elf and usdom-finalized-burn-2.elf
+- both textual Image IDs and the selected binary Image ID
+- source-manifest.sha256, source-manifest-resume-pre.sha256 and
+  source-manifest-post.sha256
+- rebuild-candidate.json
+- the active repository target directory used by the workspace Cargo test
+- Cargo/Rust dependency and toolchain caches
+
+Operational checks:
+- The current Cargo workspace validation remained active and was not restarted.
+- Stale global find/du jobs were terminated to reduce disk contention.
+- No source, secret, network state, commit, deployment or push was touched.

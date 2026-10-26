@@ -1,0 +1,11 @@
+Stage 1166 — fork-rehearsal bounded integer parsing
+Date: 2026-10-26
+
+The mainnet fork-rehearsal report validator now applies uint8/64/128/256
+decimal digit ceilings before BigInt conversion, retaining its exact numeric
+bounds. Adversarial coverage supplies 100,000-digit overall and per-scenario
+timestamps. The focused suite passes 9/9 with pinned Node 24.19.0 and targeted
+diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

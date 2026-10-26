@@ -1,0 +1,59 @@
+USDOM placeholder-free operator command interface — stage 254
+Date: 2026-10-20
+
+Finding
+
+The closed-mainnet runbook still required the operator to substitute four
+transaction hashes, type a release-signing fingerprint into a shell assignment,
+change a deployment index and update release JSON through an implicit manual
+process. Those instructions could bind the release to a mistyped value or make
+the executed procedure differ from the reviewed command sequence.
+
+Resolution
+
+1. scripts/configure-release-signing-key.sh creates or reuses one dedicated
+   passphrase-protected Ed25519 release-signing key outside the repository. It
+   configures only the local worktree for SSH commit/tag signatures, installs a
+   private allowed-signers file, enforces the required Soren Planck identity and
+   emits only a canonical public SHA-256 fingerprint record.
+2. Human guidance goes to standard error. The runbook uses npm silent mode, so
+   the captured standard output is strict JSON on both initial creation and
+   reuse.
+3. Adapter deployment uses the fixed package indices 0 and 1; registry/reserve
+   deployment uses 2 and 3. Each phase has a separate typed authorization and
+   rederives the exact package before every hardware signature.
+4. Every deployment transaction hash is read from its fixed receipt file. No
+   transaction hash, index or fingerprint placeholder remains.
+5. Unknown production facts are reported by exact diagnostics. The operator
+   returns public output and code incorporates it; the runbook does not direct
+   the operator to edit release JSON.
+6. The two independently checked public Ethereum RPC endpoints are included in
+   the command. If either becomes unavailable, execution stops and a new exact
+   command must be reviewed; the operator is not asked to supply an endpoint.
+7. A regression rejects the removed substitution markers, parses the signing
+   script and executes its reuse path in an isolated temporary Git repository.
+   The test validates SSH signing configuration and public-only output, then
+   deletes the temporary key material.
+
+Security boundary
+
+The release-signing key authenticates source/evidence commits and tags; it does
+not control Ethereum funds. The Ethereum deployer and the sole owner of the
+three distinct 1-of-1 Safe roles remain a hardware-wallet EOA. One person
+controlling all three roles is an explicitly recorded concentration risk for
+the first closed test. The script does not create that EOA, read its secret,
+sign a transaction or broadcast anything.
+
+No key was created during this stage. No signature, deployment, transaction,
+fund movement, mining, expensive proof, commit or push occurred.
+
+Validation
+
+- complete Node/integration suite: 119 passed, 0 failed;
+- production lint and clean 43-file Solidity rebuild: passed;
+- focused operator-interface tests after final output correction: 3 passed;
+- runbook Bash blocks: 16 of 16 parsed;
+- imported provenance: 169 files, 16 explicit modifications, passed;
+- closed-mainnet gate: expected NOT READY, 162 unique blockers;
+- real-funds gate: expected NOT READY, 173 unique blockers;
+- no external-audit or absolute-zero-risk blocker is present.

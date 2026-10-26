@@ -453,6 +453,18 @@ pub fn verify_deposit_witness(
     Ok(deposit)
 }
 
+/// Return the minimal deterministic slot ceiling required to replay a
+/// canonical deposit witness.
+pub fn deposit_witness_replay_slot(bytes: &[u8]) -> Result<u64> {
+    let witness = decode_deposit_witness(bytes)?;
+    let replay_slot = crate::canonical_transcript_replay_slot(&witness.transcript)?;
+    ensure!(
+        replay_slot >= witness.expected_finalized.beacon_slot,
+        "transcript replay slot precedes finalized slot"
+    );
+    Ok(replay_slot)
+}
+
 /// Commit all immutable finality and reserve-verification inputs.
 pub fn deposit_trust_policy_hash(policy: &DepositTrustPolicy) -> B256 {
     B256::from_slice(
@@ -526,9 +538,18 @@ fn decode_deposit_witness(bytes: &[u8]) -> Result<DepositWitness> {
     };
     validate_expected_finalized(&expected_finalized)?;
     let transcript_end = DEPOSIT_WITNESS_HEADER_BYTES + transcript_len;
-    let transcript = bytes[DEPOSIT_WITNESS_HEADER_BYTES..transcript_end].to_vec();
+    let transcript_bytes = &bytes[DEPOSIT_WITNESS_HEADER_BYTES..transcript_end];
     let evidence_bytes = &bytes[transcript_end..];
+    crate::preflight_transcript_json(transcript_bytes)?;
+    crate::preflight_evidence_json(evidence_bytes)?;
+    let transcript = transcript_bytes.to_vec();
     let evidence: ReserveDepositEvidence = serde_json::from_slice(evidence_bytes)?;
+    if let Some(ancestry) = &evidence.execution_ancestry {
+        crate::ancestry::validate_ancestry_allocation_bounds(ancestry)?;
+    }
+    crate::receipts::validate_receipt_allocation_bounds(&evidence.receipt)?;
+    crate::state::validate_account_allocation_bounds(&evidence.reserve_account)?;
+    crate::state::validate_runtime_code_allocation_bounds(&evidence.runtime_bytecode)?;
     ensure!(
         serde_json::to_vec(&evidence)?.as_slice() == evidence_bytes,
         "noncanonical deposit evidence encoding"
@@ -556,6 +577,7 @@ fn validate_expected_finalized(expected: &FinalizedExecution) -> Result<()> {
 
 fn validate_trust_policy(policy: &DepositTrustPolicy) -> Result<()> {
     validate_policy(&policy.deposit)?;
+    crate::validate_fork_schedule(&policy.forks)?;
     ensure!(
         policy.trusted_checkpoint != B256::ZERO
             && policy.ethereum_genesis_validators_root
@@ -697,6 +719,23 @@ mod tests {
     const COMMITMENT: B256 =
         b256!("1818181818181818181818181818181818181818181818181818181818181818");
 
+    fn supported_forks() -> EthereumForks {
+        let fork = |epoch, version| crate::EthereumFork {
+            epoch,
+            fork_version: [version, 0, 0, 0].into(),
+        };
+        EthereumForks {
+            genesis: fork(0, 0),
+            altair: fork(74_240, 1),
+            bellatrix: fork(144_896, 2),
+            capella: fork(194_048, 3),
+            deneb: fork(269_568, 4),
+            electra: fork(364_032, 5),
+            fulu: fork(411_392, 6),
+            gloas: fork(u64::MAX, 7),
+        }
+    }
+
     fn locator() -> LogLocator {
         LogLocator {
             genesis_validators_root: GENESIS,
@@ -783,6 +822,35 @@ mod tests {
         assert_eq!(deposit.receiving_commitment(), COMMITMENT);
         assert_eq!(deposit.finality_beacon_slot(), 1);
         assert_eq!(deposit.finality_beacon_root(), B256::repeat_byte(1));
+    }
+
+    #[test]
+    fn deposit_amount_is_one_exact_canonical_uint64_base_unit_value() {
+        let mut maximum = policy();
+        maximum.max_amount = u64::MAX;
+        assert_eq!(
+            compose(&event(u64::MAX), &code(), &maximum)
+                .unwrap()
+                .amount(),
+            u64::MAX
+        );
+
+        let mut funder = [0u8; 32];
+        funder[12..].copy_from_slice(FUNDER.as_slice());
+        let mut noncanonical = [0u8; 64];
+        noncanonical[23] = 1;
+        noncanonical[24..32].copy_from_slice(&1u64.to_be_bytes());
+        noncanonical[32..].copy_from_slice(COMMITMENT.as_slice());
+        let noncanonical_event = raw_event(
+            RESERVE,
+            vec![keccak256(DEPOSIT_EVENT), DEPOSIT_ID, funder.into()],
+            noncanonical.to_vec(),
+        );
+        assert!(compose(&noncanonical_event, &code(), &maximum).is_err());
+
+        let mut bounded = policy();
+        bounded.max_amount = 999_999;
+        assert!(compose(&event(1_000_000), &code(), &bounded).is_err());
     }
 
     fn local_bundle(
@@ -1161,7 +1229,7 @@ mod tests {
         let dynamic = DepositTrustPolicy {
             trusted_checkpoint: B256::repeat_byte(0x91),
             ethereum_genesis_validators_root: GENESIS,
-            forks: EthereumForks::default(),
+            forks: supported_forks(),
             max_current_slot: 10,
             deposit: policy(),
         };

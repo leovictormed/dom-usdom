@@ -1,0 +1,76 @@
+USD/DOM — etapa 295: preparação offline da queima privada em mainnet fechada
+Data: 2026-10-21
+
+Resultado
+
+Foi implementado um comando operacional fixo para transformar o estado
+autenticado de uma única emissão de 1 USDT em uma queima privada preparada.
+O comando não aceita parâmetros, não contata DOM ou Ethereum, não submete a
+transição, não minera, não transmite transação e não autoriza pagamento.
+
+Fronteiras verificadas antes da prova
+
+- manifesto nativo Mainnet e seu SHA-256 externo;
+- ativação USDOM v4 exatamente na altura 1;
+- testemunho finalizado do depósito Ethereum e valor exato de 1.000.000;
+- snapshot cifrado observado, selo externo geração 2 e observação canônica;
+- único compromisso de emissão, saldo exato e ausência de pendências;
+- proving key owner-only, limitada e vinculada por SHA-256 externo;
+- configuração do verificador embutida na proving key igual à identidade da
+  ponte;
+- destinatário Ethereum derivado duas vezes do mesmo Ledger;
+- rejeição de zero, da reserva e do contrato USDT Mainnet
+  0xdAC17F958D2ee523a2206206994597C13D831ec7;
+- relógio Ethereum autenticado ainda dentro da janela nativa de admissão;
+- bytes cifrados do snapshot imutáveis durante sua autenticação.
+
+Saída
+
+Após construir e autoverificar a prova Groth16, o binário exige uma entrada,
+zero troco, saldo disponível zero e uma única queima pendente. Publica de forma
+atômica uma pasta owner-only com o snapshot cifrado geração 3, selo, payload
+canônico e índice. O índice fixa os hashes dos insumos, identificadores da
+prova/transição, obrigação Ethereum e os campos:
+
+  submission_authorized=false
+  submits=false
+  mines=false
+  broadcasts=false
+
+Segredos
+
+A senha é lida sem eco em terminal interativo e escrita apenas em arquivo 0600
+sob /dev/shm. Nenhuma chave, seed, mnemonic, senha ou endpoint é aceito por
+argumento ou variável de ambiente. O proving key permanece fora do repositório
+e exige pin SHA-256 owner-only separado.
+
+Correção adicional de composição Ethereum
+
+Clippy estrito expôs o construtor de evidência eth_getProof com oito argumentos
+posicionais. Ele foi substituído por RpcAccountClaim, cujos campos nomeados
+reduzem o risco de permutar hashes, altura, endereço, nonce e saldo. Nenhum lint
+foi suprimido.
+
+Validação executada
+
+- cargo check --release --locked do binário: passou;
+- testes release do binário: 3/3 passaram;
+- cargo clippy --release --locked com -D warnings: passou;
+- suíte usdom-ethereum-finality-experiment: 57/57 passaram
+  (19 unitários, 33 de integração e 5 doctests);
+- testes do runbook operacional: 38/38 passaram;
+- testes do gate de prontidão: 38/38 passaram;
+- proveniência agregada: passou para 169 arquivos importados, 41 fontes de
+  programa de prova, 409 arquivos de finalidade Ethereum e 962 fontes do
+  componente;
+- gate closed-mainnet: recusou corretamente com 161 bloqueios objetivos, sem
+  bloqueio por ausência de auditoria externa ou garantia de risco zero;
+- sintaxe Bash/JavaScript, JSON, rustfmt e git diff --check: passaram.
+
+Limite desta etapa
+
+Nenhum material real de carteira/proving key estava configurado, portanto a
+prova privada real não foi gerada. Esta etapa prepara o artefato offline; a
+submissão autenticada, inclusão em bloco DOM, prova de finalidade, pacote EVM e
+resgate são etapas separadas e continuam bloqueadas por suas evidências reais.
+Não houve mineração, deploy, transação, movimentação de fundos ou push.

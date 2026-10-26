@@ -1,0 +1,42 @@
+READINESS DIAGNOSTIC FORGE INDEPENDENCE — STAGE 1142
+Date: 2026-10-26
+
+Finding
+
+The `--diagnostic-no-build` path of `check-mainnet-readiness.mjs` skipped the
+Forge build but still snapshotted and finally re-attested the Forge executable.
+Consequently a read-only blocker inventory failed before assessment on a host
+without Forge in PATH, returning only `PILOT_OPERATION_REJECTED`. The executable
+was neither needed nor executed in this mode.
+
+Correction
+
+Forge is now snapshotted only for the normal build-bearing release gate. The
+same branch still runs Forge through `runPinnedExecutable` and rechecks the
+exact executable before accepting compiled artifacts. Diagnostic mode consumes
+only existing source-bound artifacts; it neither compiles nor converts missing
+artifacts or requirements into successes. Its summary continues to mark the
+build as intentionally skipped.
+
+Security properties
+
+- The production gate still requires pinned Forge, compilation and the final
+  executable-identity check.
+- Diagnostic mode cannot make `report.ready` true by skipping compilation; it
+  uses the unchanged assessor and exits nonzero while blockers remain.
+- No production requirement, release fact, artifact hash or evidence flag was
+  changed.
+- Git and Python children remain snapshotted and re-attested because diagnostic
+  collection executes them.
+
+Validation
+
+- Node syntax check: PASS.
+- `mainnet-readiness-byte-strict.test.mjs`: PASS, 9/9.
+- `readiness-diagnostics.test.mjs`: PASS, 2/2.
+- Combined focused result: PASS, 11/11.
+
+No Cargo, Rust, Forge, network, signing, deployment, funds, commit or push ran.
+The end-to-end diagnostic was deliberately not invoked during the active Cargo
+workspace run because it launches the native Cargo checker; the focused test
+proves the corrected Forge control flow without contending for that build.

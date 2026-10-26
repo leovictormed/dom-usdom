@@ -1,0 +1,29 @@
+ETAPA 790 — release multi-file completion inventory
+Date: 2026-10-23
+
+Inventory
+Audited seven multi-file release configuration/evidence materializers:
+- finalized-burn evidence report -> release-evidence aggregate;
+- checkpoint-capacity report -> release-evidence aggregate;
+- RISC Zero health catalog -> release-evidence aggregate;
+- deployment-identity observation -> proof-reserve aggregate;
+- native attestation set/finalized observation -> release-evidence aggregate;
+- release authorization/finalized observation -> operator-intent aggregate;
+- provenance release-evidence -> operator-intent aggregate.
+
+The immutable-document families are precursor-first and aggregate-last. Existing immutable files are accepted only on exact bytes, while durable writers internally fsync and exact-read back. Mutable two-aggregate provenance is replaceable/idempotent, rechecks the untouched second aggregate after the first update and exact-reads both after completion. A crash before aggregate publication leaves only authenticated precursors and retries safely; a crash after aggregate publication leaves a fail-closed or complete generation.
+
+Concrete gap and correction
+The deployment-identity materializer had correct precursor-first order and durable installers, but lacked explicit set-level readback. It now:
+1. exact-reads the installed immutable observation before the config write;
+2. exact-reads the installed proof-reserve configuration after the config write;
+3. re-reads the observation again after the completion write, proving one coherent two-file generation on successful return.
+
+Regression
+Added a fixed seven-item inventory requiring precursor-before-completion order and explicit retry/readback evidence. New families must update the fixed count and state their completion marker.
+
+Validation
+- release multi-file inventory + operator structural suite: 85/85 passed.
+- `bash -n scripts/materialize-mainnet-deployment-identity.sh`: passed.
+- `git diff --check`: passed.
+No signing, Git mutation, RPC, commit, push, broadcast or funds operation ran.

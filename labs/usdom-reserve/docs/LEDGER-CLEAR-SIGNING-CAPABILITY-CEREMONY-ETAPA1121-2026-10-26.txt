@@ -1,0 +1,44 @@
+LEDGER CLEAR-SIGNING CAPABILITY CEREMONY — ETAPA 1121
+Date: 2026-10-26
+
+EXACT COMMAND
+cd /home/leonardov/usdom-security-audit-20261015/implementation-dom-protocol/labs/usdom-reserve && bash scripts/probe-ledger-clear-signing.sh --run
+
+The command contains no placeholder, address, secret or RPC configuration to
+fill in. It was generated but not executed against a Ledger in this stage.
+
+WHAT THE CEREMONY PROBES
+- Generic EIP-712 display with a fixed local-only domain.
+- Exact SafeTx EIP-712 display, including chainId 31337, verifyingContract,
+  target, value, calldata, operation, nonce and all fee/refund fields.
+- ERC-20 approve and USDOM deposit calldata display in two value-zero EIP-1559
+  transactions on chainId 31337 with fixed sentinel addresses/nonces/fees.
+- ECDSA recovery against the stable Ledger address after every signature.
+
+The script has no RPC URL or transmission command, unsets inherited RPC/private
+key controls, works in a mode-0700 tmpfs directory and destroys typed data,
+signatures and raw local-chain transactions on every exit. The signed chain
+31337 probes are never submitted.
+
+PASS / FAIL
+The operator may type each exact confirmation only when the device displays the
+same structured fields. A hash-only or generic "contract data" screen is FAIL.
+The host cannot query the Ledger screen, so the visual result is necessarily a
+human-attested capability fact backed by cryptographic signer recovery.
+
+SAFE ALTERNATIVES
+1. Prefer SafeTx EIP-712 for governance actions when the device shows every
+   domain/message field. The Safe typed-data hash, required signers and assembled
+   execTransaction must remain bound by the existing validators.
+2. For direct custom reserve calls, use a reviewed Ledger clear-signing plugin
+   only after pinning its publisher, application/plugin version and hash, contract
+   address, chain ID, selector and displayed parameter schema in release evidence.
+   Re-run this ceremony after any firmware/app/plugin change.
+3. If neither Safe EIP-712 nor a pinned verified plugin provides a readable
+   screen, the direct Ledger path remains blocked. Generic blind signing is not
+   an alternative.
+
+VALIDATION
+- Probe static/command tests: 2/2 passed.
+- Shell/Node syntax and focused diff integrity passed.
+- No device, signature, network, deployment, funds, Cargo/Forge, commit or push.

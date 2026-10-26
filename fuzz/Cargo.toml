@@ -11,8 +11,7 @@ cargo-fuzz = true
 bitcoin = "=0.32.5"
 btc-evidence = { path = "../crates/adapters/btc-evidence" }
 libfuzzer-sys = "=0.4.10"
-
-[workspace]
+dom-chain = { path = "../crates/dom-chain", features = ["native-usdom-v4-poc"] }
 
 [[bin]]
 name = "fuzz_bitcoin_evidence_decode"
@@ -27,3 +26,12 @@ path = "fuzz_targets/fuzz_witness_parser.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "usdombl4"
+path = "fuzz_targets/usdombl4.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

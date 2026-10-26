@@ -1,0 +1,41 @@
+Etapa 551 — auditoria de ingresso mempool/P2P/RPC USDOM
+
+Achado e correção
+
+Issuance v4 e candidate-v2 já possuíam fronteiras isoladas de concorrência 1
+antes dos handlers porque sua verificação é cara. Transfer e burn privados,
+embora também executem verificação Groth16 no mesmo runtime serializado, estavam
+no router autenticado comum. Requests concorrentes podiam ser aceitos,
+decodificados e manter buffers/prova enquanto aguardavam o lock do runtime.
+
+Transfer e burn foram movidos para um único sub-router autenticado com
+ConcurrencyLimitLayer(1). A fronteira compartilhada aplica backpressure antes
+da desserialização JSON e impede que alternar os dois endpoints contorne o
+limite. O limite de corpo padrão e os rate limits independentes continuam
+aplicados.
+
+Demais evidências revisadas
+
+- Payloads privados, issuance, envelopes e witness bundles têm limites antes
+  dos parsers internos. Framing candidate-v2 usa soma checked, comprimento
+  total exato e rejeita truncamento/trailing bytes.
+- Pools de candidatos v1/v2 rejeitam vazio, duplicam por ID sem nova prova,
+  limitam simultaneamente contagem e bytes, verificam na admissão e revalidam
+  na seleção de template e no ingresso final do bloco.
+- O mempool econômico rejeita hash duplicado, double-spend local, peso e fee
+  antes de retenção; validação de bloco é independente do mempool.
+- Pacotes P2P USDOM passam novamente pela validação de consenso. Filas de bloco
+  futuro e orphan são limitadas por idade, quantidade e bytes; sidecars/provas
+  não entram na retenção de future blocks, e filhos orphan são revalidados ao
+  reaparecer o parent.
+- Erros permanentes são descartados e erros temporários rotacionam candidatos.
+  A verificação final não reutiliza autoridade de prevalidation/relay.
+
+Validação
+
+Foi executada validação estrutural leve exigindo que ambos os endpoints existam
+somente no sub-router compartilhado, que o limite de concorrência esteja antes
+dos handlers e que o router permaneça sob bearer token, body limit e rate
+limits. Também foram verificados os limites/duplicate checks dos pools e a
+integridade do diff. Cargo, Foundry, rede e a suite pesada permaneceram
+desativados durante a prova RandomX.

@@ -1,0 +1,47 @@
+USD + DOM — fronteira segura de criação da carteira nativa
+Etapa 367 — 2026-10-22
+
+Problema corrigido
+
+O comando de preparação da carteira executava `mkdir -p` e `chmod` antes de
+provar que o caminho final não era um link simbólico. A identidade pública era
+publicada por `mv -f`, e os arquivos de configuração e identidade podiam ser
+reabertos por nome entre validação e publicação. Uma interrupção depois da
+criação durável do backup, mas antes da identidade, deixava o comando sem uma
+rota de recuperação.
+
+Correções
+
+- um helper abre a raiz privada 0700 com O_DIRECTORY, O_NOFOLLOW e descriptor
+  retido; cria somente um filho 0700 por mkdirat e compara inode, proprietário,
+  modo, caminho canônico e a autoridade raiz antes de retornar;
+- nenhum chmod é executado em caminho pré-existente não autenticado;
+- configuração de release e requisitos são capturados por leitura direta 0644
+  em /dev/shm e relidos antes e depois das operações relevantes;
+- backup e identidade existentes são capturados por leitura direta 0600,
+  single-link; a verificação Rust recebe o snapshot privado do backup;
+- uma interrupção entre backup e identidade é retomada autenticando o backup e
+  reconstruindo a identidade pública, sem criar uma nova seed;
+- a identidade é instalada pelo escritor imutável, atômico e sem substituição;
+  conteúdo divergente falha, e o resultado é relido byte a byte;
+- o backup criptografado já possuía Argon2id, AEAD, criação exclusiva,
+  sincronização durável, modo 0600 e recusa a symlink ou destino concorrente.
+
+Validação
+
+- Bash, ShellCheck, Python e `git diff --check`: passaram;
+- testes do helper cobrem criação, reuso, raiz gravável e link simbólico sem
+  alterar o modo do alvo;
+- dois testes Rust de criação exclusiva do envelope passaram;
+- o teste Rust real de criação e restauração retornou o mesmo endereço;
+- lint de produção e compilação forçada dos 44 fontes Solidity passaram;
+- regressão Node completa: 303/303 testes passaram;
+- proveniência completa passou para 169 importados, 45 fontes de programas de
+  prova e manifesto determinístico com 1.148 fontes;
+- o gate não configurado recusou corretamente com `ready=false` e 161
+  condições únicas ainda abertas.
+
+Nenhuma carteira real foi criada, nenhuma senha ou seed foi persistida por estes
+testes e nenhuma chamada RPC, assinatura, transação, fundo, deploy, mineração,
+commit, tag ou push ocorreu. A prova real de queima finalizada permaneceu ativa
+e não foi reiniciada.

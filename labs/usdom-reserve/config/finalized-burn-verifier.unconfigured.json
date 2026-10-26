@@ -29,7 +29,7 @@
   "provingProgramSha256": null,
   "sourceManifestSha256": null,
   "verifierArtifactSha256": null,
-  "maxProofBytes": "65536",
+  "maxProofBytes": "260",
   "minimumFinalityBeaconSlot": null,
   "ethereumChainId": "1",
   "riscZeroVerifier": null,

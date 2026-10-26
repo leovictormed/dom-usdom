@@ -1,0 +1,10 @@
+ETAPA1029 — Checkpoint V5 / DOMCheckpointV3 economic totals (C1.2)
+Date: 2026-10-23
+
+Implemented a new, disjoint UDCPST05 statement carrying target totalIssued and totalBurned. Frozen UDCPST04 remains batch-v3 byte/hash compatible; V5 alone selects candidate batch-v4. Mutual decoding is rejected and the historical V4 hash vector remains pinned.
+
+The outer relation derives V5 totals only from the target segment values authenticated in ETAPA1023 and rejects any host substitution. The outer guest and proof host consume 550-byte V5 statements. The native reference checks target totals after exact transition execution. Finalized-burn inclusion requires V5 totals to equal the authenticated burn-state opening. Related source/export paths and proof artifact naming moved to checkpoint-statement-v5.bin.
+
+DOMCheckpointRegistry now hashes DOMCheckpointV3, requires batch v4, stores candidate/latest/previous issued and burned totals, rejects regressions and burned>issued, and advertises the V3 proof capability. The SDK mirrors the 25-word ABI hash, canonical 550-byte frame and u128 parsing. V4 remains a historical Rust type and is not accepted by the active guest/host/submission path.
+
+Validation: ETAPA1023 gate 1/1; ETAPA1029 gate 1/1; Node syntax checks; rustfmt; git diff --check. Cargo/Forge/proof build were not run while the long proof is active. A fresh guest/verifier build is required, and old ImageIDs/receipts cannot authorize the changed V3 statement hash.

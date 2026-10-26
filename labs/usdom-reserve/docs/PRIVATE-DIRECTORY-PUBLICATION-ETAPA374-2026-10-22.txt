@@ -1,0 +1,29 @@
+USDOM stage 374 — descriptor-anchored private directory publication
+
+A shared PrivateStagingDirectory now retains the authenticated mode-0700 parent
+descriptor from creation through final publication. It creates its random
+staging directory with mkdirat, reopens it without following links, forces and
+checks owner-only mode, exposes only a /proc/self/fd path for child creation,
+and publishes with renameat2 RENAME_NOREPLACE under the retained parent.
+
+Before and after publication it verifies the named parent against the retained
+device/inode authority. It fsyncs both staged and parent directories, opens the
+published destination without following links, and proves the published inode
+is the staged inode. Failed setup removes the empty staging name; Drop removes
+an unpublished populated stage through the retained parent.
+
+Finalized-deposit registration and observation, private-burn preparation, and
+checkpoint wallet recovery all use this boundary. None can replace a
+concurrently created destination or publish through a swapped parent path.
+
+Validation:
+
+- descriptor staging unit tests: 2/2 pass
+- native-only and TPM-operator bin matrices compile with --locked and one build job
+- focused operator regression: 63/63 pass
+- proof boundary inventory expanded to 46 sources and passes
+- cargo fmt --check and git diff --check pass
+
+No live RPC, secret, TPM, signing, transaction, deployment, funds, mining,
+commit, tag or push was used. The detached finalized-burn proof remained
+active and was not restarted.

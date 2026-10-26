@@ -1,0 +1,30 @@
+ETAPA 843 — NATIVE RELEASE ATTESTATION CHILD PROCESS GROUPS
+Date: 2026-10-23
+
+Scope
+-----
+The native release attestation preparer and signing-request checker invoke the
+authoritative `dom-usdom-manifest-check` Cargo command. They pinned and
+rechecked the Cargo executable and bounded captured output, but direct
+`execFile` calls had no deadline and terminated only the immediate process.
+A blocked compiler or checker could therefore retain descendants after the
+caller exited and stall an authorization ceremony.
+
+Correction
+----------
+Both scripts now use the shared pinned process-group runner. The runner starts
+Cargo in its own process group, limits stdout and stderr together to 4 MiB,
+applies a ten-minute deadline, sends TERM and then KILL to the whole group,
+waits for close, and rechecks the pinned executable identity. Existing fatal
+UTF-8 decoding, exact line framing, empty-stderr requirement and semantic
+manifest validation remain unchanged.
+
+Validation
+----------
+- Node syntax checks passed for both changed scripts.
+- `native-attestation-byte-strict.test.mjs` verifies both authority paths use
+  the bounded/deadlined runner and retain strict child-output parsing.
+- `pinned-child-process-group.test.mjs` proves timeout reaps a spawned
+  grandchild and output overflow terminates the process group.
+- Focused result: 6 tests passed, 0 failed.
+- No Cargo build, RPC, signing, deployment, publication or fund operation ran.

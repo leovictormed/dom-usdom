@@ -1,0 +1,53 @@
+ETAPA 1097 — SAFE V2 / NINE-OWNER INDEPENDENT AUDIT
+Date: 2026-10-26
+
+Scope
+=====
+
+Reviewed ownersByRole, deterministic Safe deployment, EIP-712 v4 release
+authorization, native attestations, transitionsByRole, hardware-signing and
+relayer handoffs, global owner separation, on-chain commitments and legacy
+schema rejection.
+
+Finding and correction
+======================
+
+Plan construction enforced three globally disjoint 3-owner roles, but the
+standalone recovery-plan validator did not independently enforce uniqueness of
+the two required signers or global separation of old/surviving/replacement
+owners. A rehashed imported plan could therefore direct hardware operators to
+sign with owners assigned to another role. Safe EIP-712 binds chain ID and the
+unique verifying Safe, so the resulting transaction would not authorize the
+wrong Safe, but accepting the handoff was an avoidable cross-role confusion and
+operational denial-of-service boundary.
+
+Validation now requires two distinct required signers per role, nine globally
+distinct old/surviving owners, three distinct replacements and no replacement
+overlap with any current owner. Adversarial tests exchange whole signer sets and
+whole signature arrays between governance and reserveGuardian; both fail before
+an execution package is accepted.
+
+Other conclusions
+=================
+
+Safe transaction hashes bind Ethereum chain ID 1 and the per-role Safe address,
+so a valid signature cannot replay across roles. Release EIP-712 v4 additionally
+binds all three role-owner hashes, reserve/Registry configuration hashes,
+evidence commitment and governance verifying contract. Native attestation v2
+binds kind, release/source/configuration/subject and the same governance domain.
+The signing request validators use exact schemas and explicitly reject v1.
+On-chain reserve commitments cover governance and reserve guardian; Registry
+configuration independently derives and checks the checkpoint-guardian owner
+commitment.
+
+Validation
+==========
+
+The expanded run also found stale v1-shaped deployment fixtures (one shared
+owner array) and a pre-v2 native-attestation digest vector. They were migrated
+to three disjoint owner sets and the independently recomputed current digest;
+no production validation was relaxed.
+
+Pinned Node v24.19.0 safe-control-observation suite: PASS 16/16.
+Pinned deployment/release/native-attestation suites: PASS 18/18.
+No Cargo, Forge, deployment, signing, broadcast, funds, commit or push.

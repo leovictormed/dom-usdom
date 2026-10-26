@@ -1,0 +1,33 @@
+Stage 536 — Safe recovery prepublication target reobservation
+Date: 2026-10-23
+
+Finding
+
+The recovery executor authenticated the EIP-712 Safe transaction, recovered and
+canonically ordered the exact two surviving owners, bound chain 1, Safe address
+and nonce zero, and checked the target Safe before signing. Before publication
+it reread all local evidence and the authenticated RPC catalog, but it did not
+repeat the target-Safe consensus observation. Ledger signing and operator review
+are unbounded intervals. A concurrent Safe execution could therefore change the
+Safe nonce or owner policy while leaving every local signed artifact unchanged.
+
+Correction
+
+For each governance, reserveGuardian and checkpointGuardian recovery, the
+executor now reruns `check-recoverable-safe-recovery-target.mjs` immediately
+before transaction visibility checks and publication. Its canonical Safe-state
+projection must be byte-identical to the observation used to prepare that role;
+only the finalized observation block number and hash may advance.
+The target checker covers Ethereum chain ID, Safe address/runtime/singleton,
+owners, threshold, nonce, modules, guard, transaction hash and the cataloged RPC
+consensus. Any concurrent substitution or replay-state change fails closed.
+
+Adversarial validation
+
+The focused operator-runbook test requires the prepublication target document
+and its exact comparison to occur after the existing local source/evidence
+checks and before the only recovery `publish` command. Moving the observation
+earlier across signing/review, deleting it or publishing first fails the test.
+
+No Cargo, Foundry, Anvil, full readiness, proof, network, signing, funds,
+deployment or publication operation was run.

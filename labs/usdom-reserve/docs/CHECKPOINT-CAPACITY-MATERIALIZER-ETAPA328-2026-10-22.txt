@@ -1,0 +1,29 @@
+USD + DOM — materializador canônico do relatório de capacidade de checkpoint
+Etapa 328 — 2026-10-22
+
+Implementação
+
+`buildCheckpointProofCapacityReport` recebe os registros medidos dos seis
+estágios, calcula internamente os compromissos canônicos de entradas, journals e
+recibos, deriva contagens e bytes totais e submete o documento resultante ao
+mesmo validador usado pelo gate. O chamador não pode fornecer ou substituir os
+hashes agregados.
+
+O relatório também passou a medir separadamente a compressão do recibo externo
+para Groth16. `compressionWallMilliseconds` e
+`compressionPeakResidentKiB` são obrigatórios, positivos e limitados. O tempo
+de compressão participa do intervalo total da execução, além dos seis tempos de
+prova. Assim, uma medição que omite a etapa potencialmente mais pesada não pode
+satisfazer o gate.
+
+Validação
+
+- construção de relatório completo a partir de registros unitários;
+- derivação automática dos três compromissos por camada;
+- derivação independente do digest do journal externo;
+- rejeição de camadas fora de ordem;
+- rejeição de tempo ou memória zero na compressão;
+- testes focados passam 4/4.
+
+Permanece necessário conectar o materializador aos índices e métricas reais do
+executor. Nenhum recibo ou custo operacional foi declarado nesta etapa.

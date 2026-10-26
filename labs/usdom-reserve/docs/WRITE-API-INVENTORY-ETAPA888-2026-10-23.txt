@@ -1,0 +1,13 @@
+ETAPA 888 — inventário de APIs de escrita fora dos marcadores create-once
+
+Método reproduzível e escopo: 197 arquivos `scripts/**/*.sh` e `scripts/**/*.mjs`; busca lexical por APIs/redirecionamentos de write, rename, copy e install; exclusão dos scripts que contêm os marcadores da família já coberta (`already exists`, `refusing to replace`, `create-once`, `writePrivateFileDurableNew` ou `install-private-file-immutable-stdin`). O conjunto resultante contém exatamente 61 scripts.
+
+Classificação por papel do output: 17 temporários/build/check, 7 imutáveis de identidade/anti-replay, 28 derivados retryable e 9 completion-pointer/index publishers. Total: 61.
+
+Maior gap confirmado: `materialize-mainnet-preflight-attestation.mjs` materializa duas variantes derivadas (predeployment e postdeployment/cold-start), mas aceitava somente os mesmos bytes no caminho de evidência. Se uma geração nova fosse necessária ou uma execução caísse entre report e metadata, o report velho poderia continuar anunciado ou bloquear a renovação.
+
+Correção: sob o lock externo já existente, o materializador agora lê e valida o release evidence, publica duravelmente o campo de completion da fase como `null`, remove duravelmente o report antigo e somente depois acessa/captura o report privado. A nova geração mantém report-first e evidence-pointer-last; requirements continua posterior ao pointer e qualquer falha intermediária permanece fail-closed.
+
+Contagens após correção: 2/2 variantes de preflight protegidas; 0/2 podem deixar o report anterior anunciado durante retry. Dos 28 scripts derivados, esta família de 1 script/2 outputs era o gap stale confirmado; 27 scripts não apresentaram novo gap confirmado neste passe. Os 9 completion publishers permanecem cobertos pelas auditorias específicas de proof/index output-last.
+
+Validação: regressão estrutural 1/1; suíte funcional preflight 8/8; `node --check`, `bash -n` e `git diff --check` aprovados. Nenhum build, prova ou RPC foi executado.

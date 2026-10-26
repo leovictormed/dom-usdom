@@ -1,0 +1,29 @@
+ETAPA 692 — BUILD REPRODUCÍVEL DO CHECKPOINT VERIFIER COM BYTES ESTRITOS
+Data: 2026-10-23
+
+Correção
+Release evidence/config, checkpoint verifier config e artifacts das duas builds
+isoladas agora entram em parseStrictJsonBytes. Não houve abstração com outros
+schemas; o preparador preserva os bindings próprios do checkpoint verifier.
+
+Garantias preservadas
+- release/config 4 MiB/profundidade 64; artifact 64 MiB/profundidade 128;
+- Forge seguro/estável e duas builds isoladas com IDs/out/cache distintos;
+- compiler/artifact/source set/runtime/initcode/checkpoint config hash;
+- riscZeroVerifier capability address/code hash, selector Groth16 v3,
+  checkpointGuestImageId, journalSchemaHash e proofAccepted/config commitments;
+- artifact/config canônicos vinculados por SHA-256 da release evidence;
+- compiler source keccak e fontes rechecadas;
+- release/config/artifact/verifier config/source/tool rechecados contra TOCTOU;
+- locks e instalação imutável/create-once permanecem no writer.
+
+Testes
+- metadata duplicada por escape e UTF-8 inválido são rejeitados;
+- mutações de ImageID, capability code hash, selector e journal são rejeitadas;
+- divergências de build/compiler/artifact/source/runtime/initcode/config cobertas;
+- 6/6 testes focados passaram; node --check e git diff --check passaram.
+Após rebuild autorizado dos quatro contratos, a execução ampla foi repetida e
+passou 10/10. A divergência de source hash do DOMCheckpointRegistry foi eliminada;
+não resta pendência de artefato desta etapa.
+
+Nenhum RPC, Cargo/Rust, Solidity build, RISC0, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

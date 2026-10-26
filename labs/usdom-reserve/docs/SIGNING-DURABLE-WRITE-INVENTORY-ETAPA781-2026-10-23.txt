@@ -1,0 +1,24 @@
+ETAPA781 — SIGNING DURABLE WRITE INVENTORY
+Date: 2026-10-23
+
+Result
+------
+No direct durable-write gap remains in the three signing ceremonies. Release
+authorization signatures use the create-once private installer, then reread and
+byte-compare each installed output. Checkpoint signature and SHA sidecar use the
+immutable installer with the same readback; the sidecar-only recovery branch
+accepts only exact existing content. Safe recovery signatures and transaction
+packages use create-once installation followed by private readback and exact
+comparison.
+
+Final paths are never targets of shell redirection, `mv`, `cp`, or `chmod`.
+Those operations are confined to owner-only temporary drafts; installed modes,
+ownership and link properties are enforced by the durable installer/readers.
+
+Regression and validation
+-------------------------
+`signing-durable-write-inventory.test.mjs` codifies every final
+installer→readback→comparison chain and rejects injected direct writes, moves,
+copies or final chmod. Focused tests pass 10/10; all three ceremonies pass
+`bash -n`; `git diff --check` passes. No Ledger, RPC, signature, commit or push
+operation ran.

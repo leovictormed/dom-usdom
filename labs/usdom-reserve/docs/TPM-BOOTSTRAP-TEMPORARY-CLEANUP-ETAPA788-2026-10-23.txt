@@ -1,0 +1,20 @@
+ETAPA788 — TPM BOOTSTRAP TEMPORARY CLEANUP
+Date: 2026-10-23
+
+Finding and correction
+----------------------
+The TPM-authority bootstrap stores recovery/state passwords and TPM owner
+authorization in an owner-only `/dev/shm` tree, but removed it with PATH-resolved
+`find` and an ambiguous shared EXIT/HUP/INT/TERM trap. Node is now pinned by
+path, owner, link count, mode, trusted directory, inode metadata and SHA-256;
+all Node authority calls use that pinned path with rechecks.
+
+Cleanup disarms traps, unsets both in-memory secrets, recursively erases the
+tree through pinned Node, preserves normal EXIT status and maps HUP/INT/TERM to
+129/130/143. The bootstrap launches no background child requiring a wait.
+
+Validation
+----------
+The new structural/adversarial suite and the preceding burn-cleanup suite pass
+4/4, rejecting PATH deletion and ambiguous traps. `bash -n` and `git diff
+--check` pass. No TPM, wallet, RPC, signing or funds operation ran.

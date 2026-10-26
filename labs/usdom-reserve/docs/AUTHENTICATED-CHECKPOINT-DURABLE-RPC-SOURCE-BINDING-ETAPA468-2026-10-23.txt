@@ -1,0 +1,33 @@
+Stage 468 — authenticated-checkpoint durable RPC-source binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The authenticated-checkpoint observer validated runtime endpoints against the
+public preflight catalog and required identical finalized observations, but its
+durable report retained only the first observation. Operator identities and
+origin commitments were discarded after consensus.
+
+Remediation
+===========
+
+The preflight RPC module now derives a domain-separated commitment over the
+ordered catalog entries. The durable checkpoint observation report includes
+the exact canonical operator/origin list, source count and source-set
+commitment. Its catalog is among the exact inputs reread before create-once
+publication, so a catalog change during observation still fails closed.
+
+Evidence boundary
+=================
+
+`production_authenticated_checkpoint_durable_report_binds_rpc_source_set` is a
+structural fact. It does not claim a live checkpoint observation. No network,
+signing, deployment, funds, mining, commit or push occurred.
+
+Validation
+==========
+
+- Focused catalog/observer tests pass 5/5.
+- Changed Node syntax, JSON and diff checks pass.
+- Full readiness passes 60/60 against the repinned UDFINL04 artifacts.

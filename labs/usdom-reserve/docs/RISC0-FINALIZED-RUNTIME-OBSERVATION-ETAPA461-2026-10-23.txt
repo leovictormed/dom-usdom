@@ -1,0 +1,37 @@
+Stage 461 — finalized RISC Zero runtime observation binding
+Date: 2026-10-23
+
+Finding
+
+The checkpoint capacity executor obtained the RISC Zero verifier runtime from
+two Ethereum sources at one common finalized block and wrote the observed bytes
+to its private run directory. The release report retained only the verifier
+address and runtime code hash. It discarded the finalized block identity,
+source identities, endpoint commitments and SHA-256 of the exact runtime
+artifact used to seed isolated Anvil. A copied capacity report therefore could
+not demonstrate which finalized observation supplied its upstream verifier.
+
+Correction
+
+Capacity report schema v3 requires:
+
+- the nonzero common finalized block number and hash;
+- the exact ordered `drpc` and `publicnode` source IDs;
+- SHA-256 commitments of their fixed credential-free HTTPS endpoints;
+- SHA-256 of the exact newline-terminated runtime artifact written to the
+  private run and installed into isolated Anvil.
+
+The executor hashes the same byte buffer passed to the durable writer. The
+semantic validator requires the exact source set, canonical finalized block,
+nonzero artifact hash and global hash uniqueness. Reports using v2 or earlier
+fail closed.
+
+Status
+
+The structural binding is recorded by
+`production_checkpoint_risc0_runtime_finalized_observation_bound_to_capacity_report`.
+It does not claim a current live Ethereum observation; the final release must
+execute the collector. Focused capacity tests pass 7/7 and the complete
+readiness suite passes 60/60. Static syntax, JSON and diff checks pass. No
+network operation, proof, signing, transaction, deployment, funds, mining,
+commit or push occurred in this stage.

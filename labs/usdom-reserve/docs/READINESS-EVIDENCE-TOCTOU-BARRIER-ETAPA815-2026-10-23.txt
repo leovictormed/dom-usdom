@@ -1,0 +1,27 @@
+ETAPA 815 — aggregate readiness evidence TOCTOU barrier
+Date: 2026-10-23
+
+Finding
+
+The readiness checker hashed and parsed each release evidence document from one
+captured Buffer, but it did not reread those paths after its long-running child
+checks. A document could be replaced after capture and before the final result;
+the printed readiness decision would then authorize bytes no longer present at
+the declared evidence path.
+
+Correction
+
+- Added a shared evidence-byte snapshot recheck that rereads every captured
+  document and requires byte equality.
+- The checker invokes the full recheck after all child outputs and pure
+  assessment, immediately before printing the final result.
+- Missing files, non-Buffer reads and any byte mutation fail closed.
+- Forge/Git executable identity rechecks remain in place, so the final barrier
+  follows both executable and child-output collection.
+
+Validation
+
+- Positive, mutation, disappearance and invalid-reread regressions pass.
+- Full focused aggregate release/preflight/readiness suite: 81/81 pass.
+- Diff check passes.
+- No RPC, build, deployment, signature, commit, push or funds operation ran.

@@ -1,0 +1,85 @@
+USDOM — production timestamp and uint64 boundary audit
+Stage 564 — 2026-10-23
+
+Scope
+=====
+
+This audit followed every security-relevant time value across the production
+Solidity contracts and the JavaScript release ceremony:
+
+* reserve withdrawal ready/expiry timestamps, queue pruning, token-bucket
+  refill, governance resume and incident cancellation;
+* checkpoint confirmation timestamps, non-resetting challenge windows and
+  finalization readiness;
+* Ethereum finalized-checkpoint observation age and the native pre-activation
+  ceremony;
+* finalized-burn Beacon-slot freshness; and
+* incident-response resumeReadyAt snapshots and execution re-observation.
+
+It also compared the boundary relations used by Solidity and JavaScript. In
+particular, payout is valid at expiresAt and stale only after it; checkpoint
+replacement closes and finalization opens at readyAt; a Beacon slot at exactly
+the maximum age remains valid; and challenge/governance delay additions must
+fit uint64.
+
+Finding and correction
+======================
+
+One fail-closed domain mismatch was found in
+`sdk/preactivation-policy.mjs`. `checkpointConsensus.observedAtUnix` was parsed
+as uint64, while the trusted `nowUnix` argument was required only to be a
+BigInt. Consequently an artificial boundary input with
+`observedAtUnix = uint64::MAX` and `nowUnix = uint64::MAX + 1` could pass the
+freshness relation even though the local instant cannot be represented by the
+uint64 timestamp domain used by Solidity, Rust and the serialized ceremony.
+This does not create a practical contemporary-clock exploit, but it violated
+the release ceremony's cross-language canonical-domain invariant and could
+make boundary fixtures or a substituted clock source produce an
+unrepresentable policy.
+
+The materializer now requires `0 < nowUnix < 2^64` before freshness arithmetic.
+The comparison remains BigInt-only, so no JavaScript Number precision loss was
+introduced. A regression proves acceptance at `uint64::MAX`, rejection at
+`2^64`, rejection of zero and rejection of a decimal string in place of the
+trusted BigInt clock.
+
+Other results
+=============
+
+No additional overflow, truncation, future-time or off-by-one defect was
+established:
+
+* USDOMProofReserve and the prototype reserve calculate queue, governance and
+  rotation deadlines through explicit checked uint64 narrowing. Their tests
+  already exercise timestamp overflow at and above uint64::MAX.
+* DOMCheckpointRegistry bounds challengePeriod to 1–30 days and checks the
+  timestamp sum before narrowing. Replacement/finalization use the same
+  `block.timestamp >= readyAt` boundary, which the candidate observer mirrors
+  using a finalized Ethereum timestamp.
+* Queue execution and pruning consistently treat `expiresAt` as inclusive for
+  execution and discardable only when the clock is strictly greater.
+* Finalized-burn slot admission rejects future slots and uses an inclusive
+  seven-day maximum-age relation without subtracting until the future check
+  has passed.
+* Incident response binds resumeReadyAt as canonical uint64, re-observes the
+  exact value before action, and proves it is zero after a generation-bound
+  pause.
+* Ceremony timestamp parsing otherwise uses canonical decimal strings and
+  BigInt bounds before arithmetic; no security timestamp is coerced through a
+  JavaScript Number.
+
+Validation
+==========
+
+The five lightweight timestamp/finality/checkpoint suites produced 37 passing
+checks before one artifact-dependent incident drill attempted to load the
+intentionally cleaned Foundry output directory. The failure was ENOENT for
+`out/Mocks.sol/HostileToken.json`, not an assertion failure. All 27 tests before
+the incident-response file passed, including the new boundary regression; the
+10 non-artifact incident tests also passed in both invocations. The existing
+isolated drill remains queued for the post-proof Foundry rebuild. `git diff
+--check` passes for the changed policy and test.
+
+No Foundry or Cargo build was started, so the active RandomX proof was not
+competed for memory. No release fact, signature, transaction, deployment,
+mining job, push or funds state was changed.

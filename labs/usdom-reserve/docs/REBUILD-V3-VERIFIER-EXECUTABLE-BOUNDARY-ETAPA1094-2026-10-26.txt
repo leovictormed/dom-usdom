@@ -1,0 +1,54 @@
+ETAPA 1094 — REBUILD V3 VERIFIER EXECUTABLE BOUNDARY
+Date: 2026-10-26
+
+Finding
+=======
+
+The ETAPA1092 rule rejected an identical producer/verifier argv, but still
+allowed the same executable to produce an artifact and then certify it under
+different arguments. In particular, a single interpreter could run both paths.
+That did not establish the independent command boundary described by the
+report.
+
+Correction
+==========
+
+Every stage now requires verificationArgv[0] to differ from argv[0]. Both
+executables remain individually SHA-256 pinned and are reauthenticated before
+and after execution. The disposable fixture now uses a separately pinned,
+direct verifier executable. An adversarial manifest that reuses the producer
+executable with different arguments is rejected during manifest validation.
+
+The correct-hash/false-journal regression remains fail closed: a successful
+producer and matching artifact hashes cannot replace a false semantic result
+from the verifier.
+
+Validation
+==========
+
+* python3 -m py_compile orchestrate-checkpoint-rebuild.py: PASS
+* pinned Node v24.19.0 orchestrator suite: PASS 15/15
+
+Operational boundary
+====================
+
+There is no production usdom-checkpoint-rebuild-orchestrator-v3 manifest in
+the repository. Therefore no real production stage argv/verificationArgv pair
+or exact output inventory currently exists to wire and execute. Existing
+checkers cover ProgramBinary decoding/ImageID, segment/outer/burn boundaries,
+artifact-chain pins, journal structure and receipt-chain source bindings, but
+the latter structural checks are not a substitute for opening and
+cryptographically verifying newly generated receipts. This stage does not
+mislabel those static checks as receipt verification.
+
+The remaining production task is concrete rather than a relaxation: create a
+reviewed manifest whose stage outputs name the rebuilt binaries, ImageID files,
+provenance, receipt indexes/receipts and final Solidity pins; then use dedicated
+verifier executables that parse those exact outputs, recompute ImageIDs through
+the pinned decoder, invoke cryptographic Receipt::verify for every receipt and
+compare journals/method IDs before emitting the closed records. Until those
+commands and output formats exist, the orchestrator remains a fail-closed
+framework rather than evidence of a completed production rebuild.
+
+No Cargo, Forge, guest rebuild, receipt generation, deployment, funds, commit
+or push was performed.

@@ -1,0 +1,25 @@
+ETAPA1023 — Checkpoint segment economic adjacency (C1.1)
+Date: 2026-10-23
+
+Problem
+The recursive checkpoint segment journal authenticated native state roots but did not expose totalIssued/totalBurned at either endpoint. Outer recursion could therefore prove root/height adjacency without making economic adjacency explicit for the future Checkpoint V5 statement.
+
+Change
+- TransitionBatchReceipt now carries previous/new totalIssued and totalBurned. Candidate-v2 batch commitment version 4 hashes all four totals with the roots and transition batch.
+- Active segment journal is a distinct fixed-width UDCSTN03/v3 frame and domain. It appends four canonical big-endian u128 values. UDCSTN02 is not reinterpreted or accepted by this decoder.
+- Portable segment execution obtains the initial totals from the authenticated StateCommitmentV2 opening, advances them only through receipts returned by apply_v2_transition_batch_with_receipt, and checks the terminal values against UDCSTN03.
+- Outer recursion maintains issued/burned high-water values, rejects any adjacent segment whose previous totals differ from the preceding segment's new totals, and captures the unique totals at the target checkpoint height separately from confirmation-height totals.
+- Source producers derive endpoints from the reconstructed canonical StateCommitmentV2 values. The v2 persisted block record moved to framing version 2, stores the four values, and validates them against both state openings.
+
+Safety properties
+- burned <= issued at both endpoints;
+- issued and burned never regress inside a segment;
+- no host-provided economic totals can survive portable execution unless they equal receipt-derived values;
+- no gap or fork in issued/burned totals can compose in the outer receipt chain;
+- UDCSTN01/02 transition bytes fail closed due to magic/version/length/domain separation; the changed segment guest code necessarily produces a new ImageID, so prior receipts/artifacts are stale and cannot satisfy the pinned production image.
+
+Validation
+- pinned Node static/adversarial gate: 1/1 pass;
+- rustfmt via installed stable toolchain: pass;
+- git diff --check: pass (performed after documentation update).
+- Cargo/Forge/proof execution intentionally not run while the long proof is active.

@@ -1,0 +1,62 @@
+ETAPA 979 — CONSENSUS/NATIVE USDOM VERSION AND DISCRIMINANT BOUNDARY
+Date: 2026-10-23
+
+Scope and inventory
+===================
+
+Audited 95 production Rust enums, 91 Serde Deserialize authority DTOs, 25
+direct byte/tag reads in native state/consensus/wallet persistence, plus P2P
+Command/Hello framing and cryptographic recovery domain/version decoders.
+Reviewed enum tags, binary version words, boolean/presence flags, reserved bits,
+schema versions, Serde defaults, aliases and untagged representations.
+
+Concrete defects corrected
+==========================
+
+1. Five versioned native-USD0M RPC scan/history DTOs accepted unknown JSON
+   fields. This allowed a future field or misspelling to be silently discarded.
+   All five top-level and nested DTOs now use deny_unknown_fields.
+
+2. `require_checkpoint_finality` defaulted to false when absent from a history
+   request. A typo/older client could therefore silently weaken the requested
+   policy. The v1 request now requires an explicit boolean; missing values fail
+   deserialization.
+
+3. The ordinary consensus header validator mapped unknown network magic to
+   Mainnet's block-version schedule. It now rejects unknown network identity
+   before selecting a version, and the lower-level selector returns a reserved
+   rejecting sentinel rather than inheriting Mainnet.
+
+4. Hello serialization accepted arbitrary version integers and selected fields
+   with >= comparisons even though the decoder recognizes only versions 1..4.
+   The serializer now rejects 0, 5 and every other unknown version before
+   emitting bytes, preventing creation of an undecodable future/invalid shape.
+
+Closed findings
+===============
+
+- All 91 production Deserialize DTO declarations in the audited graph carry
+  deny_unknown_fields.
+- No production Serde `untagged` or `alias` representation remains in scope.
+- The four remaining Serde defaults are intentionally optional/non-authority:
+  hash-ratified optional restart checkpoint, optional recipient address, and
+  public mempool pagination defaults. No consensus/finality flag defaults.
+- Native proof/transition kinds reject unknown discriminants.
+- Snapshot/state/wallet booleans accept only 0/1, masks reject reserved bits,
+  IBD phases/interruption/presence reject unknown values, TPM authority records
+  reject unknown flags and noncanonical absent payloads, and canonical formats
+  re-encode or require exact length/trailing-byte exhaustion.
+- RandomX rounding/opcode masks are algorithm-defined bit interpretation rather
+  than externally extensible enum decoding.
+
+Evidence
+========
+
+- `consensus-version-discriminant-boundary.test.mjs`: 4/4 passed.
+- Added deferred Rust regressions for unknown network, unknown Hello serializer
+  versions, unknown RPC fields, missing finality flag and unknown nested field.
+- rustfmt --check passed for all four modified Rust files.
+- git diff --check passed for the complete scoped change.
+- Cargo execution remains deferred while the pinned long RISC0 proof is active.
+
+No commit, push, deploy, signing, broadcast, mining or funds action occurred.

@@ -1,0 +1,40 @@
+USDOM stage 424 — on-chain Safe fallback-handler runtime pin
+Date: 2026-10-22
+
+Finding
+
+The finalized mainnet preflight already required the Safe 1.4.1 compatibility
+fallback handler at 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99 and independently
+checked its runtime code hash. The reserve and checkpoint registry runtime
+policy checks verified only that address. A missing or changed handler runtime
+could therefore remain invisible to the contracts even though it changes Safe
+signature and fallback behavior.
+
+Correction
+
+USDOMProofReserve and DOMCheckpointRegistry now pin the handler runtime to:
+
+0x7c6007a5d711cea8dfd5d91f5940ec29c7f200fe511eb1fc1397b367af3c42f9
+
+The exact hash is checked together with the storage address whenever the
+mainnet Safe policy is validated. An absent or substituted runtime makes the
+control plane unhealthy and stops reserve value paths, resume, checkpoint
+submission and checkpoint finalization.
+
+Tests read only the authenticated Safe 1.4.1 fixture already used by the SDK,
+recompute its keccak256 before etching it at the canonical address, and prove
+that the expected runtime is accepted while an erased runtime fails closed.
+Foundry has read permission only for that one fixture file.
+
+Evidence
+
+- Contract-focused Solidity tests: 57/57 passed.
+- Complete Solidity regression: 146/146 passed.
+- Source-derived runtime/initcode and deployed-EVM differential checks: 3/3.
+- Complete Node regression: 307/307 passed.
+- Production Solidity lint passed.
+- Complete provenance passed for 169 imported files with 16 declared changes
+  and an ordered SHA-256 manifest of 1,208 source files.
+
+No RPC, signature, transaction, deployment, funds, mining, commit, tag or push
+occurred. The active finalized-burn proof was not restarted or modified.

@@ -1,0 +1,26 @@
+DOM/USDOM hardening stage 396 — native-wallet manifest reconciliation
+
+Date: 2026-10-22
+
+The mainnet readiness gate correctly reported
+`native_wallet_panic_boundary_unverified`. The production wallet sources were
+still panic-free; the failure was an obsolete SHA-256 entry for rpc_client.rs
+in the wallet's eight-file immutable manifest.
+
+The exact Cargo manifest and seven production Rust source hashes were rebuilt.
+The normal verifier and its mutation self-test now pass. Re-running both
+release gates removed the wallet blocker and reduced the expected-not-ready
+counts from 162/169 to 161/168 for closed-mainnet/real-funds respectively.
+
+Validation completed:
+
+- native wallet production sources panic-free: 7/7;
+- native wallet immutable manifest: 8/8;
+- panic primitive mutation self-test: passed;
+- closed-mainnet gate: expected NOT READY with 161 blockers and no wallet
+  panic-boundary blocker;
+- real-funds gate: expected NOT READY with 168 blockers and no wallet
+  panic-boundary blocker.
+
+No readiness boolean was changed manually. The gate improvement follows only
+from current executable verification evidence.

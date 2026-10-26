@@ -1,0 +1,58 @@
+ETAPA695 — corner cases EIP-1559 em deployment e recuperação Safe
+Data: 2026-10-23
+
+Escopo e resultado
+
+Foi auditada a autoridade de estimateGas, base fee, saldo e campos assinados nas
+cerimônias CREATE e Safe. A derivação anterior do Safe usava o bloco `latest`
+como base do valor assinado e a política `2 * base + priority` não declarava a
+janela de inclusão coberta. Ambos os problemas foram corrigidos.
+
+Política implementada
+
+- A base fee autoritativa vem de estado `finalized`; `latest` não participa da
+  derivação nem do schema Safe v2.
+- O fee cap cobre doze blocos consecutivos com o crescimento máximo EIP-1559:
+  em cada passo, `ceil(baseFee * 9 / 8)`. A priority fee fixa de 2 gwei é
+  adicionada somente depois dessa projeção.
+- Base fee zero, resposta legacy sem base fee, formato malformado e base fee
+  inicial acima de 120 gwei falham fechados. O resultado continua limitado a
+  500 gwei e `maxPriorityFeePerGas <= maxFeePerGas`.
+- estimateGas conserva margem arredondada para cima de 125% e teto absoluto;
+  o deployment repete estimate imediatamente depois da autorização final e
+  rejeita se ele não couber no gasLimit assinado.
+- Cada fonte deve provar saldo finalizado suficiente para `gasLimit * maxFee`.
+  O saldo e a suficiência da janela de doze blocos são repetidos imediatamente
+  antes da publicação. A regeneração pós-autorização invalida envelopes Safe
+  cuja base finalizada, nonce, estimate, saldo ou snapshot tenham mudado.
+- Chain ID 1, type 2, remetente, nonce, destinatário/CREATE, value zero, calldata
+  ou initcode, access list vazia, gas, priority e max fee permanecem ligados à
+  transação raw exata.
+
+Staleness e replacement
+
+O horizonte de doze blocos é uma política explícita de inclusão, não promessa
+de inclusão. Se a base fee crescer além do fee cap antes da transmissão, o
+recheck falha e exige nova cerimônia/assinatura. Depois de publicada, a
+cerimônia não cria replacement silencioso: um hash já observado segue para a
+verificação de receipt/finalidade. Qualquer replacement futuro precisa ser uma
+operação separada, com nonce, fee, raw hash e autorização próprios.
+
+Regressões
+
+- Derivação exata do crescimento máximo por 12 blocos e ausência de campos
+  `latest` no schema Safe v2.
+- Rejeição de base fee zero, acima do teto, gas estimate acima do teto, saldo
+  insuficiente, divergência de nonce/snapshot e mudança durante recheck.
+- Verificação estrutural do deployment para projeção de 12 blocos e rechecks de
+  estimate, base fee e saldo após autorização.
+
+Validação local
+
+- Node focado: 20/20 testes aprovados.
+- `bash -n` nos dois executores: aprovado.
+- `node --check` no envelope Safe: aprovado.
+- `git diff --check`: aprovado.
+
+Nenhum RPC real, materialização, assinatura, transmissão, deploy ou uso de
+fundos ocorreu.

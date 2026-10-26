@@ -1,0 +1,39 @@
+USDⓄM RESERVE — CEREMONY SUMMARY PATH HARDENING (STAGE 421)
+Date: 2026-10-22
+
+Finding
+
+Nine native/deposit ceremony summaries and both signed-release commit results
+still used predictable `/tmp` files. Most summaries are diagnostic views over
+durable authoritative state, while the commit results identify the exact local
+source/evidence commits and signing key. Ordinary `tee` made every pathname
+replaceable and left stale artifacts behind.
+
+Correction
+
+- Collection, genesis, TPM provisioning, wallet registration, issuance,
+  one-block production, wallet observation and recovery summaries now use
+  fresh 0600 `mktemp` files with EXIT cleanup. The witness builder no longer
+  persists its unused stdout summary at all; its actual indexed evidence remains
+  authoritative.
+- Source-commit and evidence-commit results are staged after successful local
+  ceremonies, then installed create-only in the owner-only control-plane
+  directory and consumed through strict private reads.
+- Result checks bind exact schemas, commit formats, canonical tag/signing
+  fingerprint forms and both final ready flags.
+- The only remaining `/tmp` path in the runbook is the explicitly non-authority
+  early blocker diagnostic; it cannot enable any release fact or transaction.
+- Runbook regressions reject restoration of every removed predictable path.
+
+Validation
+
+- all 37 runbook Bash blocks parse;
+- operator/runbook suite: 65/65 passed;
+- complete Node regression: 307/307 passed;
+- production Solidity lint reports no warning or unused suppression.
+- source-integrity manifest: 1,205/1,205 files passed;
+- imported provenance: 169 files, including 16 explicit modifications, passed;
+- repository whitespace checks passed.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

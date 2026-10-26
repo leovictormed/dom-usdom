@@ -1,0 +1,41 @@
+ETAPA 960 — soundness do circuito privado USDOM
+Data: 2026-10-23
+
+Achado corrigido
+O segundo input desabilitado zerava enabled/origin/value/index/secret/rho/nullifier, mas os
+32 siblings privados do Merkle path permaneciam livres. Eles alimentavam hashes cujos
+resultados não eram ligados ao anchor quando disabled, permitindo múltiplos witnesses e
+provas para os mesmos efeitos públicos. Não havia criação de moeda, porém existia
+malleability e witness não canônico.
+
+Correção
+Cada sibling agora recebe `conditional_enforce_equal(0, disabled)`. Builders existentes
+já usam `InputWitness::default()` para slot vazio, então o conjunto legítimo esperado não
+muda. Regressão muta um sibling disabled e exige circuito insatisfeito.
+
+Inventário de constraints
+- 9 public inputs diretos: chain, anchor, 2 nullifiers, 2 output notes, burn amount,
+  effect e memo; o verifier usa exatamente essa ordem;
+- chain e anchor não-zero;
+- 1–2 inputs left-packed, primeiro obrigatório; slots disabled totalmente zerados;
+- origin restrito a private/issuance; value/index u64; value/secret/rho não-zero;
+- owner = Poseidon(chain, secret), note inclui asset/origin/value/owner/rho;
+- nullifier = Poseidon(chain, secret, note commitment) e igual ao public input;
+- Merkle path tem profundidade fixa 32, index high bits zero e root igual ao anchor;
+- 0–2 outputs left-packed, value u64, owner/rho não-zero, commitment público exato;
+- transferência exige output e effect=0; burn exige effect não-zero;
+- memo zero iff nenhum output; ciphertext externo é ligado ao memo scalar na camada de
+  parsing/consenso;
+- conservação exata: sum(outputs)+burn_amount=sum(inputs), sem overflow de u64 witnesses
+  e com soma em campo segura para no máximo dois u64.
+
+Issuance/burn domains
+Issuance não usa este spend circuit para mint authority: sua finalidade/deposit proof é
+verificada separadamente e cria note no origin issuance. O circuito aceita gastar esse
+origin e o inclui no commitment. Burn effect é derivado do BurnRecord domain/chain/
+reserve/recipient/amount/deadline e comparado ao public `effect` antes do verifier.
+
+Validação
+- gate estrutural `native-usdom-circuit-soundness-stage960.test.mjs`: 3/3 passou;
+- regressão Rust adicionada; rustfmt --check e git diff --check passaram;
+- Cargo/proving não executados.

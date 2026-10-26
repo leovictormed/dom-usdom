@@ -1,0 +1,27 @@
+ETAPA 824 — reproducible-build pinned Forge children
+Date: 2026-10-23
+
+Finding
+
+All four production reproducible-build report preparers snapshotted Forge but
+passed only its pathname into two long isolated builds. Forge identity was
+rechecked only after both builds. There was no timeout or explicit kill policy,
+so replacement between builds or a hung compiler could delay/falsify release
+evidence before the late check.
+
+Correction
+
+- Added a shared pinned executable child boundary that requires explicit output
+  bounds, uses byte output, enforces a bounded timeout with SIGKILL, and validates
+  executable path/inode/metadata/hash immediately before and after every child.
+- Reserve, finalized-burn verifier, checkpoint registry and checkpoint verifier
+  preparers pass the complete Forge snapshot into that boundary for each build.
+- Existing post-build source/config/artifact and final Forge checks remain.
+- The default timeout is ten minutes per isolated build; callers must always
+  provide a positive output bound.
+
+Validation
+
+- Node syntax passes for the helper and four preparers.
+- Focused report/schema/source-derivation and boundary tests: 28/28 pass.
+- No Forge build, proof, RPC, deployment, signature, commit, push or funds action ran.

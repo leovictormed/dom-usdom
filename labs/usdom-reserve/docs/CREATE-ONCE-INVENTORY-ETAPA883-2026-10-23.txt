@@ -1,0 +1,5 @@
+ETAPA 883 — inventario final create-once
+
+Escopo exato: 197 scripts SH/MJS; 48 contem marcador create-once/refusal; 36 usam instalacao imutavel/DurableNew. Maior gap restante corrigido: reserve reproducible-build report agora limpa+fsync metadata pointer, remove report antigo e republica pointer por ultimo.
+
+Validacao: teste estrutural focado 1/1, `bash -n` e `git diff --check` aprovados. O teste exige a ordem lock -> pointer nulo -> remocao duravel -> geracao -> report imutavel -> pointer final -> releitura. Nenhum build, prova ou RPC foi executado.

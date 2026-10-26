@@ -1,0 +1,37 @@
+USDOM release-ceremony lock hardening — Stage 1127 — 2026-10-26
+
+Finding
+=======
+
+Both signed-release commit scripts opened `.git/usdom-release-ceremony.lock`
+with shell output redirection before acquiring `flock`. Redirection follows an
+existing symbolic link and truncates its destination before `flock` runs. The
+persistent pathname was also unnecessary state after a crash.
+
+Correction
+==========
+
+`commit-release-source.sh` and `commit-release-evidence.sh` now:
+
+* canonicalize the Git common directory;
+* require a direct, user-owned directory without group/world write access;
+* open that existing directory read-only on descriptor 9; and
+* acquire the same nonblocking kernel `flock` on the directory inode.
+
+The kernel releases this descriptor lock on normal exit, error, SIGKILL or
+process death. It has no PID record to reuse, no pathname artifact to recover,
+and no pre-lock truncation or symlink target. All worktrees sharing the Git
+common directory still serialize on the same inode.
+
+Validation
+==========
+
+* `bash -n` passed for both scripts.
+* Focused Node tests passed 4/4, including the two new lock-boundary checks and
+  existing Git executable pinning checks.
+* The two interactive end-to-end ceremony tests were also invoked, but this
+  non-TTY runner was correctly rejected by each script before any Git mutation;
+  those results do not count as ceremony-pass evidence.
+* Scoped `git diff --check` passed.
+* No Cargo, Forge, network, signing, deployment, commit or push was run.
+

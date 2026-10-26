@@ -259,7 +259,12 @@ impl RpcChainSource {
                 backoff = backoff.saturating_mul(2);
                 continue;
             }
-            // 500 mentioning "not supported" → the node lacks the endpoint.
+            // Current nodes use 501 for an explicitly unsupported endpoint.
+            // Retain the bounded 500-body check for compatibility with older
+            // nodes that encoded capability absence as an internal error.
+            if status.as_u16() == 501 {
+                return Err(RpcSourceError::Unsupported);
+            }
             if status.as_u16() == 500 {
                 let body = read_bounded_response(resp, MAX_RPC_CONTROL_RESPONSE_BYTES)
                     .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())?;
@@ -786,12 +791,8 @@ mod tests {
 
     #[test]
     fn unsupported_node_is_detected() {
-        let (base, stop) = spawn_mock(|_, _| {
-            (
-                500,
-                r#"{"error":"internal: chain scan not supported"}"#.into(),
-            )
-        });
+        let (base, stop) =
+            spawn_mock(|_, _| (501, r#"{"error":"unsupported: chain scan"}"#.into()));
         let src = source(&base);
         let err = src.tip().unwrap_err();
         assert!(matches!(err, RpcSourceError::Unsupported), "got {err:?}");

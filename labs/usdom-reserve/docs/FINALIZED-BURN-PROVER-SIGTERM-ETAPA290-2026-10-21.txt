@@ -1,0 +1,28 @@
+ETAPA 290 - PROVA SUCCINCT FINALIZADA POR SIGTERM EXTERNO
+Data: 2026-10-21
+
+Resultado observado
+
+O processo local `dom-usdom-prove-finalized-burn` permaneceu saudavel por pelo
+menos 7h28m, com aproximadamente 101% de um nucleo, 1,68 GiB residentes, 29 MiB
+de swap e dez threads na ultima medicao. Nao houve erro, recibo ou saida parcial.
+Em seguida o wrapper terminou com codigo 143, correspondente a SIGTERM.
+
+Interpretacao
+
+Codigo 143 nao e rejeicao criptografica e nao e o codigo usual de OOM/SIGKILL
+(137). Havia cerca de 3,9 GiB de memoria disponivel depois do encerramento e
+nao foi encontrado servico systemd-oomd neste host. A origem exata do SIGTERM
+nao ficou observavel. O agente nao enviou sinal de parada ao prover.
+
+Limitacao encontrada
+
+O trap do comando temporario removeu `prover.log` e `time.log` tambem no caminho
+de sinal. Assim, as metricas monitoradas e o codigo 143 sao a evidencia
+remanescente; nao existe recibo que possa satisfazer a capacidade de producao.
+
+Decisao
+
+A capacidade real permanece nao comprovada. Nenhuma nova prova cara sera
+iniciada sem autorizacao especifica. O wrapper deve primeiro preservar
+diagnosticos de falha e publicar recibos de sucesso fora da arvore temporaria.

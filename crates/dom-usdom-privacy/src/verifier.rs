@@ -6,7 +6,7 @@
 
 use ark_bn254::Bn254;
 use ark_groth16::{prepare_verifying_key, Groth16, PreparedVerifyingKey, Proof, VerifyingKey};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use dom_core::blake2b_256_tagged;
 use dom_core::Hash256;
 use thiserror::Error;
@@ -48,8 +48,13 @@ impl SpendVerifier {
             return Err(VerifierError::InvalidVerifyingKey);
         }
         let mut reader = bytes;
-        let key = VerifyingKey::<Bn254>::deserialize_compressed(&mut reader)
-            .map_err(|_| VerifierError::InvalidVerifyingKey)?;
+        // Keep subgroup/on-curve validation explicit at this authority boundary.
+        // Do not replace this with an unchecked deserializer even if the key's
+        // digest was authenticated: a digest authenticates bytes, not curve
+        // membership or the Arkworks encoding version.
+        let key =
+            VerifyingKey::<Bn254>::deserialize_with_mode(&mut reader, Compress::Yes, Validate::Yes)
+                .map_err(|_| VerifierError::InvalidVerifyingKey)?;
         if !reader.is_empty() {
             return Err(VerifierError::InvalidVerifyingKey);
         }
@@ -86,8 +91,12 @@ impl SpendVerifier {
             return Err(VerifierError::InvalidProofEncoding);
         }
         let mut reader = proof_bytes;
-        let proof = Proof::<Bn254>::deserialize_compressed(&mut reader)
-            .map_err(|_| VerifierError::InvalidProofEncoding)?;
+        // A canonical byte comparison alone cannot establish subgroup
+        // membership. Require Arkworks' checked BN254 decoding before any
+        // pairing work, then retain the round-trip check for unique encoding.
+        let proof =
+            Proof::<Bn254>::deserialize_with_mode(&mut reader, Compress::Yes, Validate::Yes)
+                .map_err(|_| VerifierError::InvalidProofEncoding)?;
         if !reader.is_empty() {
             return Err(VerifierError::InvalidProofEncoding);
         }
@@ -112,6 +121,7 @@ mod tests {
     use ark_groth16::Groth16;
     use ark_serialize::CanonicalSerialize;
     use rand::{rngs::StdRng, SeedableRng};
+    use std::{hint::black_box, time::Instant};
 
     use super::*;
     #[test]
@@ -172,5 +182,52 @@ mod tests {
         }
         proof_bytes[0] ^= 1;
         assert!(verifier.verify(circuit.statement, &proof_bytes).is_err());
+    }
+
+    /// Reproducible local CPU benchmark for the exact production verification
+    /// boundary. Setup and proving are deliberately outside the timed region.
+    ///
+    /// Run with:
+    /// `USDOM_SPEND_BENCH_ITERATIONS=32 cargo test -p dom-usdom-privacy
+    /// --release spend_verifier_benchmark -- --ignored --nocapture`
+    #[test]
+    #[ignore = "operator benchmark; deterministic setup is intentionally expensive"]
+    fn spend_verifier_benchmark() {
+        let iterations = std::env::var("USDOM_SPEND_BENCH_ITERATIONS")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(32);
+        let mut rng = StdRng::seed_from_u64(0x5553_444f_4d5f_424d);
+        let circuit = crate::circuit::tests_support::valid_burn_circuit();
+        let parameters =
+            Groth16::<Bn254>::generate_random_parameters_with_reduction(circuit.clone(), &mut rng)
+                .unwrap();
+        let mut key_bytes = Vec::new();
+        parameters.vk.serialize_compressed(&mut key_bytes).unwrap();
+        let verifier = SpendVerifier::from_bytes(&key_bytes).unwrap();
+        let proof = Groth16::<Bn254>::create_random_proof_with_reduction(
+            circuit.clone(),
+            &parameters,
+            &mut rng,
+        )
+        .unwrap();
+        let mut proof_bytes = Vec::new();
+        proof.serialize_compressed(&mut proof_bytes).unwrap();
+        verifier.verify(circuit.statement, &proof_bytes).unwrap();
+
+        let started = Instant::now();
+        for _ in 0..iterations {
+            verifier
+                .verify(black_box(circuit.statement), black_box(&proof_bytes))
+                .unwrap();
+        }
+        let elapsed = started.elapsed();
+        let nanos_per_proof = elapsed.as_nanos() / u128::from(iterations);
+        println!(
+            "USDOM SpendVerifier benchmark: iterations={iterations} total_ns={} ns_per_proof={nanos_per_proof} proofs_per_second={:.2}",
+            elapsed.as_nanos(),
+            1_000_000_000_f64 / nanos_per_proof as f64
+        );
     }
 }

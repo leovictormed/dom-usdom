@@ -2,7 +2,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{File, OpenOptions},
+    fs::File,
     path::Path,
 };
 
@@ -13,7 +13,9 @@ use dom_usdom_state::{
     inspect_private_burn_outputs, inspect_private_burn_record, inspect_private_transfer_outputs,
     private_burn_payload_id, private_transfer_payload_id, EthereumDepositOccurrence,
 };
-use dom_wallet_crypto::{load_envelope_bytes, save_envelope_bytes, EnvelopeError};
+use dom_wallet_crypto::{
+    decrypt_envelope_bytes, load_envelope_bytes, save_envelope_bytes, EnvelopeError,
+};
 use fs2::FileExt;
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
@@ -575,6 +577,29 @@ impl WalletState {
         decode_snapshot(&plaintext, expected_seal)
     }
 
+    /// Authenticate and restore one exact captured encrypted snapshot.
+    ///
+    /// Callers that must bind a hash, filesystem identity or other evidence to
+    /// the restored state should read the file once under their own authority
+    /// checks and pass that same buffer here instead of reopening its path.
+    pub fn load_encrypted_snapshot_bytes(
+        encrypted: &[u8],
+        password: &WalletPassphrase,
+        expected_seal: WalletSnapshotSeal,
+    ) -> Result<LoadedWalletSnapshot, WalletSnapshotError> {
+        let plaintext = decrypt_envelope_bytes(
+            encrypted,
+            ENVELOPE_MAGIC,
+            ENVELOPE_VERSION,
+            MAX_SNAPSHOT_BYTES,
+            password.expose(),
+        )?;
+        if seal_for(&plaintext)? != expected_seal {
+            return Err(WalletSnapshotError::RollbackDetected);
+        }
+        decode_snapshot(&plaintext, expected_seal)
+    }
+
     fn validate_for_snapshot(&self, wallet: &WalletSecrets) -> Result<(), WalletSnapshotError> {
         if wallet.chain != self.chain
             || self.commitment_log.len() != self.seen_commitments.len()
@@ -893,6 +918,7 @@ fn decode_snapshot(
         return Err(WalletSnapshotError::InvalidSnapshot);
     }
     let commitment_count = reader.count()?;
+    reader.require_records(commitment_count, 32)?;
     let mut commitment_log = Vec::with_capacity(commitment_count);
     let mut seen_commitments = BTreeSet::new();
     for _ in 0..commitment_count {
@@ -904,9 +930,14 @@ fn decode_snapshot(
         commitment_log.push(value);
     }
     let note_count = reader.count()?;
+    // Fixed portion through the reservation discriminant; a present
+    // reservation adds another 32 bytes.
+    reader.require_records(note_count, 116)?;
     let mut notes = BTreeMap::new();
+    let mut previous_note = None;
     for _ in 0..note_count {
         let commitment: [u8; 32] = reader.array()?;
+        require_canonical_key_order(&mut previous_note, commitment)?;
         let leaf_index = reader.u64()?;
         let output_index = reader.u8()?;
         let origin = reader.u8()?;
@@ -959,9 +990,12 @@ fn decode_snapshot(
         }
     }
     let expected_issuance_count = reader.count()?;
+    reader.require_records(expected_issuance_count, 212)?;
     let mut expected_issuances = BTreeMap::new();
+    let mut previous_issuance = None;
     for _ in 0..expected_issuance_count {
         let commitment: [u8; 32] = reader.array()?;
+        require_canonical_key_order(&mut previous_issuance, commitment)?;
         let occurrence = EthereumDepositOccurrence {
             genesis_validators_root: reader.array()?,
             block_hash: reader.array()?,
@@ -1003,9 +1037,14 @@ fn decode_snapshot(
         }
     }
     let pending_count = reader.count()?;
+    // Identifier, anchor, creation point, two empty-list counts, empty payload
+    // count and the authorization discriminant.
+    reader.require_records(pending_count, 137)?;
     let mut pending_transfers = BTreeMap::new();
+    let mut previous_transfer = None;
     for _ in 0..pending_count {
         let identifier: [u8; 32] = reader.array()?;
+        require_canonical_key_order(&mut previous_transfer, identifier)?;
         let pending = PendingPrivateTransfer {
             anchor: dom_usdom_state::NoteAnchor {
                 root: Hash256::from_bytes(reader.array()?),
@@ -1030,9 +1069,12 @@ fn decode_snapshot(
         }
     }
     let pending_burn_count = reader.count()?;
+    reader.require_records(pending_burn_count, 137)?;
     let mut pending_burns = BTreeMap::new();
+    let mut previous_burn = None;
     for _ in 0..pending_burn_count {
         let identifier: [u8; 32] = reader.array()?;
+        require_canonical_key_order(&mut previous_burn, identifier)?;
         let anchor = dom_usdom_state::NoteAnchor {
             root: Hash256::from_bytes(reader.array()?),
             leaf_count: reader.u64()?,
@@ -1067,6 +1109,7 @@ fn decode_snapshot(
         }
     }
     let history_count = reader.count()?;
+    reader.require_records(history_count, 120)?;
     let mut history = Vec::with_capacity(history_count);
     for _ in 0..history_count {
         history.push(WalletBlockUndo {
@@ -1440,36 +1483,7 @@ impl SnapshotLock {
         let mut lock_name = file_name.to_os_string();
         lock_name.push(".lock");
         let lock_path = snapshot.with_file_name(lock_name);
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let file = options
-            .open(&lock_path)
-            .map_err(|error| EnvelopeError::Io(format!("failed to open snapshot lock: {error}")))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            let retained = file.metadata().map_err(|error| {
-                EnvelopeError::Io(format!("failed to inspect snapshot lock: {error}"))
-            })?;
-            let named = std::fs::symlink_metadata(&lock_path).map_err(|error| {
-                EnvelopeError::Io(format!("failed to inspect named snapshot lock: {error}"))
-            })?;
-            if !retained.file_type().is_file()
-                || !named.file_type().is_file()
-                || named.file_type().is_symlink()
-                || retained.mode() & 0o7777 != 0o600
-                || retained.nlink() != 1
-                || retained.dev() != named.dev()
-                || retained.ino() != named.ino()
-            {
-                return Err(EnvelopeError::Io("invalid snapshot lock authority".to_owned()).into());
-            }
-        }
+        let file = dom_wallet_crypto::open_private_lock_file(&lock_path)?;
         file.lock_exclusive().map_err(|error| {
             EnvelopeError::Io(format!("failed to acquire snapshot lock: {error}"))
         })?;
@@ -1503,6 +1517,17 @@ fn put_list(bytes: &mut Vec<u8>, values: &[[u8; 32]]) -> Result<(), WalletSnapsh
     for value in values {
         bytes.extend_from_slice(value);
     }
+    Ok(())
+}
+
+fn require_canonical_key_order(
+    previous: &mut Option<[u8; 32]>,
+    current: [u8; 32],
+) -> Result<(), WalletSnapshotError> {
+    if previous.is_some_and(|value| value >= current) {
+        return Err(WalletSnapshotError::InvalidSnapshot);
+    }
+    *previous = Some(current);
     Ok(())
 }
 
@@ -1545,6 +1570,19 @@ impl<'a> Reader<'a> {
             return Err(WalletSnapshotError::SnapshotTooLarge);
         }
         Ok(value)
+    }
+    fn require_records(
+        &self,
+        count: usize,
+        minimum_record_bytes: usize,
+    ) -> Result<(), WalletSnapshotError> {
+        let minimum = count
+            .checked_mul(minimum_record_bytes)
+            .ok_or(WalletSnapshotError::InvalidSnapshot)?;
+        if minimum > self.bytes.len().saturating_sub(self.offset) {
+            return Err(WalletSnapshotError::InvalidSnapshot);
+        }
+        Ok(())
     }
     fn list(&mut self) -> Result<Vec<[u8; 32]>, WalletSnapshotError> {
         let count = self.count()?;
@@ -1718,6 +1756,11 @@ mod tests {
         );
         let generation1_file = fs::read(&path).unwrap();
         let loaded1 = WalletState::load_encrypted_snapshot(&path, &password, seal1).unwrap();
+        let captured1 =
+            WalletState::load_encrypted_snapshot_bytes(&generation1_file, &password, seal1)
+                .unwrap();
+        assert_eq!(captured1.wallet.address().unwrap(), address);
+        assert_eq!(captured1.state.note_root(), root);
         assert_eq!(loaded1.wallet.address().unwrap(), address);
         assert_eq!(loaded1.state.tip_height(), 41);
         assert_eq!(loaded1.state.note_root(), root);
@@ -1768,6 +1811,10 @@ mod tests {
         let mut tampered = generation2_file;
         let last = tampered.len() - 1;
         tampered[last] ^= 1;
+        assert!(matches!(
+            WalletState::load_encrypted_snapshot_bytes(&tampered, &password, seal2),
+            Err(WalletSnapshotError::Envelope(EnvelopeError::Decryption))
+        ));
         fs::write(&path, tampered).unwrap();
         assert!(matches!(
             WalletState::load_encrypted_snapshot(&path, &password, seal2),
@@ -1792,6 +1839,40 @@ mod tests {
         trailing.push(0);
         let trailing_seal = seal_for(&trailing).unwrap();
         assert!(decode_snapshot(&trailing, trailing_seal).is_err());
+    }
+
+    #[test]
+    fn snapshot_counts_are_preflighted_before_allocation_or_record_loops() {
+        for minimum in [32, 116, 212, 137, 120] {
+            let mut encoded = (MAX_SNAPSHOT_ITEMS as u64).to_be_bytes().to_vec();
+            encoded.extend_from_slice(&vec![0; minimum - 1]);
+            let mut reader = Reader::new(&encoded);
+            let count = reader.count().unwrap();
+            assert_eq!(count, MAX_SNAPSHOT_ITEMS);
+            assert!(matches!(
+                reader.require_records(count, minimum),
+                Err(WalletSnapshotError::InvalidSnapshot)
+            ));
+        }
+
+        let mut encoded = (MAX_SNAPSHOT_ITEMS as u64).to_be_bytes().to_vec();
+        encoded.extend_from_slice(&[0; 31]);
+        let mut reader = Reader::new(&encoded);
+        assert!(matches!(
+            reader.list(),
+            Err(WalletSnapshotError::InvalidSnapshot)
+        ));
+
+        let mut previous = None;
+        require_canonical_key_order(&mut previous, [2; 32]).unwrap();
+        assert!(matches!(
+            require_canonical_key_order(&mut previous, [2; 32]),
+            Err(WalletSnapshotError::InvalidSnapshot)
+        ));
+        assert!(matches!(
+            require_canonical_key_order(&mut previous, [1; 32]),
+            Err(WalletSnapshotError::InvalidSnapshot)
+        ));
     }
 
     #[test]

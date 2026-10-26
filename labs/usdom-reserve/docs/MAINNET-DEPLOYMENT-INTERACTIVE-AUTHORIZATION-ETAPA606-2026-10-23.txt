@@ -1,0 +1,41 @@
+DOM / USDOM — autorização interativa do deploy mainnet
+Etapa 606 — 2026-10-23
+
+Escopo
+======
+
+Foi auditada a fronteira entre pacote de deploy, identidade Ledger,
+autorizações do operador e publicação das quatro transações CREATE em Ethereum
+mainnet. A etapa não tocou publicação de código nem scripts RISC0.
+
+Achado corrigido
+==================
+
+`execute-mainnet-deployment.sh` exigia as frases exatas antes de assinar e
+transmitir, mas aceitava stdin redirecionado. Assim, automação, um pipe ou um
+arquivo poderia satisfazer os prompts sem uma cerimônia interativa presente.
+Isso enfraquecia a autorização humana que separa preparação, assinatura Ledger
+e transmissão mainnet.
+
+O executor agora recusa a execução antes de carregar pacote, RPC ou Ledger se
+stdin ou stdout não forem terminais reais. As duas autorizações continuam
+separadas, específicas ao índice e cercadas pelas reobservações já existentes
+de nonce, endereço CREATE, RPC, pacote, raw transaction e validação.
+
+Validação
+=========
+
+- teste estrutural confirma o requisito `-t 0` e `-t 1`;
+- teste comportamental executa o wrapper com pipes e confirma recusa fail
+  closed antes de qualquer dependência operacional;
+- teste Node focado: 1/1 passou;
+- `bash -n` e `git diff --check` passaram.
+
+A suíte ampla operator-runbook passou 76/79. As três falhas pertencem somente
+ao ensaio finalized-burn prover alterado concorrentemente: suas fixtures ainda
+não instalam o novo `recursion_zkr.zip` exigido antes do preflight. O teste do
+executor mainnet desta etapa passou dentro da mesma execução; scripts RISC0
+ficaram deliberadamente fora deste escopo.
+
+Nenhuma assinatura, transmissão, deploy, staging, commit, push ou uso de fundos
+foi executado.

@@ -147,6 +147,19 @@ pub struct ConsensusStateUpdate {
     pub value: Option<Vec<u8>>,
 }
 
+/// Immutable sidecar mutations committed with one canonical reorganization.
+///
+/// A block hash may occur in at most one of the two slices. Promoted sidecars
+/// are deleted only after their authenticated contents have been represented
+/// by `ConsensusStateUpdate` entries in the same LMDB transaction.
+#[derive(Debug, Clone, Copy)]
+pub struct ReorgSidecarChanges<'a> {
+    /// Sidecars retained for blocks leaving the canonical branch.
+    pub inserts: &'a [([u8; 32], Vec<u8>)],
+    /// Sidecars removed for blocks promoted onto the canonical branch.
+    pub deletes: &'a [[u8; 32]],
+}
+
 /// One LMDB-consistent view of the canonical tip, one requested height index,
 /// and every protocol-extension state entry.
 ///
@@ -369,6 +382,44 @@ impl DomStore {
             Err(lmdb::Error::NotFound) => Ok(None),
             Err(e) => Err(DomError::Internal(format!("get consensus state: {e}"))),
         }
+    }
+
+    /// Read a small, caller-selected set of metadata and consensus-state keys
+    /// from one LMDB snapshot. This is for restart barriers whose decision must
+    /// not combine records observed on opposite sides of a concurrent commit.
+    pub fn read_atomic_state_entries(
+        &self,
+        metadata_keys: &[&[u8]],
+        consensus_keys: &[&[u8]],
+    ) -> Result<(Vec<Option<Vec<u8>>>, Vec<Option<Vec<u8>>>), DomError> {
+        const MAX_KEYS: usize = 16;
+        if metadata_keys.len().saturating_add(consensus_keys.len()) > MAX_KEYS
+            || metadata_keys
+                .iter()
+                .chain(consensus_keys.iter())
+                .any(|key| key.is_empty() || key.len() > MAX_CONSENSUS_STATE_KEY_BYTES)
+        {
+            return Err(DomError::Internal(
+                "atomic state read exceeds key bounds".into(),
+            ));
+        }
+        let txn = self
+            .env
+            .begin_ro_txn()
+            .map_err(|e| DomError::Internal(format!("ro txn: {e}")))?;
+        let read = |database, keys: &[&[u8]]| -> Result<Vec<Option<Vec<u8>>>, DomError> {
+            keys.iter()
+                .map(|key| match txn.get(database, key) {
+                    Ok(bytes) => Ok(Some(bytes.to_vec())),
+                    Err(lmdb::Error::NotFound) => Ok(None),
+                    Err(e) => Err(DomError::Internal(format!("atomic state read: {e}"))),
+                })
+                .collect()
+        };
+        Ok((
+            read(self.db_metadata, metadata_keys)?,
+            read(self.db_consensus_state, consensus_keys)?,
+        ))
     }
 
     /// Read all canonical protocol-extension state in bytewise key order.
@@ -1107,10 +1158,35 @@ impl DomStore {
         consensus_updates: &[ConsensusStateUpdate],
         sidecar_inserts: &[([u8; 32], Vec<u8>)],
     ) -> Result<(), DomError> {
+        self.apply_reorg_with_consensus_state_and_sidecar_changes(
+            new_tip_hash,
+            height_updates,
+            utxo_updates,
+            kernel_updates,
+            consensus_updates,
+            ReorgSidecarChanges {
+                inserts: sidecar_inserts,
+                deletes: &[],
+            },
+        )
+    }
+
+    /// Apply the same atomic reorganization while also deleting sidecars whose
+    /// authenticated contents have moved into canonical consensus-state keys.
+    #[allow(clippy::type_complexity)]
+    pub fn apply_reorg_with_consensus_state_and_sidecar_changes(
+        &self,
+        new_tip_hash: &[u8; 32],
+        height_updates: &[(u64, Option<[u8; 32]>)],
+        utxo_updates: &[([u8; 33], Option<Vec<u8>>)],
+        kernel_updates: &[([u8; 33], Option<[u8; 32]>)],
+        consensus_updates: &[ConsensusStateUpdate],
+        sidecar_changes: ReorgSidecarChanges<'_>,
+    ) -> Result<(), DomError> {
         validate_consensus_state_updates(consensus_updates)?;
         let mut sidecar_hashes = BTreeSet::new();
         let mut sidecar_bytes_total = 0usize;
-        for (block_hash, sidecar) in sidecar_inserts {
+        for (block_hash, sidecar) in sidecar_changes.inserts {
             if sidecar.is_empty() || sidecar.len() > MAX_BLOCK_SERIALIZED_SIZE {
                 return Err(DomError::Invalid(format!(
                     "invalid reorg sidecar length {} for {}",
@@ -1132,12 +1208,19 @@ impl DomStore {
                 )));
             }
         }
+        for block_hash in sidecar_changes.deletes {
+            if !sidecar_hashes.insert(*block_hash) {
+                return Err(DomError::Invalid(
+                    "duplicate or conflicting block hash in reorg sidecar changes".into(),
+                ));
+            }
+        }
         let mut txn = self
             .env
             .begin_rw_txn()
             .map_err(|e| DomError::Internal(format!("rw txn: {e}")))?;
 
-        for (block_hash, sidecar) in sidecar_inserts {
+        for (block_hash, sidecar) in sidecar_changes.inserts {
             txn.get(self.db_blocks, block_hash)
                 .map_err(|error| match error {
                     lmdb::Error::NotFound => DomError::Internal(format!(
@@ -1172,6 +1255,16 @@ impl DomStore {
                     .map_err(|error| DomError::Internal(format!("put reorg sidecar: {error}")))?,
                 Err(error) => {
                     return Err(DomError::Internal(format!("get reorg sidecar: {error}")));
+                }
+            }
+        }
+        for block_hash in sidecar_changes.deletes {
+            match txn.del(self.db_block_sidecars, block_hash, None) {
+                Ok(()) | Err(lmdb::Error::NotFound) => {}
+                Err(error) => {
+                    return Err(DomError::Internal(format!(
+                        "delete promoted reorg sidecar: {error}"
+                    )));
                 }
             }
         }

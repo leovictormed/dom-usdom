@@ -1,0 +1,43 @@
++ETAPA 990 — aritmética, fila, gas e returndata dos contratos de produção
+Data: 2026-10-23
+
+Escopo
+- USDOMProofReserve;
+- DOMCheckpointRegistry;
+- DOMFinalizedBurnRiscZeroVerifier;
+- DOMCheckpointRiscZeroVerifier.
+
+Inventário auditado
+- somas/subtrações de depósitos, releases, collateral reservado, token bucket e timestamps;
+- narrowing uint256->uint64, progressão de height/confirmation e checkpointCount;
+- inserção, paginação, expiração, invalidação por epoch e splice da linked-list de burns;
+- seleção por confirmation work/tie-break e janela de challenge não reiniciável;
+- chamadas ao token, Safe, adapters e verifier, incluindo gas e returndata copiado.
+
+Achados concretos corrigidos
+1. Os dois adapters encaminhavam gas() ao verifier RISC Zero. Embora os chamadores atuais
+   limitem a chamada externa a 5.000.000, o adapter isolado não preservava uma reserva explícita.
+   Ambos agora limitam o verifier a 4.500.000 gas, copiam zero bytes de retorno e exigem retorno vazio.
+2. _removePending subtraía amount/count e alterava vizinhos assumindo links íntegros. Agora
+   valida count/amount, head/tail e links recíprocos anterior/próximo antes da primeira escrita,
+   convertendo divergência em PendingMismatch sem underflow ou orphan silencioso.
+3. Challenge/resume/queue calculavam block.timestamp + delay antes do narrowing. O overflow
+   era checked, mas produzia Panic antes do erro do protocolo. Os helpers agora verificam delay
+   e headroom uint64 antes da soma; registry usa _timestampAfter na seleção.
+
+Conclusões sem alteração
+- expectedHeight/confirmationHeight usam uint256 e são limitados a uint64 antes da comparação;
+- checkpointCount não excede uint64 antes de a progressão de height tornar nova rodada inválida;
+- token bucket multiplica somente quando elapsed < 1 dia, mantendo o produto abaixo de 2^81;
+- proof calldata tem tamanho/selector exatos; chamadas word/owner/storage copiam tamanhos fixos;
+- challenge tie-break é total e substituição preserva readyAt da primeira candidatura.
+
+Regressões e gates
+- testes Solidity novos cobrem gas burner nos dois adapters e overflow do challenge timestamp;
+- teste existente já cobre TimestampOverflow da fila/reserve;
+- gate permanente: test/node/solidity-production-arithmetic-gas-boundary.test.mjs;
+- gate estrutural Python equivalente: PASS (3 grupos); git diff --check: PASS;
+- Forge não foi executado enquanto a prova RISC0 permanece ativa.
+
+Nenhum commit, push, deploy, assinatura, broadcast ou uso de fundos foi realizado.
+

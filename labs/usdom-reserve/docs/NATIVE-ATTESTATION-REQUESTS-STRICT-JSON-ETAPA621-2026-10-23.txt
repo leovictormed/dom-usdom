@@ -1,0 +1,37 @@
+DOM / USDOM — pedidos de atestação nativa com JSON estrito
+Etapa 621 — 2026-10-23
+
+Fronteira auditada
+==================
+
+O catálogo da etapa 620 identificou a próxima autoridade JSON ainda instalada
+como bytes: `native-release-attestation-requests.json`. Esse documento fixa os
+subjects, digests e typed data das atestações nativas que dois Ledgers assinam.
+Depois, suas assinaturas são materializadas na evidência que autoriza o runtime
+nativo da release.
+
+Achado e correção
+=================
+
+O writer validava campos com `jq`, mas publicava pelo modo binário do instalador
+imutável. Como `jq` aceita chaves duplicadas, duas ferramentas poderiam divergir
+sobre subject/digest/typed data. UTF-8 inválido também não pertencia a essa
+fronteira JSON de autoridade.
+
+`write-native-release-attestation-requests.sh` agora usa exclusivamente
+`install-private-file-immutable-stdin.mjs --json` para o pedido. Hashes e
+assinaturas continuam em seus formatos binário/textual próprios. O modo JSON
+recusa UTF-8 inválido e duplicate keys antes de tocar o alvo, preservando os
+controles create-once, 0600, owner, single-link, inode estável e fsync.
+
+Validação
+=========
+
+O teste comportamental mantém um alvo JSON válido existente e tenta substituí-lo
+separadamente por duplicate key escapada e por byte UTF-8 `0xff`. Ambas as
+tentativas falham e o alvo permanece byte a byte intacto. O teste estrutural
+fixa `--json` no writer de atestações. Testes focados passaram 2/2; shell syntax
+e diff integrity passaram.
+
+Nenhum Rust/Cargo/Solidity, staging, commit, push, deploy, assinatura,
+transmissão ou uso de fundos foi executado.

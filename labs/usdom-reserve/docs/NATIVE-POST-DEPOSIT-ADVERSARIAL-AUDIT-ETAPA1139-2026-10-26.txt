@@ -1,0 +1,40 @@
++NATIVE POST-DEPOSIT PIPELINE ADVERSARIAL AUDIT — STAGE 1139
+Date: 2026-10-26
+Scope: finalized Ethereum deposit source -> witness -> wallet registration -> native issuance submission -> one-block production -> observation.
+No real network, signature, deployment, funds, Cargo or Rust execution was used.
+
+FINDINGS CORRECTED
+
+1. HIGH — clean restart reopened native issuance admission.
+   submit-finalized-deposit-issuance.mjs durably deleted a valid completion receipt before every run and then resubmitted the same witness. Although consensus state rejects consumption of an already used deposit, this unnecessarily reopened the admission mutation and made restart depend on mempool replay behavior.
+   Correction: an existing receipt is now parsed strictly, exact-key validated, and bound to the immutable deposit ID, witness hash, 1 USDT amount, private note commitment, DOM chain ID and DOM genesis hash. A valid receipt returns without an RPC mutation. Any stale, extended or substituted receipt fails closed.
+
+2. HIGH — submission receipt did not commit the DOM genesis.
+   Chain ID alone was insufficient to distinguish a locally replaced chain with the same configured ID.
+   Correction: new receipts bind domGenesisHash. Restart validation requires both chain ID and genesis hash.
+
+3. HIGH — mining accepted an underbound submission artifact.
+   validateQueuedIssuanceReceipt previously checked candidate, chain and tip but not deposit ID, witness, amount, note commitment, genesis or the “no Ethereum broadcast” property.
+   Correction: all of these fields are required before the exactly-one-block mutation.
+
+4. MEDIUM — completed block production had no canonical restart validator.
+   Correction: validatePersistedIssuanceBlock binds candidate/deposit, exact parent, chain/genesis, produced height/hash and mode. A changed canonical tip is rejected, so a stale receipt cannot silently survive a local reorg.
+
+AUTHORITATIVE BINDINGS REVIEWED
+
+- Ethereum source collection requires two to five cataloged independent observations and equality of receipt/finality/bootstrap/updates/ancestry/receipts/account proof/runtime bytecode.
+- Deposit event binds deployment-derived depositId, funder, exactly 1,000,000 base units and receiving commitment.
+- The witness and wallet registration both bind the exact native manifest SHA-256; this transitively binds DOM domain, Ethereum chain, reserve and deposit policy enforced by the native manifest/relation.
+- Native consensus owns the final duplicate-prevention authority through consumed_deposits and atomic issued accounting.
+- Wallet registration and observation use owner-only state, TPM/recovery credentials, inherited-FD closure, ambient loader/proxy/debug scrubbing, core-dump suppression and status-preserving cleanup.
+
+RESTART LIMIT
+
+A power loss after the node has accepted/mined a mutation but before its local completion receipt is fsynced cannot be reconstructed from the current RPC surface with full cryptographic certainty. The scripts fail closed in that ambiguous gap; they do not infer success from height alone. Resolving that operational stop requires an authenticated read-only candidate/deposit status endpoint from the node and is not safely emulable in shell/JavaScript.
+
+VALIDATION
+
+- Node syntax: submit and mine scripts passed with pinned Node v24.19.0.
+- Focused post-deposit suite: 24/24 passed.
+- Focused changed issuance/mining suite after final changes: 11/11 passed.
+

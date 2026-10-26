@@ -1,0 +1,56 @@
+USDOM stage 379 — retained-directory proof-host writers
+Date: 2026-10-22
+
+Finding
+=======
+
+The checkpoint, economic and RandomX proof hosts, plus the standalone RandomX
+statement exporter, still published private artifacts through predictable
+process-ID temporary pathnames followed by pathname-based rename.  This left a
+weaker publication boundary than the retained owner-only directory authority
+already used by the finalized-burn host.
+
+Correction
+==========
+
+All four publishers now call dom_wallet_crypto::save_private_bytes.  The shared
+writer retains and authenticates the owner-only parent directory, creates an
+unpredictable mode-0600 temporary through that descriptor, writes and syncs the
+exact bytes, atomically replaces the target through the same authority, syncs
+the parent, and verifies the resulting object.  The checkpoint program adds
+the dependency only to host-reference, so guest feature graphs and proof
+program semantics are unchanged.
+
+Validation
+==========
+
+- checkpoint proof-host library: 1/1 passed with verify
+- economic proof-host library: 2/2 passed
+- RandomX proof-host library: 3/3 passed with verify
+- standalone RandomX exporter integration: 1/1 passed with host-reference
+- proof-program checker self-test and production pass: 47/47 sources
+- cargo fmt and git diff whitespace checks pass
+
+Relevant source SHA-256
+======================
+
+2e7a41bf2aa1639a8da452b765d69a12e8fab1b95319e22762aba345c9b67dc0  crates/dom-usdom-checkpoint-proof-host/src/lib.rs
+e29232afa7a71aea5e6f847448906355b401a794472f413b1c1c5c2ced7b62c5  crates/dom-usdom-economic-proof-host/src/lib.rs
+950620aa6356b04f0d0dfff9783e1c53ab16fc78f6a1fdddf97529fecc0662c1  crates/dom-usdom-randomx-proof-host/src/lib.rs
+879aaf835a527342447255f71e9e9c1d87ff44d6a5d6d91a4eacbe80c1f41ff1  crates/dom-usdom-checkpoint-program/src/bin/dom-usdom-export-randomx-statement.rs
+a3747e5a73ecb9b5499f7021af6997a1724b0c9500259014af402ecb4a603f6a  labs/usdom-reserve/PROOF-PROGRAM-MANIFEST.sha256
+
+Operational boundary
+====================
+
+No network, wallet, signature, transaction, deployment, funds, mining, commit,
+tag or push was used.  The already-running finalized-burn capacity proof was
+not restarted; it still executes the previously loaded host binary, so the
+final source-bound release proof must use the corrected host generation.
+
+Next action
+===========
+
+Audit proof output generations for multi-file fail-closed semantics and
+remaining direct path readers, then run the locked prove-feature compilation
+after the active capacity proof releases host resources.

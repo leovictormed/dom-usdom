@@ -1,0 +1,29 @@
+USD0M stage 509 — RandomX prover input and receipt snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The long-running RandomX prover reopened its live job index, statement index,
+statements, guest artifacts and resumable receipts only after Cargo startup.
+Those files could change between command authorization and an individual proof
+job, and a live receipt cache could be replaced while later jobs ran.
+
+Correction
+==========
+
+The wrapper now captures both indexes, validates bounded unique statement and
+receipt catalogs, captures every statement and existing resumable receipt, and
+copies the SHA-pinned ELF/program/ImageID into an owner-only layout replica.
+The prover operates only on that replica for its entire run. Verified receipts
+are captured and durably installed before the final receipt-set index. Thus an
+interrupted handoff remains fail-closed under the previous index hashes; the new
+index becomes visible only after every referenced receipt is durable.
+
+Evidence and scope
+==================
+
+The operator-runbook suite asserts private capture, isolated prover root,
+durable receipt publication and index-last ordering. Readiness requires
+`production_randomx_prover_inputs_and_receipts_snapshotted=true`. Tests do not
+execute proofs, access a network, sign, deploy or move funds.

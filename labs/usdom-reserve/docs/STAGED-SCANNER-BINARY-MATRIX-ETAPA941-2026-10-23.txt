@@ -1,0 +1,18 @@
+ETAPA941 — STAGED SCANNER BINARY MATRIX
+Date: 2026-10-23
+
+Compatibility correction
+ETAPA940 treated every blob as UTF-8 and capped it at 8 MiB, which would reject
+required public ELF/Wasm guests, receipts, seals and setup keys. The scanner is
+now path-aware and scans the exact staged blob with two disjoint policies.
+
+Exact accepted public binary classes
+- *.elf with ELF magic; *.wasm with WebAssembly magic.
+- Named program/guest/artifact/receipt/seal/image-id/proving-key/verifying-key
+  binaries using .bin/.dat/.zkey/.receipt/.seal, bounded at 512 MiB.
+Text/config remains fatal UTF-8 and bounded at 8 MiB. Private-input, witness,
+credential, auth, password, seed and raw-transaction paths remain forbidden
+regardless of bytes. Ambiguous non-UTF8 binary paths fail closed.
+
+Fixture matrix: 4/4 tests pass (public formats, secret text, private/ambiguous
+binary and invalid magic). Bash syntax and diff-check pass; no commit/push.

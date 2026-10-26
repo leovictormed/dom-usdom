@@ -1,0 +1,21 @@
+ETAPA 738 — signer ordering inside the pinned parser
+Date: 2026-10-23
+
+Finding
+=======
+The release/native signing ceremony passed owner addresses from pinned JQ into `sort` resolved
+through PATH. Sort order determines Safe signature concatenation, so this remained an authority
+transform outside the pinned parser boundary.
+
+Correction
+==========
+Lowercasing and canonical ordering now occur in one expression inside the already pinned JQ.
+The external `sort` dependency and pipeline were removed. Existing strict increasing-order checks
+remain and fail closed on duplicate or malformed owners.
+
+Validation
+==========
+Combined signing structural tests pass 3/3 and prohibit the external ordering pipeline. Shell
+syntax and diff checks pass. No ceremony, Ledger, RPC or signing ran.
+
+No commit, push, deploy, transmission or funds were used.

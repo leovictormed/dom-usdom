@@ -1,0 +1,28 @@
+USD0M — OBSERVAÇÃO FINALIZADA DO USDT ETHEREUM — ETAPA 333
+
+Data: 2026-10-22
+Escopo: observação somente leitura; sem carteira, assinatura, transação ou fundos.
+
+Duas fontes RPC independentes (`drpc` e `publicnode`) retornaram o mesmo bloco
+finalizado Ethereum:
+
+- número: 26246551;
+- hash: 0xa9a2d2f88d2c863e15ce162a9c53434925af590e574e9568ef16d1d2d1889727.
+
+Para o USDT mainnet em 0xdAC17F958D2ee523a2206206994597C13D831ec7,
+ambas observaram:
+
+- bytecode: 11075 bytes;
+- keccak256 do bytecode:
+  0xb44fb4e949d0f78f87f79ee46428f23a2a5713ce6fc6e0beb3dda78c2ac1ea55;
+- `paused()`: false;
+- `deprecated()`: false;
+- `basisPointsRate()`: 0;
+- `maximumFee()`: 0;
+- `decimals()`: 6.
+
+O hash coincide exatamente com `ETHEREUM_USDT_CODE_HASH` em
+`contracts/USDOMProofReserve.sol`, e o estado observado satisfaz a política
+de token exigida pelo contrato. Esta é uma observação temporal de
+desenvolvimento; o preflight de implantação continua obrigado a repetir as
+mesmas verificações em um único snapshot finalizado da release definitiva.

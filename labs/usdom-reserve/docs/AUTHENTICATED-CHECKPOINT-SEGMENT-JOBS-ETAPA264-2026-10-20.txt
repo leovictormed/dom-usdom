@@ -1,0 +1,67 @@
+Stage 264 - Authenticated checkpoint-segment proof-job planning
+Date: 2026-10-20
+
+Outcome
+
+A deterministic verify-only host now prepares the complete checkpoint-segment
+jobs that follow authenticated RandomX and economic block receipts. It does not
+run the segment guest, create a proof, mine, contact a public service, sign or
+broadcast a transaction.
+
+Authenticated inputs and checks
+
+1. The canonical checkpoint source index is decoded with unknown fields denied.
+   Exact cadence, target boundary, segment ordering, height coverage and all
+   direct regular source files are checked against canonical names, sizes and
+   SHA-256 values.
+2. Every segment transition, private input, immutable policy and native-state
+   opening is canonically decoded. The host re-executes
+   execute_checkpoint_segment_portable, which validates DOM consensus headers,
+   native USDOM transitions, policy/opening authentication and the economic
+   transition claims before exposing receipt requirements.
+3. The final RandomX receipt index must bind the exact upstream job index hash,
+   source manifest identity, heights, segment count, RISC Zero 3.0.6, succinct
+   receipt kind and non-development proof claims. Each per-block receipt is read
+   as a direct regular file, hash/size checked, decoded without trailing bytes,
+   required to be succinct, cryptographically verified under the state-pinned
+   RandomX ImageID and matched to the exact journal re-derived by segment
+   execution.
+4. The final economic receipt index must bind the exact upstream job index hash,
+   RISC Zero 3.0.6, succinct receipt kind and complete verified proof claims.
+   Every recursively composed economic block receipt is likewise hash/size
+   checked and cryptographically verified under the economic-block ImageID
+   pinned in the segment guest, with the exact journal re-derived by segment
+   execution. Chunk receipt metadata is structurally bounded; proof authority
+   comes from the verified recursive block receipt.
+5. The candidate complete-segment ELF, ProgramBinary and ImageID file are pinned
+   to their reviewed SHA-256 values. The output binds every source and upstream
+   index hash, every ordered inner receipt, the exact transition commitment and
+   the future segment receipt filename. Publication is atomic and the output
+   directory may not be a symlink.
+
+Operator boundary
+
+The fixed command is:
+
+  npm run --silent plan:authenticated-checkpoint-segment-set
+
+It accepts no fields, indices, secrets or positional arguments. It verifies
+existing cryptographic receipts and emits only a deterministic job index. Its
+Rust package deliberately has no proving feature or proving binary.
+
+Verification
+
+- locked verify-feature unit test: 1/1 passed;
+- strict all-target Clippy with warnings denied: passed;
+- focused readiness/operator tests: 49/49 passed;
+- fixed wrapper shell syntax: covered by the operator test;
+- no RISC Zero prover, DOM miner, Ethereum RPC, deployment or fund movement ran.
+
+Remaining boundary
+
+This stage does not satisfy positive segment receipt execution, measured segment
+proving cost, resumable segment proving, outer-chain job planning/proving, outer
+receipt compression, EVM verification/gas/capacity evidence, ratification,
+mainnet identities, custody ceremonies or operator authorization. Those remain
+objective release blockers. External audit availability and an impossible
+zero-risk guarantee are not release blockers.

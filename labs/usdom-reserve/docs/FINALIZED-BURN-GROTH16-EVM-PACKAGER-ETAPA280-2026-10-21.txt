@@ -1,0 +1,78 @@
+Finalized-burn Groth16/EVM handoff and closed lifecycle — stage 280
+Date: 2026-10-21
+Status: implementation and deterministic local rehearsal complete; Groth16 compression not run
+
+Problem
+
+The authenticated UDFINL03 planner and local succinct prover ended at a RISC
+Zero receipt. USDOMProofReserve accepts the selector-prefixed Groth16 seal used
+by the immutable Ethereum verifier, and no finalized-burn command connected
+those two representations. The canonical source index also exposed only a burn
+identifier and statement hash, which was insufficient to construct the exact
+public FinalizedBurn tuple without manually copying fields.
+
+Implementation
+
+1. dom-usdom-finalized-burn-proof-host now has a separate, feature-gated EVM
+   packager. It rebuilds the exact proof job, byte-compares its canonical index,
+   reexecutes UDFINL03, verifies the succinct receipt against the pinned ImageID
+   and exact 32-byte journal, and validates the canonical receipt index.
+2. Only RISC0_PROVER=local and RISC0_DEV_MODE=0 are accepted. Compression uses
+   ProverOpts::groth16 with development mode disabled. The resulting receipt is
+   independently decoded, required to be Groth16, checked against the fixed
+   verifier-parameter digest, verified against the ImageID and journal, and
+   bounded before publication.
+3. The exact 0x73c457ba selector is prepended to the Groth16 seal. The receipt
+   and seal are written atomically; the hash-bound package index is invalidated
+   first and published last, so interrupted or stale output cannot become an
+   authoritative package.
+4. The fixed no-argument command is:
+
+     npm run --silent package:authenticated-finalized-burn-evm-proof
+
+   It removes remote-prover variables, uses one Rayon worker, accepts no field
+   override and contains no wallet, secret, network, mining or broadcast path.
+   Running it is expensive and still requires explicit operator authorization.
+5. FinalizedBurnProverInput now exposes public_statement(), which reexecutes
+   the authenticated raw-checkpoint and burn-state relation before returning
+   only the Ethereum-public burn fields. The source exporter publishes these
+   fields as the strict usdom-finalized-burn-source-v2 index and verifies their
+   recomputed statement hash before writing.
+6. sdk/finalized-burn-submission.mjs verifies the release/verifier identities,
+   source input and index, succinct receipt index, Groth16 package index and EVM
+   seal. It recomputes the Solidity statement and emits deterministic unsigned
+   queueWithdrawal calldata. A separate no-argument command publishes this
+   package without signing or broadcasting:
+
+     npm run --silent prepare:authenticated-finalized-burn-submission
+7. The SDK can recheck burnStatementHash and the complete queueWithdrawal call
+   through read-only eth_call before a transaction is authorized.
+
+Evidence
+
+- feature-enabled release cargo check for all finalized-burn host binaries:
+  passed;
+- strict feature-enabled release Clippy for all finalized-burn host targets:
+  passed with warnings denied;
+- canonical 64,264-byte raw-checkpoint public-statement Rust test: passed 1/1;
+- feature-enabled release check for the real finalized-burn source exporter:
+  passed;
+- command policy test for the EVM packager: passed 1/1;
+- authenticated finalized-burn SDK positive and substitution suite: passed
+  3/3;
+- local Anvil lifecycle with immutable adapter, exact ImageID, selector-prefixed
+  proof package, deposit, read-only preflight, queue delay, execution and exact
+  recipient balance: passed 1/1;
+- complete laboratory Node suite after integration: passed 156/156;
+- finalized-burn host unit suite: passed 4/4;
+- all 37 production proof-program sources are free of forbidden panic
+  primitives and match their SHA-256 provenance manifest;
+- no public network, wallet, transaction, fund, mining, commit or push occurred.
+
+Scope boundary
+
+The lifecycle uses the real adapters, reserve and calldata validation, with a
+local mock for the upstream RISC Zero verifier. It proves the complete software
+handoff and reserve state transition. Production EVM-verifier acceptance and
+gas remain false until a real Groth16 receipt is generated from the verified
+succinct receipt and checked against the pinned mainnet verifier.

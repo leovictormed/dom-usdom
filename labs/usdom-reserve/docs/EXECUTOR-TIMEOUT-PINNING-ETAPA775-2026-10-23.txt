@@ -1,0 +1,29 @@
+ETAPA775 — LATE UTILITY AUTHORITY AUDIT
+Date: 2026-10-23
+
+Inventory and finding
+---------------------
+`timeout` is a status authority: both executors trusted its exit status to
+distinguish successful Cast/Node output from timeout or child failure, but
+resolved it through PATH on every late invocation. Substitution could suppress
+the deadline, run a different child, or forge status semantics.
+
+`mktemp` and `chmod` are immediately followed by directory/file type, ownership
+and exact-mode assertions at the sensitive boundaries. `flock` is an early
+single-instance exclusion control, not a parser or transaction authority.
+`sync` is a post-install durability reinforcement after the fd-pinned,
+fsynced/create-once installer. Those controls remain defense in depth and this
+stage does not add pinning complexity to them.
+
+Correction
+----------
+Both executors now pin `timeout` by absolute path, owner, hardlink count, mode,
+trusted parent directory, inode metadata and SHA-256. Every Node/Cast/observer
+deadline rechecks that identity immediately before invoking the pinned path.
+The shared parity test rejects any new literal PATH-resolved timeout.
+
+Validation
+----------
+Focused Node tests pass 15/15. Both executors and all three signing ceremonies
+pass `bash -n`; `git diff --check` passes. No child, RPC, Ledger, signing,
+deployment or transmission ran.

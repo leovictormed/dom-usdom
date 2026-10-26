@@ -1,0 +1,20 @@
+ETAPA803 — DEPOSIT WALLET OBSERVATION CLEANUP
+Date: 2026-10-23
+
+Finding and correction
+----------------------
+Finalized-deposit observation stores the RPC bearer, recovery/state passwords,
+private wallet snapshots and before/after node identities in `/dev/shm` but
+cleaned them with PATH-resolved `find` and a shared signal trap.
+
+Node is now pinned by path, owner, link count, mode, trusted directory, inode
+metadata and SHA-256. Its authority checks use the pinned path with rechecks.
+Cleanup disarms traps, unsets the recovery password, erases the complete private
+tree through pinned Node, preserves EXIT status and maps HUP/INT/TERM to
+129/130/143. The observer launches no background child requiring a wait.
+
+Validation
+----------
+The observation, registration, recovery, TPM and burn cleanup suites pass 10/10
+and reject PATH deletion or ambiguous traps. `bash -n` and `git diff --check`
+pass. No RPC, TPM, observation, deposit or funds operation ran.

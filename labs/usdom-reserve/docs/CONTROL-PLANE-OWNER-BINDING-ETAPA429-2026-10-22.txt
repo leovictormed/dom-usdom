@@ -1,0 +1,38 @@
+USD/DOM stage 429 — release-bound Safe owners
+Date: 2026-10-22
+
+Finding
+=======
+
+The semantic Safe recovery evidence authenticated the exact ordered owner set,
+but the last finalized-snapshot mainnet preflight accepted any three distinct
+EOAs with threshold two. An owner rotation after evidence approval could retain
+that generic shape and cross the final preflight without matching the release.
+
+Correction
+==========
+
+The exact release now contains `controlPlaneOwners`. The Safe materializer
+derives it from the three mutually consistent post-recovery role reports. The
+readiness gate reconciles those reports with the release, and the preflight
+requires the live ordered owners of governance, reserve guardian and checkpoint
+guardian to equal the release. Missing, duplicate, reordered or substituted
+owners fail closed.
+
+Recovery remains supported. A legitimate owner replacement produces new
+semantic evidence and a newly approved release before subsequent authorized
+use; it is not silently accepted under the prior release.
+
+Validation
+==========
+
+- Focused control-plane/readiness/preflight tests: 67/67 pass.
+- Complete Solidity tests and invariants: 146/146 pass.
+- Complete Node regression: 309/309 pass.
+- Production Solidity lint passes.
+- Imported-source, panic-boundary, proof-boundary and complete-source
+  provenance pass; the final source manifest contains 1,213 files after this
+  report is added.
+
+No public RPC write, signature, transaction, deployment, funds, mining, commit,
+tag or push occurred.

@@ -1,0 +1,69 @@
+Solidity static and deep validation — stage 276
+Date: 2026-10-21
+Status: production contract boundary revalidated; release inputs remain unconfigured
+
+Scope
+
+The analysis covered the four contracts admitted by the production build:
+
+- USDOMProofReserve.sol;
+- DOMCheckpointRegistry.sol;
+- DOMFinalizedBurnRiscZeroVerifier.sol;
+- DOMCheckpointRiscZeroVerifier.sol.
+
+The quorum-based USDOMReserve remains a prototype that rejects Ethereum
+mainnet and is not a production authorization path.
+
+Static analysis
+
+Slither 0.11.6 was installed in an ephemeral /tmp tool directory and run
+against each production source through the repository's Foundry 1.8.5 and
+Solidity 0.8.37 configuration. No high-impact finding was reported.
+
+The reported medium findings were manually traced:
+
+- resumeReadyAt == 0 is the explicit no-proposal sentinel. scheduleResume sets
+  it to a nonzero checked timestamp and every pause clears it. Tests cover no
+  proposal, delayed execution, repeated pause and successful resume.
+- statementHash == bytes32(0) is the explicit no-candidate sentinel in the
+  checkpoint registry. Valid statement hashes are required to be nonzero.
+- confirmationTotalDifficulty equality is the specified deterministic
+  candidate tie break. It cannot grant proof authority because every candidate
+  is independently verified before selection.
+
+Timestamp findings are protocol clock uses with minimum six-hour or two-day
+delays, a one-day outflow refill and a seven-day queue lease. Inline assembly
+copies at most one 32-byte return word and rejects every other return length.
+The loop-cost finding is bounded by MAX_PRUNE_BATCH. The isolated 256-entry
+cleanup remains below the existing conservative 20,000,000-gas assertion; the
+larger per-test gas shown by Foundry includes creating and proof-queuing all 256
+entries before cleanup.
+
+Deep dynamic validation
+
+FOUNDRY_PROFILE=deep forge test --fuzz-seed 0x5553444f4d20261015 -vv
+completed successfully:
+
+- 138 Solidity tests passed, zero failed and zero skipped;
+- fuzz properties used 16,384 cases each;
+- proof-reserve accounting/queue invariant: 1,024 runs and 131,072 calls;
+- prototype reserve accounting invariant: 1,024 runs and 131,072 calls;
+- recovery invariant: 1,024 runs and 131,072 calls;
+- every invariant handler reported zero reverts.
+
+The production-only Forge lint also completed with no finding. The only
+compiler messages in the test build are warning 6335 inside the pinned
+OpenZeppelin ECDSA dependency; the production lint command explicitly permits
+only that upstream warning and denies every other warning.
+
+Conclusion
+
+No executable vulnerability was identified in this stage. No warning was
+silenced and no safety gate was weakened. Absence of an external audit and an
+absolute zero-risk guarantee are not release blockers; objective artifacts,
+release-specific validation and explicit residual-risk acceptance remain
+required. This document is internal validation evidence and does not claim to
+be an independent external audit.
+
+No mining, zk proof, wallet access, deployment, transaction, fund movement,
+commit or push occurred.

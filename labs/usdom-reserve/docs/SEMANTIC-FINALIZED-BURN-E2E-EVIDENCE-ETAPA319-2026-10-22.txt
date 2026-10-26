@@ -1,0 +1,41 @@
+USDOM stage 319 - semantic finalized-burn E2E evidence
+Date: 2026-10-22
+
+Finding
+=======
+
+The release gate required `realFinalizedEndToEndReport` to exist with an exact
+SHA-256, but did not inspect its contents. A generic or unrelated text file
+could therefore occupy that evidence slot after the three proof flags were
+manually changed. Hash-addressing proves file identity; it does not prove that
+the file describes the exact release or a real non-development receipt.
+
+Correction
+==========
+
+Added an exact `usdom-finalized-burn-e2e-report-v1` semantic validator. A valid
+report must bind the release ID and source commit; mainnet chain, reserve,
+adapter runtime and configuration; the reviewed upstream RISC Zero verifier;
+the release proving program and ImageID; distinct input, succinct receipt,
+Groth16 receipt and EVM-seal hashes; exact RISC Zero version and segment policy;
+measured wall time, peak resident memory and EVM gas; and a non-development
+local proof accepted by the EVM call.
+
+The measured adapter/verifier call must fit the reserve's immutable five-million
+gas cap. Every count uses canonical bounded decimal encoding. Unknown fields,
+identity substitutions, development mode, missing verification, zero metrics or
+gas above the contract cap fail closed.
+
+Validation
+==========
+
+- syntax checks pass for the validator and readiness command;
+- focused readiness regression passes 43/43;
+- directed mutations reject absent content, development mode, unverified
+  receipts, rejected EVM calls, excessive gas, ImageID substitution, release
+  substitution, source-commit substitution and extra fields.
+
+The current unconfigured release already lacks this document, so the correction
+does not create a duplicate blocker. It makes the existing evidence blocker
+meaningful. No proof result was fabricated and no authorization changed.
+

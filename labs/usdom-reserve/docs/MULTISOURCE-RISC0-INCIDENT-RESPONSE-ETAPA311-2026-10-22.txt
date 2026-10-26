@@ -1,0 +1,54 @@
+USD + DOM — resposta multifuente a incidente upstream RISC Zero
+Etapa 311 — 2026-10-22
+
+Achado independente
+
+Uma revisão estática independente com Slither 0.11.3 não encontrou caminho de
+roubo de fundos ou desvio de autoridade. A revisão manual do controle de
+incidente encontrou, porém, um risco de disponibilidade: uma única RPC
+maliciosa ou defeituosa podia fornecer uma observação estruturalmente válida
+com emergency-stop e autorizar `haltPermanently()` no registry. Essa operação
+é irreversível; portanto, a confirmação por uma única fonte não era suficiente.
+
+Correção
+
+O formato `usdom-risc0-incident-response/v2` exigia:
+
+- de uma a quatro fontes com identificadores canônicos e distintos;
+- ordenação canônica das fontes e vinculação delas ao hash do plano;
+- pelo menos duas fontes independentes para incidente confirmado;
+- observações exatamente iguais, estruturalmente válidas e avaliadas como
+  não saudáveis por todas as fontes antes de autorizar `haltPermanently()`;
+- somente a pausa reversível da reserva se houver uma fonte, duplicidade,
+  divergência, indisponibilidade, dado malformado ou bloqueio de integridade;
+- recomputação integral do plano v2 a partir da evidência original pelo
+  executor antes do envio das transações.
+
+O limite de duas fontes reduziu o risco de uma RPC isolada causar a parada
+permanente. A etapa 313 identificou que nomes fornecidos pelo chamador não
+demonstravam identidades independentes e substituiu este formato pelo v3, que
+vincula fontes, operadores e hashes de endpoint aprovados pela release.
+
+Validação
+
+- saúde e resposta focadas: 10/10 testes aprovados;
+- o ensaio Anvil altera os estados reais da reserva e do registry;
+- uma fonte não saudável só pausa a reserva;
+- duas fontes divergentes só pausam a reserva;
+- identificadores de fonte duplicados são rejeitados;
+- duas fontes concordantes confirmam a pausa da reserva e o halt do registry;
+- adulteração, observação substituída e geração de fila obsoleta são rejeitadas.
+
+Validação final
+
+- comando fixo do ensaio: 8/8 testes aprovados;
+- validação focada de saúde, resposta e readiness: 51/51 aprovada;
+- lint de produção e rebuild forçado dos contratos: aprovados;
+- regressão Node completa: 240/240 aprovada;
+- proveniência completa: 1.040 fontes verificadas;
+- gate de mainnet fechada: NOT READY esperado, 159 bloqueios únicos;
+- gate de fundos reais: NOT READY esperado, 170 bloqueios únicos;
+- `git diff --check`: aprovado.
+
+Nenhuma mainnet, chave, assinatura, fundo, deploy, commit, tag ou push foi
+utilizado.

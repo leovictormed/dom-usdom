@@ -1,0 +1,54 @@
+ETAPA 1009 — MÁQUINAS ADMINISTRATIVAS SOLIDITY
+Data: 2026-10-23
+
+Escopo
+======
+Auditoria de pause/resume/recovery implícita por geração no ProofReserve e de
+candidate/finalize/permanent halt no DOMCheckpointRegistry: bypass de papel,
+deadlock, propostas stale, replay de epoch/configuração e comprometimento de um
+único signatário ou papel.
+
+ProofReserve
+============
+- pause é autorizado somente pelos endereços imutáveis governance/guardian;
+  em mainnet ambos devem ser Safes 2-de-3 sem módulos/guard/fallback mutável;
+- a primeira pause incrementa queueEpoch e invalida contabilmente a geração
+  inteira; pause repetida não incrementa outra vez, mas cancela resume agendado;
+- automação pode usar pauseQueueEpoch para impedir uma transação atrasada de
+  invalidar uma fila posterior;
+- somente governance agenda resume, sempre com governanceDelay; executeResume
+  é permissionless após o atraso, mas revalida ambos Safes, verifier e USDT;
+- não existem setters, upgrades ou rotações. Owners, implementação, codehash,
+  threshold e policy dos Safes são parte da identidade capturada;
+- dívida provada sobrevive pause/prune, enquanto o lease da geração velha não
+  pode executar.
+
+DOMCheckpointRegistry
+=====================
+- cada statement inclui chain, endereço, activation schedule e config hash;
+- candidate referencia exatamente height/block/state/context/work anteriores;
+- substituição só ocorre dentro da mesma janela e por ordem total melhor, sem
+  reiniciar readyAt; depois do boundary nenhuma proposta pode substituir;
+- finalize revalida guardian e verifier, atualiza predecessor e apaga candidate;
+- halt exige o guardian Safe imutável e bloqueia submit/finalize para sempre;
+  não existe unhalt, rotação, upgrade, arbitrary call ou transferência de valor.
+
+Conclusão e risco residual
+==========================
+Não foi encontrado bypass administrativo, replay stale ou capacidade de mover
+fundos/checkpoints por um signatário isolado no perfil mainnet: cada Safe exige
+2 de 3 owners e identidade/policy intactas. A lacuna era de cobertura agregada;
+o novo gate fixa as transições e a ausência de setters futuros.
+
+Um Safe guardian comprometido por quórum (não apenas um owner) pode causar
+negação de serviço: pausar repetidamente a reserve ou executar o halt permanente
+do registry. Esse poder é explícito e deliberadamente não concede payout,
+checkpoint falso, rotação ou alteração de dívida. Mitigá-lo exigiria mudar a
+arquitetura de emergência e não deve ser disfarçado como ausência de risco.
+
+Validação leve
+==============
+- administrative-state-machines-stage1009.test.mjs: 5/5;
+- git diff --check: aprovado.
+
+Forge/Cargo não foram executados enquanto a prova longa permanece ativa.

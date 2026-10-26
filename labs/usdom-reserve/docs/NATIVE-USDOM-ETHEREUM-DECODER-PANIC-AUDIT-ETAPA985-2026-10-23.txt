@@ -1,0 +1,53 @@
+NATIVE USDOM / ETHEREUM DECODER PANIC AUDIT — ETAPA985
+Date: 2026-10-23
+
+Scope
+-----
+Audited third-party parsing and verification reached by untrusted Ethereum
+witnesses while release builds use panic=abort: Helios SSZ/serde light-client
+types, BLS compressed points and signature verification, alloy RLP execution
+headers and EIP-2718 receipts, and bounded serde JSON witness envelopes. The
+alloy-trie MPT path is intentionally excluded because ETAPA981 owns it.
+
+Concrete hardening
+------------------
+1. Removed three panic-capable BLS unwraps from the vendored consensus core.
+   Invalid compressed G1/G2 points now convert CtOption to Result directly;
+   failure to decode the fixed subgroup scalar now returns false.
+2. Removed four invariant-dependent unwraps from Helios update processing.
+   Missing best/finalized/next-committee state now fails closed with Option or
+   ConsensusError::InvalidPeriod instead of aborting the process if an
+   upstream invariant changes.
+3. Added regressions for malformed compressed points/scalars and for a
+   next-period update received without a next sync committee.
+
+Proven-safe third-party boundaries
+----------------------------------
+* Light-client transcript JSON is byte-bounded before serde_json, update-count
+  bounded after decode, typed through fixed-size SSZ containers, replayed
+  cryptographically, then required to have canonical byte encoding.
+* Checkpoint and deposit JSON evidence has a checked outer frame, explicit
+  evidence byte ceilings, deny_unknown_fields on evidence types, and a
+  canonical serde round trip before use.
+* Execution headers are count-, item-, and aggregate-byte bounded before
+  alloy RLP decoding; trailing bytes are rejected and canonical RLP is
+  required before hashing/linkage checks.
+* Receipts and proof nodes are count/item/aggregate bounded; EIP-2718 decoding
+  must consume all input and reproduce the canonical envelope; receipt kind,
+  status, log count, topic count, and log data are restricted.
+* SSZ-generated fixed vectors reject wrong lengths. BLS point decompression is
+  now explicitly fallible and signature failure returns false.
+
+Validation (no heavy Cargo while the long RISC0 proof runs)
+-----------------------------------------------------------
+* rustfmt --check on the two changed Rust sources: PASS
+* check-ethereum-decoder-panic-boundary.sh: PASS
+* production-source scan for unwrap/expect/panic/assert at the changed Helios
+  dependency boundary: only test-module assertions/unwraps remain.
+* diff whitespace check: PASS
+
+Deferred validation
+-------------------
+Run the focused dom-ethereum-consensus-core unit tests and the finality crate
+test suite after the active long proof releases CPU/RAM. This deferral is a
+resource scheduling constraint, not evidence of a known decoder defect.

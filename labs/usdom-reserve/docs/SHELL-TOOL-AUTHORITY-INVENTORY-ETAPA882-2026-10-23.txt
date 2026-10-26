@@ -1,0 +1,14 @@
+ETAPA882 — SHELL TOOL AUTHORITY INVENTORY
+Date: 2026-10-23
+
+Focused inventory covered exactly 91 shell scripts. The broad syntactic bare
+tool pattern reports 249 occurrences in 47 files (including availability
+checks, non-authority build/check utilities and bootstrap code). Exactly one
+pre-existing identity-pin block still lacks the new size convention:
+`observe-authenticated-checkpoint.sh`.
+
+The highest remaining credential-bearing gap was
+`run-secret-node-entrypoint.sh`: Node was hashed without a size/parent binding,
+and env lacked parent binding. Both are now bounded to 512 MiB, bind canonical
+parent identities, recheck file/hash/parent, and execute only absolute paths.
+Focused launcher tests pass 7/7; Bash syntax/diff pass. No external operation.

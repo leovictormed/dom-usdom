@@ -1,0 +1,31 @@
+ETAPA 641 — HANDOFF DE IMPLANTAÇÃO COM UTF-8/JSON ESTRITOS
+Data: 2026-10-23
+
+Escopo
+
+Foi auditado o consumidor que deriva uma das quatro transações de implantação
+em mainnet para o handoff ao Ledger. Seus documentos de autoridade são o pacote
+de implantação revisado e a observação independente de identidade; juntos eles
+controlam destino, calldata, valor e identidade/configuração esperada.
+
+Achado e correção
+
+Os dois documentos já eram arquivos diretos 0600, vinculados por SHA-256,
+analisados por parser com rejeição de chaves duplicadas e rechecados contra a
+derivação atual. Porém, a conversão anterior usava `Buffer.toString('utf8')`,
+que substitui bytes UTF-8 inválidos antes do parser.
+
+Uma fronteira `decodeJson` agora usa `TextDecoder('utf-8',{fatal:true})` antes
+de `parseStrictJson`, com limites separados para pacote e observação. A leitura
+direta, pins SHA-256, reprodução do pacote e rechecagem byte a byte da observação
+após o handoff permanecem.
+
+Validação
+
+- regressões executam o consumidor real com chave duplicada escapada e byte
+  0xff tanto no pacote quanto na observação vinculada por SHA-256;
+- ambos os testes focados passaram 2/2;
+- `node --check` e `git diff --check` passaram.
+
+Nenhum Ledger, assinatura, transação, RPC, deploy, staging, commit, push ou
+movimentação de fundos foi utilizado.

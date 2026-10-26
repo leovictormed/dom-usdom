@@ -1,0 +1,31 @@
+ETAPA 847 — DEPLOYMENT AND PROVENANCE CHILD PROCESS GROUPS
+Date: 2026-10-23
+
+Finding
+-------
+Three mainnet/release authority paths still used direct execFile calls. The
+deployment transaction preparer and raw validator recursively invoked Node,
+and the provenance materializer invoked Git, without a deadline or descendant
+process cleanup. Output was bounded and parsed strictly, but a blocked child or
+grandchild could outlive the ceremony caller.
+
+Correction
+----------
+- Both Node authority paths snapshot the exact current Node executable and use
+  the shared process-group runner with an 8 MiB per-stream bound and ten-minute
+  deadline.
+- Every Git query, including verify-commit, uses the pinned Git snapshot with
+  a 4 MiB per-stream bound and 30-second deadline.
+- The runner performs pre/post executable identity checks, TERM/KILL of the
+  complete process group, close/reap waiting, and fail-closed errors.
+- Existing fatal UTF-8 parsing, canonical JSON/hex framing, empty-stderr checks,
+  source/package equality and signature verification remain unchanged.
+
+Validation
+----------
+- Node syntax checks passed for all three changed scripts.
+- Deployment, provenance, and adversarial process lifecycle tests: 18 passed,
+  0 failed. The lifecycle test verifies a timed-out grandchild is reaped and
+  an output flood terminates the group.
+- Diff whitespace validation passed.
+- No build, RPC, signing, deployment, publication or fund operation ran.

@@ -1,0 +1,47 @@
+ETAPA 616 — auditoria Solidity do registro de checkpoints e verificadores
+Data: 2026-10-23
+
+Escopo
+------
+Revisao exclusiva de DOMCheckpointRegistry.sol,
+DOMCheckpointRiscZeroVerifier.sol, DOMFinalizedBurnRiscZeroVerifier.sol e suas
+interfaces/testes. Foram auditados contabilidade, replay, finalidade, pausa,
+gas e retorno ABI malformado. Nenhum Rust, Cargo, script/SDK RISC Zero,
+release/publicacao, segredo, deploy, assinatura ou fundo foi tocado.
+
+Resultado da auditoria
+----------------------
+Nao foi encontrado defeito novo no codigo de producao deste recorte:
+- cada statement vincula chain ID, endereco do registro, dominio, configuracao,
+  ativacao e predecessor completo, impedindo replay entre contratos/chain e
+  depois da progressao;
+- apenas a extensao fixa seguinte pode competir, a janela nao reinicia, o
+  maior confirmationTotalDifficulty vence e o desempate e deterministico;
+- finalize revalida guardian/verifier imutaveis antes dos efeitos, atualiza
+  todos os anchors atomicamente e apaga o candidato;
+- halt e irreversivel e bloqueia submissao e finalizacao;
+- proof e getters externos possuem caps de gas/retorno na fronteira do
+  registro; adapters rejeitam returndata nao vazio do verificador RISC Zero;
+- comprimentos de prova e selector Groth16 sao exatos.
+
+Lacuna material de teste fechada
+--------------------------------
+O registro ja testava retorno correto, revert, palavra de rejeicao, 64 bytes e
+return bomb, mas nao as duas fronteiras quase canonicas. O mock hostil ganhou:
+- ShortReturn: acceptance magic truncado para 31 bytes;
+- TrailingByteReturn: acceptance magic correto seguido de um byte, 33 bytes.
+Ambos precisam reverter InvalidProof. Isso protege explicitamente a exigencia
+`returndatasize() == 32`; nenhum prefixo correto pode autorizar checkpoint.
+
+Validacao
+---------
+- forge fmt --check: passou.
+- teste focado testVerifierMustReturnExactAcceptanceMagic: 1/1 passou.
+- suite DOMCheckpointRegistry.t.sol: 18/18 passou, incluindo fuzz com 1024
+  execucoes; zero falhas e zero skips.
+- git diff --check e verificacoes estruturais: passaram.
+
+Conclusao
+---------
+O recorte auditado nao exigiu alteracao do contrato. A nova regressao fecha a
+fronteira ABI exata de 32 bytes contra truncamento e sufixo malicioso.

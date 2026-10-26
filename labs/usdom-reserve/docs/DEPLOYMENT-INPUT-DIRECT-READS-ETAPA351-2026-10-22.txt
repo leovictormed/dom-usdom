@@ -1,0 +1,39 @@
+USD + DOM — leituras diretas para implantação e depósito
+Etapa 351 — 2026-10-22
+
+Problema corrigido
+
+Três caminhos operacionais ainda liam arquivos por nome depois de validar ou
+resolver o caminho. Essa reabertura permitia uma troca concorrente por symlink,
+hard link ou inode diferente entre a decisão e o uso dos bytes:
+
+- fontes usadas para derivar bytecode e initcode do pacote de implantação;
+- a identidade pública da carteira usada no pacote de depósito fechado;
+- o documento passado ao verificador geral de configuração.
+
+Correção
+
+- a preparação da implantação lê cada fonte pelo descritor direto comum, com
+  limite de 8 MiB e vínculo do inode aberto ao caminho absoluto esperado;
+- a preparação do depósito exige para a identidade pública um arquivo direto,
+  regular, do proprietário atual, com um único link, modo exato 0600 e tamanho
+  entre 1 byte e 64 KiB;
+- o verificador de configuração lê um arquivo direto entre 1 byte e 4 MiB;
+- as três rotas herdam O_NOFOLLOW, rejeição de hard links, verificação de dono e
+  detecção de troca ou mutação durante a leitura.
+
+Validação
+
+- teste estático impede a reintrodução de `readFile` ou `lstat` nesses caminhos;
+- regressão operacional focada: 69/69 aprovada;
+- lint de produção, build Solidity forçado de 44 arquivos e regressão Node
+  completa: 293/293 aprovados;
+- proveniência completa aprovada para 169 arquivos importados, 45 fontes dos
+  programas de prova e manifesto determinístico de 1.125 fontes;
+- o gate permanece deliberadamente fechado em 161 fatos derivados da release
+  ainda não configurada, sem bloqueio de integridade de fonte, auditoria externa
+  ou garantia impossível de risco zero.
+
+A prova RISC Zero ativa não foi reiniciada. Nenhuma chave, assinatura,
+publicação, implantação, mineração, transmissão ou movimentação de fundos foi
+realizada.

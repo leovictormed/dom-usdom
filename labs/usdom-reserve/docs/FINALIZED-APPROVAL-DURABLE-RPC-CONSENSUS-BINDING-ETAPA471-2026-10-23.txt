@@ -1,0 +1,18 @@
+Stage 471 — finalized approval durable RPC-consensus binding
+Date: 2026-10-23
+
+Release-authorization and native-attestation approval collectors reconciled
+multiple finalized RPC observations but returned only their common result. The
+durable observations now also retain canonical RPC-consensus evidence: exact
+source count, ordered distinct operator/origin entries and a domain-separated
+source-set commitment. Provider and source counts must match before collection.
+
+Readiness validates and recomputes the source evidence. Missing, substituted,
+omitted or malformed source entries fail closed. The fixed input catalog remains
+covered by each materializer's before/after byte comparison.
+
+`production_finalized_approval_durable_observations_bind_rpc_consensus` is a
+structural fact. No live approval, network, signature, deployment, funds,
+mining, commit or push is claimed.
+
+Validation: focused approval tests pass 10/10; readiness passes 60/60.

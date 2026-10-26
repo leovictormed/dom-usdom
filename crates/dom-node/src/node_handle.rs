@@ -6,10 +6,12 @@
 use crate::node::{clear_persisted_mempool_snapshot, snapshot_tx_chain_view, DomNode};
 use dom_core::PROTOCOL_VERSION;
 use dom_rpc::{
-    AncestryRequest, ChainAncestry, ChainIdentity, ChainTip, ConfirmedTxRef, KernelInfo,
+    AncestryRequest, ChainAncestry, ChainIdentity, ChainTip, ClosedMainnetMineFuture,
+    ClosedMainnetMineOneRequestV1, ClosedMainnetMineResultV1, ConfirmedTxRef, KernelInfo,
     MempoolTxInfo, NodeHandle, PeerInfo, RegtestMineFuture, RegtestMineRequestV1,
     RegtestMineResultV1, RpcError, ShutdownFuture, TxAdmission, TxAdmissionState,
     UsdomV2CandidateSubmitFuture, UsdomV4HistoryPageV1, UsdomV4HistoryRequestV1,
+    UsdomV4IssuanceStatusRequestV1, UsdomV4IssuanceStatusV1, UsdomV4IssuanceSubmitFuture,
     UsdomV4PrivateTransferScanRequestV1, UsdomV4PrivateTransferScanV1, UsdomV4TransferSubmitFuture,
     UtxoInfo, WalletSlateCreateRequestV1, WalletSlateFinalizeRequestV1, WalletSlateFinalizedV1,
     WalletSlateOfferV1, WalletSlateSubmitRequestV1, WalletSlateSubmittedV1, MAX_ANCESTRY_STEPS,
@@ -26,6 +28,10 @@ use std::sync::Arc;
 
 #[cfg(feature = "native-usdom-v4-poc")]
 const _: () = {
+    assert!(
+        dom_rpc::MAX_USDOM_V4_ISSUANCE_WITNESS_BYTES_V1
+            == usdom_ethereum_finality_experiment::deposits::MAX_DEPOSIT_WITNESS_BYTES
+    );
     assert!(
         dom_rpc::MAX_USDOM_V2_CANDIDATE_ENVELOPE_BYTES_V1 == dom_chain::MAX_USDOM_V4_ENVELOPE_BYTES
     );
@@ -60,7 +66,7 @@ pub(crate) fn peer_dto(p: &dom_wire::peer::PeerInfo) -> PeerInfo {
 /// Newtype so we can impl the foreign `NodeHandle` trait for `Arc<DomNode>`.
 pub struct NodeHandleImpl(pub Arc<DomNode>);
 
-struct RegtestRpcMiningGuard(Arc<std::sync::atomic::AtomicBool>);
+struct BoundedRpcMiningGuard(Arc<std::sync::atomic::AtomicBool>);
 
 #[cfg(feature = "native-usdom-v4-poc")]
 fn private_payload_index_in_sidecar(
@@ -91,7 +97,7 @@ fn private_payload_index_in_sidecar(
     Ok(None)
 }
 
-impl Drop for RegtestRpcMiningGuard {
+impl Drop for BoundedRpcMiningGuard {
     fn drop(&mut self) {
         self.0.store(false, std::sync::atomic::Ordering::Release);
     }
@@ -228,6 +234,213 @@ impl NodeHandle for NodeHandleImpl {
                 ))
             }
         })
+    }
+
+    fn submit_usdom_v4_issuance_witness_v1(&self, witness: Vec<u8>) -> UsdomV4IssuanceSubmitFuture {
+        let node = Arc::clone(&self.0);
+        Box::pin(async move {
+            #[cfg(feature = "native-usdom-v4-poc")]
+            {
+                use dom_core::DomError;
+                use usdom_ethereum_finality_experiment::deposits::MAX_DEPOSIT_WITNESS_BYTES;
+
+                if witness.is_empty() || witness.len() > MAX_DEPOSIT_WITNESS_BYTES {
+                    return Err(RpcError::InvalidTx(format!(
+                        "native USDOM issuance witness length {} is outside 1..={MAX_DEPOSIT_WITNESS_BYTES}",
+                        witness.len()
+                    )));
+                }
+                let envelope = dom_chain::UsdomV4ProofEnvelope::issuance_witness(witness)
+                    .map_err(|error| RpcError::InvalidTx(error.to_string()))?;
+                let envelope_bytes = envelope
+                    .to_bytes()
+                    .map_err(|error| RpcError::InvalidTx(error.to_string()))?;
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| RpcError::Internal("system clock precedes Unix epoch".into()))?
+                    .as_secs();
+                let candidate_id = node
+                    .submit_native_usdom_v4_mining_envelope(
+                        &envelope_bytes,
+                        dom_core::Timestamp(now),
+                    )
+                    .await
+                    .map_err(|error| match error {
+                        DomError::TemporarilyInvalid(message) | DomError::Orphan(message) => {
+                            RpcError::Overloaded(message)
+                        }
+                        DomError::Internal(message) => RpcError::Internal(message),
+                        other => RpcError::Rejected(other.to_string()),
+                    })?;
+                Ok(dom_rpc::UsdomV4IssuanceSubmissionV1 {
+                    candidate_id: *candidate_id.as_bytes(),
+                })
+            }
+            #[cfg(not(feature = "native-usdom-v4-poc"))]
+            {
+                let _ = (node, witness);
+                Err(RpcError::Internal(
+                    "native USDOM issuance submission is not compiled into this node".into(),
+                ))
+            }
+        })
+    }
+
+    fn usdom_v4_issuance_status_v1(
+        &self,
+        request: UsdomV4IssuanceStatusRequestV1,
+    ) -> Result<UsdomV4IssuanceStatusV1, RpcError> {
+        #[cfg(not(feature = "native-usdom-v4-poc"))]
+        {
+            let _ = request;
+            Err(RpcError::Internal(
+                "native USDOM issuance status is not compiled into this node".into(),
+            ))
+        }
+        #[cfg(feature = "native-usdom-v4-poc")]
+        {
+            if request.schema_version != 1
+                || request.network_magic == 0
+                || request.chain_id == [0; 32]
+                || request.candidate_id == [0; 32]
+                || request.deposit_id == [0; 32]
+            {
+                return Err(RpcError::InvalidScan(
+                    "invalid native USDOM issuance-status identity".into(),
+                ));
+            }
+            let chain = self
+                .0
+                .chain
+                .try_lock()
+                .map_err(|_| RpcError::Overloaded("chain busy; retry".into()))?;
+            let runtime = self
+                .0
+                .native_usdom_v4_runtime
+                .as_ref()
+                .ok_or_else(|| RpcError::Rejected("native USDOM v4 runtime is not active".into()))?
+                .try_lock()
+                .map_err(|_| RpcError::Overloaded("native USDOM runtime busy; retry".into()))?;
+            let api = crate::wallet_core_api::EmbeddedWalletCoreApi::new(Arc::clone(&self.0));
+            let identity = api
+                .current_identity_locked(&chain)
+                .map_err(|error| RpcError::Internal(error.to_string()))?;
+            if request.network_magic != identity.network_magic
+                || request.chain_id != identity.chain_id
+            {
+                return Err(RpcError::InvalidScan(
+                    "expected chain identity differs from node identity".into(),
+                ));
+            }
+
+            let candidate_id = dom_core::Hash256::from_bytes(request.candidate_id);
+            let queued = runtime.has_queued_issuance_candidate(candidate_id, &request.deposit_id);
+            let issuance = runtime.state().issuance(&request.deposit_id);
+            let issuance_commitment = issuance
+                .map(|record| {
+                    dom_usdom_state::TransitionCommitmentProjection::Issue {
+                        domain: runtime.bridge_identity().dom_domain,
+                        record,
+                    }
+                    .consensus_commitment()
+                    .map(|commitment| *commitment.as_bytes())
+                })
+                .transpose()
+                .map_err(|error| {
+                    RpcError::Internal(format!(
+                        "canonical issuance commitment reconstruction failed: {error}"
+                    ))
+                })?;
+
+            let scan_width = dom_rpc::MAX_USDOM_V4_ISSUANCE_STATUS_BLOCKS_V1;
+            let scanned_to = identity.current_tip.height;
+            let scanned_from = runtime
+                .activation_schedule()
+                .first_v4_height()
+                .max(scanned_to.saturating_sub(scan_width.saturating_sub(1)));
+            let mut inclusion = None;
+            if scanned_from <= scanned_to {
+                for height in scanned_from..=scanned_to {
+                    let block_hash = chain
+                        .store
+                        .get_hash_at_height(height)
+                        .map_err(|error| RpcError::Internal(error.to_string()))?
+                        .ok_or_else(|| {
+                            RpcError::CanonicalGap(format!(
+                                "canonical block missing at height {height}"
+                            ))
+                        })?;
+                    let history = dom_chain::load_authenticated_usdom_v4_history_block(
+                        &chain.store,
+                        chain.network_magic,
+                        runtime.bridge_identity().dom_domain,
+                        dom_core::Hash256::from_bytes(block_hash),
+                    )
+                    .map_err(|error| {
+                        RpcError::CanonicalGap(format!(
+                            "authenticated native USDOM history failed at height {height}: {error}"
+                        ))
+                    })?;
+                    if history.candidate_id != candidate_id {
+                        continue;
+                    }
+                    for (index, transition) in history.transitions.iter().enumerate() {
+                        let dom_usdom_state::TransitionCommitmentProjection::Issue {
+                            record, ..
+                        } = &transition.projection
+                        else {
+                            continue;
+                        };
+                        if record.deposit_id != request.deposit_id {
+                            continue;
+                        }
+                        let transition_index = u32::try_from(index).map_err(|_| {
+                            RpcError::Internal(
+                                "native USDOM issuance transition index overflow".into(),
+                            )
+                        })?;
+                        let transition_commitment = transition
+                            .projection
+                            .consensus_commitment()
+                            .map_err(|error| {
+                                RpcError::Internal(format!(
+                                    "authenticated issuance projection is invalid: {error}"
+                                ))
+                            })?;
+                        if inclusion
+                            .replace(dom_rpc::UsdomV4IssuanceInclusionV1 {
+                                height,
+                                block_hash,
+                                transition_index,
+                                transition_commitment: *transition_commitment.as_bytes(),
+                            })
+                            .is_some()
+                        {
+                            return Err(RpcError::Internal(
+                                "issuance candidate appears more than once canonically".into(),
+                            ));
+                        }
+                    }
+                }
+            }
+            if let Some(found) = inclusion {
+                if issuance_commitment != Some(found.transition_commitment) {
+                    return Err(RpcError::Internal(
+                        "issuance inclusion differs from canonical native state".into(),
+                    ));
+                }
+            }
+            Ok(UsdomV4IssuanceStatusV1 {
+                schema_version: 1,
+                identity,
+                queued,
+                consumed: issuance.is_some(),
+                issuance_commitment,
+                inclusion,
+                scanned_from,
+                scanned_to,
+            })
+        }
     }
 
     fn submit_usdom_v2_mining_candidate_v1(
@@ -876,6 +1089,27 @@ impl NodeHandle for NodeHandleImpl {
         self.0.config.network.as_str()
     }
 
+    fn status_snapshot(&self) -> Result<dom_rpc::NodeStatusSnapshot, RpcError> {
+        // Preserve the global chain-before-mempool order and either report one
+        // real snapshot or an explicit overload. Returning zero on try-lock
+        // contention made a healthy Mainnet node appear reset to genesis.
+        let chain = self
+            .0
+            .chain
+            .try_lock()
+            .map_err(|_| RpcError::Overloaded("chain busy; retry".into()))?;
+        let mempool = self
+            .0
+            .mempool
+            .try_lock()
+            .map_err(|_| RpcError::Overloaded("mempool busy; retry".into()))?;
+        Ok(dom_rpc::NodeStatusSnapshot {
+            chain_height: chain.tip_height.0,
+            mempool_size: mempool.len(),
+            network: self.0.config.network.as_str(),
+        })
+    }
+
     fn chain_identity(&self) -> Result<ChainIdentity, RpcError> {
         // One non-blocking lock protects all values in the snapshot.  Do not
         // substitute config-only defaults if canonical storage is unavailable.
@@ -1218,6 +1452,7 @@ impl NodeHandle for NodeHandleImpl {
             };
         use dom_wire::dandelion::{DandelionPhase, StemEnvelope};
         let relayed = match phase {
+            DandelionPhase::Suppressed => false,
             DandelionPhase::Fluff => self.0.tx_fluff_tx.send(tx_bytes.clone()).is_ok(),
             DandelionPhase::Stem => {
                 if let Some(target) = stem_target {
@@ -1492,7 +1727,7 @@ impl NodeHandle for NodeHandleImpl {
                     "bounded mining RPC requires continuous mining to be disabled".to_string(),
                 ));
             }
-            node.regtest_rpc_mining_active
+            node.bounded_rpc_mining_active
                 .compare_exchange(
                     false,
                     true,
@@ -1502,7 +1737,7 @@ impl NodeHandle for NodeHandleImpl {
                 .map_err(|_| {
                     RpcError::Overloaded("another bounded mining request is active".into())
                 })?;
-            let _guard = RegtestRpcMiningGuard(Arc::clone(&node.regtest_rpc_mining_active));
+            let _guard = BoundedRpcMiningGuard(Arc::clone(&node.bounded_rpc_mining_active));
 
             let (needs_genesis, initial_tip) = {
                 let chain = node.chain.lock().await;
@@ -1572,6 +1807,128 @@ impl NodeHandle for NodeHandleImpl {
                 start_height,
                 end_height,
                 block_hashes,
+            })
+        })
+    }
+
+    fn closed_mainnet_mine_one_v1(
+        &self,
+        request: ClosedMainnetMineOneRequestV1,
+    ) -> ClosedMainnetMineFuture {
+        let node = Arc::clone(&self.0);
+        Box::pin(async move {
+            if !node.config.closed_mainnet_test {
+                return Err(RpcError::Rejected(
+                    "closed Mainnet block capability is not armed".into(),
+                ));
+            }
+            if node.config.network != dom_config::Network::Mainnet
+                || node.config.mine
+                || node.config.min_outbound != 0
+                || node.config.max_inbound != 0
+                || !node.config.disable_dns_seeds
+                || !node.config.seed_peers.is_empty()
+            {
+                return Err(RpcError::Rejected(
+                    "closed Mainnet block capability requires peerless Mainnet with continuous mining disabled"
+                        .into(),
+                ));
+            }
+            let p2p = node
+                .config
+                .p2p_listen_addr
+                .parse::<std::net::SocketAddr>()
+                .map_err(|_| RpcError::Rejected("invalid closed Mainnet P2P address".into()))?;
+            let rpc = node
+                .config
+                .rpc_listen_addr
+                .as_deref()
+                .ok_or_else(|| RpcError::Rejected("closed Mainnet RPC is disabled".into()))?
+                .parse::<std::net::SocketAddr>()
+                .map_err(|_| RpcError::Rejected("invalid closed Mainnet RPC address".into()))?;
+            if !p2p.ip().is_loopback() || !rpc.ip().is_loopback() {
+                return Err(RpcError::Rejected(
+                    "closed Mainnet block capability requires loopback P2P and RPC listeners"
+                        .into(),
+                ));
+            }
+            if request.expected_tip_hash.len() != 64
+                || !request
+                    .expected_tip_hash
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            {
+                return Err(RpcError::Rejected(
+                    "expected tip hash must be 32-byte lowercase hexadecimal".into(),
+                ));
+            }
+            let mut expected_tip_hash = [0u8; 32];
+            hex::decode_to_slice(&request.expected_tip_hash, &mut expected_tip_hash)
+                .map_err(|_| RpcError::Rejected("invalid expected tip hash".into()))?;
+
+            node.bounded_rpc_mining_active
+                .compare_exchange(
+                    false,
+                    true,
+                    std::sync::atomic::Ordering::AcqRel,
+                    std::sync::atomic::Ordering::Acquire,
+                )
+                .map_err(|_| {
+                    RpcError::Overloaded("another bounded mining request is active".into())
+                })?;
+            let _guard = BoundedRpcMiningGuard(Arc::clone(&node.bounded_rpc_mining_active));
+
+            let needs_genesis = {
+                let chain = node.chain.lock().await;
+                let empty = chain.tip_height.0 == 0 && chain.tip_hash == dom_core::Hash256::ZERO;
+                let actual_hash = *chain.tip_hash.as_bytes();
+                if request.expected_tip_height != chain.tip_height.0
+                    || expected_tip_hash != actual_hash
+                {
+                    return Err(RpcError::Rejected(
+                        "closed Mainnet expected tip no longer matches canonical state".into(),
+                    ));
+                }
+                empty
+            };
+
+            let (height, initialized_genesis) = if needs_genesis {
+                crate::miner::create_genesis_block(Arc::clone(&node))
+                    .await
+                    .map_err(|error| RpcError::Internal(format!("create genesis: {error}")))?;
+                (0, true)
+            } else {
+                let expected_height = request
+                    .expected_tip_height
+                    .checked_add(1)
+                    .ok_or_else(|| RpcError::Internal("canonical height exhausted".to_string()))?;
+                let height = crate::miner::mine_one_block(Arc::clone(&node))
+                    .await
+                    .map_err(|error| RpcError::Internal(format!("mine block: {error}")))?;
+                if height != expected_height {
+                    return Err(RpcError::Internal(format!(
+                        "canonical height changed concurrently: expected {expected_height}, mined {height}"
+                    )));
+                }
+                (height, false)
+            };
+            let block_hash = {
+                let chain = node.chain.lock().await;
+                if chain.tip_height.0 != height {
+                    return Err(RpcError::Internal(
+                        "closed Mainnet canonical tip changed during block production".into(),
+                    ));
+                }
+                chain
+                    .store
+                    .get_hash_at_height(height)
+                    .map_err(|error| RpcError::Internal(error.to_string()))?
+                    .ok_or_else(|| RpcError::Internal("new canonical block is missing".into()))?
+            };
+            Ok(ClosedMainnetMineResultV1 {
+                height,
+                block_hash,
+                initialized_genesis,
             })
         })
     }
@@ -1758,6 +2115,7 @@ impl NodeHandleImpl {
             };
         use dom_wire::dandelion::{DandelionPhase, StemEnvelope};
         let relayed = match phase {
+            DandelionPhase::Suppressed => false,
             DandelionPhase::Fluff => self.0.tx_fluff_tx.send(tx_bytes.to_vec()).is_ok(),
             DandelionPhase::Stem => {
                 if let Some(target) = stem_target {
@@ -1967,7 +2325,7 @@ pub(crate) fn scan_to_clamped(from: u64, to: u64, tip: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{NodeHandle, NodeHandleImpl};
+    use super::{ClosedMainnetMineOneRequestV1, NodeHandle, NodeHandleImpl};
     use crate::node::DomNode;
     use dom_config::NodeConfig;
     use dom_consensus::transaction::{
@@ -2128,6 +2486,7 @@ mod tests {
             disable_dns_seeds: false,
             seed_peers: vec![],
             mine: false,
+            closed_mainnet_test: false,
             miner_throttle: Default::default(),
             miner_threads: 1,
             miner_address: None,
@@ -2376,9 +2735,9 @@ mod tests {
             );
         }
         assert!(!node
-            .regtest_rpc_mining_active
+            .bounded_rpc_mining_active
             .load(std::sync::atomic::Ordering::Acquire));
-        node.regtest_rpc_mining_active
+        node.bounded_rpc_mining_active
             .store(true, std::sync::atomic::Ordering::Release);
         assert!(matches!(
             handle
@@ -2386,7 +2745,7 @@ mod tests {
                 .await,
             Err(RpcError::Overloaded(_))
         ));
-        node.regtest_rpc_mining_active
+        node.bounded_rpc_mining_active
             .store(false, std::sync::atomic::Ordering::Release);
 
         let background_directory = tempfile::tempdir().unwrap();
@@ -2431,6 +2790,56 @@ mod tests {
                 .regtest_mine_v1(RegtestMineRequestV1 { count: 1 })
                 .await,
             Err(RpcError::Rejected(ref message)) if message.contains("only on regtest")
+        ));
+    }
+
+    #[tokio::test]
+    async fn closed_mainnet_genesis_requires_explicit_isolation_and_exact_tip() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = dom_config::NodeConfig::mainnet();
+        config.data_dir = directory.path().to_string_lossy().into_owned();
+        config.p2p_listen_addr = "127.0.0.1:33369".into();
+        config.max_inbound = 0;
+        config.min_outbound = 0;
+        config.disable_dns_seeds = true;
+        config.seed_peers.clear();
+        config.mine = false;
+        config.rpc_listen_addr = Some("127.0.0.1:33372".into());
+        let node = Arc::new(
+            DomNode::init_with_map_size(config.clone(), TEST_LMDB_MAP_SIZE)
+                .expect("init unarmed closed Mainnet node"),
+        );
+        let handle = NodeHandleImpl(node);
+        let empty = ClosedMainnetMineOneRequestV1 {
+            expected_tip_height: 0,
+            expected_tip_hash: "00".repeat(32),
+        };
+        assert!(matches!(
+            handle.closed_mainnet_mine_one_v1(empty.clone()).await,
+            Err(RpcError::Rejected(ref message)) if message.contains("not armed")
+        ));
+
+        drop(handle);
+        config.closed_mainnet_test = true;
+        let node = Arc::new(
+            DomNode::init_with_map_size(config, TEST_LMDB_MAP_SIZE)
+                .expect("reopen armed closed Mainnet node"),
+        );
+        let handle = NodeHandleImpl(Arc::clone(&node));
+        let result = handle
+            .closed_mainnet_mine_one_v1(empty.clone())
+            .await
+            .expect("initialize exact fixed Mainnet genesis");
+        assert_eq!(result.height, 0);
+        assert!(result.initialized_genesis);
+        assert_eq!(
+            result.block_hash,
+            dom_core::GENESIS_HASH_MAINNET,
+            "the ceremony cannot substitute a private genesis"
+        );
+        assert!(matches!(
+            handle.closed_mainnet_mine_one_v1(empty).await,
+            Err(RpcError::Rejected(ref message)) if message.contains("no longer matches")
         ));
     }
 

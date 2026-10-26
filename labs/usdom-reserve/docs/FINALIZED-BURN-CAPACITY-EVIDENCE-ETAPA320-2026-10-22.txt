@@ -1,0 +1,63 @@
+USD + DOM — evidência de capacidade da prova de queima finalizada
+Etapa 320 — 2026-10-22
+
+Problema
+
+O teste longo produz um recibo sucinto RISC Zero verificável, mas ainda faltava
+um caminho fixo e auditável para comprimi-lo em Groth16, executar o selo contra
+o bytecode mainnet realmente fixado e registrar tempo, memória e gas. Também
+era necessário impedir que o vetor congelado de capacidade fosse apresentado
+como o ensaio final, específico da release e da reserva implantada.
+
+Correção
+
+Foi criado o formato exato `usdom-finalized-burn-capacity-report-v1`. Ele fixa:
+
+- o input UDFINL03 de 64.264 bytes e seu SHA-256;
+- statement, programa, ImageID e RISC Zero 3.0.6;
+- hashes e tamanhos dos recibos sucinto/Groth16 e do selo EVM;
+- prover local, modo não-dev, concorrência, tempo e pico de memória;
+- duas a quatro fontes ordenadas e distintas, bloco finalizado comum e o
+  endereço/codehash do verificador direto mainnet;
+- runtime e config hash do adaptador, aceitação real e gas até 5.000.000;
+- `releaseSpecific:false`, `broadcastAuthorized:false` e `mines:false`.
+
+O coletor exige Ethereum chain ID 1, usa o menor head finalizado comum, relê o
+mesmo bloco em todas as fontes, exige igualdade exata de bloco e runtime e
+recalcula o codehash. Uma cópia de teste de 5.313 bytes foi coletada novamente
+por PublicNode e dRPC e só foi gravada depois de produzir o codehash já
+revisado `0xfe03c66078969d097f867351171b4639d726c8376c35022675ed44cbbcbaa720`.
+
+O comando fixo `npm run --silent check:finalized-burn-capacity-e2e` aceita zero
+argumentos. Ele seleciona somente um run durável concluído, regenera o vetor e
+o job canônicos, reusa o recibo verificado, executa o packager Rust, consulta o
+runtime por duas fontes públicas somente leitura, injeta os bytes exatos em
+Anvil chain ID 1, implanta o adaptador imutável e registra uma transação apenas
+nessa EVM local para obter gas real. Nenhuma transação pública é construída ou
+transmitida.
+
+Fronteira de evidência
+
+O relatório de capacidade fecha apenas implementação e viabilidade do vetor
+congelado. Ele não contém releaseId, sourceCommit, reserva implantada ou um
+evento real de depósito/queima, e por construção não pode ocupar o campo
+`realFinalizedEndToEndReport`. A prova final continua exigindo o relatório v1
+específico da release, semanticamente validado na etapa 319.
+
+Validação atual
+
+- sintaxe Node dos novos módulos e executor: aprovada;
+- validador, coletor, runtime fixado e fronteira do executor: 6/6 testes;
+- 24 mutações dirigidas do relatório são rejeitadas;
+- lint de produção e rebuild forçado dos 43 contratos: aprovados;
+- regressão Node completa, incluindo o preflight de memória concorrente:
+  256/256 testes aprovados;
+- proveniência completa e manifesto canônico: 1.065 fontes verificadas;
+- gates permanecem deliberadamente NOT READY em 160 itens de mainnet fechada
+  e 167 de fundos reais. Não há bloqueador de auditoria externa ou risco zero;
+  as três medições de queima permanecem falsas até o resultado criptográfico;
+- a prova sucinta não-dev da etapa 318 continua ativa; o executor Groth16/EVM
+  só será iniciado depois de seu status durável mudar para `succeeded`.
+
+Não houve deploy público, assinatura, segredo, fundo, mineração DOM, commit,
+tag ou push nesta etapa.

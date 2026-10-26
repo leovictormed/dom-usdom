@@ -1,0 +1,66 @@
+Stage 266 - Authenticated outer checkpoint job planning
+Date: 2026-10-20
+
+Outcome
+
+The laboratory can now derive and publish the exact outer checkpoint proof job
+from a canonical checkpoint source set and a complete verified segment receipt
+set. This stage executes no RISC Zero guest and generates no proof.
+
+Canonical public statement
+
+The checkpoint program now derives UDCPST04 directly from the authenticated
+segment chain. The only externally selected value is the target height already
+fixed by the source-set cadence. Previous, target and confirmation blocks,
+native roots, cumulative work, context commitments and the terminal timestamp
+come from proved segment states. Bridge domain, Ethereum chain ID, registry and
+configuration identity come from the authenticated immutable policy and native
+state opening. The derived statement is passed through the same complete outer
+relation used by the guest before publication.
+
+Fail-closed planner
+
+1. The planner rebuilds the complete authenticated segment plan and requires
+   byte equality with its published job index.
+2. The segment receipt-set index must bind that exact job-index hash, the
+   pinned complete-segment ImageID, RISC Zero 3.0.6 and succinct non-development
+   receipts. Proof-generation and receipt-verification claims must be true;
+   mining and development mode must be false.
+3. Every segment receipt is read only as a direct regular file under a size
+   bound, rehashed, decoded without trailing bytes, required to be succinct,
+   cryptographically verified under the pinned segment ImageID and matched to
+   the transition commitment rederived from the canonical source.
+4. The outer ELF, ProgramBinary and ImageID file are pinned by reviewed hashes.
+   The derived UDCPST04 statement and UDCOUT01 chain are canonically encoded
+   under their exact bounds.
+5. The statement and chain are atomically published before the deterministic
+   job index. That index binds all upstream hashes, guest identities, heights,
+   receipt hashes and the exact Solidity-compatible statement hash.
+
+Operator boundary
+
+The fixed command is:
+
+  npm run --silent plan:authenticated-checkpoint-outer
+
+It accepts no arguments, indices, heights, secrets, prover credentials or RPC
+values. It requires the preceding receipt evidence to exist and performs only
+local validation and planning.
+
+Verification
+
+- locked verify-feature all-target compilation: passed;
+- locked prove-feature unit test: 1/1 passed;
+- strict all-target prove-feature Clippy with warnings denied: passed;
+- focused readiness/operator tests: 51/51 passed;
+- fixed shell wrapper syntax and mutation checks: passed;
+- no proof, r0vm execution, mining, RPC, deployment, signing, fund movement,
+  commit or push occurred.
+
+Remaining boundary
+
+The outer local succinct prover is not yet implemented. Positive segment and
+outer receipt execution, measured proof cost, final receipt compression, EVM
+verification/gas measurements, release ratification, exact mainnet identities
+and custody ceremonies remain objective release blockers. External audit
+availability and an impossible zero-risk guarantee are not blockers.

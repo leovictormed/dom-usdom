@@ -1,0 +1,39 @@
+ETAPA 789 — Safe recovery final evidence bundle
+Date: 2026-10-23
+
+Finding
+
+The final recovery report already had a deep exact validator for all three Safe
+roles, owner transition, snapshots, receipts/events, signers, nonces and RPC
+consensus. Its durable file did not commit to the bytes of the reviewed Safe
+package, baseline, plan, transaction package, RPC catalog or the three new
+per-role finalized-execution documents. Those files were stable-reread by
+individual producers, but no output-last graph root joined all of them.
+
+Correction
+
+- Added `usdom-safe-recovery-evidence-bundle/v1`, an exact eleven-key bundle.
+- It binds SHA-256 of package/release document, baseline, recovery plan,
+  transaction package, RPC catalog, each ordered per-role execution document
+  and the final report, plus packageHash and recoveryHash.
+- Each execution binding has exactly role/documentSha256/transactionHash. The
+  builder invokes the full validators for plan, transaction package, per-role
+  finalized execution and final recovery report, then requires exact role,
+  transaction, block, safeTxHash and RPC-consensus agreement between each
+  execution and the corresponding report entry.
+- A private mode-0600 bounded fatal-UTF-8/duplicate-key preparer captures all
+  inputs, validates/builds, rereads every private input byte-for-byte and
+  rereads the public RPC catalog before output.
+- The legacy semantic report is persisted first. Only after it exists and all
+  original sources are rechecked is the bundle prepared and create-once
+  persisted last. A crash before the final write leaves no apparently complete
+  bundle; rerun can finish idempotently from identical evidence.
+
+Validation
+
+- Focused bundle tests: 2/2 pass, covering top/nested extra/missing keys,
+  chain/type/catalog hash, role/order/hash casing and incomplete executions.
+- Node/shell syntax and diff checks pass.
+
+No RPC, deployment, signature, transmission, commit, push or fund action was
+performed.

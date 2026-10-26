@@ -36,6 +36,9 @@ pub enum Command {
     /// Candidate-v2 package plus its exact stateless execution witnesses.
     #[cfg(feature = "native-usdom-v4-poc")]
     UsdomV2Package = 0x0E,
+    /// Authenticated-session advertisement of an exact canonical tip tuple.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    SyncTip = 0x0F,
 }
 
 impl Command {
@@ -58,6 +61,8 @@ impl Command {
             0x0D => Ok(Self::UsdomV4Package),
             #[cfg(feature = "native-usdom-v4-poc")]
             0x0E => Ok(Self::UsdomV2Package),
+            #[cfg(feature = "native-usdom-v4-poc")]
+            0x0F => Ok(Self::SyncTip),
             other => Err(DomError::Malformed(format!(
                 "unknown command 0x{other:02x}"
             ))),
@@ -197,6 +202,10 @@ pub const CAPABILITY_NATIVE_USDOM_V4: u64 = 1 << 0;
 /// their exact stateless execution witness bundles.
 pub const CAPABILITY_NATIVE_USDOM_V2: u64 = 1 << 1;
 
+/// The peer can advertise a full cumulative-work tip tuple for an offline
+/// multi-peer synchronization attestation.
+pub const CAPABILITY_SYNC_TIP_V1: u64 = 1 << 2;
+
 /// True only when an authenticated version-4 Noise session carried the native
 /// USDOM bit in both Hello messages. A fallback connection can stay useful for
 /// ordinary DOM traffic, but can never retain native-v4 authority.
@@ -222,6 +231,89 @@ pub fn native_usdom_v2_capability_negotiated(
     wire_version == 4
         && local_capabilities & CAPABILITY_NATIVE_USDOM_V2 != 0
         && peer_capabilities & CAPABILITY_NATIVE_USDOM_V2 != 0
+}
+
+/// True only for bilateral authenticated v4 sessions supporting sync-tip v1.
+pub fn sync_tip_v1_capability_negotiated(
+    wire_version: u32,
+    local_capabilities: u64,
+    peer_capabilities: u64,
+) -> bool {
+    wire_version == 4
+        && local_capabilities & CAPABILITY_SYNC_TIP_V1 != 0
+        && peer_capabilities & CAPABILITY_SYNC_TIP_V1 != 0
+}
+
+/// Exact fixed-width sync-tip announcement transported inside Noise.
+#[cfg(feature = "native-usdom-v4-poc")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyncTipPayload {
+    /// DOM network discriminator.
+    pub network_magic: u32,
+    /// Genesis-derived chain identity.
+    pub chain_id: [u8; 32],
+    /// Advertised canonical height.
+    pub height: u64,
+    /// Advertised canonical block identifier.
+    pub block: [u8; 32],
+    /// Advertised cumulative PoW work, unsigned big-endian.
+    pub total_difficulty: [u8; 32],
+    /// Sender wall-clock Unix second. Receivers use arrival time for stability;
+    /// this field is only a bounded clock-freshness check.
+    pub generated_at: u64,
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+impl SyncTipPayload {
+    /// Domain/version prefix.
+    pub const MAGIC: &'static [u8; 8] = b"UDSYNT01";
+    /// Exact wire width; trailing bytes are forbidden.
+    pub const BYTES: usize = 126;
+
+    /// Serialize canonical big-endian framing.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, DomError> {
+        if self.chain_id == [0; 32]
+            || self.block == [0; 32]
+            || self.total_difficulty == [0; 32]
+            || self.generated_at == 0
+        {
+            return Err(DomError::Invalid("zero sync-tip identity field".into()));
+        }
+        let mut out = Vec::with_capacity(Self::BYTES);
+        out.extend_from_slice(Self::MAGIC);
+        out.extend_from_slice(&1u16.to_be_bytes());
+        out.extend_from_slice(&self.network_magic.to_be_bytes());
+        out.extend_from_slice(&self.chain_id);
+        out.extend_from_slice(&self.height.to_be_bytes());
+        out.extend_from_slice(&self.block);
+        out.extend_from_slice(&self.total_difficulty);
+        out.extend_from_slice(&self.generated_at.to_be_bytes());
+        Ok(out)
+    }
+
+    /// Decode exact framing without allocating from attacker-controlled lengths.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
+        if bytes.len() != Self::BYTES
+            || bytes.get(..8) != Some(Self::MAGIC.as_slice())
+            || bytes.get(8..10) != Some(1u16.to_be_bytes().as_slice())
+        {
+            return Err(DomError::Malformed(
+                "invalid sync-tip framing [ban+20]".into(),
+            ));
+        }
+        let payload = Self {
+            network_magic: u32::from_be_bytes(bytes[10..14].try_into().unwrap()),
+            chain_id: bytes[14..46].try_into().unwrap(),
+            height: u64::from_be_bytes(bytes[46..54].try_into().unwrap()),
+            block: bytes[54..86].try_into().unwrap(),
+            total_difficulty: bytes[86..118].try_into().unwrap(),
+            generated_at: u64::from_be_bytes(bytes[118..126].try_into().unwrap()),
+        };
+        payload
+            .to_bytes()
+            .map_err(|_| DomError::Malformed("invalid sync-tip identity field [ban+20]".into()))?;
+        Ok(payload)
+    }
 }
 
 /// Whether a peer-supplied advertised port may be used at all.
@@ -256,6 +348,11 @@ impl HelloPayload {
     /// `wire_version` into the version slot and stops after
     /// `local_timestamp`; `advertised_port` is carried only from version 3.
     pub fn to_bytes_for_wire_version(&self, wire_version: u32) -> Result<Vec<u8>, DomError> {
+        if !matches!(wire_version, 1 | 2 | 3 | 4) {
+            return Err(DomError::Invalid(format!(
+                "unsupported hello payload version {wire_version}"
+            )));
+        }
         let ua = self.user_agent.as_bytes();
         if ua.len() > dom_core::MAX_USER_AGENT_BYTES {
             return Err(DomError::Invalid("user agent too long".into()));
@@ -1135,6 +1232,14 @@ mod tests {
     }
 
     #[test]
+    fn hello_serializer_rejects_unknown_version_shapes() {
+        let hello = hello_payload_for_tests();
+        assert!(hello.to_bytes_for_wire_version(0).is_err());
+        assert!(hello.to_bytes_for_wire_version(5).is_err());
+        assert!(hello.to_bytes_for_wire_version(u32::MAX).is_err());
+    }
+
+    #[test]
     fn hello_trailing_bytes_rejected() {
         let hello = hello_payload_for_tests();
         let mut bytes = hello.to_bytes().unwrap();
@@ -1242,6 +1347,40 @@ mod tests {
         assert!(!native_usdom_v2_capability_negotiated(4, v1, v1));
         assert!(!native_usdom_v2_capability_negotiated(4, v2, 0));
         assert!(!native_usdom_v2_capability_negotiated(4, 0, v2));
+    }
+
+    #[cfg(feature = "native-usdom-v4-poc")]
+    #[test]
+    fn sync_tip_payload_is_fixed_canonical_bounded_and_command_separated() {
+        let payload = SyncTipPayload {
+            network_magic: 0x4450_4d31,
+            chain_id: [1; 32],
+            height: 42,
+            block: [2; 32],
+            total_difficulty: [3; 32],
+            generated_at: 1_700_000_000,
+        };
+        let bytes = payload.to_bytes().unwrap();
+        assert_eq!(bytes.len(), SyncTipPayload::BYTES);
+        assert_eq!(SyncTipPayload::from_bytes(&bytes).unwrap(), payload);
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(SyncTipPayload::from_bytes(&trailing).is_err());
+        let mut zero_work = bytes;
+        zero_work[86..118].fill(0);
+        assert!(SyncTipPayload::from_bytes(&zero_work).is_err());
+        assert_eq!(Command::from_byte(0x0F).unwrap(), Command::SyncTip);
+    }
+
+    #[test]
+    fn sync_tip_capability_is_v4_bilateral_and_independent() {
+        let bit = CAPABILITY_SYNC_TIP_V1;
+        assert!(sync_tip_v1_capability_negotiated(4, bit, bit));
+        assert!(!sync_tip_v1_capability_negotiated(3, bit, bit));
+        assert!(!sync_tip_v1_capability_negotiated(4, bit, 0));
+        assert!(!sync_tip_v1_capability_negotiated(4, 0, bit));
+        assert_eq!(bit & CAPABILITY_NATIVE_USDOM_V4, 0);
+        assert_eq!(bit & CAPABILITY_NATIVE_USDOM_V2, 0);
     }
 
     #[test]

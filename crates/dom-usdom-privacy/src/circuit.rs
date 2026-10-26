@@ -236,6 +236,10 @@ impl ConstraintSynthesizer<Fr> for SpendCircuit {
             let mut node = commitment;
             for (level, sibling_value) in input.siblings.iter().enumerate() {
                 let sibling = witness_scalar(cs.clone(), *sibling_value)?;
+                // Disabled slots have one unique witness representation. Without
+                // this constraint their unused Merkle siblings could vary freely,
+                // creating witness/proof malleability despite identical effects.
+                sibling.conditional_enforce_equal(&FpVar::zero(), &disabled)?;
                 let right = &index_bits[level];
                 let left_child = right.select(&sibling, &node)?;
                 let right_child = right.select(&node, &sibling)?;
@@ -388,6 +392,47 @@ pub(crate) mod tests_support {
         circuit.statement.burn_amount = 4;
         let cs = ConstraintSystem::new_ref();
         circuit.generate_constraints(cs.clone()).unwrap();
+        assert!(!cs.is_satisfied().unwrap());
+    }
+
+    #[test]
+    fn disabled_slots_have_one_canonical_zero_witness() {
+        for mutation in 0..9 {
+            let mut circuit = valid_burn_circuit();
+            match mutation {
+                0 => circuit.inputs[1].origin = NOTE_ORIGIN_PRIVATE,
+                1 => circuit.inputs[1].value = 1,
+                2 => circuit.inputs[1].owner_secret = Scalar::from_u64(1),
+                3 => circuit.inputs[1].rho = Scalar::from_u64(1),
+                4 => circuit.inputs[1].leaf_index = 1,
+                5 => circuit.inputs[1].siblings[0] = Scalar::from_u64(1),
+                6 => circuit.outputs[1].value = 1,
+                7 => circuit.outputs[1].owner = Scalar::from_u64(1),
+                8 => circuit.outputs[1].rho = Scalar::from_u64(1),
+                _ => unreachable!(),
+            }
+            let cs = ConstraintSystem::new_ref();
+            circuit.generate_constraints(cs.clone()).unwrap();
+            assert!(!cs.is_satisfied().unwrap(), "mutation {mutation}");
+        }
+    }
+
+    #[test]
+    fn optional_outputs_are_left_packed_and_memo_presence_is_canonical() {
+        let mut gap = valid_burn_circuit();
+        gap.outputs[0] = OutputWitness::default();
+        gap.statement.output_notes[0] = Scalar::ZERO;
+        let cs = ConstraintSystem::new_ref();
+        gap.generate_constraints(cs.clone()).unwrap();
+        assert!(!cs.is_satisfied().unwrap());
+
+        let mut wrong_memo = valid_burn_circuit();
+        wrong_memo.outputs = [OutputWitness::default(), OutputWitness::default()];
+        wrong_memo.statement.output_notes = [Scalar::ZERO, Scalar::ZERO];
+        // Burn conservation remains valid only if all input value is burned.
+        wrong_memo.statement.burn_amount = wrong_memo.inputs[0].value;
+        let cs = ConstraintSystem::new_ref();
+        wrong_memo.generate_constraints(cs.clone()).unwrap();
         assert!(!cs.is_satisfied().unwrap());
     }
 

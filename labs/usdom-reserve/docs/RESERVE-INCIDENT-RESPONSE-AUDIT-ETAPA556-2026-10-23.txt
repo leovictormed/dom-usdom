@@ -1,0 +1,45 @@
+USD + DOM — reserve pause and upstream incident-response audit
+Stage 556 — 2026-10-23
+
+Scope
+-----
+Audited the production proof reserve's emergency pause generation, scheduled
+resume cancellation and the RISC Zero upstream incident response planner and
+executor. Tested stale queue generations, already-paused state, a pending
+resume, single or disagreeing sources, forged source identities, malformed
+observations, action ordering, receipt confirmation and final postconditions.
+
+Result
+------
+No new exploitable defect was established.
+
+- `pauseQueueEpoch(expectedQueueEpoch)` binds an automated action to the queue
+  generation inspected. A stale action cannot invalidate a later reviewed
+  queue.
+- Calling it while already paused cancels `resumeReadyAt`; an incident cannot
+  be bypassed by a previously scheduled governance resume.
+- The executor recomputes the complete action plan, checks the chain, target
+  addresses and runtime code, and rechecks queue epoch, paused state and resume
+  timestamp before sending the reserve action.
+- The reserve pause precedes the irreversible checkpoint halt. Unavailable,
+  malformed, single-source or disagreeing upstream evidence can request the
+  reversible reserve pause but cannot authorize `haltPermanently()`.
+- A confirmed irreversible halt requires at least two catalog-bound sources
+  with distinct operator identities and endpoint commitments, identical
+  structurally authenticated finalized observations, successful inclusion and
+  verified postconditions.
+- The reserve and registry guardian roles remain independent, and a successful
+  proposal is not treated as successful execution without a status-one receipt
+  and on-chain state confirmation.
+
+Validation
+----------
+A focused light selection from `test/node/risc0-incident-response.test.mjs`
+passed 9/9. It covers healthy/no-action, confirmed incident ordering,
+unconfirmed fail-safe pause, pending-resume cancellation, invalid stop state,
+source disagreement and impersonation, already-paused execution, and
+authenticated observation substitution. The deployment-style Anvil test was
+intentionally excluded while the independent RandomX proof remains active.
+
+No code or readiness claim changed. No Cargo, Foundry, public RPC, proof runner,
+signing, deployment, funds, commit or push operation ran.

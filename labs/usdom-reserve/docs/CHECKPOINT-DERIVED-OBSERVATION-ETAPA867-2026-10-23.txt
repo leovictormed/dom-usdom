@@ -1,0 +1,6 @@
+ETAPA 867 — invalidacao das observacoes derivadas de checkpoint
+Data: 2026-10-23
+
+Writers de ratificacao bootstrap e evento finalizado agora removem+fsync somente a observacao antiga antes do collector RPC. Requests, assinaturas, submissions e referencias de transacao permanecem imutaveis. A nova observacao segue temporario fsynced e instalacao imutavel output-last.
+
+Validacao: 2/2 testes, sintaxe Bash e diff-check aprovados. Sem RPC/deploy.

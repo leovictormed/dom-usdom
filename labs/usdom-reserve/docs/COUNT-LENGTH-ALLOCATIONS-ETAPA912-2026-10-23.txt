@@ -1,0 +1,16 @@
+ETAPA 912 — auditoria nominal das 89 alocações count/len
+
+Universo fixado pela ETAPA907: 89 `Vec::with_capacity` de produção cuja expressão imediata contém count/len/length/total. Classificação nominal: 50 usam `.len()` de coleção/buffer já materializado, 34 usam count validado, 4 usam total com checked/bound anterior e 1 usa length calculado com checked arithmetic. Total 89.
+
+Critério: sizes derivados de coleção já existente não antecipam memória controlada por um campo ainda não provado; totals/lengths precisam de aritmética checked e limite de bytes; counts grandes precisam de count máximo e bytes mínimos por registro antes da reserva. Counts pequenos e rigidamente limitados (por exemplo, sparse depth ou máximo de efeitos) têm reserva estritamente pequena e ainda validam consumo/canonical encoding.
+
+Dois gaps desta etapa, na família checkpoint-program:
+
+- `CheckpointSegmentPrivateInput::from_bytes` limitava block count, mas reservava a lista antes de provar `count * BLOCK_HEADER_BYTES` restantes.
+- `EconomicChunkWitness::from_bytes` limitava old UTXO count, mas reservava antes de provar ao menos um presence flag por registro depois do multiproof.
+
+Correção: ambos calculam mínimo com `checked_mul`/`checked_add`, rejeitam buffer curto e só então reservam. Somados aos dois parsers portable corrigidos na ETAPA907, os quatro parsers variáveis da família têm preflight antes da reserva.
+
+Resultado nominal: no início desta etapa 87/89 conformes e 2/89 pendentes; estado final 89/89 conformes e 0/89 pendentes. Distribuição final: 50/50 len, 34/34 count, 4/4 total, 1/1 length.
+
+Validação leve: quatro regressões estruturais passam 4/4; `rustfmt --check` nos três módulos afetados e `git diff --check` aprovados. Nenhum Cargo build ou prova foi executado.

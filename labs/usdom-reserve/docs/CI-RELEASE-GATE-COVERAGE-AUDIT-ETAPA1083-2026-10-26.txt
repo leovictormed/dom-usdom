@@ -1,0 +1,49 @@
+USDOM — AUDITORIA DE COBERTURA CI/RELEASE — ETAPA 1083
+Data: 2026-10-26
+
+Escopo
+======
+
+Revisão estática do workflow CI, scripts npm e comandos Cargo/Foundry. O foco
+foi provar que V6, dívida permanente do ProofReserve, políticas de publicação e
+dependências, Solidity, Forge pinado e Cargo locked/offline fazem parte de um
+gate obrigatório e que seus exit codes não são mascarados.
+
+Achados corrigidos
+==================
+
+O CI raiz não executava o laboratório USDOM. Seus contratos e mais de mil testes
+Node podiam, portanto, regredir sem bloquear uma alteração. Além disso, vários
+jobs Rust executavam build/test/check/clippy sem `--locked`; o lockfile estava no
+cache key, porém Cargo ainda podia atualizá-lo/resolvê-lo.
+
+Foi adicionado o job obrigatório `usdom-security-gates`, que:
+
+- fixa Node 24.19.0, Rust 1.98.0 e Foundry 1.8.5;
+- compara também o SHA-256 do Forge com mainnet-toolchain-lock;
+- faz o único fetch explícito com `--locked` e então prova `cargo metadata
+  --locked --offline --no-deps`;
+- executa RustSec e o novo gate completo de dependências;
+- executa o checker real do snapshot contra o índice e suas regressões;
+- usa `npm ci --ignore-scripts` no lock exato;
+- executa `check:provenance`, toda a suíte Node (incluindo V6 e proved-debt) e
+  toda a suíte Solidity ProofReserve/Registry.
+
+Todos os comandos Cargo build/test/check/clippy já existentes em ci.yml agora
+incluem `--locked`. O job USDOM não contém `continue-on-error` nem `|| true`.
+
+Os comandos Foundry do package.json passaram a usar `--offline` em build,
+testes Solidity e perfil deep. `check:provenance` agora inclui explicitamente
+`check:dependency-policy`; uma alteração de lock/origem não depende de alguém
+lembrar de chamar o script separado.
+
+Validação leve
+==============
+
+- YAML do workflow e JSON do package foram parseados com sucesso.
+- Auditoria estática confirmou zero cargo build/test/check/clippy sem --locked.
+- Testes de configuração CI + dependência + publicação: 11/11 PASS.
+- py_compile e `git diff --check`: PASS.
+
+Nenhum job pesado, Forge, Cargo build, commit, push ou deploy foi executado.
+O job completo será exercitado pelo provedor CI no primeiro commit autorizado.

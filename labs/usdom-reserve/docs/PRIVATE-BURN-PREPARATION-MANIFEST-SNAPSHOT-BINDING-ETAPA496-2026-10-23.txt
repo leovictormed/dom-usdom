@@ -1,0 +1,19 @@
+Stage 496 — Private-burn preparation manifest-snapshot binding
+Date: 2026-10-23
+
+The private-burn preparation ceremony validated the native runtime manifest
+and its pin, then performed a build and Ledger interaction before passing the
+original paths to both the TPM keystore and private-burn proof builder. Rehash
+checks did not eliminate the shell-to-binary check/open pathname window.
+
+The ceremony now copies both files through the direct public-file reader into
+its owner-only temporary directory before pin validation. The fixed input
+commitment, TPM unlock and confidential burn construction all use those exact
+snapshots. Changing or redirecting the source paths after startup cannot alter
+the runtime policy used to create the prepared burn state.
+
+`production_private_burn_preparation_manifest_snapshotted` is a structural
+fact. No compilation, Ledger access, TPM access, proof generation, funds,
+mining, commit or push occurred while producing this evidence.
+
+Validation: shell syntax and complete operator runbook 71/71; readiness 60/60.

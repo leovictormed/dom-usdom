@@ -88,6 +88,7 @@ def packages() -> set[str]:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        timeout=120,
     )
     found: set[str] = set()
     for line in result.stdout.splitlines():
@@ -112,6 +113,7 @@ def verify_local_ethereum_hash_stack() -> None:
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        timeout=120,
     )
     metadata = json.loads(result.stdout)
     packages_by_id = {package["id"]: package for package in metadata["packages"]}
@@ -151,11 +153,11 @@ def main() -> None:
     if "dom-chain" in manifest.split("[dev-dependencies]", 1)[0]:
         fail("production manifest still depends on dom-chain")
     for marker in [
-        'b"UDFINL02"',
-        "FINALIZED_BURN_PROVER_INPUT_VERSION: u16 = 2",
+        'b"UDFINL03"',
+        "FINALIZED_BURN_PROVER_INPUT_VERSION: u16 = 3",
         "verify_finalized_burn_inclusion",
         "verify_checkpoint_witness",
-        "BurnStateWitness::from_bytes",
+        "BurnStateWitnessV2::from_bytes",
     ]:
         if marker not in source:
             fail(f"missing portable relation marker: {marker}")
@@ -171,7 +173,7 @@ def main() -> None:
     if forbidden:
         fail("program dependency graph contains " + ", ".join(forbidden))
     print(
-        "PASS: UDFINL02 normal dependency graph contains "
+        "PASS: UDFINL04 normal dependency graph contains "
         f"{len(graph)} packages; uses the path-pinned pure-Rust Ethereum hash stack; "
         "and excludes node, native secp256k1, ring, LMDB, RandomX, async and RPC authority"
     )
@@ -184,6 +186,8 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
+    except subprocess.TimeoutExpired as error:
+        fail(f"Cargo dependency graph command timed out after {error.timeout} seconds")
     except subprocess.CalledProcessError as error:
         sys.stderr.write(error.stderr)
         fail(f"cargo tree failed with exit code {error.returncode}")

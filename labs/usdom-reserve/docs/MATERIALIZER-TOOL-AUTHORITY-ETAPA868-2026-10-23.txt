@@ -1,0 +1,11 @@
+ETAPA868 — MATERIALIZER TOOL AUTHORITY
+Date: 2026-10-23
+
+Four preflight/checkpoint wrappers ran Node and timeout directly through PATH.
+They now require tools sized 1..512 MiB with safe owner/mode/nlink, canonical
+parent identity, content hash and post-hash rechecks. Every child boundary uses
+the pinned absolute paths after an immediate recheck. ETAPA866 deadlines/traps
+and ETAPA867 pre-collection invalidation remain intact.
+
+Combined tool/lifecycle/stale-output tests pass 5/5; Bash syntax and diff checks
+pass. No RPC, materialization, commit or push ran.

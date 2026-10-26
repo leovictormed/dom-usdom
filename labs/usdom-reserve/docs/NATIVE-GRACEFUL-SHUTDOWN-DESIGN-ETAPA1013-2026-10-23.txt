@@ -1,0 +1,45 @@
+ETAPA 1013 — DESATIVAÇÃO NATIVA AUTENTICADA (DECISÃO DE SEGURANÇA)
+Data: 2026-10-23
+
+Uma primeira proposta de cutoff apenas por altura foi implementada localmente,
+reavaliada e integralmente revertida antes de permanecer no produto. Ela era
+insegura porque o checkpoint V2 publica stateRoot/work, mas não fornece ao
+Registry totalIssued, totalBurned ou totalDeposited autenticados. Portanto não
+era possível provar que todos os depósitos elegíveis tinham sido emitidos nem
+que nenhum holder continuava com supply quando o halt fosse executado.
+
+Sequência consensual obrigatória
+================================
+1. `closeDeposits` é finalizado na Ethereum.
+2. Um checkpoint de fechamento prova, no mesmo grafo, o evento/runtime/config,
+   `reserve.totalDeposited` e os totais nativos ligados ao stateRoot.
+3. Somente quando `totalIssued == totalDeposited` a emissão fecha no consenso.
+4. Transfers e burns continuam; burns anteriores permanecem prováveis/pagáveis.
+5. Um checkpoint final prova `totalBurned == totalIssued`, isto é, supply zero.
+6. Somente então o graceful halt pode encerrar novos checkpoints.
+
+O emergency halt deve permanecer uma transição separada e explicitamente
+declarar que pode sacrificar liveness. Não pode ser confundido com graceful halt.
+
+Implementação ordenada
+======================
+C1: novo statement/version de checkpoint com totalIssued/totalBurned ligados ao
+stateRoot e monotonicamente armazenados; V2 não será aceito na futura produção.
+C2: proof-bound closure de reserve totalDeposited==totalIssued e issuanceClosed.
+C3: burn cutoff/final checkpoint e graceful halt somente com supply zero.
+C4: witness Ethereum opaco, persistence/restart/undo/reorg barrier, node ingress,
+guests, SDKs e incident tooling.
+
+Dependência interna descoberta em C1
+====================================
+O outer guest recebe dos segment receipts apenas `native_state_root`; os totais
+do `TransitionBatchReceipt` são descartados antes da recursão. Portanto V5 não
+pode simplesmente aceitar totals adicionais do witness. Primeiro o statement e
+journal de cada segmento devem publicar previous/new issued+burned derivados da
+execução, e a recursão deve provar adjacência desses totais. Só então o outer
+pode emitir totals finais autenticados em CheckpointStatementV5/DOMCheckpointV3.
+Essa ordem evita transformar claims não autenticados em autoridade econômica.
+
+Nenhum código parcial de cutoff/halt foi mantido. O gate administrativo voltou
+a 5/5 e diff-check passou. `closeDeposits` da ETAPA1010 permanece como
+pré-requisito seguro.

@@ -1,0 +1,58 @@
+USD0M — AUTHENTICATED ECONOMIC PROOF JOBS — STAGE 262 — 2026-10-20
+
+Outcome
+
+The canonical rolling checkpoint source set can now be converted into one
+fully deterministic, non-proving economic job index. The planner accepts no
+arguments or field overrides. It generates no receipt, executes no RISC Zero
+guest, mines no block and accesses no network.
+
+Authenticated inputs
+
+1. The separate economic source index must bind the exact SHA-256 of the
+   canonical checkpoint source-set index.
+2. Every segment and block index must be consecutive and cover the complete
+   previous-height through confirmation-height interval.
+3. Every segment private input is read as a direct regular file, size bounded,
+   hash checked and canonically decoded. The package selected for each job is
+   therefore the exact package later consumed by the segment relation.
+4. Every economic block claim must equal the exact recursive economic bytes in
+   that segment block.
+5. Every chunk transition and witness is a direct bounded regular file with its
+   exact canonical name and index hash.
+6. The planner reexecutes every chunk over the selected package, checks the
+   resulting transition byte-for-byte, composes the ordered chain, checks the
+   terminal block claim and enforces root continuity between blocks.
+7. Both economic guest ELF, ProgramBinary and ImageID triplets are pinned by
+   fixed paths and reviewed SHA-256/ImageID values.
+
+Output
+
+The atomic `economic-proof-job-index.json` records each chunk's exact package,
+transition, witness, expected journal and future receipt name, followed by each
+block's exact transition, ordered chunk receipt requirements, expected journal
+and future receipt name. It states `executes_guests=false`,
+`generates_proofs=false` and `mines=false`.
+
+The fixed operator command is:
+
+  npm run --silent plan:authenticated-economic-receipt-set
+
+Validation
+
+- locked host test: 1/1 passed; two real economic blocks, four chunks,
+  byte-identical repeat planning and corrupted-witness rejection;
+- focused readiness/operator suite: 47/47 passed;
+- strict all-target Clippy with warnings denied: passed;
+- proof-program panic mutation self-test: passed.
+
+Remaining production work
+
+This stage prepares jobs only. Positive cryptographic chunk and block receipts,
+measured proving costs, production approval, complete segment/outer receipts,
+on-chain verification, gas/capacity evidence and exact release ceremonies
+remain fail-closed requirements. External audit absence and an impossible
+zero-risk guarantee are not release blockers.
+
+No RISC Zero proof, public-network action, deployment, transaction, fund
+movement, public mining, commit or push occurred in this stage.

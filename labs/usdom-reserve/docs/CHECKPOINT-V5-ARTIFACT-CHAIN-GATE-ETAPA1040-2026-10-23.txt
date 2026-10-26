@@ -1,0 +1,66 @@
+ETAPA 1040 — GATE FAIL-CLOSED DA CADEIA DE ARTEFATOS V5/V3
+Data: 2026-10-23
+
+Foi adicionado o gate executável
+`scripts/check-checkpoint-v5-artifact-chain-stage1040.py`. Em modo normal ele
+retorna erro enquanto qualquer elo segment → outer → finalized-burn →
+host/SDK/config não representar conjuntamente a relação UDCPST05/UDCSTN03.
+`--audit-current` existe somente para inventariar o estado sem transformar um
+resultado obsoleto em aprovação.
+
+O gate verifica:
+
+- schemas de statement, transição e journal nas proveniências;
+- SHA-256 dos binários contra cada provenance;
+- arquivos ImageID canônicos, incluindo o formato binário do burn guest;
+- ImageID do segment pinado no outer source, provenance e proof host;
+- ImageID do outer pinado no proof host, burn program, burn provenance e SDK;
+- ImageIDs espelhados em production-requirements;
+- declaração explícita de UDCPST05 no finalized-burn provenance.
+
+Correções estruturais determinadas pelas fontes
+===============================================
+
+O manifesto/SDK do verifier ainda misturava `publicStatementBytes=550` com
+statement version 4, batch version 3 e segment UDCSTN02/2254 bytes. Foi elevado
+para schema v7 e alinhado estritamente a statement version 5, batch version 4,
+segment transition version 3, 2318 bytes e domínio
+`DOM:checkpoint-segment-transition:v3`. Nenhum hash de binário ou ImageID foi
+inventado; esses campos continuam indisponíveis até o rebuild.
+
+O observer operacional também ignorava totalIssued/totalBurned no estado do
+Registry e no candidato. Ele agora exige os campos exatos e os compara ao
+statement antes de classificar um checkpoint como candidato instalado ou
+finalizado. Fixtures V5 ganharam os totais e foram atualizadas para o schema v7.
+
+Resultado atual
+===============
+
+O modo release retornou status 1, como exigido. Foram rejeitadas sete ligações
+obsoletas/ausentes:
+
+1. segment provenance ainda UDCSTN02;
+2. outer provenance ainda UDCPST04;
+3. outer ainda declara consumo UDCSTN02;
+4. outer ainda declara journal V4;
+5. burn provenance não declara UDFINL04;
+6. burn provenance não declara UDCPST05;
+7. burn provenance não registra o outer ImageID que foi compilado dentro dele.
+
+Os hashes e ImageIDs antigos são internamente coerentes, mas não satisfazem a
+nova relação. O gate impede que essa coerência interna seja confundida com
+prontidão V5. O teste
+`test/node/checkpoint-v5-artifact-chain-stage1040.test.mjs` confirmou tanto o
+inventário controlado quanto a rejeição default.
+
+Validação executada
+===================
+
+- audit mode: ready=false, sete falhas explícitas;
+- release mode: exit status 1;
+- Node regression: `checkpoint V5 artifact chain stage1040: 7 stale bindings rejected`.
+- checkpoint submission/observer: 7/7 testes passaram;
+- economic totals stage1029 e independent audit stage1039 passaram.
+
+Nenhum rebuild pesado foi iniciado enquanto a prova RISC Zero longa permanece
+ativa. Nenhum push, deploy, acesso de rede, assinatura ou fundo foi usado.

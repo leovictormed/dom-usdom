@@ -1,0 +1,38 @@
+USD0M deterministic deployment collision audit — Stage 1104 — 2026-10-26
+
+Architecture verified
+
+The four protocol contracts deliberately use one Ledger EOA and four ordered,
+consecutive CREATE nonces. CREATE2 is rejected because the reserve constructor
+configuration includes addresses whose derivation would otherwise create a
+circular plan. Package validation binds each initcode hash, expected runtime
+hash, deployer, nonce and derived address to the exact release.
+
+The three role Safes use the pinned Safe 1.4.1 proxy factory CREATE2 path. The
+factory/runtime identities, proxy creation code hash, singleton, fallback
+handler, role-specific initializer, salt nonce, predicted Safe, threshold and
+nine globally distinct owners are independently derived and later observed.
+
+The execution ceremony already rechecks across every catalogued RPC before
+signing and again after the transmission prompt: finalized/pending nonce,
+empty target code and balance, initcode estimate/hash, fee anchor, transaction
+absence, canonical finalized receipt and exact postdeployment runtime/getters.
+
+Finding corrected
+
+The deployment-identity collector required chainId 1 but did not independently
+bind the genesis block. A private fork can reuse chainId 1. Every independent
+RPC must now return Ethereum mainnet genesis
+0xd4e56740...b8fa3 at block zero; the hash is included in the hashed observation
+and cross-source consensus. Wrong or substituted genesis evidence fails.
+
+Validation
+
+- focused pinned Node deployment/preflight/Safe suites: 21/21 passed
+- deployment execution shell syntax: passed
+- diff check: passed
+
+A broader deployment test run had 31/32 pass; the sole failure is a concurrent
+deployment gas-policy fixture exceeding the newly reduced aggregate gas cap,
+unrelated to this genesis change. No network, Forge, Cargo, signing, deployment,
+commit or push ran.

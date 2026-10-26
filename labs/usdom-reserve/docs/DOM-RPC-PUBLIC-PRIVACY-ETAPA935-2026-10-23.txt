@@ -1,0 +1,25 @@
+ETAPA 935 — privacidade das rotas públicas DOM RPC
+Data: 2026-10-23
+
+Inventário e política
+- Públicos GET: health, status, chain identity, block header/kernels, UTXO, kernel lookup e bounded ancestry. Fora health, são estado de consenso já publicável; version/network/height/genesis são necessários para identidade/protocolo.
+- Público POST: tx submit, equivalente ao ingress P2P permissionless, com body/rate/concurrency/consensus admission e sem CORS.
+- Autenticados: peers/build-info, mempool/tx residency, wallet balance, scans wallet/USD0M, shutdown, wallet mutations, issuance/candidates/private transfer/burn e mining.
+- CORS `*` é aplicado somente aos GETs públicos de chain/status e anuncia somente GET; nenhuma rota autenticada ou mutação recebe allow-origin/allow-headers.
+- Bearer route-layer antecede handlers/extractors; respostas autenticadas sempre usam no-store.
+
+Leak corrigido
+- `/mempool` e `/tx/:hash` já eram privados para proteger a fase stem Dandelion++, mas `/status` público ainda serializava `mempool_size`.
+- Polling sem Bearer podia observar chegada/saída de transações locais e correlacionar a frente de propagação, mesmo sem obter hashes.
+- `StatusResponse` agora contém apenas versão, altura e rede. `NodeStatusSnapshot` pode manter cardinalidade internamente, mas ela não atravessa a fronteira HTTP pública.
+- Todos os GETs públicos CORS agora retornam `Cache-Control: no-store`, evitando status/height/ancestry/height-addressed block stale após avanço ou reorg.
+
+Validação leve
+- Regressão exige ausência de `mempool_size` no JSON público e no-store no GET CORS.
+- Checker de inventário/política: 8/8.
+- rustfmt e git diff --check: aprovados.
+- Cargo focado reservado para aggregate pós-prova; nenhum RPC foi executado.
+
+Limites deliberados
+- UTXO, kernels e blocos confirmados são públicos por natureza; esconder esses índices não protege carteira contra um observador que sincroniza a chain.
+- Health revela apenas `ok`; status revela identidade mínima já observável pelo handshake P2P. Peers, build commit e estado não confirmado permanecem autenticados.

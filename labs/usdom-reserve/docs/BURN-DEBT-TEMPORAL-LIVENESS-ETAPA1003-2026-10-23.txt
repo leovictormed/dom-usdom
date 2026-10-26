@@ -1,0 +1,56 @@
+ETAPA 1003 — LIVENESS E SEGURANÇA TEMPORAL DA DÍVIDA DE BURN
+Data: 2026-10-23
+
+Escopo
+======
+Auditoria da relação entre validUntil da admissão nativa, lease da fila,
+finalityBeaconSlot, pause/queueEpoch, discard/prune, nova verificação da prova e
+estado terminal de pagamento após a correção da ETAPA998.
+
+Modelo temporal confirmado
+==========================
+- validUntil limita a admissão original pelo consenso DOM; depois da queima
+  irreversível ele não extingue a dívida. O reserve rejeita apenas um prazo
+  originalmente impossível no futuro, sem rejeitar dívida histórica vencida.
+- Cada lease da fila recebe readyAt e expiresAt próprios. Expiração, prune ou
+  pause liberam somente a reserva de collateral; não apagam dívida, request ou
+  o estado de proof admission.
+- Toda reentrada, inclusive renovação, exige um statement completo, um slot
+  dentro da janela atual e nova verificação criptográfica. O pagamento consome
+  exatamente o statement armazenado no lease atual.
+- O mesmo slot pode ser reutilizado enquanto ainda recente após um reset de
+  emergência. Depois de sete dias ele falha por idade e uma prova posterior é
+  obrigatória.
+
+Achado e correção
+=================
+O contrato aceitava uma renovação contra qualquer slot ainda recente, mesmo
+menor que o maior slot já autenticado. Isso permitia regressão temporal da
+evidência, contrariando a propriedade de finalidade renovável posterior.
+
+Agora `provedBurnFinalitySlots` registra o maior slot autenticado. Renewal
+rejeita regressão, exige frescor e verifica o novo statement antes de atualizar
+o high-water mark. A identidade `FinalizedBurnDebt` continua impedindo alteração
+de burn/request/recipient/amount/dom inclusion/chain/reserve/schedule.
+
+Também foi corrigida a regressão Solidity da ETAPA998: o caso de sucesso agora
+gera e aprova uma proof para o statement renovado. O mock não reutiliza a prova
+associada ao statement antigo. Comentários do contrato foram alinhados: a
+primeira prova fixa a dívida; cada lease verifica sua própria prova completa.
+
+Limites de liveness
+===================
+O contrato mantém um caminho permissionless para renovar e executar, mas não
+pode garantir disponibilidade externa do prover, Ethereum/DOM, USDT ou
+collateral. Pause exige retomada pelo control plane. Esses riscos operacionais
+não permitem alterar a dívida nem marcar pagamento sem transferência atômica.
+
+Validação leve
+==============
+- burn-debt-temporal-liveness-stage1003.test.mjs: 4/4;
+- burn-payout-once-authority-stage998.test.mjs: 3/3;
+- proof-reserve.test.mjs: 5/5;
+- node syntax e git diff --check: aprovados.
+
+Forge/Cargo não foram executados durante a prova longa. A regressão Solidity e
+os artefatos compilados devem ser executados/regenerados na rodada posterior.

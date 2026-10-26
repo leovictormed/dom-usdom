@@ -1,0 +1,11 @@
+ETAPA862 — SIGNER TOOL AUTHORITY
+Date: 2026-10-23
+
+Release/native and checkpoint Ledger ceremonies hashed Cast/timeout/Node/jq
+without size bounds or canonical parent identity. They now require 1..512 MiB,
+pin parent dev/inode/owner/mode, and recheck tool/hash/parent after hashing and
+at every existing last-moment assertion. Cleanup authenticates Node first.
+The production/native wrapper scripts inherit the corrected shared ceremony.
+
+Focused structural and signing-pinning tests pass 5/5; Bash syntax and diff
+checks pass. No Ledger, signature, RPC, commit or push ran.

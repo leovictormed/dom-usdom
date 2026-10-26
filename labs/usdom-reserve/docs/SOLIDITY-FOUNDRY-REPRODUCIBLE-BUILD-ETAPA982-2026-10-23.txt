@@ -1,0 +1,30 @@
+ETAPA 982 — Solidity/Foundry production build boundary
+Date: 2026-10-23
+
+Finding
+The four production reproducible-build report preparers pinned and rechecked Forge and used
+private per-run out/cache directories, but the child still inherited the operator environment
+and Forge was allowed to fetch a missing compiler or dependency. Ambient proxy/RPC/XDG values
+could therefore change the build boundary or disclose network metadata during a ceremony.
+
+Correction
+- One shared argument builder now forces the project root, default profile, offline mode, force
+  rebuild, and private per-build out/cache paths for all four production contracts.
+- Forge receives a minimal environment with fixed locale/PATH and a private XDG_CONFIG_HOME.
+- Ambient FOUNDRY/DAPP/SOLC, Ethereum RPC/API, proxy, preload and wrapper variables fail closed.
+- Existing executable snapshot/recheck, two independent builds, artifact/source/config hashes,
+  compiler-version metadata, source snapshot and input TOCTOU checks remain in force.
+
+Supply-chain boundary
+OpenZeppelin is read from the checked-in vendor tree through the committed exact remapping.
+Offline mode prohibits dependency/compiler retrieval. A missing local 0.8.37 compiler now fails
+the ceremony rather than changing the supply chain. The two clean builds and canonical artifact
+binding remain the byte-for-byte compiler-output check; Forge itself remains SHA-256 pinned for
+the complete operation.
+
+Verification (Forge was deliberately not executed)
+- Node focused tests: 5/5 pass.
+- Node syntax checks: shared helper and four preparers pass.
+- git diff --check: pass.
+
+No build, RPC, signing, deployment, publication, commit or push was performed.

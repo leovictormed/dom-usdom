@@ -1,0 +1,33 @@
+ETAPA 983 — exact Solc executable authority
+Date: 2026-10-23
+
+Finding
+ETAPA982 pinned Forge and made its build offline, but Forge still selected Solc from its cache by
+version. The reports bound the compiler's self-declared metadata version and output, not the
+compiler executable hash. A replaced cache binary could therefore produce deterministic malicious
+output while claiming the expected version.
+
+Correction
+- Production resolution is now the exact conventional SVM path
+  `$HOME/.svm/0.8.37/solc-0.8.37`; no PATH or SOLC_PATH override is accepted.
+- The existing descriptor-safe executable snapshot validates canonical parent, owner, modes,
+  regular single-link file, size and SHA-256. Forge receives that absolute path through `--use`,
+  with auto-detection disabled; the executable is revalidated after both builds.
+- Every isolated observation now includes `compilerExecutableSha256`; all four report validators
+  require a canonical SHA-256 and agreement between the independent builds.
+- Artifact metadata must identify exactly `0.8.37+commit.f401782d`, Cancun, optimizer enabled with
+  200 runs, no via-IR, and metadata bytecode hash `none`.
+- The canonical command evidence now records root/offline/exact-Solc/EVM/optimizer controls.
+
+Operational effect
+A missing or unsafe local compiler fails closed. Provisioning the audited official compiler in the
+fixed SVM location is therefore an explicit prerequisite; the ceremony never downloads it.
+
+Verification
+- Boundary/environment tests: 6/6 pass.
+- Four report suites: 26/26 pass.
+- Node syntax checks for helper, four preparers and four report validators: pass.
+- git diff --check: pass.
+- Forge/Solc were not executed.
+
+No build, signing, RPC, deployment, commit, push or funds operation was performed.

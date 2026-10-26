@@ -1,0 +1,40 @@
+USD + DOM — fronteira de arquivos operacionais diretos
+Etapa 344 — 2026-10-22
+
+Problema corrigido
+
+O leitor comum de arquivos do projeto fazia lstat/realpath e depois abria o
+caminho novamente. Embora já rejeitasse links simbólicos observáveis, existia
+uma janela TOCTOU entre a validação do nome e a leitura do conteúdo. O mesmo
+padrão aparecia nos documentos da recuperação Safe e nos tokens/entradas do
+fluxo fechado de mainnet.
+
+Correção
+
+`sdk/direct-project-file.mjs` agora fornece uma única leitura fail-closed que:
+
+- abre com O_NOFOLLOW;
+- valida o descritor já aberto como arquivo regular do usuário atual;
+- rejeita hard links e limites de tamanho inválidos;
+- exige modo 0600 para entradas declaradas privadas;
+- resolve `/proc/self/fd/<fd>` e exige que o descritor corresponda ao caminho
+  absoluto esperado, inclusive sem diretórios intermediários simbólicos;
+- lê pelo mesmo descritor e compara inode, dispositivo, tamanho, mtime e ctime
+  antes e depois da leitura.
+
+Oito comandos da recuperação Safe passaram a usar esse leitor antes de parsing
+JSON ou acesso RPC. Os leitores do token RPC do nó fechado e das entradas de
+emissão finalizada também usam a mesma fronteira. Um teste executa todos os oito
+comandos com entrada simbólica e comprova rejeição anterior a parsing/RPC.
+
+Validação
+
+- teste focado de links simbólicos, hard links, modo privado e limites: aprovado;
+- regressão operacional focada: 63/63 testes aprovados;
+- regressão Node completa: 287/287 testes aprovados;
+- lint dos quatro contratos de produção: aprovado;
+- recompilação Solidity forçada: aprovada;
+- `git diff --check`: aprovado.
+
+Esta mudança não cria chaves, não assina, não transmite transações, não minera e
+não move fundos.

@@ -1,0 +1,15 @@
+{
+  "schema": "usdom-native-preactivation-facts-v1",
+  "nativeEthereumTrustedCheckpoint": null,
+  "domDomain": null,
+  "checkpointDomNetworkMagic": null,
+  "checkpointDomChainId": null,
+  "checkpointFirstV4Height": null,
+  "checkpointIntervalBlocks": null,
+  "checkpointConfirmationDepthBlocks": null,
+  "checkpointChallengePeriodSeconds": null,
+  "checkpointInitialHeight": null,
+  "checkpointInitialBlock": null,
+  "checkpointInitialContextHash": null,
+  "checkpointInitialTotalDifficulty": null
+}

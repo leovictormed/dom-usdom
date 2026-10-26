@@ -1,0 +1,42 @@
+USDOM stage 318 - adaptive local proving concurrency
+Date: 2026-10-22
+
+Finding
+=======
+
+The resumable finalized-burn prover required two Rayon workers and at least
+4 GiB of MemAvailable. This host currently has about 3.88 GiB available, so the
+fixed command stopped before proving even though the prior one-worker run had
+remained stable for more than seven hours at roughly 1.68 GiB resident memory.
+
+Correction
+==========
+
+The fixed proof command now selects two workers only when at least two CPUs and
+4 GiB are available. It falls back to one worker when at least one CPU and 3 GiB
+are available. It rechecks immediately before proving and can only reduce
+concurrency if memory pressure increased.
+
+The durable status records the selected worker count. Scheduling does not alter
+the authenticated input, guest ELF, ImageID, statement journal, development-mode
+prohibition or cryptographic receipt verification. The resumable composite
+checkpoint and all output bounds remain unchanged.
+
+A later full-regression run exposed a preflight edge case: if concurrent memory
+pressure pushed MemAvailable below 3 GiB after the private run directory was
+created, the command exited before installing its EXIT trap. That left an
+orphan run directory without status, and the generic finalizer could also have
+deleted a valid cached composite that had never been loaded by this attempt.
+The trap is now installed before worker selection, failed preflight is recorded
+with `rayonWorkers:0`, and the cache is modified only after this invocation
+actually loaded it.
+
+Validation
+==========
+
+Shell syntax and the full operator suite initially exposed the concurrent
+low-memory path. Directed tests now force both a pre-proof Cargo failure and a
+sub-3-GiB preflight: both publish a private failed status, while the latter
+preserves the verified resumable composite byte-for-byte. The active real run
+remains resource-qualified, one-worker, local and non-development.
+

@@ -1,0 +1,10 @@
+ETAPA860 — TPM HELPER AUTHORITY
+Date: 2026-10-23
+
+Bootstrap/provision accepted absolute TPM helpers based only on executable and
+non-symlink status. They now require size 1..64 MiB, safe owner/mode/nlink,
+canonical safe parent, and snapshot hashes plus file/parent identities. Every
+post-consent commitment check first performs a complete last-moment recheck.
+
+Focused TPM cleanup/crash/boundary tests pass 7/7; Bash syntax and diff checks
+pass. No TPM command, build, signing, RPC, commit or push ran.

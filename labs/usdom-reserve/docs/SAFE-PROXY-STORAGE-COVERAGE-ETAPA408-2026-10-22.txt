@@ -1,0 +1,40 @@
+Stage 408 — Safe proxy storage coverage reconciliation
+
+Finding
+=======
+
+The production-requirements ledger still reported
+proof_reserve_proxy_storage_configuration_covered=false. That statement was
+accurate at stage 92, when only proxy runtime code hashes were bound, but became
+stale after the later Safe hardening work.
+
+Current coverage
+================
+
+The reserve now validates the Safe proxy and mutable policy surfaces that can
+change authority without changing the proxy runtime:
+
+- singleton implementation address and implementation runtime code hash;
+- exact 2-of-3 threshold and exactly three distinct, code-free owners;
+- empty module list and canonical terminal sentinel;
+- empty guard storage slot;
+- official mainnet fallback-handler storage slot;
+- exactly three distinct owners inside each Safe; Stage 409 supersedes the
+  short-lived cross-role address-disjointness rule.
+
+These checks run at construction and continuously on value/resume paths. The
+mainnet preflight independently observes the same fields at one finalized block
+through two pinned RPC sources and also pins fallback-handler runtime code.
+The production recovery package may use the same exact owner trio across the
+three distinct role Safe addresses; that common-custody risk is explicit and
+does not reduce the per-Safe storage coverage recorded here.
+
+Correction and validation
+=========================
+
+The stale ledger field is now true. A Node regression assertion prevents the
+claim from silently returning to the stage-92 state. This records implemented
+coverage only; it does not assert that production Safes have been deployed or
+that the operational recovery ceremony has occurred.
+
+No deployment, transaction signing, funds, commit, push or mining occurred.

@@ -1,0 +1,37 @@
+USD + DOM — materialização do núcleo pré-ativação
+Etapa 443 — 2026-10-22
+
+Problema corrigido
+------------------
+Mesmo após tornar os contratos acíclicos, o materializador antigo ainda exigia
+agenda e raiz vazia antes de calcular os pins necessários para construir essa
+raiz. A ordem operacional continuava impossível.
+
+Implementação
+-------------
+- novos encoders `proofReservePreActivationConfigHash` e
+  `checkpointRegistryPreActivationConfigHash` aceitam somente campos que já
+  existem antes da ativação;
+- adapters RISC Zero agora expõem derivação mínima de configuração/runtime a
+  partir do verificador Ethereum pinado e dos ImageIDs revisados, sem exigir o
+  manifesto nativo pós-ativação;
+- `materializeProductionPreActivationCore` instala apenas rede, predecessor,
+  política, adapters e `checkpointRegistryConfigHash`; mantém agenda, raiz
+  vazia, initialStateRoot e reserveConfigHash obrigatoriamente nulos;
+- `npm run --silent materialize:production-preactivation-core` é fixo, sem
+  argumentos, usa leituras diretas e estáveis, deriva os adapters de fontes e
+  falha fechado enquanto `native-preactivation-facts.unconfigured.json` não foi
+  produzido por um nó DOM autenticado;
+- o materializador dos seis pins Solidity agora funciona antes da raiz/agenda.
+
+Validação
+---------
+- helpers mínimos produzem exatamente os mesmos hashes/runtime dos manifestos
+  completos;
+- alteração, autorização prematura, schema extra, predecessor inválido e campo
+  pós-ativação preexistente são rejeitados;
+- o comando real falha fechado no primeiro fato nativo ausente e não altera a
+  configuração;
+- regressão focada passa 12/12 e a regressão pré-ativação passa 16/16;
+- nenhum deploy, assinatura, transação, fundo, mineração, commit ou push foi
+  realizado.

@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import {Wallet} from 'ethers';
 import {
   BURN_INTENT_TYPEHASH,
+  BURN_DEBT_TYPEHASH,
   BURN_STATEMENT_TYPEHASH,
   PRIVATE_BURN_ID_TYPEHASH,
   burnIntentHash,
+  finalizedBurnDebtHash,
   derivePrivateBurnId,
   finalizedBurnFields,
   finalizedBurnStatementHash,
@@ -62,6 +64,21 @@ test('proof statement binds every burn field, chain and reserve', () => {
   }
 });
 
+test('proved debt permits only a freshly proved finality-slot renewal', () => {
+  const input={chainId:'31337',reserve,activationScheduleCommitment,burn};
+  const base = finalizedBurnDebtHash(input);
+  assert.match(BURN_DEBT_TYPEHASH, /^0x[0-9a-f]{64}$/);
+  assert.equal(base, finalizedBurnDebtHash({...input,burn:{...burn,finalityBeaconSlot:'99'}}));
+  for (const field of finalizedBurnFields.filter(({name}) => name !== 'finalityBeaconSlot')) {
+    const changed = {...burn};
+    changed[field.name] = field.type === 'address' ? reserve : field.type === 'bytes32' ? h(99) : '99';
+    assert.notEqual(base, finalizedBurnDebtHash({...input,burn:changed}), field.name);
+  }
+  assert.notEqual(base, finalizedBurnDebtHash({...input,chainId:'31338'}));
+  assert.notEqual(base, finalizedBurnDebtHash({...input,reserve:burn.recipient}));
+  assert.notEqual(base, finalizedBurnDebtHash({...input,activationScheduleCommitment:h(13)}));
+});
+
 test('private burn id matches native consensus vector and binds authenticated nullifiers', () => {
   const input = {
     domDomain: repeated(0x11, 32),
@@ -87,5 +104,6 @@ test('private burn id matches native consensus vector and binds authenticated nu
   }
   assert.notEqual(derivePrivateBurnId(input), derivePrivateBurnId({...input, nullifiers:[repeated(0x07, 32)]}));
   assert.throws(() => derivePrivateBurnId({...input, nullifiers:[]}));
+  assert.throws(() => derivePrivateBurnId({...input, nullifiers:[repeated(0xff, 32)]}));
   assert.throws(() => derivePrivateBurnId({...input, nullifiers:[repeated(0x07, 32), repeated(0x06, 32)]}));
 });

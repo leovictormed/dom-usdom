@@ -1,0 +1,36 @@
+ETAPA 794 — Safe recovery final bundle readiness binding
+Date: 2026-10-23
+
+Finding
+
+Stage 789 created an output-last graph root, but release evidence and readiness
+still accepted the older split Safe release artifact set by itself. A partial
+set could therefore satisfy the semantic control-plane gate without the final
+bundle that commits the operational package, plan, catalog, executions and
+collector report.
+
+Correction
+
+- Added `safeRecoveryFinalEvidenceBundle` to the exact release-evidence schema
+  and unconfigured template; it is a mandatory hash-addressed evidence document.
+- The readiness loader reads it with the existing bounded fatal-UTF-8,
+  duplicate-key evidence reader and passes it to control-plane validation.
+- The gate requires the exact bundle schema and rejects absence, extra/missing
+  keys or malformed hashes.
+- It cross-reconciles packageHash and recoveryHash with the canonical Safe
+  release-evidence bundle, and requires all three ordered Safe roles and
+  transaction hashes to equal the recovery drill report. Thus an old split or
+  mix-and-match set cannot satisfy readiness.
+
+Validation
+
+- Focused control-plane readiness mutation test passes, including missing
+  bundle, extra field and transaction substitution.
+- Shared release-evidence-schema test passes 1/1.
+- Node syntax and diff checks pass.
+- The broad configured-readiness test presently reports only concurrent
+  `release_plan_invalid` preflight fixture drift; it reports no control-plane
+  bundle blocker and is outside this evidence binding.
+
+No RPC, materialization, deployment, signature, transmission, commit, push or
+fund action was performed.

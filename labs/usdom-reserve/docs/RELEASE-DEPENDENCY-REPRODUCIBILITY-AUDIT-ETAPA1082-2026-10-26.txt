@@ -1,0 +1,61 @@
+USDOM — AUDITORIA DE DEPENDÊNCIAS E REPRODUTIBILIDADE — ETAPA 1082
+Data: 2026-10-26
+
+Escopo
+======
+
+Auditoria estática e sem rede de Cargo.lock, lockfiles isolados de guests/fuzz,
+Cargo.toml, package-lock.json, deny.toml e fronteira de cache offline. Não houve
+build, fetch, Cargo/Forge, commit, push ou deploy.
+
+Achados corrigidos
+==================
+
+Quatorze Cargo.lock de fuzz ainda codificavam a origem secp256k1-zkp como
+`branch=master#<commit>`. O fragmento preservava o commit da resolução passada,
+mas uma futura atualização podia consultar novamente a branch móvel. Todos foram
+reconciliados com a política principal para
+`rev=264e84adf7b06fb4d028eb2fd992f33c4d8999b7#<mesmo-rev>`.
+
+Foi criado `scripts/check-release-dependency-policy.py`. O gate percorre todos
+os lockfiles publicáveis e exige:
+
+- checksum SHA-256 canônico para toda entrada Cargo de registry;
+- URL HTTPS Git com `?rev=<40 hex>#<mesmo 40 hex>`, recusando branch/tag;
+- dependência Git em manifesto com `rev` exato;
+- nenhuma feature com nome unsafe/test/fuzz/fault no conjunto default;
+- package-lock v3, origem npm registry HTTPS e integrity SHA-256/384/512;
+- conjunto exato e revisado de pacotes npm com lifecycle/install script.
+
+O lock raiz havia avançado concorrentemente para quinn-proto 0.11.19. A política
+RustSec estava presa ao 0.11.18 e falhava; o pin foi atualizado para versão e
+checksum atuais. Três marcadores de validação de artefato RISC Zero também foram
+reconciliados com a API refatorada, mantendo a exigência semântica de hash para
+ELF/programas em vez de desativá-la.
+
+Resultado
+=========
+
+- 36 Cargo.lock, 15.017 entradas: origens/checksums/revs conformes.
+- 234 Cargo.toml: nenhum branch/tag Git móvel e nenhum default test/unsafe.
+- 4 package-lock v3, 241 entradas: resolved/integrity conformes.
+- Lifecycle npm permanece limitado a esbuild/fsevents/wasm-pack nos três
+  pacotes vendorizados revisados; o laboratório USDOM principal tem zero.
+- A política Cargo deny continua recusando origem/registry desconhecidos,
+  refs Git sem rev e licenças fora da allowlist. As exceções RustSec continuam
+  presas a checksum e alcançabilidade; versões múltiplas não são tratadas como
+  defeito por si só, enquanto as versões vulneráveis conhecidas permanecem
+  explicitamente proibidas.
+- O orquestrador offline autentica inventário, SHA-256, modo e link count do
+  cache; nenhum comando de build foi necessário nesta etapa.
+
+Validação leve
+==============
+
+- `check-rustsec-policy.py`: PASS.
+- `check-release-dependency-policy.py`: PASS.
+- unittest focal: 2/2 PASS.
+- py_compile e `git diff --check`: PASS.
+
+Os lockfiles finais e MANIFEST.sha256 devem ser congelados novamente somente
+depois que as alterações concorrentes terminarem.

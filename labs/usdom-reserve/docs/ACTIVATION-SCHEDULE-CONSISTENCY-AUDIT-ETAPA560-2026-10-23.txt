@@ -1,0 +1,43 @@
+USD + DOM — activation schedule cross-boundary consistency audit
+Stage 560 — 2026-10-23
+
+Scope and result
+----------------
+Audited the native `UDACTV01` activation schedule across JavaScript release
+tooling, native DOM consensus, checkpoint segment/outer verification, finalized
+burn verification, verifier configuration hashes, checkpoint registry policy,
+reserve statement hashing, deployment preflight and readiness validation.
+
+No new exploitable defect was established.
+
+The canonical schedule has one fixed 86-byte big-endian representation binding
+version, recognized DOM network magic, nonzero chain ID, first mandatory v4
+height and the empty native state root derived from the complete bridge
+identity. JavaScript and Rust share a frozen cross-language vector for both
+bytes and the domain-separated BLAKE2b-256 commitment.
+
+Native startup accepts only the hash-pinned manifest and persists the exact
+schedule. Restore, block admission, IBD, reorg, snapshot and finalized-burn
+export paths compare the persisted or carried commitment with the ratified
+schedule. The checkpoint program additionally requires continuity of the
+commitment across segment state and binds it into the public checkpoint
+statement. The burn program reconstructs the schedule, verifies its bridge
+root and binds its commitment into the public burn statement consumed by the
+reserve.
+
+Release reconciliation compares the same commitment and component fields with
+the Rust-validated native manifest, both verifier manifests, registry config,
+reserve config, deployed getters and finalized proof indexes. A different
+network, height, chain, empty root or schedule commitment therefore fails at
+multiple independent boundaries rather than selecting an alternate fork.
+
+Validation
+----------
+Focused activation schedule, reserve verifier config, checkpoint verifier
+config and checkpoint registry tests passed 13/13. They cover the frozen
+cross-language vector, unknown/zero/ambiguous schedules, every-field
+commitment sensitivity, unsupported policy versions and source-derived adapter
+immutables.
+
+No code or readiness fact changed. No Cargo, Foundry, public RPC, proof runner,
+signing, deployment, funds, commit or push operation ran.

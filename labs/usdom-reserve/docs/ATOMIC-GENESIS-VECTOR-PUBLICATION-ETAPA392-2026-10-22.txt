@@ -1,0 +1,25 @@
+DOM/USDOM hardening stage 392 — atomic genesis-vector publication
+
+Date: 2026-10-22
+
+The offline deterministic genesis ceremony no longer writes the mainnet,
+regtest and testnet JSON vectors through mutable pathnames. Each vector is
+bounded to one MiB and published below a retained direct parent descriptor.
+
+Publication creates one exclusive, singly-linked, non-group-writable temporary
+regular file, writes and fsyncs it, revalidates the parent device/inode, renames
+through the retained parent, fsyncs the directory and rereads the exact bytes
+through the shared captured reader. Symbolic parent directories are rejected.
+A destination symbolic link is atomically replaced rather than followed. If a
+post-publication check fails, cleanup removes only an entry whose device/inode
+still matches the file created by this invocation.
+
+Validation completed:
+
+- focused vector-publication test: 1/1 passed;
+- the test covers atomic replacement, target-link non-following, preservation
+  of the linked file and rejection of a symbolic parent;
+- formatting and repository whitespace checks pass.
+
+The ceremony itself was deliberately not executed. The test neither creates a
+RandomX VM nor searches for a nonce, so this stage performed no mining.

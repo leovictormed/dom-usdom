@@ -1,0 +1,52 @@
+USD + DOM — executor integral de capacidade do checkpoint
+Etapa 330 — 2026-10-22
+
+Resultado
+
+Foi implementado um comando fixo, sem argumentos, que executa e mede a cadeia
+completa da prova de checkpoint: RandomX, agregação RandomX, chunk econômico,
+bloco econômico, segmento, composição externa e compressão Groth16.
+
+Fronteiras de segurança
+
+- A execução exige release mainnet configurada, manifesto canônico e
+  `HEAD == sourceCommit`. Depois do commit-fonte, somente os dois metadados de
+  release e arquivos sob `evidence/` podem diferir; qualquer mudança em código
+  ou configuração técnica é rejeitada.
+- O processo estabelece `umask 077` antes de qualquer arquivo ou subprocesso.
+- Cada execução recebe um diretório novo criado exclusivamente em modo 0700.
+  Fontes autenticadas são copiadas para uma árvore isolada; links simbólicos,
+  permissões públicas, arquivos fora dos limites e reutilização de uma árvore
+  anterior são rejeitados.
+- Todos os provers usam um worker, backend local, modo não-dev e ambiente sem
+  endpoints Bonsai/RISC Zero herdados. Cada fase é executada em sequência para
+  limitar memória. Os binários `prove` são pré-compilados serialmente fora da
+  janela de medição; cada prova é então medida com GNU time, e as fases
+  econômicas também conservam suas métricas internas separadas.
+- O coletor valida agora o recibo Groth16, o selo com seletor 0x73c457ba, o
+  índice de compressão e o vínculo ao índice do recibo outer.
+- O runtime do verificador RISC Zero é observado em duas RPCs Ethereum somente
+  leitura. Em seguida, um Anvil isolado com chain ID 1 recebe exatamente esse
+  runtime, implanta o adaptador da release, executa a prova e mede gas abaixo
+  do teto de 5.000.000.
+- O comando não contém caminho de broadcast, assinatura, carteira, mineração
+  ou movimentação de fundos. O relatório final é reconstruído e revalidado
+  contra a release antes da publicação atômica.
+- Depois da última prova e antes de aceitar o relatório, o executor relê os
+  arquivos da release, reconfirma HEAD e revalida a fronteira evidence-only.
+  Qualquer mudança técnica durante a execução invalida seus resultados.
+
+Validação
+
+O comando passa verificação de sintaxe, rejeita qualquer argumento antes de
+criar uma execução e falha antes de tocar a área de runs enquanto a release
+está sem configuração. Testes cobrem a presença das seis fases, compressão,
+ambiente local, remoção de endpoints remotos, EVM isolada e ausência de
+broadcast. Coletor e relatório passam 8/8 testes focados.
+
+Estado operacional
+
+Os fatos de recibo, custo e gas continuam falsos. A existência do executor não
+substitui a execução criptográfica real. O comando só deve rodar após a release
+e o conjunto de fontes estarem configurados e quando a prova de queima que já
+está ativa tiver liberado memória.

@@ -1,0 +1,109 @@
+USDOM stage 259 — authenticated RandomX statement and receipt jobs
+Date: 2026-10-20
+
+Target
+
+This stage prepares the per-block RandomX proof lifecycle required by the
+privately controlled test on the public Ethereum mainnet. It does not create a
+private Ethereum network. It does not authorize or perform deployment,
+broadcast, fund movement, public mining or RISC Zero proof generation.
+
+Authenticated statement set
+
+The fixed statement-set exporter consumes the final rolling checkpoint-source
+index. It enforces the exact schema, cadence, segment order and canonical
+filenames, verifies every component SHA-256, decodes each bounded source and
+reexecutes the complete portable checkpoint segment relation. It emits one
+canonical 384-byte UDCRXST1 statement for every DOM block from the previous
+checkpoint through the confirmation tip.
+
+The final `randomx-statement-set-index.json` binds its source-index SHA-256,
+native manifest, RandomX ImageID, checkpoint endpoints, segment and block
+coordinates, DOM block hashes, transition commitments, statement commitments,
+filenames and file hashes. It states explicitly that portable segments were
+executed while RandomX relations and proof generation were not.
+
+The authorized persisted Regtest fixture mined twelve deterministic local DOM
+blocks with empty USDOM batches. It reopened the candidate-v2 runtime, invoked
+the real source-set and statement-set binaries, and compared the target and
+confirmation statements byte for byte with the in-process authenticated
+bindings. Stale files in each exact namespace were removed and unrelated files
+were preserved. Result: 1 pass, 0 failures, 31.02 seconds. This created only
+ordinary Regtest fixture blocks and no USDOM mining reward.
+
+Deterministic receipt jobs
+
+The new `dom-usdom-randomx-proof-host` revalidates the complete statement set
+before planning any job. It requires one network and chain identity, continuous
+heights and segment/block indices, at most 32 blocks per segment, an exact
+segment boundary between checkpoint target and confirmation phase, every exact
+statement SHA-256 and Keccak commitment, and the fixed source execution flags.
+
+It independently pins these RISC Zero artifacts:
+
+* RandomX user ELF SHA-256
+  `1a8e491304763477094da84ff0701ea18d935600a3b3a79eb1c1250facd6903f`;
+* packaged program SHA-256
+  `0601bf022575b060edaeb0b32414b2f53e72f39d2284028069099414653591dd`;
+* ImageID
+  `8efa49d4fe0f616840013adb1d3029ef71642099cb336c577a2691f7eea1dc24`;
+* exact ImageID-file SHA-256
+  `57ec90732f703bd58efd1682ab608b1a1efc3c66dce65480384cf72db4891245`;
+* RISC Zero zkVM version 3.0.6; and
+* succinct receipt kind.
+
+The deterministic job index records one statement path/hash, expected 32-byte
+journal and receipt filename per block. Its claims remain `executes_guest:
+false`, `generates_proofs: false` and `mines: false`. Replanning the same source
+is byte-identical. A statement-byte mutation is rejected.
+
+Fixed operator commands
+
+The non-proving command has no arguments, prompts or placeholders:
+
+  npm run --silent plan:authenticated-randomx-receipt-set
+
+The separately exposed proof command also has no operator-filled field:
+
+  npm run --silent prove:authenticated-randomx-receipt-set
+
+The second command has been prepared and compiled but not run. Its wrapper
+removes remote Bonsai/server configuration, forces `RISC0_PROVER=local`,
+`RISC0_DEV_MODE=0`, release compilation and the exact locked dependency graph.
+The host crate also enables the RISC Zero compile-time `disable-dev-mode`
+feature, requests a succinct receipt for each statement and rejects every
+other receipt kind.
+
+Resumable proof publication
+
+When explicitly authorized and run later, the prover rebuilds the plan and
+requires byte equality with the published job index. It verifies all fixed
+artifacts again. Each completed receipt is bounded to 256 MiB, decoded with
+fixed-int bincode and trailing-byte rejection, cryptographically verified
+against the exact ImageID, and required to expose exactly the statement's
+32-byte commitment as its journal. Valid receipts can be reused after an
+interruption; invalid direct files are replaced by a new proof. Each receipt is
+flushed and atomically renamed. The final receipt-set index is invalidated only
+after all prerequisites pass and is republished last after every receipt is
+verified.
+
+Validation
+
+The non-proving proof-host suite passes 2/2. The proof-enabled binary compiles
+under `cargo check --locked` without executing the guest. Fixed command and
+readiness mutation tests pass 45/45. Imported provenance passes for 169 files
+and 16 declared modifications. No proof receipt or proving-cost measurement is
+claimed by these checks.
+
+Current limit
+
+The host pipeline is implemented, so the technical
+`production_checkpoint_randomx_proof_receipt_implemented` requirement is true.
+The production release has not yet selected and attested its exact ImageID, so
+that release-specific pin remains false. A positive non-development RandomX
+receipt, measured proving time/memory, aggregate receipt, complete segment and
+outer receipts, EVM verification and the live mainnet identities remain
+objective blockers until their exact evidence exists.
+
+No public network, deployment, funds, commit or push occurred.
+

@@ -1,0 +1,23 @@
+USD0M — MATERIALIZAÇÃO DA EVIDÊNCIA DE CAPACIDADE DO CHECKPOINT — ETAPA 332
+
+Data: 2026-10-22
+
+Foi fechado o caminho entre a execução local completa das seis camadas da prova
+de checkpoint e o slot hash-addressed `checkpointProofCapacityReport` da release.
+
+O comando fixo, sem argumentos,
+`npm run --silent materialize:checkpoint-capacity-release-evidence`:
+
+- seleciona exclusivamente o diretório de execução mais recente com nome canônico;
+- exige status `succeeded`, commit-fonte exato e SHA-256 do relatório;
+- revalida semanticamente as seis camadas, os recibos succinct, a compressão
+  Groth16, o seal EVM, a configuração da release e o verificador RISC Zero;
+- rejeita colisão do caminho fixo com qualquer outro slot de evidência;
+- relê byte a byte a release, o verificador e os metadados antes de cada
+  publicação para detectar alteração concorrente;
+- grava primeiro o relatório canônico e depois os metadados, ambos atomicamente;
+- não contém assinatura, chave, commit, tag, push, broadcast, mineração, carteira
+  ou movimentação de fundos.
+
+Validação focada: 54/54 testes aprovados, incluindo relatório, materializador,
+readiness e dependências das afirmações amplas de implementação.

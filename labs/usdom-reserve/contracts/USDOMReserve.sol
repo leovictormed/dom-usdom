@@ -3,7 +3,6 @@ pragma solidity 0.8.37;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -15,10 +14,9 @@ import {IUSDTPolicy} from "./IUSDTPolicy.sol";
 /// No upgrade, arbitrary call, collateral sweep, deposit refund, or supply mint.
 /// All amounts are integer token base units (six decimals).
 contract USDOMReserve is EIP712, ReentrancyGuard {
-    using SafeERC20 for IERC20;
-
     address public constant ETHEREUM_USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     uint256 public constant MAX_NOTARIES = 16;
+    uint256 public constant TOKEN_GAS_LIMIT = 500_000;
     uint256 public constant REFILL_PERIOD = 1 days;
     uint256 public constant MAX_CERTIFICATE_LIFETIME = 7 days;
     uint256 public constant MIN_EXECUTION_WINDOW = 1 hours;
@@ -29,6 +27,8 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
     );
 
     IERC20 public immutable token;
+    /// @notice Runtime identity pinned at deployment so collateral semantics cannot change silently.
+    bytes32 public immutable tokenCodeHash;
     bytes32 public immutable domDomain;
     address public immutable governance;
     address public immutable guardian;
@@ -148,6 +148,7 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
     error StaleCertificate();
     error StillValid();
     error UnsupportedToken();
+    error TokenChanged();
     error PrototypeOnly();
     error Insolvent();
     error ExposureLimit();
@@ -184,8 +185,13 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
                 || config.governanceDelay > 30 days || config.maxOutstanding == 0 || config.outflowCapacity == 0
                 || config.outflowCapacity > config.maxOutstanding
         ) revert InvalidConfiguration();
-        if (IERC20Metadata(address(config.token)).decimals() != 6) revert UnsupportedToken();
+        if (_tokenStaticWord(address(config.token), abi.encodeCall(IERC20Metadata.decimals, ())) != bytes32(uint256(6))) {
+            revert UnsupportedToken();
+        }
+        bytes32 configuredTokenCodeHash = address(config.token).codehash;
+        if (configuredTokenCodeHash == bytes32(0)) revert UnsupportedToken();
         token = config.token;
+        tokenCodeHash = configuredTokenCodeHash;
         domDomain = config.domDomain;
         governance = config.governance;
         guardian = config.guardian;
@@ -234,15 +240,15 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
         if (outstanding() + amount > maxOutstanding) revert ExposureLimit();
         id = depositId(msg.sender, salt);
         if (deposits[id].funder != address(0)) revert AlreadyUsed();
-        uint256 reserveBefore = token.balanceOf(address(this));
+        uint256 reserveBefore = _tokenBalanceOf(address(this));
         if (reserveBefore < outstanding()) revert Insolvent();
-        uint256 funderBefore = token.balanceOf(msg.sender);
+        uint256 funderBefore = _tokenBalanceOf(msg.sender);
         deposits[id] = Deposit(msg.sender, amount, receivingCommitment);
         totalDeposited += amount;
-        token.safeTransferFrom(msg.sender, address(this), amount);
+        _callToken(abi.encodeCall(IERC20.transferFrom, (msg.sender, address(this), amount)));
         if (
-            token.balanceOf(address(this)) != reserveBefore + amount
-                || token.balanceOf(msg.sender) + amount != funderBefore
+            _tokenBalanceOf(address(this)) != reserveBefore + amount
+                || _tokenBalanceOf(msg.sender) + amount != funderBefore
         ) revert UnsupportedToken();
         emit Deposited(id, msg.sender, amount, receivingCommitment);
     }
@@ -259,7 +265,6 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
                 || burn.recipient == address(this) || burn.recipient == address(token) || burn.amount == 0
                 || burn.domDomain != domDomain || burn.height == 0 || burn.blockHash == bytes32(0)
         ) revert InvalidBurn();
-        _requireTokenUsable(address(this), burn.recipient);
         if (burn.epoch != currentEpoch) revert StaleCertificate();
         if (burn.amount > outflowCapacity) revert OutflowLimit();
         uint64 readyAt = _timestampAfter(withdrawalDelay);
@@ -267,12 +272,16 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
         if (burn.validUntil < uint256(readyAt) + MIN_EXECUTION_WINDOW || burn.validUntil > latestExpiry) {
             revert InvalidCertificateWindow();
         }
-        if (burn.amount > unreservedCollateral() || token.balanceOf(address(this)) < outstanding()) revert Insolvent();
         if (
             paidBurns[burn.burnId] || paidRequests[burn.requestId]
                 || pendingWithdrawals[burn.burnId].digest != bytes32(0) || pendingRequests[burn.requestId] != bytes32(0)
         ) revert AlreadyUsed();
         if (signatures.length != threshold) revert InvalidQuorum();
+        // All terminal local shape/replay/quorum-count checks precede token
+        // policy and balance calls. Signature recovery remains after solvency
+        // so an insolvent reserve does not burn quorum verification gas.
+        _requireTokenUsable(address(this), burn.recipient);
+        if (burn.amount > unreservedCollateral() || _tokenBalanceOf(address(this)) < outstanding()) revert Insolvent();
         bytes32 digest = burnDigest(burn);
         address previous = address(0);
         for (uint256 i; i < signatures.length; ++i) {
@@ -308,9 +317,9 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
         if (burn.amount > credited) revert Insolvent();
         uint256 available = availableOutflow();
         if (burn.amount > available) revert OutflowLimit();
-        uint256 reserveBefore = token.balanceOf(address(this));
+        uint256 reserveBefore = _tokenBalanceOf(address(this));
         if (reserveBefore < credited) revert Insolvent();
-        uint256 recipientBefore = token.balanceOf(burn.recipient);
+        uint256 recipientBefore = _tokenBalanceOf(burn.recipient);
 
         // available <= outflowCapacity (uint64), and amount <= available.
         bucketBalance = _checkedUint64(available - burn.amount);
@@ -320,10 +329,10 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
         paidRequests[burn.requestId] = true;
         _removePending(burn.burnId, pending);
 
-        token.safeTransfer(burn.recipient, burn.amount);
+        _callToken(abi.encodeCall(IERC20.transfer, (burn.recipient, burn.amount)));
         if (
-            token.balanceOf(address(this)) + burn.amount != reserveBefore
-                || token.balanceOf(burn.recipient) != recipientBefore + burn.amount
+            _tokenBalanceOf(address(this)) + burn.amount != reserveBefore
+                || _tokenBalanceOf(burn.recipient) != recipientBefore + burn.amount
         ) revert UnsupportedToken();
         emit Released(burn.burnId, burn.requestId, burn.recipient, burn.amount, burn.height, burn.blockHash, burn.epoch);
     }
@@ -357,6 +366,19 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
         // Rotation invalidates the entire old queue in O(1). Lazy cleanup of an old
         // certificate must never change the new queue's links or reserved credit.
         if (pending.epoch == currentEpoch) {
+            if (pendingCount == 0 || totalPendingAmount < pending.amount) revert PendingMismatch();
+            if (pending.previous == bytes32(0)) {
+                if (firstPendingBurn != burnId) revert PendingMismatch();
+            } else {
+                PendingWithdrawal storage previous = pendingWithdrawals[pending.previous];
+                if (previous.epoch != currentEpoch || previous.next != burnId) revert PendingMismatch();
+            }
+            if (pending.next == bytes32(0)) {
+                if (lastPendingBurn != burnId) revert PendingMismatch();
+            } else {
+                PendingWithdrawal storage following = pendingWithdrawals[pending.next];
+                if (following.epoch != currentEpoch || following.previous != burnId) revert PendingMismatch();
+            }
             if (pending.previous == bytes32(0)) firstPendingBurn = pending.next;
             else pendingWithdrawals[pending.previous].next = pending.next;
             if (pending.next == bytes32(0)) lastPendingBurn = pending.previous;
@@ -364,7 +386,7 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
             totalPendingAmount -= pending.amount;
             --pendingCount;
         }
-        delete pendingRequests[pending.requestId];
+        if (pendingRequests[pending.requestId] == burnId) delete pendingRequests[pending.requestId];
         delete pendingWithdrawals[burnId];
     }
 
@@ -463,6 +485,11 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
     /// @notice Immutable governance may rotate the quorum, never move funds directly.
     /// Rotation invalidates ALL old certificates, including already queued ones.
     function proposeNotaries(address[] calldata signers, uint8 threshold_) external onlyGovernance {
+        // Reject the dynamic input while it is still calldata. Without this
+        // preflight, conversion to the memory parameter below would copy an
+        // arbitrarily large caller-selected array before `_validateNotaries`
+        // could enforce the protocol's fixed bound.
+        if (signers.length < 3 || signers.length > MAX_NOTARIES) revert InvalidConfiguration();
         _validateNotaries(signers, threshold_);
         _clearResume();
         // A rotation proposed during a pause must finish even if subsequently cancelled.
@@ -488,6 +515,9 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
 
     function executeNotaries(address[] calldata signers, uint8 threshold_) external {
         if (proposedNotariesHash == bytes32(0)) revert NoProposal();
+        // Bound ABI encoding and the later calldata-to-memory conversion before
+        // hashing a permissionless caller's dynamic array.
+        if (signers.length < 3 || signers.length > MAX_NOTARIES) revert InvalidConfiguration();
         if (proposedNotariesHash != keccak256(abi.encode(signers, threshold_))) revert InvalidConfiguration();
         // forge-lint: disable-next-line(block-timestamp)
         if (block.timestamp < notariesReadyAt) revert TooEarly();
@@ -503,15 +533,63 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
     /// Balance deltas alone cannot detect that loss of spendability. Fail closed on
     /// policy lookup failure, pause, legacy-contract redirection or enabled fees.
     function _requireTokenUsable(address from, address to) private view {
-        IUSDTPolicy policy = IUSDTPolicy(address(token));
-        if (policy.paused() || policy.deprecated() || policy.basisPointsRate() != 0 || policy.maximumFee() != 0) {
-            revert UnsafeTokenState();
+        if (address(token).codehash != tokenCodeHash) revert TokenChanged();
+        address target = address(token);
+        if (
+            _tokenBool(target, abi.encodeCall(IUSDTPolicy.paused, ()))
+                || _tokenBool(target, abi.encodeCall(IUSDTPolicy.deprecated, ()))
+                || _tokenStaticWord(target, abi.encodeCall(IUSDTPolicy.upgradedAddress, ())) != bytes32(0)
+                || _tokenStaticWord(target, abi.encodeCall(IUSDTPolicy.basisPointsRate, ())) != bytes32(0)
+                || _tokenStaticWord(target, abi.encodeCall(IUSDTPolicy.maximumFee, ())) != bytes32(0)
+        ) revert UnsafeTokenState();
+        if (_tokenBool(target, abi.encodeCall(IUSDTPolicy.isBlackListed, (from)))) revert FrozenTokenAccount(from);
+        if (to != from && _tokenBool(target, abi.encodeCall(IUSDTPolicy.isBlackListed, (to)))) {
+            revert FrozenTokenAccount(to);
         }
-        if (policy.isBlackListed(from)) revert FrozenTokenAccount(from);
-        if (to != from && policy.isBlackListed(to)) revert FrozenTokenAccount(to);
+    }
+
+    function _tokenBool(address target, bytes memory callData) private view returns (bool value) {
+        bytes32 word = _tokenStaticWord(target, callData);
+        if (uint256(word) > 1) revert UnsupportedToken();
+        value = word == bytes32(uint256(1));
+    }
+
+    function _tokenBalanceOf(address account) private view returns (uint256) {
+        return uint256(_tokenStaticWord(address(token), abi.encodeCall(IERC20.balanceOf, (account))));
+    }
+
+    /// @dev Bound gas and copy exactly one canonical ABI word from token views.
+    function _tokenStaticWord(address target, bytes memory callData) private view returns (bytes32 word) {
+        bool ok;
+        uint256 returnSize;
+        assembly ("memory-safe") {
+            let output := mload(0x40)
+            ok := staticcall(TOKEN_GAS_LIMIT, target, add(callData, 32), mload(callData), output, 32)
+            returnSize := returndatasize()
+            word := mload(output)
+        }
+        if (!ok || returnSize != 32) revert UnsupportedToken();
+    }
+
+    /// @dev USDT returns no value; also accept only canonical ABI true.
+    function _callToken(bytes memory callData) private {
+        address target = address(token);
+        bool ok;
+        uint256 returnSize;
+        bytes32 result;
+        assembly ("memory-safe") {
+            let output := mload(0x40)
+            ok := call(TOKEN_GAS_LIMIT, target, 0, add(callData, 32), mload(callData), output, 32)
+            returnSize := returndatasize()
+            result := mload(output)
+        }
+        if (!ok || (returnSize != 0 && (returnSize != 32 || result != bytes32(uint256(1))))) {
+            revert UnsupportedToken();
+        }
     }
 
     function _timestampAfter(uint256 delay) private view returns (uint64) {
+        if (delay > type(uint64).max || block.timestamp > type(uint64).max - delay) revert TimestampOverflow();
         return _checkedUint64(block.timestamp + delay);
     }
 
@@ -543,14 +621,22 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
             address signer = signers[i];
             if (revokedNotary[signer]) revert RevokedNotary();
             if (
-                signer <= previous || signer == governance || signer == guardian || signer == address(token)
-                    || signer == address(this)
+                signer <= previous || signer.code.length != 0 || signer == governance || signer == guardian
+                    || signer == address(token) || signer == address(this)
             ) revert InvalidConfiguration();
             previous = signer;
         }
     }
 
     function _installNotaries(address[] memory signers, uint8 threshold_) private {
+        // Ordinary rotation does not revoke an old key, but its stale epoch has
+        // no anti-replay value: authorization always requires the exact current
+        // epoch. Clear the bounded previous set so unique historical notaries do
+        // not accumulate storage forever. Emergency revocation remains in the
+        // separate permanent `revokedNotary` mapping.
+        for (uint256 i; i < activeNotarySet.length; ++i) {
+            delete notaryEpoch[activeNotarySet[i]];
+        }
         ++currentEpoch;
         // The real outflow bucket is deliberately NOT reset by rotation.
         totalPendingAmount = 0;

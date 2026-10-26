@@ -1,0 +1,24 @@
+ETAPA 767 — RPC proxy background process protocol
+Date: 2026-10-23
+
+Finding
+=======
+Deploy and Safe executors merged proxy stdout/stderr into one log and replayed it with `cat` when
+startup failed. Diagnostics could contain RPC URLs or bearer paths, while merged/unbounded output
+made status and framing ambiguous.
+
+Correction
+==========
+Proxy stdout and stderr now use separate private files. Both are checked throughout readiness and
+on early exit for a 64-KiB bound and fatal UTF-8. Successful readiness requires both empty and the
+ready file passes the shared strict JSON boundary before semantic extraction. Early failure reports
+only a fixed message plus numeric status; channel contents are never replayed. Existing ready-file
+owner/mode/link, PID and loopback capability-URL checks remain.
+
+Validation
+==========
+Tests cover empty success, secret-bearing diagnostics, success diagnostics, invalid UTF-8 and
+oversize channels, plus structural prohibition of merged logs/raw replay. Executor suites pass
+10/10. Both scripts pass `bash -n`; Node syntax and diff checks pass. No proxy or RPC ran.
+
+No Ledger, signing, deploy, transmission, commit, push or funds were used.

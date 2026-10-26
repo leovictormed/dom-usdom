@@ -1,0 +1,30 @@
+USDOM stage 526 — finalized-burn release-run snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The finalized-burn evidence materializer parsed a captured status/report pair
+but kept reopening live run files during Git and configuration validation. Its
+recheck also named capacity-report.json instead of the authoritative
+finalized-burn-e2e-report.json, so it did not compare the report it published.
+
+Correction
+==========
+
+A dedicated helper captures run-status.json and
+finalized-burn-e2e-report.json into one owner-only durable replica. Status hash
+validation, semantic report preparation and immutable publication derive only
+from that replica. Before report publication and again before mutable evidence
+publication, both exact origins are reread and compared byte-for-byte. Replica
+cleanup runs on successful completion and every error path.
+
+Evidence and scope
+==================
+
+The focused regression mutates the authoritative E2E report after snapshot and
+requires the final origin recheck to fail. Structural coverage forbids the old
+capacity-report.json path. Readiness requires
+production_finalized_burn_release_run_pair_snapshotted_and_origins_rechecked=true.
+No proof, Anvil, network, signing, deployment, funds, commit or push is
+performed.

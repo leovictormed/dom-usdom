@@ -1,0 +1,33 @@
+ETAPA 680 — ENSAIO DE FORK COM JSON DE BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O preparador do ensaio mainnet de fork decodificava observações, release evidence,
+release config e cada documento bruto fault/recovery com Buffer.toString('utf8')
+antes do parser estrito. Esses documentos compõem o grafo que prova comportamento
+nos seis domínios de falha e recuperação.
+
+Correção
+O helper `parse` usa parseStrictJsonBytes para observations/evidence/release, e
+cada raw evidence `content` entra diretamente em parseStrictJsonBytes. UTF-8
+inválido falha antes de substituição; duplicatas continuam rejeitadas.
+
+Garantias preservadas
+- 4 MiB/profundidade 32 para os três documentos raiz;
+- 16 MiB/profundidade 16 para raw fault/recovery evidence;
+- paths raw vêm das observações, não podem apontar ao próprio índice;
+- cada raw document deve ter bytes canônicos exatos e SHA-256 correspondente;
+- seis cenários, decisões, fontes independentes e pares fault/recovery completos;
+- release provenance e configuração imutável vinculadas;
+- roots e todo raw graph são relidos e comparados byte a byte contra TOCTOU;
+- writer mantém locks e instalação imutável/create-once;
+- report é evidence e não autorização de broadcast/fundos.
+
+Testes leves
+- chave duplicada por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige bytes strict para roots e raw graph, sem toString;
+- cenários inseguros, fontes/evidências ausentes/duplicadas/reordenadas, hashes,
+  canonicidade, provenance, config drift e rechecks continuam cobertos;
+- 8/8 testes em ~0,1 s; node --check e git diff --check passaram.
+
+Nenhum RPC, Cargo/Rust, Solidity, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

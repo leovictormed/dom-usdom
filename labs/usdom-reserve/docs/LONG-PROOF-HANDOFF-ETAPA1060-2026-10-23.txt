@@ -1,0 +1,21 @@
+ETAPA 1060 — HANDOFF AUTENTICADO DA PROVA LONGA
+Data: 2026-10-23
+
+Objetivo
+Separar o término da prova longa histórica da autorização para iniciar o novo pipeline. O verificador é somente leitura em relação ao processo e aos artefatos; ele não envia sinais, não reinicia prova e não remove locks ou targets.
+
+Implementação
+`check-long-proof-handoff.py` autentica um run-manifest com PID, start ticks de `/proc`, hash do cmdline, commit/tree, schema e início. Sem terminal, somente a identidade exata do processo permite classificar `active`; PID reutilizado ou registro órfão falha fechado.
+
+Um terminal só é aceito depois que a identidade autenticada deixou de estar ativa. O terminal compromete o hash do run-manifest, exit status e referências hash-addressed para receipt index, status e target. Todos os caminhos devem ser relativos, contidos no run, regulares, diretos e com link count 1. O índice exige receipts únicos, verificados e com conteúdo correspondente. Status, contagem, proof schema e target hash precisam reconciliar ponta a ponta.
+
+Classificações
+- `active`: lock/target não podem ser liberados.
+- `current-complete`: término 0, fonte/tree/schema atuais; pode liberar e é elegível para promoção.
+- `historical-stale`: término 0 autenticado, mas fonte/tree/schema antigos; pode liberar recursos, nunca promover.
+- `failed-stale`: término não zero autenticado; pode liberar recursos, nunca promover.
+
+A receita opcional é criada uma única vez por rename atômico e nunca sobrescrita. Ela declara separadamente `releaseAllowed` e `promotionAllowed`, impedindo que liberação operacional seja confundida com autoridade de release.
+
+Validação
+6/6 testes Node leves passaram: conclusão atual, prova histórica, exit não zero, substituição de cada artefato, processo ativo, PID órfão/reutilizado e terminal prematuro. py_compile e git diff --check passaram. A prova real não foi morta, reiniciada nem alterada; nenhuma rede, push, deploy ou fundo foi usado.

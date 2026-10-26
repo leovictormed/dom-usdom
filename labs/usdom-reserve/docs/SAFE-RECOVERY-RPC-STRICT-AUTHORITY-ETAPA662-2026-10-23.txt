@@ -1,0 +1,41 @@
+ETAPA 662 — AUTORIDADE RPC ESTRITA NO SAFE RECOVERY
+Data: 2026-10-23
+
+Inventário
+Foram examinados wrappers shell de Safe recovery, ratificação de checkpoint e
+relatórios de evento finalizado por pipelines RPC/curl→jq, JSON em here-string
+e respostas RPC mantidas em variável shell. O conjunto autoritativo de maior
+impacto remanescente foi a observação multi-RPC `eth_getTransactionByHash` do
+executor de recuperação: ela decide se a transação previamente assinada deve
+ser publicada ou se já foi vista.
+
+Correção
+Cada resposta agora é escrita diretamente pelo wrapper RPC em arquivo privado
+no tmpfs. O arquivo passa pelo checker estrito (UTF-8 fatal, JSON sem chaves
+duplicadas, arquivo regular owner-only) antes da validação semântica por jq.
+Foi removida a passagem intermediária por command substitution/variável shell,
+que poderia transformar bytes antes da validação.
+
+Propriedades preservadas
+- Todas as fontes RPC continuam consultadas.
+- A resposta só pode ser null ou conter exatamente o transaction hash esperado.
+- Qualquer fonte que veja a transação impede republicação; publicação usa o raw
+  previamente registrado e todos os snapshots/observações prepublish continuam.
+- Proxy privado, timeout, autorização TTY, ledger binding e controles TOCTOU não
+  foram relaxados.
+
+Testes
+- Regra estrutural proíbe `seen=$(rpc rpc eth_getTransactionByHash ...)`, exige
+  redirecionamento direto ao arquivo e checker antes de jq.
+- Chave `hash` duplicada por escape e UTF-8 inválido são rejeitados duas vezes
+  com bytes idênticos.
+- 2/2 testes focados, bash -n e git diff --check passaram.
+
+Inventário residual
+A busca global ainda encontra duas command substitutions equivalentes no
+executor de deployment (`seen` e `transmit_seen`). Elas já chegam a checker por
+arquivo, mas ainda transformam bytes em variável antes dele; devem ser migradas
+na próxima etapa. Nenhum wrapper de ratificação/event report mostrou RPC→jq
+direto neste inventário.
+
+Nenhum RPC, assinatura, transmissão, deploy, prova, fundo, commit ou push ocorreu.

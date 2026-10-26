@@ -1,0 +1,18 @@
+ETAPA 901 — limites estruturais no parsing RPC
+Data: 2026-10-23
+
+Inventário preservado
+- 22 consumers/providers de RPC.
+- 22/22 passam pelo transporte/strict parser compartilhado para respostas JSON-RPC.
+- 22/22 já tinham byte bound, UTF-8 fatal e rejeição de duplicate keys.
+- Depth bound já existia (32 no transporte RPC).
+- Gap compartilhado: 22/22 não possuíam limites independentes de total de nós, largura de objeto/array e tamanho de string após escapes.
+
+Correção
+- `parseStrictJson` agora aceita e valida `maxNodes`, `maxStringBytes`, `maxObjectEntries` e `maxArrayEntries`.
+- A fronteira RPC aplica: 10.000 nós, 4.096 membros por objeto, 4.096 itens por array e string limitada pelo byte budget da resposta.
+- Os limites são independentes do depth/bytes e são aplicados durante o parse, antes da construção integral de estruturas largas.
+- Validações específicas posteriores de quantity, address e hash permanecem inalteradas.
+
+Regressão
+- Vetores adversariais cobrem string, objeto largo, array largo e excesso total de nós, além de um documento válido no boundary.

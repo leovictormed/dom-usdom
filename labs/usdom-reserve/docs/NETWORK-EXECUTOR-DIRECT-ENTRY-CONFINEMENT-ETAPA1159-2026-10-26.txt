@@ -1,0 +1,21 @@
+USDOM — ETAPA 1159 — CONFINAMENTO DA ENTRADA DIRETA DOS EXECUTORES
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+Os executores de implantação dos contratos e recuperação dos Safes limpavam variáveis de injeção, mas ainda descobriam ferramentas pelo `PATH` herdado e aceitavam `HOME`, locale e fuso arbitrários quando chamados diretamente fora do gerador. Isso permitia alterar resolução de binários e interpretação de saídas antes da pinagem.
+
+Implementação
+
+- Ambos fixam o mesmo `PATH` absoluto de produção antes de qualquer `command -v`, sem incorporar o `PATH` do chamador.
+- Locale e fuso ficam fixos em `C/C/UTC` antes de parsing, ferramentas ou RPC.
+- `HOME` precisa coincidir com a conta real do sistema operacional, ser absoluto, direto, pertencer ao UID corrente e rejeitar escrita por grupo/outros.
+- A leitura inicial da conta usa o Node absoluto pinado pela configuração de produção; chamadas operacionais continuam usando os pins completos existentes.
+- O lançamento `setsid` foi mantido em uma linha canônica e continua precedido pelas reatestações de `setsid` e `timeout`.
+
+Validação
+
+- Testes focais de ambiente, pinagem, paridade e lifecycle: 9/9.
+- Suíte ampla de runbook, recovery, proxy e runtime secret: 93/93.
+- Sintaxe Bash e diff-check direcionado aprovados.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

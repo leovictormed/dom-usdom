@@ -1,0 +1,61 @@
+ETAPA 1038 — opaque Ethereum issuance-closure capability
+Date: 2026-10-23
+
+Implemented
+===========
+
+`labs/usdom-ethereum-finality/src/closures.rs` now provides a complete,
+independent verification boundary for `DepositsClosedV2`. It deliberately does
+not construct, import or pass through `VerifiedDeposit`.
+
+The immutable policy pins:
+
+- Ethereum chain ID and Beacon genesis validators root;
+- trusted checkpoint and exact supported fork schedule;
+- reserve address and runtime code hash;
+- reserve configuration hash, native activation schedule and bridge domain;
+- exact Solidity slots for the packed `depositsClosed` flag and
+  `totalDeposited`.
+
+`StaticIssuanceClosureTrustPolicy` holds only immutable inputs. A fresh dynamic
+Beacon slot ceiling must be supplied for every containing DOM block. The policy
+hash commits all immutable identities and the complete Ethereum fork schedule.
+
+Verification boundary
+=====================
+
+The canonical `UDOMCLW1` witness has fixed-width finality fields and bounded
+transcript/evidence components. Decoding rejects truncation, trailing bytes,
+oversized evidence, allocation amplification, unknown JSON fields and any JSON
+encoding that does not reproduce byte-for-byte.
+
+Verification then:
+
+1. restores the light client under the pinned bootstrap/genesis/fork schedule;
+2. enforces the consensus-derived maximum Beacon slot;
+3. authenticates direct finality or a bounded execution ancestry;
+4. verifies receipt inclusion and the exact one-topic closure log;
+5. verifies the reserve post-state account and pinned runtime bytecode;
+6. verifies both storage proofs under that same account storage root;
+7. reads exactly bit 72 of the packed closure slot without confusing adjacent
+   `queueEpoch`, `paused` or `resumeReadyAt` fields;
+8. requires storage `totalDeposited` to equal the full uint256 event word; and
+9. requires event configuration, schedule and domain to equal immutable policy.
+
+Only after all checks does the module construct `VerifiedIssuanceClosure`.
+Every capability field is private. Read-only getters expose the authenticated
+fact, finality identity and policy hash without exposing any constructor.
+
+Tests and gates
+===============
+
+- `packed_closure_flag_is_exact_and_independent_of_neighbor_fields` covers the
+  Solidity packed-bit boundary and adjacent-field contamination.
+- `check-issuance-closure-capability-stage1038.py` enforces the complete proof
+  stack, bounded/canonical decoder, private capability fields, fixed policy and
+  separation from `VerifiedDeposit`.
+- The structural gate, Python syntax, rustfmt and targeted diff checks pass.
+
+Full Cargo execution remains deferred while the independent RISC0 proof is
+active on the resource-constrained host. No network, push, deployment, signing
+or funds were used.

@@ -1,0 +1,6 @@
+ETAPA 753 — Checkpoint segment prover TOCTOU closure
+Date: 2026-10-23
+
+Closed concrete gaps in the future segment runner: Cargo/Node/JQ/cp/env are pinned and rechecked; the verify-only planner reconstructs the snapshotted job index byte-identically; a final manifest covers all six catalogs, selected source inputs, RandomX/economic receipts, resumable segment receipts and segment ELF/BIN/IID immediately before proof. The prior valid completion marker is now retained throughout a failed/long proof and removed only after a complete new private output exists, immediately before receipts are installed; the new verified index remains last.
+
+Validation: focused positive/adversarial structural tests 2/2, bash -n and diff-check pass. No Cargo, proof, active compilation, RPC, commit or push.

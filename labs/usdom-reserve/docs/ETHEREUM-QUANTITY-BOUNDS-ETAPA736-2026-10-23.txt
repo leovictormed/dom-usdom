@@ -1,0 +1,33 @@
+ETAPA736 — canonical bounded Ethereum quantities
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+Receipt, manifest and finalized block numbers were interpolated directly into
+Bash arithmetic. Bash uses signed machine integers, while an attacker-controlled
+hex value can be noncanonical or exceed that range. Overflow/wrap could invert
+a finality comparison.
+
+A shared BigInt parser now accepts only lowercase canonical Ethereum quantity
+encoding (`0x0` or `0x` followed by a nonzero first nibble), bounds values to
+uint64, and returns exact decimal text without JS Number conversion. Its CLI can
+compare a quantity with another canonical uint64 upper bound entirely in
+BigInt.
+
+All receipt-height versus finalized-height checks in initial observation,
+stable recheck, final persistence barrier and partial recovery use this helper.
+Stored finalized anchors and finalized observations are canonicalized before
+use. No untrusted receipt/manifest/finalized quantity participates directly in
+Bash arithmetic.
+
+Verification
+============
+
+- Zero, ordinary and uint64-max positive vectors pass.
+- uint64 overflow, leading zero, uppercase prefix, empty, malformed and
+  lower-bound-greater-than-upper-bound vectors fail.
+- Focused Node tests: 13/13 passed.
+- Bash syntax and `git diff --check`: passed.
+
+No real RPC, signature, deployment, funds action, commit or push occurred.

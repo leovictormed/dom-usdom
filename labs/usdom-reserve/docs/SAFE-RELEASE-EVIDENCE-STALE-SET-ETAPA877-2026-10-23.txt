@@ -1,0 +1,6 @@
+ETAPA 877 — invalidacao do conjunto derivado Safe release evidence
+Data: 2026-10-23
+
+Sob o lock, o fragmento completion marker agora e removido duravelmente primeiro, seguido dos seis reports/bundle derivados. Package, baseline e recovery report externos permanecem intactos como fontes anti-replay. A nova publicacao conserva supporting outputs primeiro e fragmento por ultimo.
+
+Validacao: 1/1 teste, sintaxe Bash e diff-check. Sem RPC/build.

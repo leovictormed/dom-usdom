@@ -1,0 +1,37 @@
+Stage 464 — finalized-burn release EVM receipt binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The release-specific finalized-burn E2E report stored EVM acceptance and gas
+without committing the isolated Anvil transaction receipt. Consequently, its
+transaction/block provenance could be replaced independently of the derived
+result.
+
+Remediation
+===========
+
+E2E report schema v4 requires a canonical
+`usdom-finalized-burn-release-evm-receipt-v1` transcript. It binds transaction
+hash, block hash and block number to the release adapter, its runtime and
+configuration hashes, the finalized-burn statement, EVM-seal SHA-256 and gas.
+The release executor creates it directly from the successful receipt and exact
+verified call inputs, writes the exact transcript bytes and reports their hash.
+Semantic validation independently reconstructs the transcript, requires hash
+uniqueness, and rejects legacy schema and every tested substitution.
+
+Evidence boundary
+=================
+
+`production_finalized_burn_release_evm_receipt_bound_to_e2e_report` and the v4
+schema enforcement are structural facts. They do not claim a live release run.
+No network, signing, deployment, funds, mining, commit or push occurred.
+
+Validation
+==========
+
+- Changed Node modules pass syntax checks.
+- Focused release-executor tests pass 2/2.
+- JSON and diff checks pass.
+- Full readiness passes 60/60 after the UDFINL04 build released resources.

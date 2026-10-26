@@ -1,0 +1,27 @@
+ETAPA 643 — status terminal fail-closed do build RandomX fixado
+Data: 2026-10-23
+
+Problema confirmado
+===================
+O build runner v1 gravava status=failed quando o Cargo retornava erro, mas falhas posteriores — mudança do grafo de fontes, cópia/instalação do binário, fsync ou escrita final — podiam encerrar o serviço deixando build-status.json em status=building. O exit code do systemd ainda denunciaria a falha, porém o registro persistente ficaria ambíguo e poderia induzir espera indefinida.
+
+Correção preparada
+==================
+Foi criado o runner privado futuro:
+
+  /home/leonardov/.local/share/dom-usdom/prover-inputs/udfinl04-pinned/randomx-proof-run/build-runner-v2.sh
+
+SHA-256:
+  92882e43f3735aa1d419e1ac6dedc28ef80cd052ad0044786fdf26c229097229
+
+A versão v2 instala um trap EXIT depois do primeiro status building. Qualquer saída não zero subsequente grava atomicamente status=failed com exitCode, horários e os hashes fixados de fonte, Cargo.lock e artefato de recursão. O status succeeded continua sendo gravado apenas depois de instalar e sincronizar o binário; o trap é então desarmado logicamente por build_terminal=1.
+
+Validação
+=========
+- bash -n build-runner-v2.sh: aprovado.
+- Revisão estática confirma que a divergência do grafo sai com 79 e passa pelo gravador terminal.
+- Revisão estática confirma que erros Cargo e erros de instalação também passam pelo trap.
+
+A compilação já ativa continua usando o arquivo v1 aberto pelo serviço e não foi alterada ou reiniciada. O v2 é destinado a uma reconstrução futura. O systemd e o hash do binário permanecem as autoridades para a execução atual.
+
+Nenhum commit, push, deploy, prova, assinatura, RPC, transação ou fundo foi usado.

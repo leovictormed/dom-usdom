@@ -1,0 +1,18 @@
+{
+  "schema": "usdom-native-release-facts-v1",
+  "nativeEthereumTrustedCheckpoint": null,
+  "domDomain": null,
+  "activationScheduleCommitment": null,
+  "checkpointDomNetworkMagic": null,
+  "checkpointDomChainId": null,
+  "checkpointFirstV4Height": null,
+  "checkpointActivationEmptyStateRoot": null,
+  "checkpointIntervalBlocks": null,
+  "checkpointConfirmationDepthBlocks": null,
+  "checkpointChallengePeriodSeconds": null,
+  "checkpointInitialHeight": null,
+  "checkpointInitialBlock": null,
+  "checkpointInitialStateRoot": null,
+  "checkpointInitialContextHash": null,
+  "checkpointInitialTotalDifficulty": null
+}

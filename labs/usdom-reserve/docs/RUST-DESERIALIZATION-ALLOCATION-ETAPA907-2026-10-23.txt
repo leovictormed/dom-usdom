@@ -1,0 +1,13 @@
+ETAPA 907 — desserialização e alocação controlada por input
+
+Escopo: 59 fontes Rust `dom-usdom-*`, sem diretórios tests/target. A busca ampla de counts/lengths/loops gerou 2.079 candidatos em 57 arquivos. O conjunto focado (`Vec::with_capacity`, `serde_json::from_slice`, bincode `deserialize` e chamadas `from_bytes`) contém 673 ocorrências em 39 arquivos: 421 produção e 252 testes. Produção: 140 alocações, 30 fronteiras serde/bincode e 251 chamadas/implementações `from_bytes`; 89 alocações têm count/len/length/total explícito na expressão imediata.
+
+Critérios revisados: tamanho máximo antes do parser, count máximo, aritmética `checked_add/checked_mul`, bytes mínimos restantes antes de reservar, loops limitados, serde/bincode com limite/trailing rejeitado quando usado para receipts, consumo integral e re-encode canônico nos formatos de consenso/snapshot. JSON de RPC parte de bodies limitados e mantém o limite de recursão do serde; índices validam counts, nomes, duplicatas e coerência antes dos loops de arquivo.
+
+Maior gap confirmado: `parse_envelope` e `parse_native_witnesses` em `portable.rs` limitavam count a 1.024, mas reservavam `Vec::with_capacity(count)` antes de provar que o payload continha sequer todos os headers/length prefixes. Um payload mínimo truncado podia forçar a reserva máxima antes de falhar.
+
+Correção: o envelope calcula com overflow checks `base + count * ENTRY_HEADER_BYTES`; witnesses calcula `base + count * 4`. Ambos rejeitam `bytes.len() < minimum` antes da alocação. Os limites individuais de payload, cursor checked, consumo integral e validação por tipo permanecem.
+
+Estado final: 421/421 ocorrências de produção classificadas; 140/140 alocações revisadas, incluindo 89 count/length-driven; 30/30 serde/bincode boundaries com bytes limitados e canonicidade adequada ao formato; 2/2 allocation-before-minimum gaps corrigidos; 0 gaps confirmados pendentes neste escopo.
+
+Validação leve: regressões estruturais 2/2, `rustfmt --check` e `git diff --check` aprovados. Nenhum Cargo build, prova ou RPC foi executado.

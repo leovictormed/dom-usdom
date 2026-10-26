@@ -1,0 +1,35 @@
+ETAPA 806 — aggregate readiness tests and Safe bundle snapshot integration
+Date: 2026-10-23
+
+Finding
+
+The aggregate configured/unconfigured readiness and preflight suites passed, but
+an inventory of the real readiness checker found a consumer integration gap.
+`safeRecoveryFinalEvidenceBundle` was mandatory in the release schema and pure
+assessment, yet `check-mainnet-readiness.mjs` omitted it from the document list
+snapshotted into `evidenceFileBytes`. Its later strict parser therefore always
+received no bytes. A genuinely configured run would fail as if the bundle were
+missing even when its path and SHA-256 were correct.
+
+Correction
+
+- Added the final Safe recovery bundle to the checker's hash-addressed document
+  snapshot list before any semantic parsing.
+- The existing strict parser now consumes the exact bytes whose SHA-256 was
+  recorded, preserving the direct-file and single-snapshot boundary.
+- Added a structural regression requiring both snapshot admission and semantic
+  parsing of that evidence slot.
+
+Blocker inventory
+
+- The unconfigured checked-in candidate remains deliberately blocked on real
+  operator decisions, signatures, deployment evidence and funding authority.
+- No additional schema/evidence defect was observed in the aggregate suites.
+- The fixed gap was an implementation blocker for configured readiness, not a
+  decision or funds blocker.
+
+Validation
+
+- Initial aggregate readiness/preflight/release-schema suite: 70/70 pass.
+- Post-fix focused plus aggregate suite: 76/76 pass.
+- No RPC, build, deployment, signature, commit, push or funds operation ran.

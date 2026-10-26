@@ -1,0 +1,39 @@
+CLOSED MAINNET REDEMPTION — ETAPA1036
+
+Scope
+-----
+This is the complete command path for the operator-owned one-USDOM private burn and
+USDT redemption. Every program fails closed. The commands do not contain editable
+fields. The final executor starts with broadcast disabled in the authenticated
+package and asks separately before each Ledger signature and each publication.
+
+Commands (run sequentially from the project directory)
+------------------------------------------------------
+cd /home/leonardov/usdom-security-audit-20261015/implementation-dom-protocol/labs/usdom-reserve
+npm run --silent prepare:closed-mainnet-private-burn
+npm run --silent submit:closed-mainnet-private-burn
+npm run --silent export:canonical-finalized-burn-source
+npm run --silent plan:authenticated-finalized-burn
+npm run --silent prove:authenticated-finalized-burn
+npm run --silent package:authenticated-finalized-burn-evm-proof
+npm run --silent prepare:authenticated-finalized-burn-submission
+npm run --silent execute:closed-mainnet-redemption
+
+Operational meaning
+-------------------
+The first two commands create and admit a private native burn of exactly 1,000,000
+base units. Export refuses a noncanonical/non-finalized checkpoint source. Planning,
+proving and packaging bind the burn, finalized DOM checkpoint, Ethereum anchor,
+RISC Zero image and 260-byte Groth16 seal. The submission materializer emits exact
+queueWithdrawal calldata with broadcastAuthorized=false.
+
+The executor recomputes the canonical two-transaction plan: queueWithdrawal and
+executeWithdrawal. It binds chain 1, reserve, recipient, burnId, requestId, calldata,
+zero value, nonce, type-2 fees and gas caps. It refuses execution before readyAt;
+the operator reruns the same command after the delay. Existing signed material and
+receipts are revalidated, so interruption is retry-safe. Every receipt must agree
+on two independent RPCs and be included below both finalized heads. paidBurns and
+paidRequests must then be true. Only after all checks does the output-last execution
+evidence appear.
+
+No command above was run by ETAPA1036 against a network, signer, deployment or funds.

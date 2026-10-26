@@ -1,0 +1,31 @@
+USD0M stage 527 — finalized-burn capacity source-metric snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The finalized-burn capacity runner selected a successful proof run early but
+reopened its `time.log` only after compression, runtime observation and isolated
+EVM execution. Replacement could make the capacity report combine proof
+artifacts and resource metrics from different source-run generations.
+
+Correction
+==========
+
+Immediately after the source run is fixed and the capacity run is marked
+running, its bounded private metric log is durably copied into the capacity
+run's owner-only input snapshot. The installed copy is reread for exact byte and
+SHA-256 equality, and report metrics are parsed only from that captured buffer.
+After isolated EVM execution and before validation/publication, the original log
+is reread and must still match captured bytes and hash. The report remains
+durable before the succeeded completion marker.
+
+Evidence and scope
+==================
+
+A direct adversarial test snapshots a source metric log, replaces the origin,
+and proves the final check rejects it. Structural tests retain adapter snapshot
+and output-last guarantees. Readiness requires
+`production_finalized_burn_capacity_source_metrics_snapshotted_and_origin_rechecked=true`.
+No proof, Anvil, network, signing, deployment, funds operation, commit or push
+was run.

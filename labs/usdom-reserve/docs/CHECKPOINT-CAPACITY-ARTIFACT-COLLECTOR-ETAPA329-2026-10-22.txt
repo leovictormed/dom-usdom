@@ -1,0 +1,47 @@
+USD + DOM — coletor autenticado da capacidade de checkpoint
+Etapa 329 — 2026-10-22
+
+Problema encerrado
+
+O materializador da etapa 328 aceitava registros medidos em memória, mas ainda
+faltava a fronteira que os obtém do grafo real de artefatos gravado pelos
+provers. Sem essa fronteira, um executor futuro poderia montar um relatório
+semanticamente válido com hashes digitados ou com um recibo diferente daquele
+declarado no índice do prover.
+
+Implementação
+
+- O coletor lê as seis camadas na ordem canônica: RandomX, agregação RandomX,
+  chunk econômico, bloco econômico, segmento e composição externa.
+- Cada índice tem esquema e campos exatos. Versão RISC Zero, ImageID, modo
+  não-dev, recibo succinct, execução de prova e ausência de mineração são
+  verificados.
+- Índices de jobs, recibos e journals são vinculados por SHA-256, tamanho,
+  posição e nome canônico. O arquivo real precisa coincidir com o índice.
+- A composição externa é vinculada ao programa e ImageID configurados na
+  release e ao statement de checkpoint exato.
+- Diretórios e arquivos precisam pertencer ao usuário, não podem ser links
+  simbólicos e os artefatos privados não podem ter permissão de grupo ou mundo.
+- Tempo e pico de memória das fases externas são recebidos como métricas
+  canônicas; as duas fases econômicas usam medições emitidas pelo próprio host.
+
+Correção descoberta durante a integração
+
+O produtor do índice econômico omitia block_height nos registros de chunk,
+embora o consumidor de segmento exigisse esse campo. O host agora grava a
+altura e também separa tempo e pico de memória das fases chunk e bloco. O
+verificador estrutural exige que produtor e consumidor continuem com o mesmo
+esquema.
+
+Validação
+
+O teste do coletor passa 2/2 e inclui substituição de recibo, campo JSON extra e
+permissões públicas. Os testes do materializador, compromisso de conjuntos e
+parser de recursos passam mais 6/6. Nenhum recibo operacional foi promovido:
+os fatos de execução, custo e gas permanecem falsos até as provas reais.
+
+Próxima etapa
+
+Ligar coletor e materializador a um executor fixo que cria uma árvore limpa,
+executa cada prover local não-dev com um worker, comprime o recibo externo,
+verifica-o em EVM local e grava o relatório hash-bound da release.

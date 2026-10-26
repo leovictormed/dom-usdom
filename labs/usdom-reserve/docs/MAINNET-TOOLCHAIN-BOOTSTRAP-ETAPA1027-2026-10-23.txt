@@ -1,0 +1,50 @@
+ETAPA1027 — mainnet toolchain bootstrap and reproducibility
+Date: 2026-10-23
+
+Findings fixed
+--------------
+- Prerequisites printed versions but did not bind executable bytes or symlink
+  targets. A same-version replacement or PATH shadow could pass.
+- Rust selected the moving `stable` alias without locking the actual compiler
+  bytes. The selector remains compatible with the installed layout, while the
+  lock now pins the actual stable rustc/cargo binaries and records 1.98.0.
+- `npm ci` could access the registry and run dependency lifecycle scripts.
+- Foundry could fetch solc implicitly during a build.
+
+Implementation
+--------------
+`config/mainnet-toolchain-lock.json` pins absolute and resolved paths, SHA-256
+and expected versions for Node, npm, forge, cast, rustc, cargo, Python and jq;
+it also pins package-lock.json, Cargo.lock and foundry.toml. The checker hashes
+local bytes only and never invokes a shim, package manager or downloader.
+
+Generated phases use a closed PATH with the actual installed Rust toolchain,
+and set npm offline/audit-off/scripts-off, Cargo offline and Foundry offline.
+Local validation uses `npm ci --offline --ignore-scripts --audit=false` and
+Cargo already uses `--locked`.
+
+Solc status
+-----------
+Solc 0.8.37 is not currently pre-staged at the pinned Foundry path. The lock
+therefore intentionally has a null solc hash and the prerequisite gate fails
+closed. The runbook contains a complete, separate bootstrap command that may
+download it before a ceremony, followed by a public sha256sum command. The
+operator returns that line and the project lock is then updated; no manual
+field editing is requested. No ceremony can begin while the hash is null.
+
+During validation, an early checker revision executed the rustup shim after an
+exact channel edit; rustup attempted component synchronization. This proved the
+implicit-download risk. The checker was changed to hash files without executing
+shims, the compatible stable selector restored, and all ceremony environments
+made offline. No downloaded artifact is trusted by this stage.
+
+Validation
+----------
+- Toolchain byte checker validates the eight installed base tools and three
+  project lock/config files, then fails exactly at the missing solc hash.
+- Pinned Node generator regression passes 1/1.
+- Generator Bash syntax and focused diff-check pass.
+
+No secret, hardware operation, signature, deployment, broadcast, push or funds
+operation was performed. No dependency/bootstrap download was intentionally
+performed as part of the final validation.

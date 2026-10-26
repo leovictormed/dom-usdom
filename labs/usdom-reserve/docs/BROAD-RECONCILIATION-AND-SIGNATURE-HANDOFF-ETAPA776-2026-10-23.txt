@@ -1,0 +1,23 @@
+ETAPA 776 — broad reconciliation and ratification signature handoff
+Date: 2026-10-23
+
+Structural reconciliation
+- Updated finalized-deployment barrier/recovery assertions to require `assert_cmp_unchanged; "$cmp_bin" -s` and reject literal unpinned cmp.
+- Updated deployment and Safe recovery assertions for current pinned sha256/flock/cmp forms, rejecting literal unsafe forms.
+- Repaired malicious deployment JSON fixture without linking generic mutable workspace dependencies: malformed package bytes execute the canonical project preparer and fail before catalog access; observation parser-boundary vectors use the approved strict-json module directly. The attacker-controlled input is no longer named package.json, preventing Node from interpreting it as an ancestor package manifest.
+
+Signature handoff correction
+The checkpoint bootstrap signer installed `ratification-signature.hex` before its required SHA sidecar. A crash between writes created a create-once signature without its required hash and prevented retry.
+- SHA sidecar is now installed/read back first.
+- A pre-existing SHA-only crash prefix is accepted only as a direct owner-only 0600 file whose bytes exactly match the newly generated signature hash.
+- A mismatched sidecar fails before signature publication.
+- Signature is installed last and exact-read back as the completion artifact.
+- Existing input snapshots and cast/node/jq/cmp identity rechecks remain immediately before authority transitions.
+
+Validation
+Exact broad command:
+PATH=/usr/lib/chatgpt/resources/cua_node/bin:/home/leonardov/.foundry/bin:/home/leonardov/.cargo/bin:/home/leonardov/.local/bin:/usr/local/bin:/usr/bin:/bin node --test test/node/mainnet-deployment-execution.test.mjs test/node/deployment-package.test.mjs test/node/deployment-executor-tool-pinning.test.mjs test/node/operator-runbook.test.mjs
+Result: 103 tests, 103 passed, 0 failed.
+Focused checkpoint ratification + deployment suite: 16/16 passed.
+bash -n signer: passed. git diff --check: passed.
+No RPC, signing, broadcast, proof, Cargo or funds operation ran.

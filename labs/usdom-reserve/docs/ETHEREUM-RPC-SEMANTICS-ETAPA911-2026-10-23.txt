@@ -1,0 +1,22 @@
+ETAPA 911 — semântica Ethereum no transporte RPC
+Data: 2026-10-23
+
+Cobertura dos 22 consumers/providers
+- 22/22 usam static network Ethereum mainnet e agora rejeitam no transporte qualquer `eth_chainId` diferente de `0x1`.
+- Consumers de autoridade estabelecem snapshot finalizado; após o pin, code/storage/call/balance/nonce/estimateGas só aceitam o número pinado (pending nonce é a exceção explícita já auditada).
+- Receipts/transações nos fluxos de deployment e Safe continuam ligados por tx hash, block hash/number, status, sender, target e calldata nos validadores específicos.
+- Collectors críticos mantêm reread/double-read e consenso entre 2..5 RPCs.
+
+Gap compartilhado corrigido
+- O provider guardava block number/hash pinados, mas não verificava que `eth_getBlockByNumber` devolvia essa mesma identidade.
+- Resposta ao número pinado agora exige quantity/hash canônicos, número exato e hash exato.
+- Resposta móvel `finalized` após o pin não pode regredir; se ficar na mesma altura, o hash deve permanecer igual.
+- Uma resposta numérica que alegue outra altura falha fechada antes do consumer.
+
+Limites
+- A primeira leitura `finalized`, anterior ao pin, continua sendo validada e cruzada pelo collector; o transporte não pode conhecer o hash esperado antes dessa coleta.
+- Finalidade Ethereum e independência dos RPCs permanecem premissas externas, mitigadas por pin/reread/quórum.
+
+Validação
+- ChainId divergente, hash alterado na mesma altura, finalized regressivo e resposta numérica em altura errada; avanço finalizado válido permanece aceito.
+- Suíte RPC + Safe deployment/observation: 33/33.

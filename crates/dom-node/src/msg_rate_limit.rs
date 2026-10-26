@@ -21,6 +21,11 @@ use dom_wire::message::Command;
 /// (sync/relay) are policed responsively.
 pub const RATE_WINDOW_SECS: u64 = 10;
 
+/// Longest test window accepted by a production-linked binary. A longer
+/// window is stricter, but bounding it prevents accidental near-permanent
+/// throttling and retains the integration test's one-hour window.
+const MAX_TEST_RATE_WINDOW_SECS: u64 = 60 * 60;
+
 /// Cheap, O(1) messages: Ping, Pong, and the ignored-by-default commands
 /// (Inv, Headers, GetBlock). Honest peers send ~1 Ping + 1 Pong / 30s
 /// (`PING_INTERVAL_SECS`), i.e. ~0.07/s — so 5/s is ~70x headroom.
@@ -39,6 +44,13 @@ pub const TX_PER_WINDOW: u32 = 600;
 /// by PoW cost and the duplicate-relay window.
 pub const BLOCK_PER_WINDOW: u32 = 600;
 
+/// Proof-bearing native USDOM packages can approach the wire ceiling and run
+/// expensive consensus/proof validation. Keep their budget independent from
+/// ordinary PoW block catch-up so an authenticated peer cannot spend the
+/// generous block-relay allowance on hundreds of proof packages.
+#[cfg(feature = "native-usdom-v4-poc")]
+pub const NATIVE_USDOM_PER_WINDOW: u32 = 8;
+
 /// Delay applied to excess synchronization traffic before dropping the
 /// over-budget message. This paces a queued burst without converting an honest
 /// IBD/catch-up flow into peer reputation damage.
@@ -56,6 +68,9 @@ pub enum RateCategory {
     Tx,
     /// Block.
     Block,
+    /// Proof-bearing native USDOM V1/V2 package.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    NativeUsdom,
 }
 
 /// Result of observing one inbound message.
@@ -85,7 +100,9 @@ pub fn category_for(cmd: Command) -> Option<RateCategory> {
         Command::Tx => Some(RateCategory::Tx),
         Command::Block => Some(RateCategory::Block),
         #[cfg(feature = "native-usdom-v4-poc")]
-        Command::UsdomV4Package | Command::UsdomV2Package => Some(RateCategory::Block),
+        Command::UsdomV4Package | Command::UsdomV2Package => Some(RateCategory::NativeUsdom),
+        #[cfg(feature = "native-usdom-v4-poc")]
+        Command::SyncTip => Some(RateCategory::Cheap),
         Command::Hello | Command::GetAddr | Command::Addr => None,
     }
 }
@@ -105,6 +122,9 @@ pub struct RateLimitConfig {
     pub tx: u32,
     /// Per-window budget for [`RateCategory::Block`].
     pub block: u32,
+    /// Per-window budget for proof-bearing native USDOM packages.
+    #[cfg(feature = "native-usdom-v4-poc")]
+    pub native_usdom: u32,
 }
 
 impl Default for RateLimitConfig {
@@ -115,6 +135,8 @@ impl Default for RateLimitConfig {
             sync: SYNC_PER_WINDOW,
             tx: TX_PER_WINDOW,
             block: BLOCK_PER_WINDOW,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            native_usdom: NATIVE_USDOM_PER_WINDOW,
         }
     }
 }
@@ -124,11 +146,21 @@ impl RateLimitConfig {
     pub fn from_env() -> Self {
         let d = Self::default();
         Self {
-            window_secs: env_override("DOM_TEST_RATELIMIT_WINDOW_SECS", d.window_secs),
-            cheap: env_override("DOM_TEST_RATELIMIT_CHEAP", d.cheap as u64) as u32,
-            sync: env_override("DOM_TEST_RATELIMIT_SYNC", d.sync as u64) as u32,
-            tx: env_override("DOM_TEST_RATELIMIT_TX", d.tx as u64) as u32,
-            block: env_override("DOM_TEST_RATELIMIT_BLOCK", d.block as u64) as u32,
+            window_secs: bounded_test_window_override(
+                "DOM_TEST_RATELIMIT_WINDOW_SECS",
+                d.window_secs,
+            ),
+            cheap: bounded_test_budget_override("DOM_TEST_RATELIMIT_CHEAP", u64::from(d.cheap))
+                as u32,
+            sync: bounded_test_budget_override("DOM_TEST_RATELIMIT_SYNC", u64::from(d.sync)) as u32,
+            tx: bounded_test_budget_override("DOM_TEST_RATELIMIT_TX", u64::from(d.tx)) as u32,
+            block: bounded_test_budget_override("DOM_TEST_RATELIMIT_BLOCK", u64::from(d.block))
+                as u32,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            native_usdom: bounded_test_budget_override(
+                "DOM_TEST_RATELIMIT_NATIVE_USDOM",
+                u64::from(d.native_usdom),
+            ) as u32,
         }
     }
 
@@ -138,15 +170,47 @@ impl RateLimitConfig {
             RateCategory::Sync => self.sync,
             RateCategory::Tx => self.tx,
             RateCategory::Block => self.block,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            RateCategory::NativeUsdom => self.native_usdom,
         }
     }
 }
 
-fn env_override(key: &str, default: u64) -> u64 {
-    std::env::var(key)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
+fn bounded_test_budget_override(key: &str, production_default: u64) -> u64 {
+    let text = std::env::var(key).ok();
+    parse_bounded_test_override(text.as_deref(), 1, production_default, production_default)
+}
+
+fn bounded_test_window_override(key: &str, production_default: u64) -> u64 {
+    let text = std::env::var(key).ok();
+    parse_bounded_test_override(
+        text.as_deref(),
+        production_default,
+        MAX_TEST_RATE_WINDOW_SECS,
+        production_default,
+    )
+}
+
+/// Test knobs are linked into the production binary, so they must only make
+/// admission stricter. Requiring canonical decimal form also rejects padded,
+/// signed and whitespace-surrounded values that are easy to set accidentally.
+fn parse_bounded_test_override(text: Option<&str>, min: u64, max: u64, fallback: u64) -> u64 {
+    let Some(text) = text else {
+        return fallback;
+    };
+    let Some(first) = text.as_bytes().first() else {
+        return fallback;
+    };
+    if !first.is_ascii_digit()
+        || (text.len() > 1 && *first == b'0')
+        || !text.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return fallback;
+    }
+    match text.parse::<u64>() {
+        Ok(value) if (min..=max).contains(&value) => value,
+        _ => fallback,
+    }
 }
 
 /// One fixed-window counter. Same worst-case as `AddrFloodTracker`: a burst
@@ -183,6 +247,8 @@ pub struct MessageRateLimiter {
     sync: Window,
     tx: Window,
     block: Window,
+    #[cfg(feature = "native-usdom-v4-poc")]
+    native_usdom: Window,
 }
 
 impl MessageRateLimiter {
@@ -199,6 +265,8 @@ impl MessageRateLimiter {
             sync: Window::default(),
             tx: Window::default(),
             block: Window::default(),
+            #[cfg(feature = "native-usdom-v4-poc")]
+            native_usdom: Window::default(),
         }
     }
 
@@ -244,6 +312,8 @@ impl MessageRateLimiter {
             RateCategory::Sync => &mut self.sync,
             RateCategory::Tx => &mut self.tx,
             RateCategory::Block => &mut self.block,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            RateCategory::NativeUsdom => &mut self.native_usdom,
         };
         let (allowed, first_excess) = slot.observe_at(now, limit, window);
         if allowed {
@@ -289,12 +359,12 @@ mod tests {
         #[cfg(feature = "native-usdom-v4-poc")]
         assert_eq!(
             category_for(Command::UsdomV4Package),
-            Some(RateCategory::Block)
+            Some(RateCategory::NativeUsdom)
         );
         #[cfg(feature = "native-usdom-v4-poc")]
         assert_eq!(
             category_for(Command::UsdomV2Package),
-            Some(RateCategory::Block)
+            Some(RateCategory::NativeUsdom)
         );
         // Excluded: handled elsewhere / self-terminating.
         assert_eq!(category_for(Command::Hello), None);
@@ -316,6 +386,24 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "native-usdom-v4-poc")]
+    #[test]
+    fn proof_packages_have_a_tight_budget_independent_of_blocks() {
+        let mut rl = limiter();
+        for i in 0..NATIVE_USDOM_PER_WINDOW {
+            assert!(
+                rl.allow_at(Command::UsdomV2Package, 1_000),
+                "native package #{i} must pass"
+            );
+        }
+        assert!(!rl.allow_at(Command::UsdomV4Package, 1_000));
+        assert!(
+            rl.allow_at(Command::Block, 1_000),
+            "native proof traffic must not consume ordinary block catch-up budget"
+        );
+        assert!(rl.allow_at(Command::UsdomV4Package, 1_000 + RATE_WINDOW_SECS));
+    }
+
     #[test]
     fn window_resets_after_window_secs() {
         let mut rl = limiter();
@@ -335,6 +423,8 @@ mod tests {
             sync: 1,
             tx: 1,
             block: 1,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            native_usdom: 1,
         });
         assert_eq!(
             limiter.check_at(Command::GetBlockData, false, 1_000),
@@ -359,6 +449,8 @@ mod tests {
             sync: 1,
             tx: 1,
             block: 1,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            native_usdom: 1,
         });
         assert_eq!(
             limiter.check_at(Command::Block, true, 1_000),
@@ -381,6 +473,8 @@ mod tests {
             sync: 1,
             tx: 1,
             block: 1,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            native_usdom: 1,
         });
         assert_eq!(
             limiter.check_at(Command::Pong, false, 1_000),
@@ -495,5 +589,38 @@ mod tests {
             !rl.allow_at(Command::Block, 1_000),
             "overflow at the overridden budget"
         );
+    }
+
+    #[test]
+    fn test_overrides_cannot_disable_or_weaken_rate_limits() {
+        assert_eq!(parse_bounded_test_override(None, 1, 10, 10), 10);
+        assert_eq!(parse_bounded_test_override(Some("1"), 1, 10, 10), 1);
+        assert_eq!(parse_bounded_test_override(Some("10"), 1, 10, 10), 10);
+
+        for invalid in [
+            "",
+            "0",
+            "00",
+            "01",
+            "+1",
+            "-1",
+            " 1",
+            "1 ",
+            "11",
+            "18446744073709551616",
+        ] {
+            assert_eq!(
+                parse_bounded_test_override(Some(invalid), 1, 10, 10),
+                10,
+                "{invalid:?} must retain the production limit"
+            );
+        }
+
+        assert_eq!(
+            parse_bounded_test_override(Some("3600"), 10, 3600, 10),
+            3600
+        );
+        assert_eq!(parse_bounded_test_override(Some("1"), 10, 3600, 10), 10);
+        assert_eq!(parse_bounded_test_override(Some("3601"), 10, 3600, 10), 10);
     }
 }

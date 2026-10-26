@@ -106,11 +106,15 @@ impl PeerScorer {
         local_timestamp: u64,
         peer_timestamp: u64,
     ) -> PeerAction {
-        let drift = (local_timestamp as i64 - peer_timestamp as i64).abs();
-        if drift > dom_core::PEER_DRIFT_DISCONNECT_SECS {
+        // Both values cross an untrusted wire boundary as `u64`.  Narrowing
+        // them to `i64` first can wrap an extreme peer timestamp and can make
+        // a grossly invalid clock appear close to ours (or overflow on
+        // subtraction).  `abs_diff` is total across the complete wire domain.
+        let drift = local_timestamp.abs_diff(peer_timestamp);
+        if drift > dom_core::PEER_DRIFT_DISCONNECT_SECS as u64 {
             return PeerAction::Disconnect(format!("clock drift: {}s", drift));
         }
-        if drift > dom_core::PEER_DRIFT_WARN_SECS {
+        if drift > dom_core::PEER_DRIFT_WARN_SECS as u64 {
             self.bad_behavior(peer_id, Severity::Moderate);
             return PeerAction::Warn(format!("clock drift: {}s", drift));
         }
@@ -189,5 +193,15 @@ mod tests {
         // drift = 100s > PEER_DRIFT_DISCONNECT_SECS (90s)
         let action = scorer.evaluate_peer_drift("peer1", 1000, 1100);
         assert!(matches!(action, PeerAction::Disconnect(_)));
+    }
+
+    #[test]
+    fn peer_drift_extreme_u64_never_wraps_or_panics() {
+        let mut scorer = PeerScorer::new(3600);
+        let action = scorer.evaluate_peer_drift("peer1", 0, u64::MAX);
+        assert_eq!(
+            action,
+            PeerAction::Disconnect(format!("clock drift: {}s", u64::MAX))
+        );
     }
 }

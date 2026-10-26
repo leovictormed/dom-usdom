@@ -1,0 +1,13 @@
+ETAPA1061 — WALLET BINARY PARENT IDENTITY
+Date: 2026-10-23
+
+The ETAPA1060 file check did not reject a symlinked or concurrently replaced
+target/release parent. Both credential-bearing workflows now require canonical
+realpaths, owner-controlled non-writable parent directories and stable parent
+device/inode/owner/mode through every executable invocation. File identity and
+SHA-256 checks remain in force.
+
+Evidence: explicit Node wallet boundary tests 3/3; both scripts pass bash -n.
+Broad mainnet readiness remained green: 62/62 passed. Gate:
+python3 labs/usdom-reserve/scripts/check-wallet-binary-parent-stage1061.py
+No build, network, deployment, signing, push, secrets or funds.

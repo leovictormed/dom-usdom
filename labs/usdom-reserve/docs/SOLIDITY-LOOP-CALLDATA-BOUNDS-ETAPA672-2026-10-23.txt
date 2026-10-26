@@ -1,0 +1,77 @@
+Stage 672 — Solidity loop, calldata and numeric-bound audit (2026-10-23)
+
+Scope
+
+Audited all production Solidity loops, dynamic arrays, calldata lengths,
+narrowing casts, timestamps, bucket arithmetic and external return buffers in
+`USDOMReserve`, `USDOMProofReserve`, `DOMCheckpointRegistry` and both RISC Zero
+adapters. The review covered zero/MAX/over-MAX counts, duplicates, malformed or
+oversized signature/proof elements and state-change atomicity.
+
+Confirmed defect
+
+The prototype reserve validated a 16-notary maximum inside
+`_validateNotaries(address[] memory)`. In `proposeNotaries`, Solidity could copy
+an arbitrarily large calldata array to memory before reaching that validation.
+In permissionless `executeNotaries`, the contract could additionally ABI-encode
+and hash an arbitrarily large caller-selected array before rejecting a mismatch.
+Neither path could corrupt state, bypass governance or install an invalid set,
+but their work was not bounded at the state-changing ABI boundary.
+
+Correction
+
+Both rotation entrypoints now reject fewer than 3 or more than 16 signers while
+the input is still calldata. Only a bounded array can reach calldata-to-memory
+conversion, ABI encoding, hashing, validation, installation or event encoding.
+The internal validation retains its own redundant bound.
+
+Bound inventory
+
+- Quorum verification iterates exactly `threshold`, and threshold is derived
+  only from a validated 3..16 notary set. Emergency revocation and installation
+  iterate the same maximum-16 active set. ECDSA rejects non-64/65-byte elements
+  without iterating their contents.
+- Queue pruning accepts 1..256 operations. Duplicate/unknown IDs are skipped;
+  linked-list removal is O(1). Queue admission/execution/discard is O(1), and
+  pending counts/amounts are bounded by uint64-denominated credited collateral.
+- Proof calldata is exactly 260 bytes at reserve, registry and adapter borders.
+  The reserve and registry verifier calls use a 5,000,000-gas cap and copy one
+  return word. Adapter receipt calls target one immutable codehash-pinned RISC
+  Zero verifier, copy no returndata and are view-only; selector reads are capped
+  at 50,000 gas and one word.
+- Safe owner decoding accepts exactly three owners and exactly 160 returned
+  bytes. Threshold, module, guard, fallback and singleton probes have 50,000-gas
+  caps and fixed 32/96-byte output buffers. No returned dynamic count drives a
+  loop or allocation.
+- The checkpoint registry stores one replaceable candidate, not caller-grown
+  history, and has no runtime loop. Height addition is widened to uint256 before
+  comparison with uint64. The next checkpoint becomes invalid before narrowing.
+- Timestamp narrowing is explicit and checked. Capacity, amount and delays are
+  bounded uint64 values; refill multiplication occurs only while elapsed is less
+  than one day. Solidity checked arithmetic fails closed on unreachable epoch,
+  checkpoint-count or lifetime accounting exhaustion.
+- ERC-20 calls remain capped at 500,000 gas with at most one copied word; exact
+  balance and transfer response sizes are enforced as documented in stages 661
+  and 665.
+
+Material regression
+
+`testStateChangingDynamicInputsAreBoundedBeforeIteration` proves that a
+17-address governance proposal is rejected without creating a proposal, a
+17-address permissionless execution attempt cannot consume the valid pending
+proposal, a 17-signature withdrawal is rejected, and a 4 KiB malformed signature
+cannot create queue state or reserved amount.
+
+Validation
+
+- new focused regression plus related quorum tests: 3/3 passed;
+- complete Solidity campaign: 168/168 passed across 14 suites, including all
+  invariant campaigns;
+- `forge lint` completed on all five production contracts; it reported only the
+  pre-existing prototype warnings (timestamp/strict-balance/event ordering,
+  loop revert, safe narrowing and access-control event heuristics), with no new
+  warning introduced by the correction;
+- `forge fmt --check` and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit, push,
+deployment, signature, transmission or funds operation was performed.

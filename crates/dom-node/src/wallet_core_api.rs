@@ -687,6 +687,7 @@ impl EmbeddedWalletCoreApi {
             (dom_wire::dandelion::DandelionPhase::Fluff, None)
         };
         match phase {
+            dom_wire::dandelion::DandelionPhase::Suppressed => false,
             dom_wire::dandelion::DandelionPhase::Fluff => {
                 self.node.tx_fluff_tx.send(tx_bytes).is_ok()
             }
@@ -1319,6 +1320,7 @@ mod tests {
             disable_dns_seeds: true,
             seed_peers: Vec::new(),
             mine: false,
+            closed_mainnet_test: false,
             miner_throttle: MinerThrottleConfig::default(),
             miner_threads: 1,
             miner_address: None,

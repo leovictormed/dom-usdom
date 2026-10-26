@@ -1,0 +1,41 @@
+DOM / USDOM — instalador imutável de JSON privado
+Etapa 619 — 2026-10-23
+
+Escopo
+======
+
+Foram auditados os leitores e instaladores privados restantes quanto a JSON
+ambíguo, UTF-8 inválido, symlink/hardlink, owner/mode e TOCTOU. Instaladores
+genéricos precisam continuar aceitando assinaturas, hashes e provas binárias;
+por isso a correção foi aplicada a uma fronteira explicitamente tipada usada
+pela identidade de deployment mainnet.
+
+Achado corrigido
+================
+
+A observação privada `mainnet-deployment-identity-observation.json` era criada
+de modo imutável e com boas garantias de diretório/inode, porém o instalador
+aceitava bytes opacos. A validação anterior com `jq` não recusava chaves
+duplicadas, e bytes UTF-8 inválidos poderiam produzir interpretações distintas
+entre ferramentas antes de o SHA-256 ser incorporado ao pacote de deployment.
+
+`install-private-file-immutable-stdin.mjs` agora oferece modo explícito
+`--json`. Nesse modo ele usa `TextDecoder` fatal e `parseStrictJson` antes de
+examinar ou criar o alvo. O materializador de identidade mainnet usa esse modo.
+O comportamento binário original permanece para assinaturas, hashes e provas.
+
+As proteções existentes continuam ativas: caminho absoluto, O_NOFOLLOW,
+arquivo owner 0600, single-link, leitura por descritor estável, diretório
+owner-only, temporário exclusivo, fsync e create-once/identical.
+
+Validação
+=========
+
+O teste comportamental tenta criar um alvo privado com (1) `chainId` duplicado
+via escape Unicode e (2) byte inválido `0xff`. Ambos falham sem criar o alvo;
+JSON válido subsequente é instalado uma vez em modo 0600. Os testes focados do
+instalador e do materializador passaram 2/2; Node/shell syntax e diff integrity
+passaram.
+
+Nenhum Rust/Cargo, staging, commit, push, deploy, assinatura, transmissão ou
+uso de fundos foi executado.

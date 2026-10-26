@@ -17,7 +17,7 @@ use dom_core::{
     TAG_USDOM_BLOCK_PACKAGE_V4,
 };
 use dom_crypto::blake2b_256_tagged;
-use dom_serialization::{DomDeserialize, DomSerialize};
+use dom_serialization::{DomDeserialize, DomSerialize, Reader};
 use dom_store::{
     validate_consensus_state_updates, ConsensusStateUpdate, DomStore,
     MAX_CONSENSUS_STATE_VALUE_BYTES,
@@ -26,19 +26,25 @@ use dom_usdom_privacy::verifier::SpendVerifier;
 use dom_usdom_privacy::{memo_scalar, privacy_policy_hash};
 use dom_usdom_state::{
     apply_v2_transition_batch_with_receipt, ethereum_checkpoint_transition,
-    ethereum_deposit_transition, inspect_private_burn_outputs, inspect_private_transfer_outputs,
-    verify_private_burn_payload, verify_private_transfer_payload, BatchUndo, BlockContext,
-    BridgeIdentity, BurnRecord, BurnStateWitness, NativeTransitionWitness, NativeUsdomState,
-    StateCommitmentV2, TransitionBatchReceipt, TransitionCommitmentProjection, TransitionKind,
-    VerifiedTransition, MAX_BATCH_UNDO_BYTES, MAX_BURN_STATE_WITNESS_BYTES,
-    MAX_NATIVE_TRANSITION_WITNESS_BYTES, MAX_PRIVATE_BURN_PAYLOAD_BYTES,
-    MAX_PRIVATE_TRANSFER_PAYLOAD_BYTES, MAX_TRANSITIONS_PER_BATCH,
+    ethereum_deposit_transition, ethereum_issuance_closure_transition,
+    graceful_shutdown_transition, inspect_private_burn_outputs, inspect_private_burn_record,
+    inspect_private_transfer_outputs, verify_private_burn_payload, verify_private_transfer_payload,
+    BatchUndo, BlockContext, BridgeIdentity, BurnRecord, BurnStateWitness, BurnStateWitnessV2,
+    NativeTransitionWitness, NativeUsdomState, StateCommitmentV2, TransitionBatchReceipt,
+    TransitionCommitmentProjection, TransitionKind, VerifiedTransition, MAX_BATCH_UNDO_BYTES,
+    MAX_BURN_STATE_WITNESS_BYTES, MAX_NATIVE_TRANSITION_WITNESS_BYTES,
+    MAX_PRIVATE_BURN_PAYLOAD_BYTES, MAX_PRIVATE_TRANSFER_PAYLOAD_BYTES, MAX_TRANSITIONS_PER_BATCH,
 };
+use rayon::prelude::*;
 use sha3::{Digest, Keccak256};
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use usdom_ethereum_finality_experiment::checkpoints::{
     checkpoint_trust_policy_hash, verify_checkpoint_witness, CheckpointTrustPolicy,
     StaticCheckpointTrustPolicy, MAX_CHECKPOINT_WITNESS_BYTES,
+};
+use usdom_ethereum_finality_experiment::closures::{
+    verify_issuance_closure_witness, IssuanceClosureTrustPolicy, StaticIssuanceClosureTrustPolicy,
+    MAX_ISSUANCE_CLOSURE_WITNESS_BYTES,
 };
 use usdom_ethereum_finality_experiment::deposits::{
     verify_deposit_witness, DepositTrustPolicy, StaticDepositTrustPolicy, MAX_DEPOSIT_WITNESS_BYTES,
@@ -47,9 +53,9 @@ use usdom_ethereum_finality_experiment::deposits::{
 const USDOM_V4_ENVELOPE_MAGIC: &[u8; 8] = b"USDOMV41";
 const USDOM_V4_ENVELOPE_VERSION: u16 = 1;
 const USDOM_V4_ENVELOPE_HEADER_BYTES: usize = 14;
-const USDOM_V4_ENTRY_HEADER_BYTES: usize = 5;
 const MAX_CHECKPOINTS_PER_ENVELOPE: usize = 1;
 const MAX_ISSUANCES_PER_ENVELOPE: usize = 4;
+const MAX_ISSUANCE_CLOSURES_PER_ENVELOPE: usize = 1;
 const MAX_PRIVATE_SPENDS_PER_ENVELOPE: usize = 16;
 const USDOM_V4_BLOCK_MAGIC: &[u8; 8] = b"USDOMBL4";
 const USDOM_V4_BLOCK_FRAMING_VERSION: u16 = 1;
@@ -62,6 +68,7 @@ const USDOM_V4_PACKAGE_META_PREFIX: &[u8] = b"usdom-v4/package/meta/";
 const USDOM_V4_PACKAGE_CHUNK_PREFIX: &[u8] = b"usdom-v4/package/chunk/";
 const USDOM_V4_UNDO_PREFIX: &[u8] = b"usdom-v4/undo/";
 const USDOM_V4_TIP_KEY: &[u8] = b"usdom-v4/tip";
+const USDOM_V4_TIP_BYTES: usize = 96;
 const USDOM_V4_ACTIVATION_KEY: &[u8] = b"usdom-v4/activation";
 const USDOM_V4_ACTIVATION_MAGIC: &[u8; 8] = b"UDACTV01";
 const USDOM_V4_ACTIVATION_VERSION: u16 = 1;
@@ -82,10 +89,16 @@ const TAG_USDOM_V2_WITNESS_BUNDLE: &str = "DOM:usdom-v2-witness-bundle:v1";
 const USDOM_V2_BLOCK_SIDECAR_MAGIC: &[u8; 8] = b"UDV2SC01";
 const USDOM_V2_BLOCK_SIDECAR_VERSION: u16 = 1;
 const USDOM_V2_BLOCK_SIDECAR_HEADER_BYTES: usize = 18;
-const USDOM_V2_PERSISTENCE_VERSION: u16 = 1;
+const USDOM_V2_PERSISTENCE_VERSION: u16 = 2;
 const USDOM_V2_RUNTIME_TIP_MAGIC: &[u8; 8] = b"UDV2TIP1";
 const USDOM_V2_BLOCK_RECORD_MAGIC: &[u8; 8] = b"UDV2BL01";
 const USDOM_V2_BLOCK_RECORD_PREFIX: &[u8] = b"usdom-v2/block/";
+const USDOM_V2_BURN_ARCHIVE_PREFIX: &[u8] = b"usdom-v2/burn/";
+const USDOM_V2_BURN_ARCHIVE_MAGIC: &[u8; 8] = b"UDBURN01";
+const USDOM_V2_BURN_ARCHIVE_BYTES: usize = 8 + 8 + 32 + 184;
+const USDOM_V2_PRUNE_CURSOR_KEY: &[u8] = b"usdom-v2/prune-cursor/v1";
+const USDOM_V2_PRUNE_CURSOR_MAGIC: &[u8; 8] = b"UDPRUN01";
+const USDOM_V2_PRUNE_BATCH_BLOCKS: u64 = 64;
 const USDOM_V2_WITNESS_META_PREFIX: &[u8] = b"usdom-v2/witness/meta/";
 const USDOM_V2_WITNESS_CHUNK_PREFIX: &[u8] = b"usdom-v2/witness/chunk/";
 const USDOM_V2_WITNESS_META_BYTES: usize = 40;
@@ -216,40 +229,26 @@ impl NativeUsdomV4ActivationSchedule {
 
     /// Decode and validate one exact canonical schedule.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
-        if bytes.len() != USDOM_V4_ACTIVATION_SCHEDULE_BYTES
-            || &bytes[..8] != USDOM_V4_ACTIVATION_MAGIC
-            || u16::from_be_bytes(
-                bytes[8..10]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated activation version".into()))?,
-            ) != USDOM_V4_ACTIVATION_VERSION
+        if bytes.len() != USDOM_V4_ACTIVATION_SCHEDULE_BYTES {
+            return Err(DomError::Invalid(
+                "invalid native USDOM activation schedule encoding".into(),
+            ));
+        }
+        let mut reader = Reader::new(bytes);
+        if reader.read_bytes(8)? != USDOM_V4_ACTIVATION_MAGIC
+            || reader.read_u16_be()? != USDOM_V4_ACTIVATION_VERSION
         {
             return Err(DomError::Invalid(
                 "invalid native USDOM activation schedule encoding".into(),
             ));
         }
         let schedule = Self {
-            network_magic: u32::from_be_bytes(
-                bytes[10..14]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated activation network".into()))?,
-            ),
-            chain_id: dom_core::Hash256::from_bytes(
-                bytes[14..46]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated activation chain ID".into()))?,
-            ),
-            first_v4_height: u64::from_be_bytes(
-                bytes[46..54]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated activation height".into()))?,
-            ),
-            empty_state_root: dom_core::Hash256::from_bytes(
-                bytes[54..86]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated activation state root".into()))?,
-            ),
+            network_magic: reader.read_u32_be()?,
+            chain_id: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+            first_v4_height: reader.read_u64_be()?,
+            empty_state_root: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
         };
+        reader.finish()?;
         schedule.validate()?;
         if schedule.to_bytes() != bytes {
             return Err(DomError::Invalid(
@@ -369,60 +368,30 @@ impl NativeUsdomV2ActivationSchedule {
 
     /// Decode and re-encode one exact `UDACTV02` migration schedule.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
-        if bytes.len() != USDOM_V2_ACTIVATION_SCHEDULE_BYTES
-            || &bytes[..8] != USDOM_V2_ACTIVATION_MAGIC
-            || u16::from_be_bytes(
-                bytes[8..10]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated v2 activation version".into()))?,
-            ) != USDOM_V2_ACTIVATION_VERSION
-            || u16::from_be_bytes(
-                bytes[10..12]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated state version".into()))?,
-            ) != USDOM_V2_STATE_VERSION
-            || u16::from_be_bytes(
-                bytes[12..14]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated batch version".into()))?,
-            ) != dom_usdom_state::CANDIDATE_V2_TRANSITION_BATCH_VERSION
+        if bytes.len() != USDOM_V2_ACTIVATION_SCHEDULE_BYTES {
+            return Err(DomError::Invalid(
+                "invalid native USDOM v2 activation encoding".into(),
+            ));
+        }
+        let mut reader = Reader::new(bytes);
+        if reader.read_bytes(8)? != USDOM_V2_ACTIVATION_MAGIC
+            || reader.read_u16_be()? != USDOM_V2_ACTIVATION_VERSION
+            || reader.read_u16_be()? != USDOM_V2_STATE_VERSION
+            || reader.read_u16_be()? != dom_usdom_state::CANDIDATE_V2_TRANSITION_BATCH_VERSION
         {
             return Err(DomError::Invalid(
                 "invalid native USDOM v2 activation encoding".into(),
             ));
         }
         let schedule = Self {
-            network_magic: u32::from_be_bytes(
-                bytes[14..18]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated v2 activation network".into()))?,
-            ),
-            chain_id: dom_core::Hash256::from_bytes(
-                bytes[18..50]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated v2 activation chain".into()))?,
-            ),
-            first_v2_height: u64::from_be_bytes(
-                bytes[50..58]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated v2 activation height".into()))?,
-            ),
-            activation_parent: dom_core::Hash256::from_bytes(
-                bytes[58..90]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated v2 activation parent".into()))?,
-            ),
-            previous_v1_state_root: dom_core::Hash256::from_bytes(
-                bytes[90..122]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated v1 activation root".into()))?,
-            ),
-            initial_v2_state_root: dom_core::Hash256::from_bytes(
-                bytes[122..154]
-                    .try_into()
-                    .map_err(|_| DomError::Invalid("truncated v2 activation root".into()))?,
-            ),
+            network_magic: reader.read_u32_be()?,
+            chain_id: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+            first_v2_height: reader.read_u64_be()?,
+            activation_parent: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+            previous_v1_state_root: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+            initial_v2_state_root: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
         };
+        reader.finish()?;
         schedule.validate()?;
         if schedule.to_bytes().as_slice() != bytes {
             return Err(DomError::Invalid(
@@ -528,7 +497,7 @@ pub fn native_usdom_v2_activation_updates(
             "native USDOM v2 activation does not match the ratified parent snapshot".into(),
         ));
     }
-    let updates = vec![
+    let mut updates = vec![
         ConsensusStateUpdate {
             key: USDOM_V2_ACTIVATION_KEY.to_vec(),
             value: Some(schedule.to_bytes().to_vec()),
@@ -537,24 +506,65 @@ pub fn native_usdom_v2_activation_updates(
             key: USDOM_V2_TIP_KEY.to_vec(),
             value: Some(v2_activation_tip_value(schedule)),
         },
+        ConsensusStateUpdate {
+            key: USDOM_V2_PRUNE_CURSOR_KEY.to_vec(),
+            value: Some(v2_prune_cursor_value(schedule.first_v2_height())),
+        },
     ];
+    for burn in state.burn_records() {
+        updates.push(v2_burn_archive_update(
+            activation_parent_height,
+            activation_parent,
+            burn,
+        )?);
+    }
     validate_consensus_state_updates(&updates)?;
     Ok(updates)
 }
 
-/// Restore and verify the exact V1 snapshot selected by a persisted UDACTV02
-/// marker pair, returning only its derived V2 commitment.
-///
-/// The canonical parent, active V1 marker, complete state entries, both state
-/// roots and schedule commitment must all agree. Missing, partial, malformed or
-/// substituted migration metadata fails closed after restart.
-pub fn restore_persisted_usdom_v2_activation(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PersistedUsdomV4Tip {
+    block_identifier: dom_core::Hash256,
+    state_root: dom_core::Hash256,
+    package_commitment: dom_core::Hash256,
+}
+
+fn decode_persisted_usdom_v4_tip(
+    bytes: &[u8],
+    label: &str,
+) -> Result<PersistedUsdomV4Tip, DomError> {
+    if bytes.len() != USDOM_V4_TIP_BYTES {
+        return Err(DomError::Internal(format!(
+            "persisted native USDOM {label} has an invalid width"
+        )));
+    }
+    let mut reader = Reader::new(bytes);
+    let decoded = (|| {
+        Ok(PersistedUsdomV4Tip {
+            block_identifier: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+            state_root: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+            package_commitment: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+        })
+    })()
+    .and_then(|tip| {
+        reader.finish()?;
+        Ok(tip)
+    })
+    .map_err(|error: DomError| {
+        DomError::Internal(format!(
+            "persisted native USDOM {label} is malformed: {error}"
+        ))
+    })?;
+    Ok(decoded)
+}
+
+fn restore_persisted_usdom_v2_activation_state_at_tip(
     store: &DomStore,
     network_magic: u32,
-    expected_chain_tip: dom_core::Hash256,
+    expected_current_tip: dom_core::Hash256,
     expected_bridge: BridgeIdentity,
     expected_schedule: NativeUsdomV2ActivationSchedule,
-) -> Result<StateCommitmentV2, DomError> {
+) -> Result<(NativeUsdomState, NativeUsdomV4ActivationSchedule), DomError> {
     expected_schedule.validate()?;
     if network_magic != expected_schedule.network_magic {
         return Err(DomError::PolicyRejected(
@@ -566,12 +576,12 @@ pub fn restore_persisted_usdom_v2_activation(
         .checked_sub(1)
         .ok_or_else(|| DomError::Invalid("native USDOM v2 activation height underflow".into()))?;
     let snapshot = store.read_canonical_consensus_snapshot(parent_height)?;
-    if snapshot.chain_tip != Some(*expected_chain_tip.as_bytes())
+    if snapshot.chain_tip != Some(*expected_current_tip.as_bytes())
         || snapshot.requested_height_hash != Some(*expected_schedule.activation_parent.as_bytes())
-        || expected_chain_tip != expected_schedule.activation_parent
     {
         return Err(DomError::Internal(
-            "persisted native USDOM v2 activation parent is not the canonical chain tip".into(),
+            "persisted native USDOM v2 activation parent is not on the expected canonical chain"
+                .into(),
         ));
     }
     let record = snapshot.consensus_state.get(USDOM_V2_ACTIVATION_KEY);
@@ -587,13 +597,30 @@ pub fn restore_persisted_usdom_v2_activation(
     let persisted_schedule = NativeUsdomV2ActivationSchedule::from_bytes(record).map_err(|_| {
         DomError::Internal("persisted native USDOM v2 activation record is corrupt".into())
     })?;
-    if persisted_schedule != expected_schedule
-        || marker.len() != USDOM_V2_TIP_BYTES
-        || marker.as_slice() != v2_activation_tip_value(expected_schedule)
-    {
+    if persisted_schedule != expected_schedule || marker.len() < USDOM_V2_TIP_BYTES {
         return Err(DomError::PolicyRejected(
             "persisted native USDOM v2 activation is not the ratified schedule".into(),
         ));
+    }
+    if expected_current_tip == expected_schedule.activation_parent {
+        if marker.as_slice() != v2_activation_tip_value(expected_schedule) {
+            return Err(DomError::PolicyRejected(
+                "persisted native USDOM v2 activation marker is not current".into(),
+            ));
+        }
+    } else {
+        let runtime_tip = PersistedUsdomV2RuntimeTip::from_bytes(marker).map_err(|error| {
+            DomError::Internal(format!(
+                "persisted native USDOM v2 runtime marker is corrupt: {error}"
+            ))
+        })?;
+        if runtime_tip.schedule_commitment != expected_schedule.commitment()
+            || runtime_tip.block_identifier != expected_current_tip
+        {
+            return Err(DomError::PolicyRejected(
+                "persisted native USDOM v2 runtime marker is not the expected ratified tip".into(),
+            ));
+        }
     }
 
     let v1_activation = snapshot
@@ -614,9 +641,9 @@ pub fn restore_persisted_usdom_v2_activation(
         .consensus_state
         .get(USDOM_V4_TIP_KEY)
         .ok_or_else(|| DomError::Internal("persisted native USDOM v1 tip is missing".into()))?;
-    if v1_tip.len() != 96
-        || v1_tip[..32] != expected_schedule.activation_parent.as_bytes()[..]
-        || v1_tip[32..64] != expected_schedule.previous_v1_state_root.as_bytes()[..]
+    let v1_tip = decode_persisted_usdom_v4_tip(v1_tip, "v1 activation tip")?;
+    if v1_tip.block_identifier != expected_schedule.activation_parent
+        || v1_tip.state_root != expected_schedule.previous_v1_state_root
     {
         return Err(DomError::Internal(
             "persisted native USDOM v1 tip does not open the V2 activation snapshot".into(),
@@ -645,7 +672,39 @@ pub fn restore_persisted_usdom_v2_activation(
             "persisted native USDOM state does not match the V2 activation roots".into(),
         ));
     }
-    Ok(v2)
+    Ok((state, v1_schedule))
+}
+
+/// Restore and verify the exact V1 snapshot selected by a persisted UDACTV02
+/// marker pair, returning only its derived V2 commitment.
+///
+/// The canonical parent, active V1 marker, complete state entries, both state
+/// roots and schedule commitment must all agree. Missing, partial, malformed or
+/// substituted migration metadata fails closed after restart.
+pub fn restore_persisted_usdom_v2_activation(
+    store: &DomStore,
+    network_magic: u32,
+    expected_chain_tip: dom_core::Hash256,
+    expected_bridge: BridgeIdentity,
+    expected_schedule: NativeUsdomV2ActivationSchedule,
+) -> Result<StateCommitmentV2, DomError> {
+    if expected_chain_tip != expected_schedule.activation_parent() {
+        return Err(DomError::Invalid(
+            "native USDOM v2 activation restore requires the activation parent as tip".into(),
+        ));
+    }
+    let (state, _) = restore_persisted_usdom_v2_activation_state_at_tip(
+        store,
+        network_magic,
+        expected_chain_tip,
+        expected_bridge,
+        expected_schedule,
+    )?;
+    state.state_commitment_v2().map_err(|error| {
+        DomError::Internal(format!(
+            "persisted v2 activation commitment is invalid: {error}"
+        ))
+    })
 }
 
 fn v2_state_matches_bridge(state: StateCommitmentV2, bridge: BridgeIdentity) -> bool {
@@ -675,6 +734,7 @@ pub fn restore_persisted_usdom_v2_state_for_schedule(
     expected_bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     spend_verifier: &SpendVerifier,
     expected_schedule: NativeUsdomV2ActivationSchedule,
 ) -> Result<StateCommitmentV2, DomError> {
@@ -719,7 +779,13 @@ pub fn restore_persisted_usdom_v2_state_for_schedule(
         .consensus_state
         .get(USDOM_V2_ACTIVATION_KEY)
         .ok_or_else(|| DomError::Internal("persisted v2 activation record is missing".into()))?;
-    if NativeUsdomV2ActivationSchedule::from_bytes(activation)? != expected_schedule {
+    let persisted_schedule =
+        NativeUsdomV2ActivationSchedule::from_bytes(activation).map_err(|error| {
+            DomError::Internal(format!(
+                "persisted native USDOM v2 activation is corrupt: {error}"
+            ))
+        })?;
+    if persisted_schedule != expected_schedule {
         return Err(DomError::PolicyRejected(
             "persisted native USDOM v2 runtime is not the ratified schedule".into(),
         ));
@@ -779,6 +845,7 @@ pub fn restore_persisted_usdom_v2_state_for_schedule(
         expected_bridge,
         checkpoint_policy,
         deposit_policy,
+        closure_policy,
         spend_verifier,
         expected_schedule,
     )?;
@@ -801,7 +868,13 @@ pub fn restore_persisted_usdom_v2_state_for_schedule(
     Ok(record.next_state)
 }
 
-pub(crate) fn rewind_persisted_usdom_v2_state_to_ancestor(
+/// Reconstruct the candidate-v2 state at one canonical ancestor by applying
+/// only authenticated persisted undo records.
+///
+/// The caller must supply the current canonical tip and its already restored
+/// state. The rewind is bounded by the consensus reorganization limit and
+/// rejects a record, schedule or activation-root mismatch.
+pub fn rewind_persisted_usdom_v2_state_to_ancestor(
     store: &DomStore,
     canonical_tip: dom_core::Hash256,
     current_state: StateCommitmentV2,
@@ -820,7 +893,7 @@ pub(crate) fn rewind_persisted_usdom_v2_state_to_ancestor(
         steps = steps
             .checked_add(1)
             .ok_or_else(|| DomError::Invalid("native USDOM v2 rewind depth overflow".into()))?;
-        if steps > dom_core::MAX_REORG_DEPTH_POLICY {
+        if steps >= crate::reorg::MAX_REORG_DEPTH {
             return Err(DomError::PolicyRejected(
                 "native USDOM v2 rewind exceeds maximum reorg depth".into(),
             ));
@@ -935,20 +1008,15 @@ pub(crate) fn native_usdom_v4_activation_tip(
         }
     };
     parse_activation_record(&activation)?;
-    if marker.len() != 96
-        || marker[..32].iter().all(|byte| *byte == 0)
-        || marker[32..64].iter().all(|byte| *byte == 0)
+    let marker = decode_persisted_usdom_v4_tip(&marker, "activation tip")?;
+    if marker.block_identifier == dom_core::Hash256::ZERO
+        || marker.state_root == dom_core::Hash256::ZERO
     {
         return Err(DomError::Internal(
             "persisted native USDOM activation marker is corrupt".into(),
         ));
     }
-    let tip = dom_core::Hash256::from_bytes(
-        marker[..32]
-            .try_into()
-            .map_err(|_| DomError::Internal("truncated native USDOM activation tip".into()))?,
-    );
-    Ok(Some(tip))
+    Ok(Some(marker.block_identifier))
 }
 
 /// Require the canonical database to carry the exact activation schedule and
@@ -1000,9 +1068,8 @@ pub(crate) fn require_persisted_usdom_v4_activation_for_schedule(
             "persisted native USDOM activation parent is not canonical".into(),
         ));
     }
-    if marker.len() != 96
-        || marker[..32] != expected_chain_tip.as_bytes()[..]
-        || marker[32..64].iter().all(|byte| *byte == 0)
+    let marker = decode_persisted_usdom_v4_tip(marker, "scheduled activation tip")?;
+    if marker.block_identifier != expected_chain_tip || marker.state_root == dom_core::Hash256::ZERO
     {
         return Err(DomError::Internal(
             "persisted native USDOM activation marker is corrupt or stale".into(),
@@ -1076,6 +1143,10 @@ pub enum UsdomV4ProofKind {
     Burn,
     /// Authenticated Ethereum light-client checkpoint witness.
     EthereumCheckpoint,
+    /// Finalized irreversible reserve issuance closure and authenticated post-state.
+    IssuanceClosure,
+    /// Deterministic orderly termination after issuance closure and full burn.
+    GracefulShutdown,
 }
 
 impl UsdomV4ProofKind {
@@ -1085,6 +1156,8 @@ impl UsdomV4ProofKind {
             Self::Transfer => 2,
             Self::Burn => 3,
             Self::EthereumCheckpoint => 4,
+            Self::IssuanceClosure => 5,
+            Self::GracefulShutdown => 6,
         }
     }
 
@@ -1094,6 +1167,8 @@ impl UsdomV4ProofKind {
             2 => Ok(Self::Transfer),
             3 => Ok(Self::Burn),
             4 => Ok(Self::EthereumCheckpoint),
+            5 => Ok(Self::IssuanceClosure),
+            6 => Ok(Self::GracefulShutdown),
             _ => Err(DomError::Malformed(
                 "unknown native USDOM v4 proof kind".into(),
             )),
@@ -1132,6 +1207,9 @@ pub struct AuthenticatedUsdomV4HistoryTransition {
 pub struct AuthenticatedUsdomV4HistoryBlock {
     /// Canonical DOM block identifier recomputed from the exact header.
     pub block_identifier: dom_core::Hash256,
+    /// Domain-separated identity of the exact canonical proof envelope. This
+    /// binds an authenticated submission receipt to canonical inclusion.
+    pub candidate_id: dom_core::Hash256,
     /// Exact canonical DOM header bytes whose identifier is `block_identifier`.
     pub header_bytes: Vec<u8>,
     /// Canonical DOM height.
@@ -1627,48 +1705,29 @@ impl NativeBurnBlockProverInput {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
         if bytes.len() < USDOM_V4_BURN_PROVER_HEADER_BYTES
             || bytes.len() > MAX_NATIVE_BURN_BLOCK_PROVER_INPUT_BYTES
-            || &bytes[..8] != USDOM_V4_BURN_PROVER_MAGIC
         {
             return Err(DomError::Malformed(
                 "invalid native burn prover input framing".into(),
             ));
         }
-        let version = u16::from_be_bytes(
-            bytes[8..10]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated native burn version".into()))?,
-        );
-        if version != USDOM_V4_BURN_PROVER_VERSION {
+        let mut reader = Reader::new(bytes);
+        if reader.read_bytes(8)? != USDOM_V4_BURN_PROVER_MAGIC {
+            return Err(DomError::Malformed(
+                "invalid native burn prover input framing".into(),
+            ));
+        }
+        if reader.read_u16_be()? != USDOM_V4_BURN_PROVER_VERSION {
             return Err(DomError::Malformed(
                 "unsupported native burn prover input version".into(),
             ));
         }
-        let schedule_end = 10 + USDOM_V4_ACTIVATION_SCHEDULE_BYTES;
-        let activation_schedule =
-            NativeUsdomV4ActivationSchedule::from_bytes(&bytes[10..schedule_end])?;
-        let block_end = schedule_end + 32;
-        let block_identifier = dom_core::Hash256::from_bytes(
-            bytes[schedule_end..block_end]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated native burn block id".into()))?,
-        );
-        let package_len_end = block_end + 4;
-        let package_len = u32::from_be_bytes(
-            bytes[block_end..package_len_end]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated native burn package length".into()))?,
-        ) as usize;
-        let undo_len_end = package_len_end + 4;
-        let undo_len = u32::from_be_bytes(
-            bytes[package_len_end..undo_len_end]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated native burn undo length".into()))?,
-        ) as usize;
-        let witness_len = u32::from_be_bytes(
-            bytes[undo_len_end..USDOM_V4_BURN_PROVER_HEADER_BYTES]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated native burn witness length".into()))?,
-        ) as usize;
+        let activation_schedule = NativeUsdomV4ActivationSchedule::from_bytes(
+            reader.read_bytes(USDOM_V4_ACTIVATION_SCHEDULE_BYTES)?,
+        )?;
+        let block_identifier = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let package_len = reader.read_u32_be()? as usize;
+        let undo_len = reader.read_u32_be()? as usize;
+        let witness_len = reader.read_u32_be()? as usize;
         if package_len > MAX_BLOCK_SERIALIZED_SIZE
             || undo_len > MAX_BATCH_UNDO_BYTES
             || witness_len > MAX_BURN_STATE_WITNESS_BYTES
@@ -1677,26 +1736,16 @@ impl NativeBurnBlockProverInput {
                 "native burn prover component exceeds byte limit".into(),
             ));
         }
-        let package_end = USDOM_V4_BURN_PROVER_HEADER_BYTES
-            .checked_add(package_len)
-            .ok_or_else(|| DomError::Malformed("native burn package boundary overflow".into()))?;
-        let undo_end = package_end
-            .checked_add(undo_len)
-            .ok_or_else(|| DomError::Malformed("native burn undo boundary overflow".into()))?;
-        let witness_end = undo_end
-            .checked_add(witness_len)
-            .ok_or_else(|| DomError::Malformed("native burn witness boundary overflow".into()))?;
-        if witness_end != bytes.len() {
-            return Err(DomError::Malformed(
-                "native burn prover lengths do not consume the exact payload".into(),
-            ));
-        }
+        let package_bytes = reader.read_bytes(package_len)?.to_vec();
+        let undo_bytes = reader.read_bytes(undo_len)?.to_vec();
+        let burn_witness_bytes = reader.read_bytes(witness_len)?.to_vec();
+        reader.finish()?;
         let input = Self {
             activation_schedule,
             block_identifier,
-            package_bytes: bytes[USDOM_V4_BURN_PROVER_HEADER_BYTES..package_end].to_vec(),
-            undo_bytes: bytes[package_end..undo_end].to_vec(),
-            burn_witness_bytes: bytes[undo_end..witness_end].to_vec(),
+            package_bytes,
+            undo_bytes,
+            burn_witness_bytes,
         };
         input.verify_internal_relations()?;
         if input.to_bytes()?.as_slice() != bytes {
@@ -1721,39 +1770,17 @@ pub fn bind_verified_ethereum_checkpoint_to_native_burn(
     checkpoint: &usdom_ethereum_finality_experiment::checkpoints::VerifiedCheckpoint,
 ) -> Result<NativeBurnCheckpointBinding, DomError> {
     let native = input.verify(expected_schedule, expected_block_identifier)?;
-    let record = checkpoint.record();
-    let dom_height = u64::from_be_bytes(record[1..9].try_into().expect("fixed checkpoint record"));
-    let dom_network_magic =
-        u32::from_be_bytes(record[73..77].try_into().expect("fixed checkpoint record"));
-    let ethereum_chain_id =
-        u64::from_be_bytes(record[77..85].try_into().expect("fixed checkpoint record"));
-    let event_execution_block =
-        u64::from_be_bytes(record[85..93].try_into().expect("fixed checkpoint record"));
-    let event_beacon_slot = u64::from_be_bytes(
-        record[189..197]
-            .try_into()
-            .expect("fixed checkpoint record"),
-    );
-    let transaction_index = u32::from_be_bytes(
-        record[261..265]
-            .try_into()
-            .expect("fixed checkpoint record"),
-    );
-    let receipt_log_index = u32::from_be_bytes(
-        record[265..269]
-            .try_into()
-            .expect("fixed checkpoint record"),
-    );
+    let record = crate::ethereum_checkpoint_poc::decode_test_oracle_v2(checkpoint.record())?;
     let mut chain_id_word = [0u8; 32];
-    chain_id_word[24..].copy_from_slice(&ethereum_chain_id.to_be_bytes());
-    if record[0] != 2
-        || dom_height != native.block_height
-        || record[9..41] != native.block_identifier.as_bytes()[..]
-        || record[41..73] != native.state_root.as_bytes()[..]
-        || dom_network_magic != native.network_magic
+    chain_id_word[24..].copy_from_slice(&record.ethereum_chain_id.to_be_bytes());
+    if record.height != native.block_height
+        || record.dom_block != native.block_identifier
+        || record.dom_state_root != native.state_root
+        || record.dom_network_magic != native.network_magic
         || chain_id_word != native.ethereum_chain_id
-        || record[229..261] != native.ethereum_genesis_validators_root
-        || record[353..385] != native.dom_domain
+        || record.ethereum_genesis_validators_root.as_bytes()
+            != &native.ethereum_genesis_validators_root
+        || record.bridge_domain.as_bytes() != &native.dom_domain
         || checkpoint.trust_policy_hash().as_slice()
             != native.ethereum_checkpoint_policy_hash.as_slice()
     {
@@ -1762,12 +1789,8 @@ pub fn bind_verified_ethereum_checkpoint_to_native_burn(
         ));
     }
     let finalized = checkpoint.finalized_execution();
-    if event_execution_block == 0
-        || event_beacon_slot == 0
-        || record[93..125].iter().all(|byte| *byte == 0)
-        || record[385..417].iter().all(|byte| *byte == 0)
-        || finalized.block_number < event_execution_block
-        || finalized.beacon_slot < event_beacon_slot
+    if finalized.block_number < record.ethereum_block_number
+        || finalized.beacon_slot < record.ethereum_beacon_slot
         || finalized
             .block_hash
             .as_slice()
@@ -1786,12 +1809,10 @@ pub fn bind_verified_ethereum_checkpoint_to_native_burn(
     }
     Ok(NativeBurnCheckpointBinding {
         native,
-        checkpoint_event_execution_block: event_execution_block,
-        checkpoint_event_execution_hash: dom_core::Hash256::from_bytes(
-            record[93..125].try_into().expect("fixed checkpoint record"),
-        ),
-        checkpoint_transaction_index: transaction_index,
-        checkpoint_receipt_log_index: receipt_log_index,
+        checkpoint_event_execution_block: record.ethereum_block_number,
+        checkpoint_event_execution_hash: record.ethereum_block,
+        checkpoint_transaction_index: record.transaction_index,
+        checkpoint_receipt_log_index: record.receipt_log_index,
         ethereum_finality_execution_block: finalized.block_number,
         ethereum_finality_execution_hash: dom_core::Hash256::from_bytes(
             finalized.block_hash.into(),
@@ -1799,11 +1820,7 @@ pub fn bind_verified_ethereum_checkpoint_to_native_burn(
         ethereum_finality_execution_timestamp: finalized.timestamp,
         ethereum_finality_beacon_slot: finalized.beacon_slot,
         ethereum_finality_beacon_root: dom_core::Hash256::from_bytes(finalized.beacon_root.into()),
-        checkpoint_event_digest: dom_core::Hash256::from_bytes(
-            record[385..417]
-                .try_into()
-                .expect("fixed checkpoint record"),
-        ),
+        checkpoint_event_digest: record.checkpoint_event_digest,
     })
 }
 
@@ -1927,34 +1944,24 @@ impl UsdomV4BlockPackage {
     /// Decode canonical framing, enforce the combined byte ceiling before any
     /// proof work, and reject legacy, trailing or ambiguously sized payloads.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
-        if bytes.len() < USDOM_V4_BLOCK_HEADER_BYTES
-            || bytes.len() > MAX_BLOCK_SERIALIZED_SIZE
-            || &bytes[..8] != USDOM_V4_BLOCK_MAGIC
-        {
+        if bytes.len() < USDOM_V4_BLOCK_HEADER_BYTES || bytes.len() > MAX_BLOCK_SERIALIZED_SIZE {
             return Err(DomError::Malformed(
                 "invalid native USDOM v4 block-package framing".into(),
             ));
         }
-        let framing_version = u16::from_be_bytes(
-            bytes[8..10]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated USDOM v4 framing version".into()))?,
-        );
-        if framing_version != USDOM_V4_BLOCK_FRAMING_VERSION {
+        let mut reader = Reader::new(bytes);
+        if reader.read_bytes(8)? != USDOM_V4_BLOCK_MAGIC {
+            return Err(DomError::Malformed(
+                "invalid native USDOM v4 block-package framing".into(),
+            ));
+        }
+        if reader.read_u16_be()? != USDOM_V4_BLOCK_FRAMING_VERSION {
             return Err(DomError::Malformed(
                 "unsupported native USDOM v4 block-package version".into(),
             ));
         }
-        let block_len = u32::from_be_bytes(
-            bytes[10..14]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated USDOM v4 block length".into()))?,
-        ) as usize;
-        let proof_len = u32::from_be_bytes(
-            bytes[14..18]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated USDOM v4 proof length".into()))?,
-        ) as usize;
+        let block_len = reader.read_u32_be()? as usize;
+        let proof_len = reader.read_u32_be()? as usize;
         if block_len < <Block as DomDeserialize>::MIN_SERIALIZED_SIZE
             || !(USDOM_V4_ENVELOPE_HEADER_BYTES..=MAX_USDOM_V4_ENVELOPE_BYTES).contains(&proof_len)
         {
@@ -1962,33 +1969,14 @@ impl UsdomV4BlockPackage {
                 "native USDOM v4 package component outside byte limits".into(),
             ));
         }
-        let block_end = USDOM_V4_BLOCK_HEADER_BYTES
-            .checked_add(block_len)
-            .ok_or_else(|| DomError::Malformed("USDOM v4 block boundary overflow".into()))?;
-        let package_end = block_end
-            .checked_add(proof_len)
-            .ok_or_else(|| DomError::Malformed("USDOM v4 package boundary overflow".into()))?;
-        if package_end != bytes.len() {
-            return Err(DomError::Malformed(
-                "native USDOM v4 package lengths do not consume the exact payload".into(),
-            ));
-        }
-
-        let block = <Block as DomDeserialize>::from_bytes(
-            bytes
-                .get(USDOM_V4_BLOCK_HEADER_BYTES..block_end)
-                .ok_or_else(|| DomError::Malformed("truncated USDOM v4 block".into()))?,
-        )?;
+        let block = <Block as DomDeserialize>::from_bytes(reader.read_bytes(block_len)?)?;
         if block.header.version != BLOCK_VERSION_V4 {
             return Err(DomError::Invalid(
                 "native USDOM block package requires block version 4".into(),
             ));
         }
-        let proof_envelope = UsdomV4ProofEnvelope::from_bytes(
-            bytes
-                .get(block_end..package_end)
-                .ok_or_else(|| DomError::Malformed("truncated USDOM v4 proof envelope".into()))?,
-        )?;
+        let proof_envelope = UsdomV4ProofEnvelope::from_bytes(reader.read_bytes(proof_len)?)?;
+        reader.finish()?;
         let package = Self {
             block,
             proof_envelope,
@@ -2019,6 +2007,24 @@ impl UsdomV4ProofEnvelope {
         self.entries
             .iter()
             .map(|entry| (entry.kind, entry.payload.as_slice()))
+    }
+
+    /// Parse the public reserve obligations carried by burn entries.
+    ///
+    /// This grants no proof or transition authority. Callers must first bind
+    /// the enclosing package to a verified canonical block and state root.
+    pub fn public_burn_records(&self) -> Result<Vec<BurnRecord>, DomError> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.kind == UsdomV4ProofKind::Burn)
+            .map(|entry| {
+                inspect_private_burn_record(&entry.payload).map_err(|error| {
+                    DomError::Malformed(format!(
+                        "native USDOM burn payload record is malformed: {error}"
+                    ))
+                })
+            })
+            .collect()
     }
 
     fn single(kind: UsdomV4ProofKind, payload: Vec<u8>) -> Result<Self, DomError> {
@@ -2056,6 +2062,19 @@ impl UsdomV4ProofEnvelope {
         Self::single(UsdomV4ProofKind::EthereumCheckpoint, witness)
     }
 
+    /// Wrap one untrusted irreversible issuance-closure witness. Construction
+    /// enforces only canonical envelope bounds; every node verifies Ethereum
+    /// finality, the event and reserve post-state before granting authority.
+    pub fn issuance_closure_witness(witness: Vec<u8>) -> Result<Self, DomError> {
+        Self::single(UsdomV4ProofKind::IssuanceClosure, witness)
+    }
+
+    /// Wrap the exact native domain as an orderly-shutdown request. Consensus
+    /// independently requires issuance closure and zero outstanding supply.
+    pub fn graceful_shutdown(dom_domain: [u8; 32]) -> Result<Self, DomError> {
+        Self::single(UsdomV4ProofKind::GracefulShutdown, dom_domain.to_vec())
+    }
+
     /// Encode the unique version-1 wire representation.
     pub fn to_bytes(&self) -> Result<Vec<u8>, DomError> {
         validate_envelope_entries(&self.entries)?;
@@ -2089,73 +2108,54 @@ impl UsdomV4ProofEnvelope {
     /// Decode only the canonical bounded framing. Proof payloads remain
     /// untrusted and receive no authority from this operation.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
-        if bytes.len() < USDOM_V4_ENVELOPE_HEADER_BYTES
-            || bytes.len() > MAX_USDOM_V4_ENVELOPE_BYTES
-            || &bytes[..8] != USDOM_V4_ENVELOPE_MAGIC
+        if bytes.len() < USDOM_V4_ENVELOPE_HEADER_BYTES || bytes.len() > MAX_USDOM_V4_ENVELOPE_BYTES
         {
             return Err(DomError::Malformed(
                 "invalid native USDOM v4 envelope framing".into(),
             ));
         }
-        let version = u16::from_be_bytes(
-            bytes[8..10]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated USDOM v4 version".into()))?,
-        );
-        if version != USDOM_V4_ENVELOPE_VERSION {
+        let mut reader = Reader::new(bytes);
+        if reader.read_bytes(8)? != USDOM_V4_ENVELOPE_MAGIC {
+            return Err(DomError::Malformed(
+                "invalid native USDOM v4 envelope framing".into(),
+            ));
+        }
+        if reader.read_u16_be()? != USDOM_V4_ENVELOPE_VERSION {
             return Err(DomError::Malformed(
                 "unsupported native USDOM v4 envelope version".into(),
             ));
         }
-        let count = u32::from_be_bytes(
-            bytes[10..14]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated USDOM v4 count".into()))?,
-        ) as usize;
+        let count = reader.read_u32_be()? as usize;
         if count > MAX_TRANSITIONS_PER_BATCH {
             return Err(DomError::Malformed(
                 "too many native USDOM v4 proof entries".into(),
             ));
         }
+        let minimum_len = USDOM_V4_ENVELOPE_HEADER_BYTES
+            .checked_add(count.checked_mul(5).ok_or_else(|| {
+                DomError::Malformed("native USDOM v4 proof count overflow".into())
+            })?)
+            .ok_or_else(|| DomError::Malformed("native USDOM v4 proof size overflow".into()))?;
+        if bytes.len() < minimum_len {
+            return Err(DomError::Malformed(
+                "truncated native USDOM v4 proof entries".into(),
+            ));
+        }
 
-        let mut cursor = USDOM_V4_ENVELOPE_HEADER_BYTES;
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
-            let header_end = cursor
-                .checked_add(USDOM_V4_ENTRY_HEADER_BYTES)
-                .ok_or_else(|| DomError::Malformed("USDOM v4 envelope overflow".into()))?;
-            if header_end > bytes.len() {
-                return Err(DomError::Malformed(
-                    "truncated native USDOM v4 proof header".into(),
-                ));
-            }
-            let kind = UsdomV4ProofKind::from_discriminator(bytes[cursor])?;
-            let payload_len = u32::from_be_bytes(
-                bytes[cursor + 1..header_end]
-                    .try_into()
-                    .map_err(|_| DomError::Malformed("truncated USDOM v4 length".into()))?,
-            ) as usize;
-            let payload_end = header_end
-                .checked_add(payload_len)
-                .ok_or_else(|| DomError::Malformed("USDOM v4 payload overflow".into()))?;
-            if payload_len == 0
-                || payload_len > MAX_USDOM_V4_PROOF_BYTES
-                || payload_end > bytes.len()
-            {
+            let kind = UsdomV4ProofKind::from_discriminator(reader.read_u8()?)?;
+            let payload_len = reader.read_u32_be()? as usize;
+            if payload_len == 0 || payload_len > MAX_USDOM_V4_PROOF_BYTES {
                 return Err(DomError::Malformed(
                     "invalid native USDOM v4 proof length".into(),
                 ));
             }
-            let payload = bytes[header_end..payload_end].to_vec();
+            let payload = reader.read_bytes(payload_len)?.to_vec();
             validate_entry_payload(kind, &payload)?;
             entries.push(UsdomV4ProofEntry { kind, payload });
-            cursor = payload_end;
         }
-        if cursor != bytes.len() {
-            return Err(DomError::Malformed(
-                "trailing native USDOM v4 envelope bytes".into(),
-            ));
-        }
+        reader.finish()?;
         validate_envelope_entries(&entries)?;
         let envelope = Self { entries };
         if envelope.to_bytes()?.as_slice() != bytes {
@@ -2252,65 +2252,49 @@ impl UsdomV2ExecutionWitnesses {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
         if bytes.len() < USDOM_V2_WITNESS_BUNDLE_HEADER_BYTES
             || bytes.len() > MAX_USDOM_V2_WITNESS_BUNDLE_BYTES
-            || bytes.get(..8) != Some(USDOM_V2_WITNESS_BUNDLE_MAGIC.as_slice())
-            || u16::from_be_bytes(
-                bytes[8..10]
-                    .try_into()
-                    .map_err(|_| DomError::Malformed("truncated v2 witness version".into()))?,
-            ) != USDOM_V2_WITNESS_BUNDLE_VERSION
         {
             return Err(DomError::Malformed(
                 "invalid native USDOM v2 witness bundle framing".into(),
             ));
         }
-        let count =
-            usize::try_from(u32::from_be_bytes(bytes[10..14].try_into().map_err(
-                |_| DomError::Malformed("truncated v2 witness count".into()),
-            )?))
-            .map_err(|_| DomError::Malformed("native USDOM v2 witness count overflow".into()))?;
+        let mut reader = Reader::new(bytes);
+        if reader.read_bytes(8)? != USDOM_V2_WITNESS_BUNDLE_MAGIC
+            || reader.read_u16_be()? != USDOM_V2_WITNESS_BUNDLE_VERSION
+        {
+            return Err(DomError::Malformed(
+                "invalid native USDOM v2 witness bundle framing".into(),
+            ));
+        }
+        let count = reader.read_u32_be()? as usize;
         if count > MAX_TRANSITIONS_PER_BATCH {
             return Err(DomError::Malformed(
                 "too many native USDOM v2 execution witnesses".into(),
             ));
         }
-        let mut cursor = USDOM_V2_WITNESS_BUNDLE_HEADER_BYTES;
+        let minimum_len = USDOM_V2_WITNESS_BUNDLE_HEADER_BYTES
+            .checked_add(count.checked_mul(5).ok_or_else(|| {
+                DomError::Malformed("native USDOM v2 witness count overflow".into())
+            })?)
+            .ok_or_else(|| DomError::Malformed("native USDOM v2 witness size overflow".into()))?;
+        if bytes.len() < minimum_len {
+            return Err(DomError::Malformed(
+                "truncated native USDOM v2 execution witnesses".into(),
+            ));
+        }
         let mut witnesses = Vec::with_capacity(count);
         for _ in 0..count {
-            let length_end = cursor
-                .checked_add(4)
-                .ok_or_else(|| DomError::Malformed("v2 witness length overflow".into()))?;
-            let length = usize::try_from(u32::from_be_bytes(
-                bytes
-                    .get(cursor..length_end)
-                    .ok_or_else(|| DomError::Malformed("truncated v2 witness length".into()))?
-                    .try_into()
-                    .map_err(|_| DomError::Malformed("truncated v2 witness length".into()))?,
-            ))
-            .map_err(|_| DomError::Malformed("v2 witness length overflow".into()))?;
-            let end = length_end
-                .checked_add(length)
-                .ok_or_else(|| DomError::Malformed("v2 witness payload overflow".into()))?;
+            let length = reader.read_u32_be()? as usize;
             if length == 0 || length > MAX_NATIVE_TRANSITION_WITNESS_BYTES {
                 return Err(DomError::Malformed(
                     "native USDOM v2 witness exceeds its class limit".into(),
                 ));
             }
-            let witness = NativeTransitionWitness::from_bytes(
-                bytes
-                    .get(length_end..end)
-                    .ok_or_else(|| DomError::Malformed("truncated v2 witness payload".into()))?,
-            )
-            .map_err(|error| {
-                DomError::Malformed(format!("invalid native USDOM v2 witness: {error}"))
-            })?;
+            let witness = NativeTransitionWitness::from_bytes(reader.read_bytes(length)?).map_err(
+                |error| DomError::Malformed(format!("invalid native USDOM v2 witness: {error}")),
+            )?;
             witnesses.push(witness);
-            cursor = end;
         }
-        if cursor != bytes.len() {
-            return Err(DomError::Malformed(
-                "trailing native USDOM v2 witness bytes".into(),
-            ));
-        }
+        reader.finish()?;
         let bundle = Self { witnesses };
         if bundle.to_bytes()?.as_slice() != bytes {
             return Err(DomError::Malformed(
@@ -2389,50 +2373,26 @@ impl UsdomV2BlockSidecar {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
         if bytes.len() < USDOM_V2_BLOCK_SIDECAR_HEADER_BYTES
             || bytes.len() > MAX_BLOCK_SERIALIZED_SIZE
-            || bytes.get(..8) != Some(USDOM_V2_BLOCK_SIDECAR_MAGIC.as_slice())
-            || u16::from_be_bytes(
-                bytes[8..10]
-                    .try_into()
-                    .map_err(|_| DomError::Malformed("truncated v2 sidecar version".into()))?,
-            ) != USDOM_V2_BLOCK_SIDECAR_VERSION
         {
             return Err(DomError::Malformed(
                 "invalid native USDOM v2 sidecar framing".into(),
             ));
         }
-        let proof_len =
-            usize::try_from(u32::from_be_bytes(bytes[10..14].try_into().map_err(
-                |_| DomError::Malformed("truncated v2 sidecar proof length".into()),
-            )?))
-            .map_err(|_| DomError::Malformed("v2 sidecar proof length overflow".into()))?;
-        let witness_len =
-            usize::try_from(u32::from_be_bytes(bytes[14..18].try_into().map_err(
-                |_| DomError::Malformed("truncated v2 sidecar witness length".into()),
-            )?))
-            .map_err(|_| DomError::Malformed("v2 sidecar witness length overflow".into()))?;
-        let proof_end = USDOM_V2_BLOCK_SIDECAR_HEADER_BYTES
-            .checked_add(proof_len)
-            .ok_or_else(|| DomError::Malformed("v2 sidecar proof length overflow".into()))?;
-        let end = proof_end
-            .checked_add(witness_len)
-            .ok_or_else(|| DomError::Malformed("v2 sidecar witness length overflow".into()))?;
-        if end != bytes.len() {
+        let mut reader = Reader::new(bytes);
+        if reader.read_bytes(8)? != USDOM_V2_BLOCK_SIDECAR_MAGIC
+            || reader.read_u16_be()? != USDOM_V2_BLOCK_SIDECAR_VERSION
+        {
             return Err(DomError::Malformed(
-                "native USDOM v2 sidecar length mismatch".into(),
+                "invalid native USDOM v2 sidecar framing".into(),
             ));
         }
+        let proof_len = reader.read_u32_be()? as usize;
+        let witness_len = reader.read_u32_be()? as usize;
         let sidecar = Self {
-            proof_envelope: UsdomV4ProofEnvelope::from_bytes(
-                bytes
-                    .get(USDOM_V2_BLOCK_SIDECAR_HEADER_BYTES..proof_end)
-                    .ok_or_else(|| DomError::Malformed("truncated v2 proof envelope".into()))?,
-            )?,
-            witnesses: UsdomV2ExecutionWitnesses::from_bytes(
-                bytes
-                    .get(proof_end..end)
-                    .ok_or_else(|| DomError::Malformed("truncated v2 witness bundle".into()))?,
-            )?,
+            proof_envelope: UsdomV4ProofEnvelope::from_bytes(reader.read_bytes(proof_len)?)?,
+            witnesses: UsdomV2ExecutionWitnesses::from_bytes(reader.read_bytes(witness_len)?)?,
         };
+        reader.finish()?;
         if sidecar.to_bytes()?.as_slice() != bytes {
             return Err(DomError::Malformed(
                 "noncanonical native USDOM v2 sidecar".into(),
@@ -2448,11 +2408,18 @@ fn validate_entry_payload(kind: UsdomV4ProofKind, payload: &[u8]) -> Result<(), 
             "native USDOM v4 proof payload outside byte limits".into(),
         ));
     }
+    if kind == UsdomV4ProofKind::GracefulShutdown && payload.len() != 32 {
+        return Err(DomError::Malformed(
+            "graceful shutdown payload must be the exact native domain".into(),
+        ));
+    }
     let class_limit = match kind {
         UsdomV4ProofKind::Issuance => MAX_DEPOSIT_WITNESS_BYTES,
         UsdomV4ProofKind::Transfer => MAX_PRIVATE_TRANSFER_PAYLOAD_BYTES,
         UsdomV4ProofKind::Burn => MAX_PRIVATE_BURN_PAYLOAD_BYTES,
         UsdomV4ProofKind::EthereumCheckpoint => MAX_CHECKPOINT_WITNESS_BYTES,
+        UsdomV4ProofKind::IssuanceClosure => MAX_ISSUANCE_CLOSURE_WITNESS_BYTES,
+        UsdomV4ProofKind::GracefulShutdown => 32,
     };
     if payload.len() > class_limit {
         return Err(DomError::Malformed(format!(
@@ -2477,6 +2444,14 @@ fn validate_envelope_entries(entries: &[UsdomV4ProofEntry]) -> Result<(), DomErr
         .iter()
         .filter(|entry| entry.kind == UsdomV4ProofKind::Issuance)
         .count();
+    let issuance_closures = entries
+        .iter()
+        .filter(|entry| entry.kind == UsdomV4ProofKind::IssuanceClosure)
+        .count();
+    let graceful_shutdowns = entries
+        .iter()
+        .filter(|entry| entry.kind == UsdomV4ProofKind::GracefulShutdown)
+        .count();
     let private_spends = entries
         .iter()
         .filter(|entry| {
@@ -2496,13 +2471,33 @@ fn validate_envelope_entries(entries: &[UsdomV4ProofEntry]) -> Result<(), DomErr
             "too many Ethereum deposit proofs in one USDOM v4 envelope".into(),
         ));
     }
+    if issuance_closures > MAX_ISSUANCE_CLOSURES_PER_ENVELOPE {
+        return Err(DomError::Malformed(
+            "multiple issuance closures in one USDOM v4 envelope".into(),
+        ));
+    }
+    if graceful_shutdowns > 1 {
+        return Err(DomError::Malformed(
+            "multiple graceful shutdowns in one USDOM v4 envelope".into(),
+        ));
+    }
     if private_spends > MAX_PRIVATE_SPENDS_PER_ENVELOPE {
         return Err(DomError::Malformed(
             "too many private spend proofs in one USDOM v4 envelope".into(),
         ));
     }
+    // An exact repeated proof can never yield a second valid transition: an
+    // issuance repeats its deposit, while a transfer/burn repeats nullifiers.
+    // Reject it before any Ethereum or Groth16 verification. The borrowed
+    // ordered key is allocation-free and deterministic across nodes.
+    let mut unique_entries = BTreeSet::new();
     for entry in entries {
         validate_entry_payload(entry.kind, &entry.payload)?;
+        if !unique_entries.insert((entry.kind.discriminator(), entry.payload.as_slice())) {
+            return Err(DomError::Malformed(
+                "duplicate native USDOM v4 proof entry".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -2666,6 +2661,305 @@ fn persistence_key(prefix: &[u8], block_identifier: dom_core::Hash256) -> Vec<u8
     key.extend_from_slice(prefix);
     key.extend_from_slice(block_identifier.as_bytes());
     key
+}
+
+pub(crate) fn native_usdom_v4_undo_key(block_identifier: dom_core::Hash256) -> Vec<u8> {
+    persistence_key(USDOM_V4_UNDO_PREFIX, block_identifier)
+}
+
+fn v2_burn_archive_key(burn_id: [u8; 32]) -> Vec<u8> {
+    let mut key = Vec::with_capacity(USDOM_V2_BURN_ARCHIVE_PREFIX.len() + burn_id.len());
+    key.extend_from_slice(USDOM_V2_BURN_ARCHIVE_PREFIX);
+    key.extend_from_slice(&burn_id);
+    key
+}
+
+pub(crate) fn v2_burn_archive_delete_key(burn_id: [u8; 32]) -> Vec<u8> {
+    v2_burn_archive_key(burn_id)
+}
+
+fn v2_burn_archive_update(
+    block_height: u64,
+    block_identifier: dom_core::Hash256,
+    burn: BurnRecord,
+) -> Result<ConsensusStateUpdate, DomError> {
+    if block_identifier == dom_core::Hash256::ZERO || burn.burn_id == [0; 32] {
+        return Err(DomError::Invalid(
+            "invalid native USDOM V2 burn archive identity".into(),
+        ));
+    }
+    let mut value = Vec::with_capacity(USDOM_V2_BURN_ARCHIVE_BYTES);
+    value.extend_from_slice(USDOM_V2_BURN_ARCHIVE_MAGIC);
+    value.extend_from_slice(&block_height.to_be_bytes());
+    value.extend_from_slice(block_identifier.as_bytes());
+    value.extend_from_slice(&burn.to_bytes());
+    if value.len() != USDOM_V2_BURN_ARCHIVE_BYTES {
+        return Err(DomError::Internal(
+            "native USDOM V2 burn archive width changed".into(),
+        ));
+    }
+    Ok(ConsensusStateUpdate {
+        key: v2_burn_archive_key(burn.burn_id),
+        value: Some(value),
+    })
+}
+
+fn decode_v2_burn_archive_value(
+    value: &[u8],
+) -> Result<(u64, dom_core::Hash256, BurnRecord), DomError> {
+    if value.len() != USDOM_V2_BURN_ARCHIVE_BYTES {
+        return Err(DomError::Internal(
+            "persisted native USDOM V2 burn archive is malformed".into(),
+        ));
+    }
+    (|| {
+        let mut reader = Reader::new(value);
+        if reader.read_bytes(8)? != USDOM_V2_BURN_ARCHIVE_MAGIC {
+            return Err(DomError::Malformed("invalid V2 burn archive magic".into()));
+        }
+        let height = reader.read_u64_be()?;
+        let block = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let burn =
+            BurnRecord::from_bytes(reader.read_bytes(USDOM_V2_BURN_ARCHIVE_BYTES - 8 - 8 - 32)?)
+                .map_err(|error| {
+                    DomError::Malformed(format!("invalid V2 burn archive record: {error}"))
+                })?;
+        reader.finish()?;
+        Ok((height, block, burn))
+    })()
+    .map_err(|error: DomError| {
+        DomError::Internal(format!(
+            "persisted native USDOM V2 burn archive is malformed: {error}"
+        ))
+    })
+}
+
+fn load_v2_burn_archive_at_height(
+    store: &DomStore,
+    checkpoint_height: u64,
+) -> Result<Vec<BurnRecord>, DomError> {
+    let all = store.read_all_consensus_state_raw()?;
+    let mut records = Vec::new();
+    for (key, value) in all
+        .range(USDOM_V2_BURN_ARCHIVE_PREFIX.to_vec()..)
+        .take_while(|(key, _)| key.starts_with(USDOM_V2_BURN_ARCHIVE_PREFIX))
+    {
+        if key.len() != USDOM_V2_BURN_ARCHIVE_PREFIX.len() + 32 {
+            return Err(DomError::Internal(
+                "persisted native USDOM V2 burn archive key is malformed".into(),
+            ));
+        }
+        let (height, block, burn) = decode_v2_burn_archive_value(value)?;
+        if key[USDOM_V2_BURN_ARCHIVE_PREFIX.len()..] != burn.burn_id {
+            return Err(DomError::Internal(
+                "persisted native USDOM V2 burn archive key disagrees with its record".into(),
+            ));
+        }
+        if height <= checkpoint_height {
+            if store.get_hash_at_height(height)? != Some(*block.as_bytes()) {
+                return Err(DomError::Internal(
+                    "persisted native USDOM V2 burn archive is not canonical".into(),
+                ));
+            }
+            records.push(burn);
+        }
+    }
+    Ok(records)
+}
+
+/// Delete the one V1 rollback record that has just moved beyond the rolling
+/// finality window. Packages remain available for proof/history recovery; only
+/// mutable-state undo is bounded here. The update is intended to share the
+/// atomic transaction that installs `new_tip_height`.
+pub(crate) fn native_usdom_v4_undo_retention_update(
+    store: &DomStore,
+    new_tip_height: u64,
+) -> Result<Option<ConsensusStateUpdate>, DomError> {
+    let Some(prune_height) = new_tip_height.checked_sub(crate::reorg::MAX_REORG_DEPTH) else {
+        return Ok(None);
+    };
+    let block_identifier = store.get_hash_at_height(prune_height)?.ok_or_else(|| {
+        DomError::Internal(format!(
+            "native USDOM undo-retention height {prune_height} is missing"
+        ))
+    })?;
+    let key = persistence_key(
+        USDOM_V4_UNDO_PREFIX,
+        dom_core::Hash256::from_bytes(block_identifier),
+    );
+    if store.get_consensus_state(&key)?.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(ConsensusStateUpdate { key, value: None }))
+}
+
+fn v2_prune_cursor_value(next_height: u64) -> Vec<u8> {
+    let mut value = Vec::with_capacity(16);
+    value.extend_from_slice(USDOM_V2_PRUNE_CURSOR_MAGIC);
+    value.extend_from_slice(&next_height.to_be_bytes());
+    value
+}
+
+fn decode_v2_prune_cursor(value: &[u8]) -> Result<u64, DomError> {
+    if value.len() != 16 {
+        return Err(DomError::Internal(
+            "persisted native USDOM V2 prune cursor is malformed".into(),
+        ));
+    }
+    (|| {
+        let mut reader = Reader::new(value);
+        if reader.read_bytes(8)? != USDOM_V2_PRUNE_CURSOR_MAGIC {
+            return Err(DomError::Malformed("invalid V2 prune cursor magic".into()));
+        }
+        let next_height = reader.read_u64_be()?;
+        reader.finish()?;
+        Ok(next_height)
+    })()
+    .map_err(|error: DomError| {
+        DomError::Internal(format!(
+            "persisted native USDOM V2 prune cursor is malformed: {error}"
+        ))
+    })
+}
+
+fn decode_persisted_chunk_metadata(
+    meta: &[u8],
+    expected_len: usize,
+    expected_version: u16,
+    label: &str,
+) -> Result<(dom_core::Hash256, u32, u16), DomError> {
+    if meta.len() != expected_len {
+        return Err(DomError::Internal(format!(
+            "malformed persisted native USDOM {label} metadata"
+        )));
+    }
+    (|| {
+        let mut reader = Reader::new(meta);
+        if reader.read_u16_be()? != expected_version {
+            return Err(DomError::Malformed(format!(
+                "unsupported persisted USDOM {label} metadata version"
+            )));
+        }
+        let commitment = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let payload_len = reader.read_u32_be()?;
+        let chunk_count = reader.read_u16_be()?;
+        reader.finish()?;
+        Ok((commitment, payload_len, chunk_count))
+    })()
+    .map_err(|error: DomError| {
+        DomError::Internal(format!(
+            "malformed persisted native USDOM {label} metadata: {error}"
+        ))
+    })
+}
+
+fn chunk_count_from_meta(
+    meta: &[u8],
+    expected_len: usize,
+    expected_version: u16,
+    label: &str,
+) -> Result<u16, DomError> {
+    decode_persisted_chunk_metadata(meta, expected_len, expected_version, label)
+        .map(|(_, _, chunk_count)| chunk_count)
+}
+
+/// Produce a bounded atomic deletion batch for V2 replay data below both an
+/// Ethereum-recognized DOM checkpoint and the local rolling-finality window.
+/// The compact burn archive and the checkpoint block record remain available.
+pub(crate) fn native_usdom_v2_history_compaction_updates(
+    store: &DomStore,
+    schedule: NativeUsdomV2ActivationSchedule,
+    new_tip_height: u64,
+    checkpoint_floor_height: u64,
+) -> Result<Vec<ConsensusStateUpdate>, DomError> {
+    schedule.validate()?;
+    let Some(rolling_floor) = new_tip_height.checked_sub(crate::reorg::MAX_REORG_DEPTH) else {
+        return Ok(Vec::new());
+    };
+    let Some(checkpoint_predecessor) = checkpoint_floor_height.checked_sub(1) else {
+        return Ok(Vec::new());
+    };
+    let maximum_prunable = rolling_floor.min(checkpoint_predecessor);
+    let cursor_value = store
+        .get_consensus_state(USDOM_V2_PRUNE_CURSOR_KEY)?
+        .ok_or_else(|| DomError::Internal("native USDOM V2 prune cursor is missing".into()))?;
+    let mut cursor = decode_v2_prune_cursor(&cursor_value)?;
+    if cursor < schedule.first_v2_height() {
+        return Err(DomError::Internal(
+            "native USDOM V2 prune cursor crossed activation".into(),
+        ));
+    }
+    if cursor > maximum_prunable {
+        return Ok(Vec::new());
+    }
+
+    let mut updates = Vec::new();
+    let end = maximum_prunable.min(
+        cursor
+            .checked_add(USDOM_V2_PRUNE_BATCH_BLOCKS - 1)
+            .ok_or_else(|| DomError::Invalid("native USDOM V2 prune range overflow".into()))?,
+    );
+    while cursor <= end {
+        let block = store
+            .get_hash_at_height(cursor)?
+            .map(dom_core::Hash256::from_bytes)
+            .ok_or_else(|| {
+                DomError::Internal(format!(
+                    "native USDOM V2 compaction height {cursor} is missing"
+                ))
+            })?;
+        let package_meta_key = persistence_key(USDOM_V4_PACKAGE_META_PREFIX, block);
+        if let Some(meta) = store.get_consensus_state(&package_meta_key)? {
+            let chunks = chunk_count_from_meta(
+                &meta,
+                USDOM_V4_PACKAGE_META_BYTES,
+                USDOM_V4_PERSISTENCE_VERSION,
+                "package",
+            )?;
+            updates.push(ConsensusStateUpdate {
+                key: package_meta_key,
+                value: None,
+            });
+            for index in 0..chunks {
+                updates.push(ConsensusStateUpdate {
+                    key: package_chunk_key(block, index),
+                    value: None,
+                });
+            }
+        }
+        let witness_meta_key = persistence_key(USDOM_V2_WITNESS_META_PREFIX, block);
+        if let Some(meta) = store.get_consensus_state(&witness_meta_key)? {
+            let chunks = chunk_count_from_meta(
+                &meta,
+                USDOM_V2_WITNESS_META_BYTES,
+                USDOM_V2_PERSISTENCE_VERSION,
+                "witness",
+            )?;
+            updates.push(ConsensusStateUpdate {
+                key: witness_meta_key,
+                value: None,
+            });
+            for index in 0..chunks {
+                updates.push(ConsensusStateUpdate {
+                    key: v2_witness_chunk_key(block, index),
+                    value: None,
+                });
+            }
+        }
+        updates.push(ConsensusStateUpdate {
+            key: persistence_key(USDOM_V2_BLOCK_RECORD_PREFIX, block),
+            value: None,
+        });
+        cursor = cursor
+            .checked_add(1)
+            .ok_or_else(|| DomError::Invalid("native USDOM V2 prune cursor overflow".into()))?;
+    }
+    updates.push(ConsensusStateUpdate {
+        key: USDOM_V2_PRUNE_CURSOR_KEY.to_vec(),
+        value: Some(v2_prune_cursor_value(cursor)),
+    });
+    validate_consensus_state_updates(&updates)?;
+    Ok(updates)
 }
 
 fn package_chunk_key(block_identifier: dom_core::Hash256, index: u16) -> Vec<u8> {
@@ -3024,19 +3318,13 @@ pub fn restore_persisted_usdom_v4_state_for_schedule(
     let tip = all_entries
         .get(USDOM_V4_TIP_KEY)
         .ok_or_else(|| DomError::Internal("persisted native USDOM tip is missing".into()))?;
-    if tip.len() != 96
-        || tip[..32] != expected_chain_tip.as_bytes()[..]
-        || tip[32..64] != state.state_root().as_bytes()[..]
-    {
+    let tip = decode_persisted_usdom_v4_tip(tip, "canonical tip")?;
+    if tip.block_identifier != expected_chain_tip || tip.state_root != state.state_root() {
         return Err(DomError::Internal(
             "persisted native USDOM tip does not match canonical chain/state".into(),
         ));
     }
-    let package_commitment = dom_core::Hash256::from_bytes(
-        tip[64..96]
-            .try_into()
-            .map_err(|_| DomError::Internal("truncated native USDOM tip".into()))?,
-    );
+    let package_commitment = tip.package_commitment;
     if package_commitment == dom_core::Hash256::ZERO {
         let empty = NativeUsdomState::new(expected_bridge).map_err(|error| {
             DomError::Internal(format!("native USDOM activation identity failed: {error}"))
@@ -3209,46 +3497,23 @@ impl NativeUsdomV4SnapshotManifest {
 
     /// Decode the exact canonical representation with fixed per-block bounds.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
-        if bytes.len() < USDOM_V4_SNAPSHOT_HEADER_BYTES
-            || &bytes[..8] != USDOM_V4_SNAPSHOT_MAGIC
-            || u16::from_be_bytes([bytes[8], bytes[9]]) != USDOM_V4_SNAPSHOT_VERSION
+        let mut reader = Reader::new(bytes);
+        if reader.read_bytes(8)? != USDOM_V4_SNAPSHOT_MAGIC
+            || reader.read_u16_be()? != USDOM_V4_SNAPSHOT_VERSION
         {
             return Err(DomError::Malformed(
                 "invalid native USDOM snapshot manifest framing".into(),
             ));
         }
-        let network_magic =
-            u32::from_be_bytes(bytes[10..14].try_into().map_err(|_| {
-                DomError::Malformed("truncated native USDOM snapshot network".into())
-            })?);
-        let canonical_tip = dom_core::Hash256::from_bytes(
-            bytes[14..46]
-                .try_into()
-                .map_err(|_| DomError::Malformed("truncated native USDOM snapshot tip".into()))?,
-        );
-        let canonical_height =
-            u64::from_be_bytes(bytes[46..54].try_into().map_err(|_| {
-                DomError::Malformed("truncated native USDOM snapshot height".into())
-            })?);
-        let state_root = dom_core::Hash256::from_bytes(bytes[54..86].try_into().map_err(|_| {
-            DomError::Malformed("truncated native USDOM snapshot state root".into())
-        })?);
-        let state_entries_commitment =
-            dom_core::Hash256::from_bytes(bytes[86..118].try_into().map_err(|_| {
-                DomError::Malformed("truncated native USDOM snapshot state commitment".into())
-            })?);
-        let oldest_audited_parent =
-            dom_core::Hash256::from_bytes(bytes[118..150].try_into().map_err(|_| {
-                DomError::Malformed("truncated native USDOM snapshot boundary".into())
-            })?);
-        let audited_blocks = u64::from_be_bytes(bytes[150..158].try_into().map_err(|_| {
-            DomError::Malformed("truncated native USDOM snapshot audit count".into())
-        })?);
-        let boundary_state_root =
-            dom_core::Hash256::from_bytes(bytes[158..190].try_into().map_err(|_| {
-                DomError::Malformed("truncated native USDOM snapshot boundary root".into())
-            })?);
-        let reached_activation_boundary = match bytes[190] {
+        let network_magic = reader.read_u32_be()?;
+        let canonical_tip = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let canonical_height = reader.read_u64_be()?;
+        let state_root = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let state_entries_commitment = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let oldest_audited_parent = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let audited_blocks = reader.read_u64_be()?;
+        let boundary_state_root = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let reached_activation_boundary = match reader.read_u8()? {
             0 => false,
             1 => true,
             _ => {
@@ -3257,21 +3522,12 @@ impl NativeUsdomV4SnapshotManifest {
                 ))
             }
         };
-        let block_count = u32::from_be_bytes(bytes[191..195].try_into().map_err(|_| {
-            DomError::Malformed("truncated native USDOM snapshot block count".into())
-        })?) as usize;
+        let block_count = reader.read_u32_be()? as usize;
         let activation_schedule_commitment =
-            dom_core::Hash256::from_bytes(bytes[195..227].try_into().map_err(|_| {
-                DomError::Malformed("truncated native USDOM snapshot activation schedule".into())
-            })?);
+            dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
         let activation_record_commitment =
-            dom_core::Hash256::from_bytes(bytes[227..259].try_into().map_err(|_| {
-                DomError::Malformed("truncated native USDOM snapshot activation record".into())
-            })?);
-        let checkpoint_floor_commitment =
-            dom_core::Hash256::from_bytes(bytes[259..291].try_into().map_err(|_| {
-                DomError::Malformed("truncated native USDOM snapshot checkpoint".into())
-            })?);
+            dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let checkpoint_floor_commitment = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
         if block_count as u64 > dom_core::MAX_REORG_DEPTH_POLICY
             || audited_blocks != block_count as u64
         {
@@ -3279,52 +3535,18 @@ impl NativeUsdomV4SnapshotManifest {
                 "native USDOM snapshot block count exceeds audit bounds".into(),
             ));
         }
-        let expected_len = USDOM_V4_SNAPSHOT_HEADER_BYTES
-            .checked_add(
-                block_count
-                    .checked_mul(USDOM_V4_SNAPSHOT_BLOCK_BYTES)
-                    .ok_or_else(|| DomError::Malformed("snapshot length overflow".into()))?,
-            )
-            .ok_or_else(|| DomError::Malformed("snapshot length overflow".into()))?;
-        if bytes.len() != expected_len {
-            return Err(DomError::Malformed(
-                "native USDOM snapshot length mismatch".into(),
-            ));
-        }
         let mut blocks = Vec::with_capacity(block_count);
-        let mut cursor = USDOM_V4_SNAPSHOT_HEADER_BYTES;
         for _ in 0..block_count {
-            let record = &bytes[cursor..cursor + USDOM_V4_SNAPSHOT_BLOCK_BYTES];
             blocks.push(NativeUsdomV4SnapshotBlock {
-                block_identifier: dom_core::Hash256::from_bytes(record[..32].try_into().map_err(
-                    |_| DomError::Malformed("truncated snapshot block identifier".into()),
-                )?),
-                height: u64::from_be_bytes(
-                    record[32..40].try_into().map_err(|_| {
-                        DomError::Malformed("truncated snapshot block height".into())
-                    })?,
-                ),
-                prev_hash: dom_core::Hash256::from_bytes(
-                    record[40..72]
-                        .try_into()
-                        .map_err(|_| DomError::Malformed("truncated snapshot parent".into()))?,
-                ),
-                package_commitment: dom_core::Hash256::from_bytes(
-                    record[72..104].try_into().map_err(|_| {
-                        DomError::Malformed("truncated snapshot package commitment".into())
-                    })?,
-                ),
-                undo_commitment: dom_core::Hash256::from_bytes(
-                    record[104..136].try_into().map_err(|_| {
-                        DomError::Malformed("truncated snapshot undo commitment".into())
-                    })?,
-                ),
-                package_len: u32::from_be_bytes(record[136..140].try_into().map_err(|_| {
-                    DomError::Malformed("truncated snapshot package length".into())
-                })?),
+                block_identifier: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+                height: reader.read_u64_be()?,
+                prev_hash: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+                package_commitment: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+                undo_commitment: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+                package_len: reader.read_u32_be()?,
             });
-            cursor += USDOM_V4_SNAPSHOT_BLOCK_BYTES;
         }
+        reader.finish()?;
         let manifest = Self {
             network_magic,
             canonical_tip,
@@ -3434,9 +3656,9 @@ pub fn export_native_usdom_v4_snapshot_manifest(
     let persisted_tip = all_entries
         .get(USDOM_V4_TIP_KEY)
         .ok_or_else(|| DomError::Internal("native USDOM snapshot tip marker is missing".into()))?;
-    if persisted_tip.len() != 96
-        || persisted_tip[..32] != canonical_tip.as_bytes()[..]
-        || persisted_tip[32..64] != state.state_root().as_bytes()[..]
+    let persisted_tip = decode_persisted_usdom_v4_tip(persisted_tip, "snapshot tip")?;
+    if persisted_tip.block_identifier != canonical_tip
+        || persisted_tip.state_root != state.state_root()
     {
         return Err(DomError::Internal(
             "native USDOM snapshot tip marker does not match its atomic state".into(),
@@ -3446,7 +3668,12 @@ pub fn export_native_usdom_v4_snapshot_manifest(
     let checkpoint_floor_commitment =
         match all_entries.get(crate::ethereum_checkpoint_poc::CONSENSUS_CHECKPOINT_KEY) {
             Some(bytes) => {
-                let checkpoint = crate::ethereum_checkpoint_poc::decode_test_oracle_v2(bytes)?;
+                let checkpoint = crate::ethereum_checkpoint_poc::decode_test_oracle_v2(bytes)
+                    .map_err(|error| {
+                        DomError::Internal(format!(
+                            "native USDOM snapshot checkpoint is corrupt: {error}"
+                        ))
+                    })?;
                 blake2b_256_tagged(
                     TAG_USDOM_V4_SNAPSHOT_CHECKPOINT,
                     &crate::ethereum_checkpoint_poc::encode_test_oracle_v2(checkpoint)?,
@@ -3463,7 +3690,12 @@ pub fn export_native_usdom_v4_snapshot_manifest(
     let tip_header = store
         .get_block_header(canonical_tip.as_bytes())?
         .ok_or_else(|| DomError::Internal("native USDOM snapshot tip header is missing".into()))?;
-    let tip_header = dom_consensus::block::BlockHeader::from_bytes(&tip_header)?;
+    let tip_header =
+        dom_consensus::block::BlockHeader::from_bytes(&tip_header).map_err(|error| {
+            DomError::Internal(format!(
+                "native USDOM snapshot tip header is corrupt: {error}"
+            ))
+        })?;
     if store.get_hash_at_height(tip_header.height.0)? != Some(*canonical_tip.as_bytes()) {
         return Err(DomError::Internal(
             "native USDOM snapshot tip is not canonical".into(),
@@ -3474,7 +3706,9 @@ pub fn export_native_usdom_v4_snapshot_manifest(
     for _ in 0..audit.audited_blocks {
         let package_bytes = load_persisted_usdom_v4_package(store, network_magic, cursor)?
             .ok_or_else(|| DomError::Internal("native USDOM snapshot package is missing".into()))?;
-        let package = UsdomV4BlockPackage::from_bytes(&package_bytes)?;
+        let package = UsdomV4BlockPackage::from_bytes(&package_bytes).map_err(|error| {
+            DomError::Internal(format!("native USDOM snapshot package is corrupt: {error}"))
+        })?;
         let header_bytes = DomSerialize::to_bytes(&package.block().header)?;
         if crate::canonical_header_identifier(network_magic, &header_bytes)? != cursor
             || store.get_hash_at_height(package.block().header.height.0)?
@@ -3556,7 +3790,18 @@ pub fn verify_native_usdom_v4_snapshot_manifest(
 struct NativeUsdomV4MiningCandidate {
     id: dom_core::Hash256,
     encoded_len: usize,
+    issuance_deposit_ids: Vec<[u8; 32]>,
     envelope: UsdomV4ProofEnvelope,
+}
+
+fn verified_issuance_deposit_ids(transitions: &[VerifiedTransition]) -> Vec<[u8; 32]> {
+    transitions
+        .iter()
+        .filter_map(|transition| match transition.commitment_projection() {
+            TransitionCommitmentProjection::Issue { record, .. } => Some(record.deposit_id),
+            _ => None,
+        })
+        .collect()
 }
 
 /// One fully revalidated native-v4 mining template. `candidate_id` is present
@@ -3638,6 +3883,7 @@ pub struct NativeUsdomV4Runtime {
     bridge: BridgeIdentity,
     checkpoint_policy: StaticCheckpointTrustPolicy,
     deposit_policy: StaticDepositTrustPolicy,
+    closure_policy: Option<StaticIssuanceClosureTrustPolicy>,
     spend_verifier: Option<SpendVerifier>,
     state: NativeUsdomState,
     startup_audit: NativeUsdomV4HistoryAudit,
@@ -3653,6 +3899,7 @@ impl NativeUsdomV4Runtime {
         bridge: BridgeIdentity,
         checkpoint_policy: StaticCheckpointTrustPolicy,
         deposit_policy: StaticDepositTrustPolicy,
+        closure_policy: Option<StaticIssuanceClosureTrustPolicy>,
     ) -> Result<Self, DomError> {
         let schedule = native_usdom_v4_regtest_activation_schedule(bridge)?;
         Self::restore_inner(
@@ -3660,6 +3907,10 @@ impl NativeUsdomV4Runtime {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
+            // This compatibility constructor deliberately has no authority to
+            // accept private transfer/burn proofs.  Regtest callers that need
+            // that authority must use `restore_with_spend_verifier`.
             None,
             schedule,
             true,
@@ -3674,6 +3925,7 @@ impl NativeUsdomV4Runtime {
         bridge: BridgeIdentity,
         checkpoint_policy: StaticCheckpointTrustPolicy,
         deposit_policy: StaticDepositTrustPolicy,
+        closure_policy: Option<StaticIssuanceClosureTrustPolicy>,
         spend_verifying_key: &[u8],
     ) -> Result<Self, DomError> {
         let verifier = SpendVerifier::from_bytes(spend_verifying_key).map_err(|error| {
@@ -3686,6 +3938,7 @@ impl NativeUsdomV4Runtime {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             Some(verifier),
             native_usdom_v4_regtest_activation_schedule(bridge)?,
             true,
@@ -3699,6 +3952,7 @@ impl NativeUsdomV4Runtime {
         bridge: BridgeIdentity,
         checkpoint_policy: StaticCheckpointTrustPolicy,
         deposit_policy: StaticDepositTrustPolicy,
+        closure_policy: Option<StaticIssuanceClosureTrustPolicy>,
         spend_verifying_key: &[u8],
         schedule: NativeUsdomV4ActivationSchedule,
     ) -> Result<Self, DomError> {
@@ -3712,6 +3966,7 @@ impl NativeUsdomV4Runtime {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             Some(verifier),
             schedule,
             false,
@@ -3723,6 +3978,7 @@ impl NativeUsdomV4Runtime {
         bridge: BridgeIdentity,
         checkpoint_policy: StaticCheckpointTrustPolicy,
         deposit_policy: StaticDepositTrustPolicy,
+        closure_policy: Option<StaticIssuanceClosureTrustPolicy>,
         spend_verifier: Option<SpendVerifier>,
         schedule: NativeUsdomV4ActivationSchedule,
         allow_missing_verifier_on_regtest: bool,
@@ -3747,6 +4003,9 @@ impl NativeUsdomV4Runtime {
             &checkpoint_policy,
         )?;
         validate_static_deposit_policy_identity(bridge, &deposit_policy)?;
+        if let Some(policy) = closure_policy.as_ref() {
+            validate_static_issuance_closure_policy_identity(chain.network_magic, bridge, policy)?;
+        }
         if let Some(verifier) = spend_verifier.as_ref() {
             validate_spend_verifier_identity(bridge, verifier)?;
         }
@@ -3785,6 +4044,7 @@ impl NativeUsdomV4Runtime {
                 bridge,
                 &checkpoint_policy,
                 &deposit_policy,
+                closure_policy.as_ref(),
                 verifier,
                 &state,
                 &startup_audit,
@@ -3796,6 +4056,7 @@ impl NativeUsdomV4Runtime {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
             state,
             startup_audit,
@@ -3824,6 +4085,7 @@ impl NativeUsdomV4Runtime {
                 self.bridge,
                 &self.checkpoint_policy,
                 &self.deposit_policy,
+                self.closure_policy.as_ref(),
                 verifier,
                 self.schedule,
             )
@@ -3835,22 +4097,24 @@ impl NativeUsdomV4Runtime {
                 self.bridge,
                 &self.checkpoint_policy,
                 &self.deposit_policy,
+                self.closure_policy.as_ref(),
                 None,
             )
         }
     }
 
-    fn envelope_header_commitment(
+    fn verified_envelope_preview(
         &self,
         envelope: &UsdomV4ProofEnvelope,
         block_timestamp: Timestamp,
-    ) -> Result<dom_core::Hash256, DomError> {
+    ) -> Result<(dom_core::Hash256, VerifiedEnvelopeTransitions), DomError> {
         let verified = verify_envelope_transitions(
             self.network_magic,
             block_timestamp.0,
             self.bridge,
             &self.checkpoint_policy,
             &self.deposit_policy,
+            self.closure_policy.as_ref(),
             self.spend_verifier.as_ref(),
             &envelope.entries,
         )?;
@@ -3873,7 +4137,16 @@ impl NativeUsdomV4Runtime {
                 "native USDOM mining preview produced inconsistent state roots".into(),
             ));
         }
-        Ok(receipt.header_commitment)
+        Ok((receipt.header_commitment, verified))
+    }
+
+    fn envelope_header_commitment(
+        &self,
+        envelope: &UsdomV4ProofEnvelope,
+        block_timestamp: Timestamp,
+    ) -> Result<dom_core::Hash256, DomError> {
+        self.verified_envelope_preview(envelope, block_timestamp)
+            .map(|(commitment, _)| commitment)
     }
 
     /// Admit one canonical nonempty envelope to the bounded volatile
@@ -3917,11 +4190,13 @@ impl NativeUsdomV4Runtime {
                 "native USDOM mining candidate pool is full".into(),
             ));
         }
-        self.envelope_header_commitment(&envelope, candidate_timestamp)?;
+        let (_, verified) = self.verified_envelope_preview(&envelope, candidate_timestamp)?;
+        let issuance_deposit_ids = verified_issuance_deposit_ids(&verified.transitions);
         self.mining_candidates
             .push_back(NativeUsdomV4MiningCandidate {
                 id,
                 encoded_len: envelope_bytes.len(),
+                issuance_deposit_ids,
                 envelope,
             });
         self.mining_candidate_bytes = next_bytes;
@@ -4023,6 +4298,21 @@ impl NativeUsdomV4Runtime {
         (self.mining_candidates.len(), self.mining_candidate_bytes)
     }
 
+    /// Whether the bounded volatile pool contains this exact candidate and
+    /// its proof-verified issuance set contains the supplied deposit. The
+    /// method exposes no witness bytes or private note data.
+    pub fn has_queued_issuance_candidate(
+        &self,
+        candidate_id: dom_core::Hash256,
+        deposit_id: &[u8; 32],
+    ) -> bool {
+        candidate_id != dom_core::Hash256::ZERO
+            && *deposit_id != [0; 32]
+            && self.mining_candidates.iter().any(|candidate| {
+                candidate.id == candidate_id && candidate.issuance_deposit_ids.contains(deposit_id)
+            })
+    }
+
     /// Derive the commitment for an empty native batch at one exact DOM block
     /// timestamp without mutating runtime state. Kept as a read-only helper for
     /// callers that explicitly need the no-transition commitment.
@@ -4078,6 +4368,7 @@ impl NativeUsdomV4Runtime {
             self.bridge,
             &self.checkpoint_policy,
             &self.deposit_policy,
+            self.closure_policy.as_ref(),
             spend_verifier,
             self.schedule,
             first_v2_height,
@@ -4105,7 +4396,9 @@ pub struct NativeUsdomV2Runtime {
     bridge: BridgeIdentity,
     checkpoint_policy: StaticCheckpointTrustPolicy,
     deposit_policy: StaticDepositTrustPolicy,
+    closure_policy: Option<StaticIssuanceClosureTrustPolicy>,
     spend_verifier: SpendVerifier,
+    spend_verifying_key: Vec<u8>,
     state: StateCommitmentV2,
     mining_candidates: VecDeque<NativeUsdomV2MiningCandidate>,
     mining_candidate_bytes: usize,
@@ -4119,6 +4412,7 @@ impl NativeUsdomV2Runtime {
         bridge: BridgeIdentity,
         checkpoint_policy: StaticCheckpointTrustPolicy,
         deposit_policy: StaticDepositTrustPolicy,
+        closure_policy: Option<StaticIssuanceClosureTrustPolicy>,
         spend_verifying_key: &[u8],
         schedule: NativeUsdomV2ActivationSchedule,
     ) -> Result<Self, DomError> {
@@ -4147,6 +4441,7 @@ impl NativeUsdomV2Runtime {
             bridge,
             &checkpoint_policy,
             &deposit_policy,
+            closure_policy.as_ref(),
             &spend_verifier,
             schedule,
         )?;
@@ -4156,7 +4451,9 @@ impl NativeUsdomV2Runtime {
             bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             spend_verifier,
+            spend_verifying_key: spend_verifying_key.to_vec(),
             state,
             mining_candidates: VecDeque::new(),
             mining_candidate_bytes: 0,
@@ -4185,6 +4482,7 @@ impl NativeUsdomV2Runtime {
             self.bridge,
             &self.checkpoint_policy,
             &self.deposit_policy,
+            self.closure_policy.as_ref(),
             &self.spend_verifier,
             self.schedule,
         )
@@ -4202,6 +4500,7 @@ impl NativeUsdomV2Runtime {
             self.bridge,
             &self.checkpoint_policy,
             &self.deposit_policy,
+            self.closure_policy.as_ref(),
             Some(&self.spend_verifier),
             &envelope.entries,
         )?;
@@ -4417,6 +4716,27 @@ impl NativeUsdomV2Runtime {
     pub fn spend_verifier_config_hash(&self) -> dom_core::Hash256 {
         self.spend_verifier.config_hash()
     }
+
+    /// Immutable checkpoint policy used by every candidate-v2 transition.
+    pub const fn checkpoint_policy(&self) -> &StaticCheckpointTrustPolicy {
+        &self.checkpoint_policy
+    }
+
+    /// Immutable reserve-deposit policy used by every candidate-v2 transition.
+    pub const fn deposit_policy(&self) -> &StaticDepositTrustPolicy {
+        &self.deposit_policy
+    }
+
+    /// Immutable issuance-closure verifier, absent for historical manifests.
+    pub const fn issuance_closure_policy(&self) -> Option<&StaticIssuanceClosureTrustPolicy> {
+        self.closure_policy.as_ref()
+    }
+
+    /// Exact canonical spend-verifying key needed by portable checkpoint
+    /// execution.
+    pub fn spend_verifying_key(&self) -> &[u8] {
+        &self.spend_verifying_key
+    }
 }
 
 fn revert_authenticated_persisted_usdom_v4_block(
@@ -4430,7 +4750,11 @@ fn revert_authenticated_persisted_usdom_v4_block(
         load_persisted_usdom_v4_package(store, network_magic, cursor)?.ok_or_else(|| {
             DomError::Internal("canonical native USDOM block package is missing".into())
         })?;
-    let package = UsdomV4BlockPackage::from_bytes(&package_bytes)?;
+    let package = UsdomV4BlockPackage::from_bytes(&package_bytes).map_err(|error| {
+        DomError::Internal(format!(
+            "canonical native USDOM rewind package is corrupt: {error}"
+        ))
+    })?;
     let block = package.block();
     let header_bytes = DomSerialize::to_bytes(&block.header)?;
     if crate::canonical_header_identifier(network_magic, &header_bytes)? != cursor {
@@ -4516,11 +4840,16 @@ pub fn audit_persisted_usdom_v4_reorg_window_for_schedule(
     let mut cursor = canonical_tip;
     let mut audited_blocks = 0u64;
     let mut reached_activation_boundary = false;
-    while audited_blocks < dom_core::MAX_REORG_DEPTH_POLICY {
+    while audited_blocks < crate::reorg::MAX_REORG_DEPTH {
         let header_bytes = store.get_block_header(cursor.as_bytes())?.ok_or_else(|| {
             DomError::Internal("canonical native USDOM audit header is missing".into())
         })?;
-        let header = dom_consensus::block::BlockHeader::from_bytes(&header_bytes)?;
+        let header =
+            dom_consensus::block::BlockHeader::from_bytes(&header_bytes).map_err(|error| {
+                DomError::Internal(format!(
+                    "canonical native USDOM audit header is corrupt: {error}"
+                ))
+            })?;
         if header.version != BLOCK_VERSION_V4 {
             let boundary_successor = header.height.0.checked_add(1).ok_or_else(|| {
                 DomError::Internal("native USDOM activation boundary height overflow".into())
@@ -4580,6 +4909,7 @@ fn audit_persisted_usdom_v4_proof_window(
     expected_bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     spend_verifier: &SpendVerifier,
     tip_state: &NativeUsdomState,
     structural_audit: &NativeUsdomV4HistoryAudit,
@@ -4593,7 +4923,11 @@ fn audit_persisted_usdom_v4_proof_window(
                 .ok_or_else(|| {
                     DomError::Internal("native USDOM proof-audit package is missing".into())
                 })?;
-        let package = UsdomV4BlockPackage::from_bytes(&package_bytes)?;
+        let package = UsdomV4BlockPackage::from_bytes(&package_bytes).map_err(|error| {
+            DomError::Internal(format!(
+                "native USDOM proof-audit package is corrupt: {error}"
+            ))
+        })?;
         let header_bytes = DomSerialize::to_bytes(&package.block().header)?;
         if crate::canonical_header_identifier(chain.network_magic, &header_bytes)? != cursor
             || chain
@@ -4642,6 +4976,7 @@ fn audit_persisted_usdom_v4_proof_window(
             expected_bridge,
             checkpoint_policy,
             deposit_policy,
+            closure_policy,
             Some(spend_verifier),
         )?;
         let stored_undo = chain
@@ -4721,7 +5056,13 @@ pub fn rewind_persisted_usdom_v4_state_to_ancestor_for_schedule(
     let ancestor_header = store
         .get_block_header(ancestor.as_bytes())?
         .ok_or_else(|| DomError::Internal("native USDOM rewind ancestor header is missing".into()))
-        .and_then(|bytes| dom_consensus::block::BlockHeader::from_bytes(&bytes))?;
+        .and_then(|bytes| {
+            dom_consensus::block::BlockHeader::from_bytes(&bytes).map_err(|error| {
+                DomError::Internal(format!(
+                    "native USDOM rewind ancestor header is corrupt: {error}"
+                ))
+            })
+        })?;
     let minimum_ancestor_height = schedule
         .first_v4_height()
         .checked_sub(1)
@@ -4744,7 +5085,7 @@ pub fn rewind_persisted_usdom_v4_state_to_ancestor_for_schedule(
         steps = steps
             .checked_add(1)
             .ok_or_else(|| DomError::Invalid("native USDOM rewind depth overflow".into()))?;
-        if steps > dom_core::MAX_REORG_DEPTH_POLICY {
+        if steps >= crate::reorg::MAX_REORG_DEPTH {
             return Err(DomError::PolicyRejected(
                 "native USDOM rewind exceeds maximum reorg depth".into(),
             ));
@@ -4782,28 +5123,14 @@ pub fn load_persisted_usdom_v2_execution_witnesses(
                 ))
             });
     };
-    if meta.len() != USDOM_V2_WITNESS_META_BYTES
-        || u16::from_be_bytes([meta[0], meta[1]]) != USDOM_V2_PERSISTENCE_VERSION
-    {
-        return Err(DomError::Internal(
-            "malformed persisted native USDOM v2 witness metadata".into(),
-        ));
-    }
-    let expected_commitment = dom_core::Hash256::from_bytes(
-        meta[2..34]
-            .try_into()
-            .map_err(|_| DomError::Internal("truncated v2 witness commitment".into()))?,
-    );
-    let witness_len = u32::from_be_bytes(
-        meta[34..38]
-            .try_into()
-            .map_err(|_| DomError::Internal("truncated v2 witness length".into()))?,
-    ) as usize;
-    let chunk_count = u16::from_be_bytes(
-        meta[38..40]
-            .try_into()
-            .map_err(|_| DomError::Internal("truncated v2 witness chunk count".into()))?,
-    ) as usize;
+    let (expected_commitment, witness_len, chunk_count) = decode_persisted_chunk_metadata(
+        &meta,
+        USDOM_V2_WITNESS_META_BYTES,
+        USDOM_V2_PERSISTENCE_VERSION,
+        "v2 witness",
+    )?;
+    let witness_len = witness_len as usize;
+    let chunk_count = chunk_count as usize;
     if !(USDOM_V2_WITNESS_BUNDLE_HEADER_BYTES..=MAX_USDOM_V2_WITNESS_BUNDLE_BYTES)
         .contains(&witness_len)
         || chunk_count == 0
@@ -4904,28 +5231,14 @@ pub fn load_persisted_usdom_v4_package(
             UsdomV4BlockPackage::new(block, proof_envelope)?.to_bytes()?,
         ));
     };
-    if meta.len() != USDOM_V4_PACKAGE_META_BYTES
-        || u16::from_be_bytes([meta[0], meta[1]]) != USDOM_V4_PERSISTENCE_VERSION
-    {
-        return Err(DomError::Internal(
-            "malformed persisted native USDOM package metadata".into(),
-        ));
-    }
-    let package_commitment = dom_core::Hash256::from_bytes(
-        meta[2..34]
-            .try_into()
-            .map_err(|_| DomError::Internal("truncated USDOM package commitment".into()))?,
-    );
-    let proof_len = u32::from_be_bytes(
-        meta[34..38]
-            .try_into()
-            .map_err(|_| DomError::Internal("truncated USDOM proof length".into()))?,
-    ) as usize;
-    let chunk_count = u16::from_be_bytes(
-        meta[38..40]
-            .try_into()
-            .map_err(|_| DomError::Internal("truncated USDOM chunk count".into()))?,
-    ) as usize;
+    let (package_commitment, proof_len, chunk_count) = decode_persisted_chunk_metadata(
+        &meta,
+        USDOM_V4_PACKAGE_META_BYTES,
+        USDOM_V4_PERSISTENCE_VERSION,
+        "v4 package",
+    )?;
+    let proof_len = proof_len as usize;
+    let chunk_count = chunk_count as usize;
     let expected_chunks = proof_len.div_ceil(MAX_CONSENSUS_STATE_VALUE_BYTES);
     if !(USDOM_V4_ENVELOPE_HEADER_BYTES..=MAX_USDOM_V4_ENVELOPE_BYTES).contains(&proof_len)
         || chunk_count == 0
@@ -4990,23 +5303,39 @@ pub fn load_persisted_usdom_v4_package(
 /// Callers must hold a stable chain snapshot while invoking this function and
 /// must independently pin the returned ancestry to a trusted finalized DOM
 /// block. Local canonicity alone is not a portable finality proof.
+/// V1 rollback projections are retained only for the rolling-finality window;
+/// archival history older than that window belongs in a separately verified
+/// proof archive rather than the mutable consensus database.
 pub fn load_authenticated_usdom_v4_history_block(
     store: &DomStore,
     network_magic: u32,
     expected_dom_domain: [u8; 32],
     block_identifier: dom_core::Hash256,
 ) -> Result<AuthenticatedUsdomV4HistoryBlock, DomError> {
-    if network_magic != NETWORK_MAGIC_REGTEST
-        || expected_dom_domain == [0; 32]
+    if !matches!(
+        network_magic,
+        dom_core::NETWORK_MAGIC_MAINNET
+            | dom_core::NETWORK_MAGIC_TESTNET
+            | dom_core::NETWORK_MAGIC_REGTEST
+    ) || expected_dom_domain == [0; 32]
         || block_identifier == dom_core::Hash256::ZERO
     {
         return Err(DomError::PolicyRejected(
-            "native USDOM history export requires a nonzero domain and Regtest block".into(),
+            "native USDOM history export requires a recognized network and nonzero identities"
+                .into(),
         ));
     }
     let package_bytes = load_persisted_usdom_v4_package(store, network_magic, block_identifier)?
         .ok_or_else(|| DomError::Internal("native USDOM history package is missing".into()))?;
-    let package = UsdomV4BlockPackage::from_bytes(&package_bytes)?;
+    let package = UsdomV4BlockPackage::from_bytes(&package_bytes).map_err(|error| {
+        DomError::Internal(format!("native USDOM history package is corrupt: {error}"))
+    })?;
+    let envelope_bytes = package.proof_envelope().to_bytes().map_err(|error| {
+        DomError::Internal(format!(
+            "native USDOM history proof envelope is corrupt: {error}"
+        ))
+    })?;
+    let candidate_id = blake2b_256_tagged(TAG_USDOM_V4_MINING_CANDIDATE, &envelope_bytes);
     let block = package.block();
     let header_bytes = DomSerialize::to_bytes(&block.header)?;
     if crate::canonical_header_identifier(network_magic, &header_bytes)? != block_identifier
@@ -5053,7 +5382,9 @@ pub fn load_authenticated_usdom_v4_history_block(
         let effects = projection.public_effects();
         let private_payload = match (kind, effects.kind) {
             (UsdomV4ProofKind::Issuance, TransitionKind::Issue)
-            | (UsdomV4ProofKind::EthereumCheckpoint, TransitionKind::EthereumCheckpoint) => None,
+            | (UsdomV4ProofKind::EthereumCheckpoint, TransitionKind::EthereumCheckpoint)
+            | (UsdomV4ProofKind::IssuanceClosure, TransitionKind::IssuanceClose)
+            | (UsdomV4ProofKind::GracefulShutdown, TransitionKind::GracefulShutdown) => None,
             (UsdomV4ProofKind::Transfer, TransitionKind::Transfer) => {
                 let observed = inspect_private_transfer_outputs(payload).map_err(|error| {
                     DomError::Internal(format!(
@@ -5095,6 +5426,7 @@ pub fn load_authenticated_usdom_v4_history_block(
     }
     Ok(AuthenticatedUsdomV4HistoryBlock {
         block_identifier,
+        candidate_id,
         header_bytes,
         height: block.header.height.0,
         previous_block_identifier: block.header.prev_hash,
@@ -5219,14 +5551,128 @@ pub fn export_native_usdom_v4_burn_block_prover_input(
     )
 }
 
-/// Export the current `UDFINL02` proof input from an audited canonical state.
+#[allow(clippy::too_many_arguments)]
+fn reconstruct_authenticated_usdom_v2_burn_witness(
+    store: &DomStore,
+    network_magic: u32,
+    expected_bridge: BridgeIdentity,
+    canonical_checkpoint: dom_core::Hash256,
+    burn_id: [u8; 32],
+    v1_schedule: NativeUsdomV4ActivationSchedule,
+    v2_schedule: NativeUsdomV2ActivationSchedule,
+    checkpoint_policy: &StaticCheckpointTrustPolicy,
+    deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
+    spend_verifier: &SpendVerifier,
+) -> Result<BurnStateWitnessV2, DomError> {
+    if canonical_checkpoint == v2_schedule.activation_parent()
+        || v1_schedule.network_magic() != network_magic
+        || v2_schedule.network_magic() != network_magic
+        || v1_schedule.chain_id() != v2_schedule.chain_id()
+    {
+        return Err(DomError::PolicyRejected(
+            "finalized-burn exporter schedules do not select one active V2 chain".into(),
+        ));
+    }
+    let current_tip = store
+        .get_chain_tip()?
+        .map(dom_core::Hash256::from_bytes)
+        .ok_or_else(|| DomError::Internal("finalized-burn canonical chain has no tip".into()))?;
+    let (activation_state, persisted_v1_schedule) =
+        restore_persisted_usdom_v2_activation_state_at_tip(
+            store,
+            network_magic,
+            current_tip,
+            expected_bridge,
+            v2_schedule,
+        )?;
+    if persisted_v1_schedule != v1_schedule {
+        return Err(DomError::PolicyRejected(
+            "finalized-burn exporter V1 schedule is not the persisted activation schedule".into(),
+        ));
+    }
+
+    let checkpoint_block_bytes = store
+        .get_block_body(canonical_checkpoint.as_bytes())?
+        .ok_or_else(|| DomError::Internal("finalized-burn checkpoint block is missing".into()))?;
+    let checkpoint_block =
+        <Block as DomDeserialize>::from_bytes(&checkpoint_block_bytes).map_err(|error| {
+            DomError::Internal(format!(
+                "finalized-burn checkpoint block is corrupt: {error}"
+            ))
+        })?;
+    let checkpoint_height = checkpoint_block.header.height.0;
+    if checkpoint_height < v2_schedule.first_v2_height() {
+        return Err(DomError::PolicyRejected(
+            "finalized-burn checkpoint predates V2 activation".into(),
+        ));
+    }
+    let checkpoint_record = load_persisted_usdom_v2_block_record(store, canonical_checkpoint)?
+        .ok_or_else(|| {
+            DomError::Internal("finalized-burn checkpoint V2 block record is missing".into())
+        })?;
+    let checkpoint_state = checkpoint_record.next_state;
+    let activation_v2 = activation_state.state_commitment_v2().map_err(|error| {
+        DomError::Internal(format!(
+            "finalized-burn activation state is invalid: {error}"
+        ))
+    })?;
+    let activation_parent_height = v2_schedule
+        .first_v2_height()
+        .checked_sub(1)
+        .ok_or_else(|| DomError::Invalid("finalized-burn activation height underflow".into()))?;
+    let checkpoint_header_bytes = DomSerialize::to_bytes(&checkpoint_block.header)?;
+    let (_, _, raw_rangeproof_root) = compute_block_pmmr_roots(
+        checkpoint_block.header.height,
+        &checkpoint_block.coinbase,
+        &checkpoint_block.transactions,
+    )?;
+    validate_static_checkpoint_policy_identity(network_magic, expected_bridge, checkpoint_policy)?;
+    validate_static_deposit_policy_identity(expected_bridge, deposit_policy)?;
+    if let Some(policy) = closure_policy {
+        validate_static_issuance_closure_policy_identity(network_magic, expected_bridge, policy)?;
+    }
+    validate_spend_verifier_identity(expected_bridge, spend_verifier)?;
+    if activation_v2.root() != v2_schedule.initial_v2_state_root()
+        || crate::canonical_header_identifier(network_magic, &checkpoint_header_bytes)?
+            != canonical_checkpoint
+        || checkpoint_record.schedule_commitment != v2_schedule.commitment()
+        || checkpoint_record.block_identifier != canonical_checkpoint
+        || checkpoint_record.parent != checkpoint_block.header.prev_hash
+        || checkpoint_record.receipt.block_timestamp != checkpoint_block.header.timestamp.0
+        || bind_usdom_batch_commitment(
+            raw_rangeproof_root,
+            checkpoint_record.receipt.header_commitment,
+        )? != checkpoint_block.header.rangeproof_root
+        || !v2_state_matches_bridge(checkpoint_record.previous_state, expected_bridge)
+        || !v2_state_matches_bridge(checkpoint_state, expected_bridge)
+        || store.get_hash_at_height(activation_parent_height)?
+            != Some(*v2_schedule.activation_parent().as_bytes())
+        || store.get_hash_at_height(checkpoint_height)? != Some(*canonical_checkpoint.as_bytes())
+        || store.get_chain_tip()? != Some(*current_tip.as_bytes())
+    {
+        return Err(DomError::Internal(
+            "finalized-burn V2 checkpoint or activation binding disagrees".into(),
+        ));
+    }
+    let records = load_v2_burn_archive_at_height(store, checkpoint_height)?;
+    BurnStateWitnessV2::from_burn_records(checkpoint_state, burn_id, &records)
+        .map_err(|error| {
+            DomError::Internal(format!(
+                "authenticated finalized-burn set reconstruction failed: {error}"
+            ))
+        })?
+        .ok_or_else(|| DomError::Invalid("native burn is absent from checkpoint state".into()))
+}
+
+/// Export the current `UDFINL04` proof input from an audited canonical V2 state.
 ///
 /// The raw Ethereum witness must authenticate a checkpoint event naming this
-/// exact canonical state's root. Unlike the legacy `UDFINL01` transport, this
-/// composition does not copy the node database, DOM block body, RandomX input
-/// or batch undo into the burn program: the separately pinned checkpoint
-/// verifier proves the consensus extension, while `UDFINL02` proves burn-set
-/// inclusion in its finalized state root.
+/// exact canonical state's root. The supplied checkpoint-outer statement is
+/// also part of the canonical private input: the finalized-burn guest accepts
+/// it only together with a recursively verified receipt from the pinned
+/// checkpoint guest. The Ethereum event, recursive DOM proof and burn witness
+/// must therefore agree on the checkpoint height, block and state root.
 #[allow(clippy::too_many_arguments)]
 pub fn export_finalized_burn_prover_input_for_schedule(
     store: &DomStore,
@@ -5234,41 +5680,39 @@ pub fn export_finalized_burn_prover_input_for_schedule(
     expected_bridge: BridgeIdentity,
     canonical_checkpoint: dom_core::Hash256,
     burn_id: [u8; 32],
-    schedule: NativeUsdomV4ActivationSchedule,
+    v1_schedule: NativeUsdomV4ActivationSchedule,
+    v2_schedule: NativeUsdomV2ActivationSchedule,
     checkpoint_policy: StaticCheckpointTrustPolicy,
+    deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
+    spend_verifier: &SpendVerifier,
+    checkpoint_statement: dom_usdom_finalized_burn_program::CheckpointStatementV6,
     checkpoint_witness_bytes: Vec<u8>,
 ) -> Result<dom_usdom_finalized_burn_program::FinalizedBurnProverInput, DomError> {
-    let state = restore_persisted_usdom_v4_state_for_schedule(
+    let burn_witness_bytes = reconstruct_authenticated_usdom_v2_burn_witness(
         store,
         network_magic,
         expected_bridge,
         canonical_checkpoint,
-        schedule,
-    )?;
-    audit_persisted_usdom_v4_reorg_window_for_schedule(
-        store,
-        network_magic,
-        expected_bridge,
-        canonical_checkpoint,
-        schedule,
-    )?;
-    let burn_witness_bytes = state
-        .burn_state_witness(&burn_id)
-        .map_err(|error| DomError::Internal(format!("native burn witness export failed: {error}")))?
-        .ok_or_else(|| DomError::Invalid("native burn is absent from checkpoint state".into()))?
-        .to_bytes()
-        .map_err(|error| {
-            DomError::Internal(format!("native burn witness encoding failed: {error}"))
-        })?;
+        burn_id,
+        v1_schedule,
+        v2_schedule,
+        &checkpoint_policy,
+        deposit_policy,
+        closure_policy,
+        spend_verifier,
+    )?
+    .to_bytes()
+    .map_err(|error| DomError::Internal(format!("native burn witness encoding failed: {error}")))?;
     let portable_schedule = dom_usdom_finalized_burn_program::ActivationSchedule::new(
-        schedule.network_magic(),
-        schedule.chain_id(),
-        schedule.first_v4_height(),
+        v1_schedule.network_magic(),
+        v1_schedule.chain_id(),
+        v1_schedule.first_v4_height(),
         expected_bridge,
     )
     .map_err(|error| DomError::Invalid(format!("portable activation schedule failed: {error}")))?;
-    if portable_schedule.empty_state_root() != schedule.empty_state_root()
-        || portable_schedule.commitment() != schedule.commitment()
+    if portable_schedule.empty_state_root() != v1_schedule.empty_state_root()
+        || portable_schedule.commitment() != v1_schedule.commitment()
     {
         return Err(DomError::Internal(
             "portable finalized-burn schedule differs from native consensus".into(),
@@ -5277,6 +5721,7 @@ pub fn export_finalized_burn_prover_input_for_schedule(
     let input = dom_usdom_finalized_burn_program::FinalizedBurnProverInput::new(
         portable_schedule,
         checkpoint_policy,
+        checkpoint_statement,
         burn_witness_bytes,
         checkpoint_witness_bytes,
     )
@@ -5398,51 +5843,33 @@ struct PersistedUsdomV2RuntimeTip {
 }
 
 impl PersistedUsdomV2RuntimeTip {
-    const HEADER_BYTES: usize = 172;
-
     fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
-        if bytes.len() < Self::HEADER_BYTES
-            || bytes.get(..8) != Some(USDOM_V2_RUNTIME_TIP_MAGIC.as_slice())
-            || u16::from_be_bytes(
-                bytes[8..10]
-                    .try_into()
-                    .map_err(|_| DomError::Malformed("truncated v2 tip version".into()))?,
-            ) != USDOM_V2_PERSISTENCE_VERSION
+        let mut reader = Reader::new(bytes);
+        if reader.read_bytes(8)? != USDOM_V2_RUNTIME_TIP_MAGIC
+            || reader.read_u16_be()? != USDOM_V2_PERSISTENCE_VERSION
         {
             return Err(DomError::Malformed(
                 "invalid persisted native USDOM v2 runtime tip framing".into(),
             ));
         }
-        let hash = |range: std::ops::Range<usize>| -> Result<dom_core::Hash256, DomError> {
-            Ok(dom_core::Hash256::from_bytes(
-                bytes
-                    .get(range)
-                    .ok_or_else(|| DomError::Malformed("truncated v2 runtime tip".into()))?
-                    .try_into()
-                    .map_err(|_| DomError::Malformed("truncated v2 runtime tip hash".into()))?,
-            ))
-        };
-        let state_len =
-            usize::from(u16::from_be_bytes(bytes[170..172].try_into().map_err(
-                |_| DomError::Malformed("truncated v2 tip state length".into()),
-            )?));
-        let end = Self::HEADER_BYTES
-            .checked_add(state_len)
-            .ok_or_else(|| DomError::Malformed("v2 tip state length overflow".into()))?;
-        if end != bytes.len() {
-            return Err(DomError::Malformed(
-                "persisted native USDOM v2 runtime tip length mismatch".into(),
-            ));
-        }
+        let schedule_commitment = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let block_identifier = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let state_root = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let package_commitment = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let witness_commitment = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let state_len = usize::from(reader.read_u16_be()?);
+        let state =
+            StateCommitmentV2::from_bytes(reader.read_bytes(state_len)?).map_err(|error| {
+                DomError::Malformed(format!("invalid v2 runtime tip state: {error}"))
+            })?;
+        reader.finish()?;
         let tip = Self {
-            schedule_commitment: hash(10..42)?,
-            block_identifier: hash(42..74)?,
-            state_root: hash(74..106)?,
-            package_commitment: hash(106..138)?,
-            witness_commitment: hash(138..170)?,
-            state: StateCommitmentV2::from_bytes(&bytes[Self::HEADER_BYTES..]).map_err(
-                |error| DomError::Malformed(format!("invalid v2 runtime tip state: {error}")),
-            )?,
+            schedule_commitment,
+            block_identifier,
+            state_root,
+            package_commitment,
+            witness_commitment,
+            state,
         };
         if [
             tip.schedule_commitment,
@@ -5463,7 +5890,7 @@ impl PersistedUsdomV2RuntimeTip {
 }
 
 impl PersistedUsdomV2BlockRecord {
-    const HEADER_BYTES: usize = 316;
+    const HEADER_BYTES: usize = 380;
 
     fn validate(&self) -> Result<(), DomError> {
         if [
@@ -5478,6 +5905,10 @@ impl PersistedUsdomV2BlockRecord {
             || self.receipt.version != dom_usdom_state::CANDIDATE_V2_TRANSITION_BATCH_VERSION
             || self.receipt.previous_state_root != self.previous_state.root()
             || self.receipt.new_state_root != self.next_state.root()
+            || self.receipt.previous_total_issued != self.previous_state.total_issued
+            || self.receipt.previous_total_burned != self.previous_state.total_burned
+            || self.receipt.new_total_issued != self.next_state.total_issued
+            || self.receipt.new_total_burned != self.next_state.total_burned
             || self.previous_state.to_bytes().is_err()
             || self.next_state.to_bytes().is_err()
         {
@@ -5520,6 +5951,10 @@ impl PersistedUsdomV2BlockRecord {
         bytes.extend_from_slice(self.receipt.transitions_root.as_bytes());
         bytes.extend_from_slice(self.receipt.previous_state_root.as_bytes());
         bytes.extend_from_slice(self.receipt.new_state_root.as_bytes());
+        bytes.extend_from_slice(&self.receipt.previous_total_issued.to_be_bytes());
+        bytes.extend_from_slice(&self.receipt.previous_total_burned.to_be_bytes());
+        bytes.extend_from_slice(&self.receipt.new_total_issued.to_be_bytes());
+        bytes.extend_from_slice(&self.receipt.new_total_burned.to_be_bytes());
         bytes.extend_from_slice(self.receipt.header_commitment.as_bytes());
         debug_assert_eq!(bytes.len(), Self::HEADER_BYTES);
         bytes.extend_from_slice(&previous);
@@ -5528,85 +5963,48 @@ impl PersistedUsdomV2BlockRecord {
     }
 
     fn from_bytes(bytes: &[u8]) -> Result<Self, DomError> {
-        if bytes.len() < Self::HEADER_BYTES
-            || bytes.get(..8) != Some(USDOM_V2_BLOCK_RECORD_MAGIC.as_slice())
-            || u16::from_be_bytes(
-                bytes[8..10]
-                    .try_into()
-                    .map_err(|_| DomError::Malformed("truncated v2 record version".into()))?,
-            ) != USDOM_V2_PERSISTENCE_VERSION
+        let mut reader = Reader::new(bytes);
+        if reader.read_bytes(8)? != USDOM_V2_BLOCK_RECORD_MAGIC
+            || reader.read_u16_be()? != USDOM_V2_PERSISTENCE_VERSION
         {
             return Err(DomError::Malformed(
                 "invalid persisted native USDOM v2 block framing".into(),
             ));
         }
-        let hash = |range: std::ops::Range<usize>| -> Result<dom_core::Hash256, DomError> {
-            Ok(dom_core::Hash256::from_bytes(
-                bytes
-                    .get(range)
-                    .ok_or_else(|| DomError::Malformed("truncated v2 block record".into()))?
-                    .try_into()
-                    .map_err(|_| DomError::Malformed("truncated v2 block hash".into()))?,
-            ))
+        let schedule_commitment = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let block_identifier = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let parent = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let package_commitment = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let witness_commitment = dom_core::Hash256::from_bytes(reader.read_array::<32>()?);
+        let previous_len = usize::from(reader.read_u16_be()?);
+        let next_len = usize::from(reader.read_u16_be()?);
+        let receipt = TransitionBatchReceipt {
+            version: reader.read_u16_be()?,
+            transition_count: reader.read_u32_be()?,
+            block_timestamp: reader.read_u64_be()?,
+            transitions_root: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+            previous_state_root: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+            new_state_root: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
+            previous_total_issued: u128::from_be_bytes(reader.read_array::<16>()?),
+            previous_total_burned: u128::from_be_bytes(reader.read_array::<16>()?),
+            new_total_issued: u128::from_be_bytes(reader.read_array::<16>()?),
+            new_total_burned: u128::from_be_bytes(reader.read_array::<16>()?),
+            header_commitment: dom_core::Hash256::from_bytes(reader.read_array::<32>()?),
         };
-        let previous_len =
-            usize::from(u16::from_be_bytes(bytes[170..172].try_into().map_err(
-                |_| DomError::Malformed("truncated v2 previous length".into()),
-            )?));
-        let next_len =
-            usize::from(u16::from_be_bytes(bytes[172..174].try_into().map_err(
-                |_| DomError::Malformed("truncated v2 next length".into()),
-            )?));
-        let previous_end = Self::HEADER_BYTES
-            .checked_add(previous_len)
-            .ok_or_else(|| DomError::Malformed("v2 previous state length overflow".into()))?;
-        let next_end = previous_end
-            .checked_add(next_len)
-            .ok_or_else(|| DomError::Malformed("v2 next state length overflow".into()))?;
-        if next_end != bytes.len() {
-            return Err(DomError::Malformed(
-                "persisted native USDOM v2 block length mismatch".into(),
-            ));
-        }
+        let previous_state = StateCommitmentV2::from_bytes(reader.read_bytes(previous_len)?)
+            .map_err(|error| DomError::Malformed(format!("invalid v2 previous state: {error}")))?;
+        let next_state = StateCommitmentV2::from_bytes(reader.read_bytes(next_len)?)
+            .map_err(|error| DomError::Malformed(format!("invalid v2 next state: {error}")))?;
+        reader.finish()?;
         let record = Self {
-            schedule_commitment: hash(10..42)?,
-            block_identifier: hash(42..74)?,
-            parent: hash(74..106)?,
-            package_commitment: hash(106..138)?,
-            witness_commitment: hash(138..170)?,
-            previous_state: StateCommitmentV2::from_bytes(
-                bytes
-                    .get(Self::HEADER_BYTES..previous_end)
-                    .ok_or_else(|| DomError::Malformed("truncated v2 previous state".into()))?,
-            )
-            .map_err(|error| DomError::Malformed(format!("invalid v2 previous state: {error}")))?,
-            next_state: StateCommitmentV2::from_bytes(
-                bytes
-                    .get(previous_end..next_end)
-                    .ok_or_else(|| DomError::Malformed("truncated v2 next state".into()))?,
-            )
-            .map_err(|error| DomError::Malformed(format!("invalid v2 next state: {error}")))?,
-            receipt: TransitionBatchReceipt {
-                version: u16::from_be_bytes(
-                    bytes[174..176]
-                        .try_into()
-                        .map_err(|_| DomError::Malformed("truncated v2 receipt version".into()))?,
-                ),
-                transition_count: u32::from_be_bytes(
-                    bytes[176..180]
-                        .try_into()
-                        .map_err(|_| DomError::Malformed("truncated v2 transition count".into()))?,
-                ),
-                block_timestamp: u64::from_be_bytes(
-                    bytes[180..188]
-                        .try_into()
-                        .map_err(|_| DomError::Malformed("truncated v2 block timestamp".into()))?,
-                ),
-                transitions_root: hash(188..220)?,
-                previous_state_root: hash(220..252)?,
-                new_state_root: hash(252..284)?,
-                header_commitment: hash(284..316)?,
-            },
+            schedule_commitment,
+            block_identifier,
+            parent,
+            package_commitment,
+            witness_commitment,
+            previous_state,
+            next_state,
+            receipt,
         };
         record.validate().map_err(|_| {
             DomError::Malformed("invalid persisted native USDOM v2 block record".into())
@@ -5782,14 +6180,20 @@ impl VerifiedUsdomV4CandidateV2 {
             key: USDOM_V2_TIP_KEY.to_vec(),
             value: Some(v2_runtime_tip_value(schedule, record)?),
         });
+        for burn in package.proof_envelope().public_burn_records()? {
+            updates.push(v2_burn_archive_update(
+                block.header.height.0,
+                self.block_identifier,
+                burn,
+            )?);
+        }
         validate_consensus_state_updates(&updates)?;
         Ok(updates)
     }
 
-    /// Persist only the authenticated V2 block record and collapsing runtime
-    /// tip when the exact package and witnesses already live in an immutable
-    /// block sidecar. This keeps multi-block reorg transactions bounded while
-    /// preserving deterministic restart and future replay.
+    /// Move a promoted side block's authenticated V2 package, witnesses,
+    /// compact burn index and block record into canonical consensus state. The
+    /// reorg transaction deletes the now-redundant immutable sidecar atomically.
     pub(crate) fn sidecar_reorg_persistence_updates(
         &self,
         schedule: NativeUsdomV2ActivationSchedule,
@@ -5797,11 +6201,8 @@ impl VerifiedUsdomV4CandidateV2 {
         package_bytes: &[u8],
         witness_bundle: &UsdomV2ExecutionWitnesses,
     ) -> Result<Vec<ConsensusStateUpdate>, DomError> {
-        let mut updates =
+        let updates =
             self.consensus_state_updates(schedule, previous_state, package_bytes, witness_bundle)?;
-        updates.retain(|update| {
-            update.key == USDOM_V2_TIP_KEY || update.key.starts_with(USDOM_V2_BLOCK_RECORD_PREFIX)
-        });
         validate_consensus_state_updates(&updates)?;
         Ok(updates)
     }
@@ -5822,6 +6223,7 @@ fn verify_usdom_v4_envelope_candidate_for_schedule(
     bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     spend_verifier: Option<&SpendVerifier>,
     envelope: &UsdomV4ProofEnvelope,
     schedule: NativeUsdomV4ActivationSchedule,
@@ -5846,6 +6248,7 @@ fn verify_usdom_v4_envelope_candidate_for_schedule(
         bridge,
         checkpoint_policy,
         deposit_policy,
+        closure_policy,
         spend_verifier,
         &envelope.entries,
     )?;
@@ -5875,6 +6278,7 @@ pub fn verify_usdom_v4_serialized_candidate_regtest(
     bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
 ) -> Result<VerifiedUsdomV4Candidate, DomError> {
     verify_usdom_v4_serialized_candidate_regtest_inner(
         package_bytes,
@@ -5884,6 +6288,10 @@ pub fn verify_usdom_v4_serialized_candidate_regtest(
         bridge,
         checkpoint_policy,
         deposit_policy,
+        closure_policy,
+        // The legacy wrapper intentionally cannot authorize private spends.
+        // Proof-bearing callers must supply the bridge-pinned verifier through
+        // `verify_usdom_v4_serialized_candidate_with_spend_verifier_regtest`.
         None,
     )
 }
@@ -5900,6 +6308,7 @@ pub fn verify_usdom_v4_serialized_candidate_with_spend_verifier_regtest(
     bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     spend_verifier: &SpendVerifier,
 ) -> Result<VerifiedUsdomV4Candidate, DomError> {
     verify_usdom_v4_serialized_candidate_regtest_inner(
@@ -5910,6 +6319,7 @@ pub fn verify_usdom_v4_serialized_candidate_with_spend_verifier_regtest(
         bridge,
         checkpoint_policy,
         deposit_policy,
+        closure_policy,
         Some(spend_verifier),
     )
 }
@@ -5929,6 +6339,7 @@ pub fn verify_usdom_v4_serialized_candidate_for_schedule(
     bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     spend_verifier: &SpendVerifier,
     schedule: NativeUsdomV4ActivationSchedule,
 ) -> Result<VerifiedUsdomV4Candidate, DomError> {
@@ -5940,6 +6351,7 @@ pub fn verify_usdom_v4_serialized_candidate_for_schedule(
         bridge,
         checkpoint_policy,
         deposit_policy,
+        closure_policy,
         Some(spend_verifier),
         schedule,
     )
@@ -5957,6 +6369,7 @@ pub fn verify_usdom_v4_serialized_transition_batch_for_schedule(
     bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     spend_verifier: &SpendVerifier,
     schedule: NativeUsdomV4ActivationSchedule,
 ) -> Result<VerifiedUsdomV4TransitionBatch, DomError> {
@@ -5978,6 +6391,7 @@ pub fn verify_usdom_v4_serialized_transition_batch_for_schedule(
         bridge,
         checkpoint_policy,
         deposit_policy,
+        closure_policy,
         Some(spend_verifier),
         &package.proof_envelope().entries,
     )?;
@@ -6003,6 +6417,7 @@ pub fn verify_usdom_v4_serialized_transition_batch_for_v2_schedule(
     bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     spend_verifier: &SpendVerifier,
     schedule: NativeUsdomV2ActivationSchedule,
 ) -> Result<VerifiedUsdomV4TransitionBatch, DomError> {
@@ -6030,6 +6445,7 @@ pub fn verify_usdom_v4_serialized_transition_batch_for_v2_schedule(
         bridge,
         checkpoint_policy,
         deposit_policy,
+        closure_policy,
         Some(spend_verifier),
         &package.proof_envelope().entries,
     )?;
@@ -6053,6 +6469,7 @@ pub(crate) fn verify_usdom_v4_serialized_candidate_for_schedule_inner(
     bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     spend_verifier: Option<&SpendVerifier>,
     schedule: NativeUsdomV4ActivationSchedule,
 ) -> Result<VerifiedUsdomV4Candidate, DomError> {
@@ -6069,6 +6486,7 @@ pub(crate) fn verify_usdom_v4_serialized_candidate_for_schedule_inner(
         bridge,
         checkpoint_policy,
         deposit_policy,
+        closure_policy,
         spend_verifier,
         package.proof_envelope(),
         schedule,
@@ -6099,6 +6517,7 @@ pub(crate) fn verify_usdom_v4_serialized_candidate_regtest_inner(
     bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     spend_verifier: Option<&SpendVerifier>,
 ) -> Result<VerifiedUsdomV4Candidate, DomError> {
     if network_magic != NETWORK_MAGIC_REGTEST {
@@ -6115,6 +6534,7 @@ pub(crate) fn verify_usdom_v4_serialized_candidate_regtest_inner(
         bridge,
         checkpoint_policy,
         deposit_policy,
+        closure_policy,
         spend_verifier,
         schedule,
     )
@@ -6126,13 +6546,52 @@ fn verify_envelope_transitions(
     bridge: BridgeIdentity,
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     spend_verifier: Option<&SpendVerifier>,
     entries: &[UsdomV4ProofEntry],
 ) -> Result<VerifiedEnvelopeTransitions, DomError> {
     validate_envelope_entries(entries)?;
+    let private_spends = entries
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.kind,
+                UsdomV4ProofKind::Transfer | UsdomV4ProofKind::Burn
+            )
+        })
+        .count();
+    let mut private_results = if private_spends > 1 {
+        let verifier = spend_verifier.ok_or_else(|| {
+            DomError::PolicyRejected(
+                "native USDOM production proof verifier is unavailable for this proof kind".into(),
+            )
+        })?;
+        entries
+            .par_iter()
+            .map(|entry| match entry.kind {
+                UsdomV4ProofKind::Transfer => Some(
+                    verify_private_transfer_payload(bridge, verifier, &entry.payload).map_err(
+                        |error| {
+                            DomError::Invalid(format!("native USDOM private proof failed: {error}"))
+                        },
+                    ),
+                ),
+                UsdomV4ProofKind::Burn => Some(
+                    verify_private_burn_payload(bridge, verifier, &entry.payload).map_err(
+                        |error| {
+                            DomError::Invalid(format!("native USDOM private proof failed: {error}"))
+                        },
+                    ),
+                ),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    } else {
+        (0..entries.len()).map(|_| None).collect()
+    };
     let mut transitions = Vec::with_capacity(entries.len());
     let mut verified_checkpoint = None;
-    for entry in entries {
+    for (index, entry) in entries.iter().enumerate() {
         match entry.kind {
             UsdomV4ProofKind::Issuance => {
                 let dynamic_policy = deposit_policy_for_dom_block(
@@ -6147,6 +6606,17 @@ fn verify_envelope_transitions(
                             "native USDOM Ethereum deposit verification failed: {error}"
                         ))
                     })?;
+                usdom_ethereum_finality_experiment::validate_finalized_time_window(
+                    deposit.finalized_execution().timestamp,
+                    block_timestamp,
+                    bridge.burn_timing.max_ethereum_anchor_age_secs,
+                    bridge.burn_timing.max_dom_clock_lead_secs,
+                )
+                .map_err(|error| {
+                    DomError::Invalid(format!(
+                        "native USDOM deposit finality freshness failed: {error}"
+                    ))
+                })?;
                 let transition =
                     ethereum_deposit_transition(bridge, &deposit).map_err(|error| {
                         DomError::Invalid(format!(
@@ -6168,6 +6638,17 @@ fn verify_envelope_transitions(
                             "native USDOM Ethereum checkpoint verification failed: {error}"
                         ))
                     })?;
+                usdom_ethereum_finality_experiment::validate_finalized_time_window(
+                    checkpoint.finalized_execution().timestamp,
+                    block_timestamp,
+                    bridge.burn_timing.max_ethereum_anchor_age_secs,
+                    bridge.burn_timing.max_dom_clock_lead_secs,
+                )
+                .map_err(|error| {
+                    DomError::Invalid(format!(
+                        "native USDOM checkpoint finality freshness failed: {error}"
+                    ))
+                })?;
                 let transition =
                     ethereum_checkpoint_transition(bridge, &checkpoint).map_err(|error| {
                         DomError::Invalid(format!(
@@ -6177,7 +6658,74 @@ fn verify_envelope_transitions(
                 transitions.push(transition);
                 verified_checkpoint = Some(checkpoint);
             }
+            UsdomV4ProofKind::IssuanceClosure => {
+                let static_policy = closure_policy.ok_or_else(|| {
+                    DomError::PolicyRejected(
+                        "native USDOM issuance-closure verifier policy is unavailable".into(),
+                    )
+                })?;
+                let dynamic_policy = issuance_closure_policy_for_dom_block(
+                    network_magic,
+                    block_timestamp,
+                    bridge,
+                    static_policy,
+                )?;
+                let closure = verify_issuance_closure_witness(&entry.payload, &dynamic_policy)
+                    .map_err(|error| {
+                        DomError::Invalid(format!(
+                            "native USDOM issuance closure verification failed: {error}"
+                        ))
+                    })?;
+                usdom_ethereum_finality_experiment::validate_finalized_time_window(
+                    closure.finalized_execution().timestamp,
+                    block_timestamp,
+                    bridge.burn_timing.max_ethereum_anchor_age_secs,
+                    bridge.burn_timing.max_dom_clock_lead_secs,
+                )
+                .map_err(|error| {
+                    DomError::Invalid(format!(
+                        "native USDOM issuance closure freshness failed: {error}"
+                    ))
+                })?;
+                transitions.push(VerifiedTransition::IssuanceClose(
+                    ethereum_issuance_closure_transition(bridge, &closure).map_err(|error| {
+                        DomError::Invalid(format!(
+                            "native USDOM issuance closure conversion failed: {error}"
+                        ))
+                    })?,
+                ));
+            }
+            UsdomV4ProofKind::GracefulShutdown => {
+                let domain: [u8; 32] = entry.payload.as_slice().try_into().map_err(|_| {
+                    DomError::Malformed("invalid graceful shutdown domain payload".into())
+                })?;
+                if domain != bridge.dom_domain {
+                    return Err(DomError::Invalid(
+                        "graceful shutdown domain does not match bridge".into(),
+                    ));
+                }
+                transitions.push(VerifiedTransition::GracefulShutdown(
+                    graceful_shutdown_transition(domain).map_err(|error| {
+                        DomError::Invalid(format!(
+                            "native USDOM graceful shutdown conversion failed: {error}"
+                        ))
+                    })?,
+                ));
+            }
             UsdomV4ProofKind::Transfer | UsdomV4ProofKind::Burn => {
+                if private_spends > 1 {
+                    let transition = private_results
+                        .get_mut(index)
+                        .and_then(Option::take)
+                        .ok_or_else(|| {
+                            DomError::Internal(
+                                "parallel private proof result is missing from its canonical slot"
+                                    .into(),
+                            )
+                        })?;
+                    transitions.push(transition?);
+                    continue;
+                }
                 let verifier = spend_verifier.ok_or_else(|| {
                     DomError::PolicyRejected(
                         "native USDOM production proof verifier is unavailable for this proof kind"
@@ -6191,7 +6739,11 @@ fn verify_envelope_transitions(
                     UsdomV4ProofKind::Burn => {
                         verify_private_burn_payload(bridge, verifier, &entry.payload)
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        return Err(DomError::Internal(
+                            "private proof kind changed after canonical dispatch".into(),
+                        ));
+                    }
                 }
                 .map_err(|error| {
                     DomError::Invalid(format!("native USDOM private proof failed: {error}"))
@@ -6204,6 +6756,52 @@ fn verify_envelope_transitions(
         transitions,
         checkpoint: verified_checkpoint,
     })
+}
+
+fn issuance_closure_policy_for_dom_block(
+    network_magic: u32,
+    block_timestamp: u64,
+    bridge: BridgeIdentity,
+    policy: &StaticIssuanceClosureTrustPolicy,
+) -> Result<IssuanceClosureTrustPolicy, DomError> {
+    validate_static_issuance_closure_policy_identity(network_magic, bridge, policy)?;
+    let max_current_slot = block_timestamp
+        .checked_sub(ETHEREUM_MAINNET_GENESIS_TIME)
+        .map(|elapsed| elapsed / ETHEREUM_SECONDS_PER_SLOT)
+        .ok_or_else(|| {
+            DomError::Invalid("DOM timestamp predates Ethereum mainnet genesis".into())
+        })?;
+    policy
+        .at_max_current_slot(max_current_slot)
+        .map_err(|error| {
+            DomError::PolicyRejected(format!("invalid issuance closure policy: {error}"))
+        })
+}
+
+fn validate_static_issuance_closure_policy_identity(
+    network_magic: u32,
+    bridge: BridgeIdentity,
+    policy: &StaticIssuanceClosureTrustPolicy,
+) -> Result<(), DomError> {
+    let canonical_chain_id = bridge.ethereum_chain_id[..24].iter().all(|byte| *byte == 0);
+    let bridge_chain_id = u64::from_be_bytes(
+        bridge.ethereum_chain_id[24..]
+            .try_into()
+            .map_err(|_| DomError::Invalid("invalid bridge chain ID word".into()))?,
+    );
+    if network_magic != dom_core::NETWORK_MAGIC_MAINNET
+        || !canonical_chain_id
+        || policy.closure().ethereum_chain_id != bridge_chain_id
+        || policy.closure().ethereum_genesis_validators_root.as_slice()
+            != bridge.ethereum_genesis_validators_root
+        || policy.closure().reserve.as_slice() != bridge.reserve
+        || policy.closure().bridge_domain.as_slice() != bridge.dom_domain
+    {
+        return Err(DomError::PolicyRejected(
+            "native USDOM issuance closure policy does not match bridge identity".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn checkpoint_policy_for_dom_block(
@@ -6429,9 +7027,9 @@ mod tests {
     use dom_crypto::pedersen::Commitment;
     use dom_crypto::{schnorr_sign, BlindingFactor, SecretKey};
     use dom_usdom_state::{
-        encode_private_transfer_payload, unsafe_test_only_burn, unsafe_test_only_issuance,
-        verify_private_transfer_payload, BridgeIdentity, BurnRecord, BurnTimingPolicy,
-        EthereumAnchor,
+        encode_private_burn_payload, encode_private_transfer_payload, unsafe_test_only_burn,
+        unsafe_test_only_issuance, verify_private_transfer_payload, BridgeIdentity, BurnRecord,
+        BurnTimingPolicy, EthereumAnchor,
     };
     use proptest::prelude::*;
     use rand::{rngs::StdRng, SeedableRng};
@@ -6442,10 +7040,27 @@ mod tests {
             StaticCheckpointTrustPolicy,
         },
         deposits::{DepositTrustPolicy, ReserveDepositPolicy, StaticDepositTrustPolicy},
-        EthereumForks,
+        EthereumFork, EthereumForks,
     };
 
     const DOMAIN: [u8; 32] = [0x11; 32];
+
+    fn supported_forks() -> EthereumForks {
+        let fork = |epoch, version| EthereumFork {
+            epoch,
+            fork_version: [version, 0, 0, 0].into(),
+        };
+        EthereumForks {
+            genesis: fork(0, 0),
+            altair: fork(74_240, 1),
+            bellatrix: fork(144_896, 2),
+            capella: fork(194_048, 3),
+            deneb: fork(269_568, 4),
+            electra: fork(364_032, 5),
+            fulu: fork(411_392, 6),
+            gloas: fork(u64::MAX, 7),
+        }
+    }
 
     #[test]
     fn finalized_burn_statement_matches_solidity_abi_known_answer() {
@@ -6491,6 +7106,274 @@ mod tests {
         assert_eq!(
             statement.statement_hash().to_string(),
             "1016275e2148a768d3ff2afca10d14e8b74d7c0d8ac0a3b2d2c3758f81510318"
+        );
+    }
+
+    #[test]
+    fn persisted_auxiliary_decoders_reject_every_prefix_and_trailing_bytes() {
+        let block_identifier = Hash256::from_bytes([0x21; 32]);
+        let state_root = Hash256::from_bytes([0x22; 32]);
+        let package_commitment = Hash256::from_bytes([0x23; 32]);
+        let mut tip = Vec::with_capacity(USDOM_V4_TIP_BYTES);
+        tip.extend_from_slice(block_identifier.as_bytes());
+        tip.extend_from_slice(state_root.as_bytes());
+        tip.extend_from_slice(package_commitment.as_bytes());
+        assert_eq!(tip.len(), USDOM_V4_TIP_BYTES);
+        assert_eq!(
+            decode_persisted_usdom_v4_tip(&tip, "test tip").unwrap(),
+            PersistedUsdomV4Tip {
+                block_identifier,
+                state_root,
+                package_commitment,
+            }
+        );
+        for end in 0..tip.len() {
+            assert!(decode_persisted_usdom_v4_tip(&tip[..end], "test tip").is_err());
+        }
+        let mut trailing_tip = tip.clone();
+        trailing_tip.push(0);
+        assert!(decode_persisted_usdom_v4_tip(&trailing_tip, "test tip").is_err());
+
+        let mut burn = BurnRecord {
+            burn_id: [0x31; 32],
+            request_id: [0x32; 32],
+            amount: 1_234_567,
+            recipient: [0x33; 20],
+            ethereum_chain_id: [0x34; 32],
+            reserve: [0x35; 20],
+            valid_until: 1_900_000_000,
+            obligation_commitment: [0; 32],
+        };
+        burn.obligation_commitment = burn.expected_obligation_commitment(DOMAIN);
+        let archived = v2_burn_archive_update(42, block_identifier, burn)
+            .unwrap()
+            .value
+            .unwrap();
+        assert_eq!(
+            decode_v2_burn_archive_value(&archived).unwrap(),
+            (42, block_identifier, burn)
+        );
+        for end in 0..archived.len() {
+            assert!(decode_v2_burn_archive_value(&archived[..end]).is_err());
+        }
+        let mut trailing_archive = archived.clone();
+        trailing_archive.push(0);
+        assert!(decode_v2_burn_archive_value(&trailing_archive).is_err());
+        let mut wrong_archive_magic = archived;
+        wrong_archive_magic[0] ^= 1;
+        assert!(decode_v2_burn_archive_value(&wrong_archive_magic).is_err());
+
+        let cursor = v2_prune_cursor_value(987_654_321);
+        assert_eq!(decode_v2_prune_cursor(&cursor).unwrap(), 987_654_321);
+        for end in 0..cursor.len() {
+            assert!(decode_v2_prune_cursor(&cursor[..end]).is_err());
+        }
+        let mut trailing_cursor = cursor.clone();
+        trailing_cursor.push(0);
+        assert!(decode_v2_prune_cursor(&trailing_cursor).is_err());
+        let mut wrong_cursor_magic = cursor;
+        wrong_cursor_magic[0] ^= 1;
+        assert!(decode_v2_prune_cursor(&wrong_cursor_magic).is_err());
+
+        for (version, width, label) in [
+            (
+                USDOM_V2_PERSISTENCE_VERSION,
+                USDOM_V2_WITNESS_META_BYTES,
+                "v2 witness test",
+            ),
+            (
+                USDOM_V4_PERSISTENCE_VERSION,
+                USDOM_V4_PACKAGE_META_BYTES,
+                "v4 package test",
+            ),
+        ] {
+            let mut metadata = Vec::with_capacity(width);
+            metadata.extend_from_slice(&version.to_be_bytes());
+            metadata.extend_from_slice(package_commitment.as_bytes());
+            metadata.extend_from_slice(&123_456u32.to_be_bytes());
+            metadata.extend_from_slice(&17u16.to_be_bytes());
+            assert_eq!(metadata.len(), width);
+            assert_eq!(
+                decode_persisted_chunk_metadata(&metadata, width, version, label).unwrap(),
+                (package_commitment, 123_456, 17)
+            );
+            for end in 0..metadata.len() {
+                assert!(
+                    decode_persisted_chunk_metadata(&metadata[..end], width, version, label)
+                        .is_err()
+                );
+            }
+            let mut trailing_metadata = metadata.clone();
+            trailing_metadata.push(0);
+            assert!(
+                decode_persisted_chunk_metadata(&trailing_metadata, width, version, label).is_err()
+            );
+            let mut wrong_version = metadata;
+            wrong_version[..2].copy_from_slice(&version.wrapping_add(1).to_be_bytes());
+            assert!(
+                decode_persisted_chunk_metadata(&wrong_version, width, version, label).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn v1_undo_retention_prunes_exactly_beyond_rolling_finality() {
+        let directory = TempDir::new().unwrap();
+        let store = DomStore::open_with_map_size(directory.path(), 64 << 20).unwrap();
+        let genesis = Hash256::from_bytes([0x71; 32]);
+        let first = Hash256::from_bytes([0x72; 32]);
+        store
+            .commit_block(
+                genesis.as_bytes(),
+                0,
+                b"retention-genesis-header",
+                b"retention-genesis-body",
+                &[],
+                &[],
+                &[],
+            )
+            .unwrap();
+        let undo_key = native_usdom_v4_undo_key(first);
+        store
+            .commit_block_with_consensus_state(
+                first.as_bytes(),
+                1,
+                b"retention-first-header",
+                b"retention-first-body",
+                &[],
+                &[],
+                &[],
+                &[ConsensusStateUpdate {
+                    key: undo_key.clone(),
+                    value: Some(vec![0x73]),
+                }],
+            )
+            .unwrap();
+
+        assert!(
+            native_usdom_v4_undo_retention_update(&store, crate::reorg::MAX_REORG_DEPTH - 1,)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            native_usdom_v4_undo_retention_update(&store, crate::reorg::MAX_REORG_DEPTH,)
+                .unwrap()
+                .is_none()
+        );
+        let deletion =
+            native_usdom_v4_undo_retention_update(&store, crate::reorg::MAX_REORG_DEPTH + 1)
+                .unwrap()
+                .unwrap();
+        assert_eq!(deletion.key, undo_key);
+        assert_eq!(deletion.value, None);
+    }
+
+    #[test]
+    fn v2_compaction_prunes_only_below_checkpoint_and_rolling_floors() {
+        let directory = TempDir::new().unwrap();
+        let store = DomStore::open_with_map_size(directory.path(), 64 << 20).unwrap();
+        let genesis = Hash256::from_bytes([0x81; 32]);
+        let first = Hash256::from_bytes([0x82; 32]);
+        let state = NativeUsdomState::new(bridge()).unwrap();
+        let chain_id = dom_consensus::derive_chain_id(NETWORK_MAGIC_REGTEST, &genesis);
+        let schedule = NativeUsdomV2ActivationSchedule::new(
+            NETWORK_MAGIC_REGTEST,
+            chain_id,
+            1,
+            genesis,
+            &state,
+        )
+        .unwrap();
+        store
+            .commit_block(
+                genesis.as_bytes(),
+                0,
+                b"v2-compaction-genesis-header",
+                b"v2-compaction-genesis-body",
+                &[],
+                &[],
+                &[],
+            )
+            .unwrap();
+        let mut package_meta = Vec::new();
+        package_meta.extend_from_slice(&USDOM_V4_PERSISTENCE_VERSION.to_be_bytes());
+        package_meta.extend_from_slice(&[0x83; 32]);
+        package_meta.extend_from_slice(&1u32.to_be_bytes());
+        package_meta.extend_from_slice(&1u16.to_be_bytes());
+        let mut witness_meta = Vec::new();
+        witness_meta.extend_from_slice(&USDOM_V2_PERSISTENCE_VERSION.to_be_bytes());
+        witness_meta.extend_from_slice(&[0x84; 32]);
+        witness_meta.extend_from_slice(&1u32.to_be_bytes());
+        witness_meta.extend_from_slice(&1u16.to_be_bytes());
+        let package_meta_key = persistence_key(USDOM_V4_PACKAGE_META_PREFIX, first);
+        let package_chunk = package_chunk_key(first, 0);
+        let witness_meta_key = persistence_key(USDOM_V2_WITNESS_META_PREFIX, first);
+        let witness_chunk = v2_witness_chunk_key(first, 0);
+        let record_key = persistence_key(USDOM_V2_BLOCK_RECORD_PREFIX, first);
+        store
+            .commit_block_with_consensus_state(
+                first.as_bytes(),
+                1,
+                b"v2-compaction-first-header",
+                b"v2-compaction-first-body",
+                &[],
+                &[],
+                &[],
+                &[
+                    ConsensusStateUpdate {
+                        key: USDOM_V2_PRUNE_CURSOR_KEY.to_vec(),
+                        value: Some(v2_prune_cursor_value(1)),
+                    },
+                    ConsensusStateUpdate {
+                        key: package_meta_key.clone(),
+                        value: Some(package_meta),
+                    },
+                    ConsensusStateUpdate {
+                        key: package_chunk.clone(),
+                        value: Some(vec![1]),
+                    },
+                    ConsensusStateUpdate {
+                        key: witness_meta_key.clone(),
+                        value: Some(witness_meta),
+                    },
+                    ConsensusStateUpdate {
+                        key: witness_chunk.clone(),
+                        value: Some(vec![2]),
+                    },
+                    ConsensusStateUpdate {
+                        key: record_key.clone(),
+                        value: Some(vec![3]),
+                    },
+                ],
+            )
+            .unwrap();
+
+        assert!(native_usdom_v2_history_compaction_updates(
+            &store,
+            schedule,
+            crate::reorg::MAX_REORG_DEPTH,
+            1,
+        )
+        .unwrap()
+        .is_empty());
+        let updates = native_usdom_v2_history_compaction_updates(
+            &store,
+            schedule,
+            crate::reorg::MAX_REORG_DEPTH + 1,
+            2,
+        )
+        .unwrap();
+        assert!(updates.iter().any(|update| update.key == package_meta_key));
+        assert!(updates.iter().any(|update| update.key == package_chunk));
+        assert!(updates.iter().any(|update| update.key == witness_meta_key));
+        assert!(updates.iter().any(|update| update.key == witness_chunk));
+        assert!(updates.iter().any(|update| update.key == record_key));
+        assert_eq!(
+            updates.last(),
+            Some(&ConsensusStateUpdate {
+                key: USDOM_V2_PRUNE_CURSOR_KEY.to_vec(),
+                value: Some(v2_prune_cursor_value(2)),
+            })
         );
     }
 
@@ -6605,7 +7488,7 @@ mod tests {
         let dynamic = CheckpointTrustPolicy {
             trusted_checkpoint: [0x41; 32].into(),
             ethereum_genesis_validators_root: [0x22; 32].into(),
-            forks: EthereumForks::default(),
+            forks: supported_forks(),
             max_current_slot: 1,
             checkpoint: CheckpointPolicy {
                 ethereum_chain_id: 1,
@@ -6629,7 +7512,7 @@ mod tests {
         let dynamic = DepositTrustPolicy {
             trusted_checkpoint: [0x41; 32].into(),
             ethereum_genesis_validators_root: [0x22; 32].into(),
-            forks: EthereumForks::default(),
+            forks: supported_forks(),
             max_current_slot: 1,
             deposit: ReserveDepositPolicy {
                 ethereum_chain_id: 1,
@@ -6650,7 +7533,7 @@ mod tests {
         CheckpointTrustPolicy {
             trusted_checkpoint: [0x41; 32].into(),
             ethereum_genesis_validators_root: bridge.ethereum_genesis_validators_root.into(),
-            forks: EthereumForks::default(),
+            forks: supported_forks(),
             max_current_slot: (block_timestamp - ETHEREUM_MAINNET_GENESIS_TIME)
                 / ETHEREUM_SECONDS_PER_SLOT,
             checkpoint: CheckpointPolicy {
@@ -7074,6 +7957,32 @@ mod tests {
     }
 
     #[test]
+    fn queued_issuance_metadata_contains_only_verified_public_deposit_ids() {
+        let issuance = issuance();
+        let expected = match issuance.commitment_projection() {
+            TransitionCommitmentProjection::Issue { record, .. } => record.deposit_id,
+            _ => unreachable!("issuance helper must create an issuance"),
+        };
+        let ids = verified_issuance_deposit_ids(&[
+            issuance,
+            VerifiedTransition::EthereumCheckpoint(
+                dom_usdom_state::unsafe_test_only_ethereum_checkpoint(
+                    DOMAIN,
+                    EthereumAnchor {
+                        genesis_validators_root: [0x22; 32],
+                        execution_block_number: 20_000_001,
+                        execution_block_hash: [0x24; 32],
+                        execution_block_timestamp: 1_799_999_901,
+                        beacon_slot: 16_000_001,
+                        beacon_root: [0x25; 32],
+                    },
+                ),
+            ),
+        ]);
+        assert_eq!(ids, vec![expected]);
+    }
+
+    #[test]
     fn bridge_committed_spend_verifier_authorizes_exact_serialized_transfer() {
         use dom_usdom_privacy::{
             chain_scalar,
@@ -7174,9 +8083,12 @@ mod tests {
             ],
             outputs: [output, OutputWitness::default()],
         };
-        let proof =
-            Groth16::<Bn254>::create_random_proof_with_reduction(circuit, &parameters, &mut rng)
-                .unwrap();
+        let proof = Groth16::<Bn254>::create_random_proof_with_reduction(
+            circuit.clone(),
+            &parameters,
+            &mut rng,
+        )
+        .unwrap();
         let mut proof_bytes = Vec::new();
         proof.serialize_compressed(&mut proof_bytes).unwrap();
         let payload = encode_private_transfer_payload(
@@ -7188,6 +8100,24 @@ mod tests {
         )
         .unwrap();
         let transition = verify_private_transfer_payload(bridge, &verifier, &payload).unwrap();
+        state
+            .apply_batch(
+                BlockContext {
+                    timestamp: 1_800_000_000,
+                },
+                &[issuance_at(1_800_000_000)],
+            )
+            .unwrap();
+        let activation_burn = burn_from_with_bridge(&state, 1_800_000_000, bridge);
+        state
+            .apply_batch(
+                BlockContext {
+                    timestamp: 1_800_000_000,
+                },
+                std::slice::from_ref(&activation_burn),
+            )
+            .unwrap();
+        let activation_burn_id = state.burn_records()[0].burn_id;
         let (block, context) = candidate(&state, std::slice::from_ref(&transition));
         let envelope = UsdomV4ProofEnvelope {
             entries: vec![UsdomV4ProofEntry {
@@ -7195,6 +8125,74 @@ mod tests {
                 payload,
             }],
         };
+        let duplicate_entries = vec![envelope.entries[0].clone(), envelope.entries[0].clone()];
+        assert!(matches!(
+            verify_envelope_transitions(
+                NETWORK_MAGIC_REGTEST,
+                block.header.timestamp.0,
+                bridge,
+                &unused_checkpoint_policy(),
+                &unused_deposit_policy(),
+                None,
+                Some(&verifier),
+                &duplicate_entries,
+            ),
+            Err(DomError::Malformed(message))
+                if message == "duplicate native USDOM v4 proof entry"
+        ));
+
+        // A separately randomized proof for the same valid public statement
+        // has distinct canonical bytes and exercises the parallel verifier.
+        // State transition validation still rejects the repeated nullifier if
+        // both transitions are ever presented to one candidate.
+        let second_proof =
+            Groth16::<Bn254>::create_random_proof_with_reduction(circuit, &parameters, &mut rng)
+                .unwrap();
+        let mut second_proof_bytes = Vec::new();
+        second_proof
+            .serialize_compressed(&mut second_proof_bytes)
+            .unwrap();
+        let second_payload = encode_private_transfer_payload(
+            anchor,
+            &[nullifier],
+            &[output_commitment],
+            memo,
+            &second_proof_bytes,
+        )
+        .unwrap();
+        assert_ne!(envelope.entries[0].payload, second_payload);
+        let parallel_entries = vec![
+            envelope.entries[0].clone(),
+            UsdomV4ProofEntry {
+                kind: UsdomV4ProofKind::Transfer,
+                payload: second_payload,
+            },
+        ];
+        let parallel = verify_envelope_transitions(
+            NETWORK_MAGIC_REGTEST,
+            block.header.timestamp.0,
+            bridge,
+            &unused_checkpoint_policy(),
+            &unused_deposit_policy(),
+            None,
+            Some(&verifier),
+            &parallel_entries,
+        )
+        .unwrap();
+        assert_eq!(parallel.transitions.len(), 2);
+        let mut corrupted_entries = parallel_entries;
+        *corrupted_entries[1].payload.last_mut().unwrap() ^= 1;
+        assert!(verify_envelope_transitions(
+            NETWORK_MAGIC_REGTEST,
+            block.header.timestamp.0,
+            bridge,
+            &unused_checkpoint_policy(),
+            &unused_deposit_policy(),
+            None,
+            Some(&verifier),
+            &corrupted_entries,
+        )
+        .is_err());
         let envelope_bytes = envelope.to_bytes().unwrap();
         let package = package_bytes(block.clone(), envelope.clone());
         assert!(verify_usdom_v4_serialized_candidate_regtest(
@@ -7205,6 +8203,7 @@ mod tests {
             bridge,
             &unused_checkpoint_policy(),
             &unused_deposit_policy(),
+            None,
         )
         .is_err());
         let verified = verify_usdom_v4_serialized_candidate_with_spend_verifier_regtest(
@@ -7215,6 +8214,7 @@ mod tests {
             bridge,
             &unused_checkpoint_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
         )
         .unwrap();
@@ -7228,6 +8228,7 @@ mod tests {
             bridge,
             &unused_checkpoint_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             schedule,
         )
@@ -7278,6 +8279,7 @@ mod tests {
             bridge,
             &unused_checkpoint_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             v2_schedule,
         )
@@ -7340,6 +8342,18 @@ mod tests {
                 value: Some(value),
             })
             .collect();
+        activation_updates.push(ConsensusStateUpdate {
+            key: USDOM_V4_ACTIVATION_KEY.to_vec(),
+            value: Some(activation_record(schedule, v2_parent).unwrap()),
+        });
+        activation_updates.push(ConsensusStateUpdate {
+            key: USDOM_V4_TIP_KEY.to_vec(),
+            value: Some(tip_value(
+                v2_parent,
+                state.state_root(),
+                dom_core::Hash256::ZERO,
+            )),
+        });
         activation_updates
             .extend(native_usdom_v2_activation_updates(&state, v2_schedule, v2_parent, 0).unwrap());
         store
@@ -7374,6 +8388,7 @@ mod tests {
                 bridge,
                 &unused_checkpoint_policy(),
                 &unused_deposit_policy(),
+                None,
                 &verifier,
                 v2_schedule,
             )
@@ -7390,12 +8405,382 @@ mod tests {
                 bridge,
                 &unused_checkpoint_policy(),
                 &unused_deposit_policy(),
+                None,
                 &verifier,
                 v2_schedule,
             )
             .unwrap(),
             v2_candidate.next_state()
         );
+        let reconstructed = reconstruct_authenticated_usdom_v2_burn_witness(
+            &reopened,
+            NETWORK_MAGIC_REGTEST,
+            bridge,
+            v2_candidate.block_identifier(),
+            activation_burn_id,
+            schedule,
+            v2_schedule,
+            &unused_checkpoint_policy(),
+            &unused_deposit_policy(),
+            None,
+            &verifier,
+        )
+        .unwrap();
+        assert_eq!(reconstructed.burn.burn_id, activation_burn_id);
+        assert_eq!(reconstructed.state, v2_candidate.next_state());
+        assert!(reconstructed.verify(v2_candidate.next_state().root()));
+        let checkpoint_policy = unused_checkpoint_policy();
+        let mut previous_work = [0u8; 32];
+        previous_work[31] = 1;
+        let mut target_work = [0u8; 32];
+        target_work[31] = 2;
+        let mut confirmation_work = [0u8; 32];
+        confirmation_work[31] = 3;
+        let checkpoint_statement = dom_usdom_finalized_burn_program::CheckpointStatementV6 {
+            checkpoint: dom_usdom_finalized_burn_program::CheckpointStatement {
+                bridge_domain: bridge.dom_domain,
+                dom_network_magic: NETWORK_MAGIC_REGTEST,
+                previous_height: 0,
+                previous_block: [0x41; 32],
+                previous_state_root: [0x42; 32],
+                previous_context_hash: [0x43; 32],
+                previous_total_difficulty: previous_work,
+                height: 1,
+                block: *v2_candidate.block_identifier().as_bytes(),
+                state_root: *v2_candidate.next_state().root().as_bytes(),
+                context_hash: [0x44; 32],
+                total_difficulty: target_work,
+                confirmation_height: 2,
+                confirmation_block: [0x45; 32],
+                confirmation_total_difficulty: confirmation_work,
+                confirmation_timestamp: v2_block.header.timestamp.0 + 120,
+                ethereum_chain_id: bridge.ethereum_chain_id,
+                registry: checkpoint_policy
+                    .checkpoint()
+                    .registry
+                    .as_slice()
+                    .try_into()
+                    .unwrap(),
+                activation_schedule_commitment: *schedule.commitment().as_bytes(),
+                checkpoint_config_hash: checkpoint_policy
+                    .checkpoint()
+                    .checkpoint_config_hash
+                    .as_slice()
+                    .try_into()
+                    .unwrap(),
+            },
+            total_issued: v2_candidate.next_state().total_issued,
+            total_burned: v2_candidate.next_state().total_burned,
+            issuance_closed: v2_candidate.next_state().issuance_closure.is_some(),
+        };
+        let invalid_checkpoint_error = export_finalized_burn_prover_input_for_schedule(
+            &reopened,
+            NETWORK_MAGIC_REGTEST,
+            bridge,
+            v2_candidate.block_identifier(),
+            activation_burn_id,
+            schedule,
+            v2_schedule,
+            checkpoint_policy,
+            &unused_deposit_policy(),
+            None,
+            &verifier,
+            checkpoint_statement,
+            vec![0; 168],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(invalid_checkpoint_error.contains("finalized burn input failed"));
+
+        let record_key = persistence_key(
+            USDOM_V2_BLOCK_RECORD_PREFIX,
+            v2_candidate.block_identifier(),
+        );
+        let original_record = reopened.get_consensus_state(&record_key).unwrap().unwrap();
+        let mut wrong_parent_record =
+            PersistedUsdomV2BlockRecord::from_bytes(&original_record).unwrap();
+        wrong_parent_record.parent = Hash256::from_bytes([0xa9; 32]);
+        reopened
+            .apply_reorg_with_consensus_state(
+                v2_candidate.block_identifier().as_bytes(),
+                &[],
+                &[],
+                &[],
+                &[ConsensusStateUpdate {
+                    key: record_key.clone(),
+                    value: Some(wrong_parent_record.to_bytes().unwrap()),
+                }],
+            )
+            .unwrap();
+        assert!(reconstruct_authenticated_usdom_v2_burn_witness(
+            &reopened,
+            NETWORK_MAGIC_REGTEST,
+            bridge,
+            v2_candidate.block_identifier(),
+            activation_burn_id,
+            schedule,
+            v2_schedule,
+            &unused_checkpoint_policy(),
+            &unused_deposit_policy(),
+            None,
+            &verifier,
+        )
+        .is_err());
+        reopened
+            .apply_reorg_with_consensus_state(
+                v2_candidate.block_identifier().as_bytes(),
+                &[],
+                &[],
+                &[],
+                &[ConsensusStateUpdate {
+                    key: record_key,
+                    value: Some(original_record),
+                }],
+            )
+            .unwrap();
+
+        let burn_archive_key = v2_burn_archive_key(activation_burn_id);
+        let original_burn_value = reopened
+            .get_consensus_state(&burn_archive_key)
+            .unwrap()
+            .unwrap();
+        let mut corrupted_burn_value = original_burn_value.clone();
+        corrupted_burn_value[0] ^= 1;
+        reopened
+            .apply_reorg_with_consensus_state(
+                v2_candidate.block_identifier().as_bytes(),
+                &[],
+                &[],
+                &[],
+                &[ConsensusStateUpdate {
+                    key: burn_archive_key.clone(),
+                    value: Some(corrupted_burn_value),
+                }],
+            )
+            .unwrap();
+        assert!(reconstruct_authenticated_usdom_v2_burn_witness(
+            &reopened,
+            NETWORK_MAGIC_REGTEST,
+            bridge,
+            v2_candidate.block_identifier(),
+            activation_burn_id,
+            schedule,
+            v2_schedule,
+            &unused_checkpoint_policy(),
+            &unused_deposit_policy(),
+            None,
+            &verifier,
+        )
+        .is_err());
+        reopened
+            .apply_reorg_with_consensus_state(
+                v2_candidate.block_identifier().as_bytes(),
+                &[],
+                &[],
+                &[],
+                &[ConsensusStateUpdate {
+                    key: burn_archive_key,
+                    value: Some(original_burn_value),
+                }],
+            )
+            .unwrap();
+        assert!(reconstruct_authenticated_usdom_v2_burn_witness(
+            &reopened,
+            NETWORK_MAGIC_REGTEST,
+            bridge,
+            v2_candidate.block_identifier(),
+            activation_burn_id,
+            schedule,
+            v2_schedule,
+            &unused_checkpoint_policy(),
+            &unused_deposit_policy(),
+            None,
+            &verifier,
+        )
+        .is_ok());
+
+        let mut later_block = v2_block.clone();
+        later_block.header.height = BlockHeight(2);
+        later_block.header.prev_hash = v2_candidate.block_identifier();
+        later_block.coinbase =
+            test_coinbase(later_block.header.height, schedule.chain_id().as_bytes());
+        let (later_output_root, later_kernel_root, later_raw_rangeproof_root) =
+            compute_block_pmmr_roots(
+                later_block.header.height,
+                &later_block.coinbase,
+                &later_block.transactions,
+            )
+            .unwrap();
+        later_block.header.output_root = later_output_root;
+        later_block.header.kernel_root = later_kernel_root;
+        let later_block_context = BlockContext {
+            timestamp: later_block.header.timestamp.0,
+        };
+        let (later_state, later_receipt) = apply_v2_transition_batch_with_receipt(
+            v2_candidate.next_state().root(),
+            later_block_context,
+            v2_candidate.next_state(),
+            &[],
+            &[],
+        )
+        .unwrap();
+        later_block.header.rangeproof_root =
+            bind_usdom_batch_commitment(later_raw_rangeproof_root, later_receipt.header_commitment)
+                .unwrap();
+        let later_context = ValidationContext {
+            current_height: later_block.header.height,
+            chain_id: *schedule.chain_id().as_bytes(),
+            now: later_block.header.timestamp,
+        };
+        let later_envelope = UsdomV4ProofEnvelope::empty();
+        let later_package = package_bytes(later_block.clone(), later_envelope);
+        let later_verified = verify_usdom_v4_serialized_transition_batch_for_v2_schedule(
+            &later_package,
+            &later_context,
+            NETWORK_MAGIC_REGTEST,
+            bridge,
+            &unused_checkpoint_policy(),
+            &unused_deposit_policy(),
+            None,
+            &verifier,
+            v2_schedule,
+        )
+        .unwrap();
+        let later_candidate = later_verified
+            .execute_v2(
+                &later_context,
+                v2_candidate.next_state().root(),
+                v2_candidate.next_state(),
+                &[],
+            )
+            .unwrap();
+        assert_eq!(later_candidate.next_state(), later_state);
+        let later_witnesses = UsdomV2ExecutionWitnesses::new(Vec::new()).unwrap();
+        let later_updates = later_candidate
+            .consensus_state_updates(
+                v2_schedule,
+                v2_candidate.next_state(),
+                &later_package,
+                &later_witnesses,
+            )
+            .unwrap();
+        reopened
+            .commit_block_with_consensus_state(
+                later_candidate.block_identifier().as_bytes(),
+                later_block.header.height.0,
+                &later_block.header.to_bytes().unwrap(),
+                &later_block.to_bytes().unwrap(),
+                &[],
+                &[],
+                &[],
+                &later_updates,
+            )
+            .unwrap();
+        assert_eq!(
+            restore_persisted_usdom_v2_state_for_schedule(
+                &reopened,
+                NETWORK_MAGIC_REGTEST,
+                later_candidate.block_identifier(),
+                bridge,
+                &unused_checkpoint_policy(),
+                &unused_deposit_policy(),
+                None,
+                &verifier,
+                v2_schedule,
+            )
+            .unwrap(),
+            later_candidate.next_state()
+        );
+        let historical = reconstruct_authenticated_usdom_v2_burn_witness(
+            &reopened,
+            NETWORK_MAGIC_REGTEST,
+            bridge,
+            v2_candidate.block_identifier(),
+            activation_burn_id,
+            schedule,
+            v2_schedule,
+            &unused_checkpoint_policy(),
+            &unused_deposit_policy(),
+            None,
+            &verifier,
+        )
+        .unwrap();
+        assert_eq!(historical.state, v2_candidate.next_state());
+        assert!(historical.verify(v2_candidate.next_state().root()));
+
+        let compacted_block = v2_candidate.block_identifier();
+        let compaction_updates = native_usdom_v2_history_compaction_updates(
+            &reopened,
+            v2_schedule,
+            crate::reorg::MAX_REORG_DEPTH + 1,
+            later_block.header.height.0,
+        )
+        .unwrap();
+        assert!(!compaction_updates.is_empty());
+        reopened
+            .apply_reorg_with_consensus_state(
+                later_candidate.block_identifier().as_bytes(),
+                &[],
+                &[],
+                &[],
+                &compaction_updates,
+            )
+            .unwrap();
+        assert!(reopened
+            .get_consensus_state(&persistence_key(
+                USDOM_V4_PACKAGE_META_PREFIX,
+                compacted_block,
+            ))
+            .unwrap()
+            .is_none());
+        assert!(reopened
+            .get_consensus_state(&persistence_key(
+                USDOM_V2_WITNESS_META_PREFIX,
+                compacted_block,
+            ))
+            .unwrap()
+            .is_none());
+        assert!(reopened
+            .get_consensus_state(&persistence_key(
+                USDOM_V2_BLOCK_RECORD_PREFIX,
+                compacted_block,
+            ))
+            .unwrap()
+            .is_none());
+        assert!(reopened
+            .get_consensus_state(&v2_burn_archive_key(activation_burn_id))
+            .unwrap()
+            .is_some());
+        let post_compaction = reconstruct_authenticated_usdom_v2_burn_witness(
+            &reopened,
+            NETWORK_MAGIC_REGTEST,
+            bridge,
+            later_candidate.block_identifier(),
+            activation_burn_id,
+            schedule,
+            v2_schedule,
+            &unused_checkpoint_policy(),
+            &unused_deposit_policy(),
+            None,
+            &verifier,
+        )
+        .unwrap();
+        assert_eq!(post_compaction.state, later_candidate.next_state());
+        assert!(post_compaction.verify(later_candidate.next_state().root()));
+        assert!(reconstruct_authenticated_usdom_v2_burn_witness(
+            &reopened,
+            NETWORK_MAGIC_REGTEST,
+            bridge,
+            compacted_block,
+            activation_burn_id,
+            schedule,
+            v2_schedule,
+            &unused_checkpoint_policy(),
+            &unused_deposit_policy(),
+            None,
+            &verifier,
+        )
+        .is_err());
         let empty_bundle = UsdomV2ExecutionWitnesses::new(Vec::new()).unwrap();
         assert!(v2_candidate
             .consensus_state_updates(v2_schedule, previous_v2, &v2_package, &empty_bundle)
@@ -7433,6 +8818,7 @@ mod tests {
             bridge,
             &unused_checkpoint_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             wrong_height_schedule,
         )
@@ -7451,6 +8837,7 @@ mod tests {
             bridge,
             &unused_checkpoint_policy(),
             &unused_deposit_policy(),
+            None,
             &verifier,
             schedule,
         )
@@ -7462,7 +8849,9 @@ mod tests {
             bridge,
             checkpoint_policy: unused_checkpoint_policy(),
             deposit_policy: unused_deposit_policy(),
+            closure_policy: None,
             spend_verifier: SpendVerifier::from_bytes(&key_bytes).unwrap(),
+            spend_verifying_key: key_bytes.clone(),
             state: previous_v2,
             mining_candidates: VecDeque::new(),
             mining_candidate_bytes: 0,
@@ -7538,6 +8927,7 @@ mod tests {
             bridge,
             checkpoint_policy: unused_checkpoint_policy(),
             deposit_policy: unused_deposit_policy(),
+            closure_policy: None,
             spend_verifier: Some(verifier),
             state: state.clone(),
             startup_audit: NativeUsdomV4HistoryAudit {
@@ -7638,6 +9028,7 @@ mod tests {
             committed_bridge,
             unused_checkpoint_policy(),
             unused_deposit_policy(),
+            None,
             &key_bytes,
         )
         .unwrap();
@@ -7652,6 +9043,7 @@ mod tests {
             committed_bridge,
             unused_checkpoint_policy(),
             unused_deposit_policy(),
+            None,
             &key_bytes,
             schedule,
         )
@@ -7673,6 +9065,7 @@ mod tests {
                 committed_bridge,
                 unused_checkpoint_policy(),
                 unused_deposit_policy(),
+                None,
                 &key_bytes,
                 wrong_schedule,
             )
@@ -7686,6 +9079,7 @@ mod tests {
             wrong_commitment,
             unused_checkpoint_policy(),
             unused_deposit_policy(),
+            None,
             &key_bytes,
         )
         .is_err());
@@ -7694,9 +9088,91 @@ mod tests {
             committed_bridge,
             unused_checkpoint_policy(),
             unused_deposit_policy(),
+            None,
             b"not a verifying key",
         )
         .is_err());
+    }
+
+    #[test]
+    fn persisted_v2_record_rejects_every_truncation_and_trailing_bytes() {
+        let native_state = NativeUsdomState::new(bridge()).unwrap();
+        let state = native_state.state_commitment_v2().unwrap();
+        let schedule = NativeUsdomV2ActivationSchedule::new(
+            NETWORK_MAGIC_REGTEST,
+            dom_core::Hash256::from_bytes([0x10; 32]),
+            2,
+            dom_core::Hash256::from_bytes([0x11; 32]),
+            &native_state,
+        )
+        .unwrap();
+        let record = PersistedUsdomV2BlockRecord {
+            schedule_commitment: schedule.commitment(),
+            block_identifier: dom_core::Hash256::from_bytes([0x12; 32]),
+            parent: dom_core::Hash256::from_bytes([0x13; 32]),
+            package_commitment: dom_core::Hash256::from_bytes([0x14; 32]),
+            witness_commitment: dom_core::Hash256::from_bytes([0x15; 32]),
+            previous_state: state,
+            next_state: state,
+            receipt: TransitionBatchReceipt {
+                version: dom_usdom_state::CANDIDATE_V2_TRANSITION_BATCH_VERSION,
+                transition_count: 0,
+                block_timestamp: 1,
+                transitions_root: dom_core::Hash256::from_bytes([0x16; 32]),
+                previous_state_root: state.root(),
+                new_state_root: state.root(),
+                previous_total_issued: state.total_issued,
+                previous_total_burned: state.total_burned,
+                new_total_issued: state.total_issued,
+                new_total_burned: state.total_burned,
+                header_commitment: dom_core::Hash256::from_bytes([0x17; 32]),
+            },
+        };
+        let bytes = record.to_bytes().unwrap();
+        assert_eq!(
+            PersistedUsdomV2BlockRecord::from_bytes(&bytes).unwrap(),
+            record
+        );
+        for end in 0..bytes.len() {
+            assert!(PersistedUsdomV2BlockRecord::from_bytes(&bytes[..end]).is_err());
+        }
+        let mut trailing = bytes;
+        trailing.push(0);
+        assert!(PersistedUsdomV2BlockRecord::from_bytes(&trailing).is_err());
+
+        let tip_bytes = v2_runtime_tip_value(schedule, record).unwrap();
+        let tip = PersistedUsdomV2RuntimeTip::from_bytes(&tip_bytes).unwrap();
+        assert_eq!(tip.block_identifier, record.block_identifier);
+        assert_eq!(tip.state, state);
+        for end in 0..tip_bytes.len() {
+            assert!(PersistedUsdomV2RuntimeTip::from_bytes(&tip_bytes[..end]).is_err());
+        }
+        let mut trailing_tip = tip_bytes;
+        trailing_tip.push(0);
+        assert!(PersistedUsdomV2RuntimeTip::from_bytes(&trailing_tip).is_err());
+    }
+
+    #[test]
+    fn empty_v2_witness_bundle_and_sidecar_reject_all_noncanonical_lengths() {
+        let witnesses = UsdomV2ExecutionWitnesses::new(Vec::new()).unwrap();
+        let witness_bytes = witnesses.to_bytes().unwrap();
+        assert!(UsdomV2ExecutionWitnesses::from_bytes(&witness_bytes).is_ok());
+        for end in 0..witness_bytes.len() {
+            assert!(UsdomV2ExecutionWitnesses::from_bytes(&witness_bytes[..end]).is_err());
+        }
+        let mut trailing_witnesses = witness_bytes;
+        trailing_witnesses.push(0);
+        assert!(UsdomV2ExecutionWitnesses::from_bytes(&trailing_witnesses).is_err());
+
+        let sidecar = UsdomV2BlockSidecar::new(UsdomV4ProofEnvelope::empty(), witnesses).unwrap();
+        let sidecar_bytes = sidecar.to_bytes().unwrap();
+        assert!(UsdomV2BlockSidecar::from_bytes(&sidecar_bytes).is_ok());
+        for end in 0..sidecar_bytes.len() {
+            assert!(UsdomV2BlockSidecar::from_bytes(&sidecar_bytes[..end]).is_err());
+        }
+        let mut trailing_sidecar = sidecar_bytes;
+        trailing_sidecar.push(0);
+        assert!(UsdomV2BlockSidecar::from_bytes(&trailing_sidecar).is_err());
     }
 
     #[test]
@@ -7735,7 +9211,7 @@ mod tests {
         );
         assert_ne!(manifest.commitment().unwrap(), dom_core::Hash256::ZERO);
 
-        for end in 0..USDOM_V4_SNAPSHOT_HEADER_BYTES {
+        for end in 0..bytes.len() {
             assert!(NativeUsdomV4SnapshotManifest::from_bytes(&bytes[..end]).is_err());
         }
         let mut trailing = bytes.clone();
@@ -7792,6 +9268,33 @@ mod tests {
             UsdomV4ProofEnvelope::from_bytes(&checkpoint_bytes).unwrap(),
             checkpoint
         );
+        let closure = UsdomV4ProofEnvelope::issuance_closure_witness(vec![0x5b; 168]).unwrap();
+        let closure_bytes = closure.to_bytes().unwrap();
+        assert_eq!(
+            UsdomV4ProofEnvelope::from_bytes(&closure_bytes).unwrap(),
+            closure
+        );
+        assert_eq!(
+            closure.entries().next().unwrap().0,
+            UsdomV4ProofKind::IssuanceClosure
+        );
+        assert!(UsdomV4ProofEnvelope::issuance_closure_witness(vec![
+            0;
+            MAX_ISSUANCE_CLOSURE_WITNESS_BYTES
+                + 1
+        ])
+        .is_err());
+        assert!(validate_envelope_entries(&[
+            UsdomV4ProofEntry {
+                kind: UsdomV4ProofKind::IssuanceClosure,
+                payload: vec![1]
+            },
+            UsdomV4ProofEntry {
+                kind: UsdomV4ProofKind::IssuanceClosure,
+                payload: vec![2]
+            },
+        ])
+        .is_err());
         let transfer = UsdomV4ProofEnvelope::private_transfer_proof(vec![
             0x6a;
             MAX_PRIVATE_TRANSFER_PAYLOAD_BYTES
@@ -7816,6 +9319,51 @@ mod tests {
             MAX_PRIVATE_BURN_PAYLOAD_BYTES + 1
         ])
         .is_err());
+
+        let burn_timestamp = 1_700_000_000;
+        let mut burn_state = NativeUsdomState::new(bridge()).unwrap();
+        burn_state
+            .apply(
+                BlockContext {
+                    timestamp: burn_timestamp,
+                },
+                &issuance(),
+            )
+            .unwrap();
+        let burn_transition = burn_from(&burn_state, burn_timestamp);
+        let mut after_burn = burn_state.clone();
+        after_burn
+            .apply(
+                BlockContext {
+                    timestamp: burn_timestamp,
+                },
+                &burn_transition,
+            )
+            .unwrap();
+        let burn_record = after_burn.burn_records()[0];
+        let burn_payload = encode_private_burn_payload(
+            burn_state.note_anchor(),
+            &[[0x14; 32]],
+            &[],
+            burn_record,
+            &[],
+            &[0; 128],
+        )
+        .unwrap();
+        let burn_envelope = UsdomV4ProofEnvelope::private_burn_proof(burn_payload.clone()).unwrap();
+        assert_eq!(
+            burn_envelope.public_burn_records().unwrap(),
+            vec![burn_record]
+        );
+        assert!(empty.public_burn_records().unwrap().is_empty());
+        let mut malformed_burn_payload = burn_payload;
+        malformed_burn_payload[0] ^= 1;
+        assert!(
+            UsdomV4ProofEnvelope::private_burn_proof(malformed_burn_payload)
+                .unwrap()
+                .public_burn_records()
+                .is_err()
+        );
 
         for end in 0..USDOM_V4_ENVELOPE_HEADER_BYTES {
             assert!(UsdomV4ProofEnvelope::from_bytes(&empty_bytes[..end]).is_err());
@@ -7862,6 +9410,20 @@ mod tests {
                 .collect(),
         };
         assert!(too_many_spends.to_bytes().is_err());
+
+        let duplicate_spend = UsdomV4ProofEnvelope {
+            entries: vec![
+                UsdomV4ProofEntry {
+                    kind: UsdomV4ProofKind::Transfer,
+                    payload: vec![1],
+                },
+                UsdomV4ProofEntry {
+                    kind: UsdomV4ProofKind::Transfer,
+                    payload: vec![1],
+                },
+            ],
+        };
+        assert!(duplicate_spend.to_bytes().is_err());
     }
 
     #[test]
@@ -7869,6 +9431,9 @@ mod tests {
         let state = NativeUsdomState::new(bridge()).unwrap();
         let (block, _) = candidate(&state, &[]);
         let bytes = package_bytes(block.clone(), UsdomV4ProofEnvelope::empty());
+        if let Some(path) = std::env::var_os("DOM_USDOMBL4_CORPUS_OUT") {
+            std::fs::write(path, &bytes).unwrap();
+        }
         let decoded = UsdomV4BlockPackage::from_bytes(&bytes).unwrap();
         assert_eq!(decoded.block(), &block);
         assert_eq!(decoded.proof_envelope(), &UsdomV4ProofEnvelope::empty());
@@ -7876,7 +9441,9 @@ mod tests {
         assert!(bytes.len() <= MAX_BLOCK_SERIALIZED_SIZE);
 
         assert!(UsdomV4BlockPackage::from_bytes(&DomSerialize::to_bytes(&block).unwrap()).is_err());
-        for end in 0..USDOM_V4_BLOCK_HEADER_BYTES {
+        // Every proper prefix must fail, including cuts inside the ordinary
+        // block and proof envelope rather than only inside the outer header.
+        for end in 0..bytes.len() {
             assert!(UsdomV4BlockPackage::from_bytes(&bytes[..end]).is_err());
         }
         let mut trailing = bytes.clone();
@@ -7950,6 +9517,7 @@ mod tests {
             bridge(),
             &unused_checkpoint_policy(),
             &unused_deposit_policy(),
+            None,
         )
         .unwrap();
         assert_eq!(verified.receipt().transition_count, 0);
@@ -7968,7 +9536,7 @@ mod tests {
         );
         assert_eq!(
             verified.package_commitment().to_string(),
-            "73cd14b430426ab076417c9ab9bff1fc48344d58bc5f32af2ebc2764236d0056"
+            "813e84f1611eb1c0a0c22c9b5c15b5341feafc286f912a8e3bc07614e8c54161"
         );
 
         let mut substituted_package = empty_package.clone();
@@ -7982,6 +9550,7 @@ mod tests {
             bridge(),
             &unused_checkpoint_policy(),
             &unused_deposit_policy(),
+            None,
         )
         .is_err());
 
@@ -7996,6 +9565,7 @@ mod tests {
                 bridge(),
                 &unused_checkpoint_policy(),
                 &unused_deposit_policy(),
+                None,
             ),
             Err(DomError::Invalid(_))
         ));
@@ -8010,6 +9580,7 @@ mod tests {
             wrong_bridge,
             &unused_checkpoint_policy(),
             &unused_deposit_policy(),
+            None,
         )
         .is_err());
     }
@@ -8392,6 +9963,7 @@ mod tests {
             bridge(),
             &unused_checkpoint_policy(),
             &unused_deposit_policy(),
+            None,
         )
         .unwrap();
         let updates = verified
@@ -8665,17 +10237,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(scheduled_input, input);
-        assert!(export_finalized_burn_prover_input_for_schedule(
-            &store,
-            NETWORK_MAGIC_REGTEST,
-            bridge(),
-            block_identifier,
-            burn_id,
-            schedule,
-            unused_checkpoint_policy(),
-            vec![0; 168],
-        )
-        .is_err());
         assert!(export_native_usdom_v4_burn_block_prover_input_for_schedule(
             &store,
             NETWORK_MAGIC_MAINNET,
@@ -8939,7 +10500,7 @@ mod tests {
         let static_policy = StaticCheckpointTrustPolicy::from_trust_policy(&policy).unwrap();
         assert_eq!(
             ethereum_checkpoint_policy_hash(&policy).to_string(),
-            "a47d06beea427ce0a1a85edf2e5c62dbd89e28e1d5c9e7ad13617151e7c25b57"
+            "e7b8afd550a914ba7c59cd44211456e56a7f4644903daa110bd9a7f86f2036e3"
         );
         bridge.ethereum_checkpoint_policy_hash =
             *ethereum_checkpoint_policy_hash(&policy).as_bytes();
@@ -9002,6 +10563,7 @@ mod tests {
             bridge,
             &static_policy,
             &unused_deposit_policy(),
+            None,
         )
         .is_err());
         assert_eq!(state.state_root(), before);
@@ -9025,7 +10587,7 @@ mod tests {
         let wrong_reserve = StaticDepositTrustPolicy::from_trust_policy(&DepositTrustPolicy {
             trusted_checkpoint: [0x41; 32].into(),
             ethereum_genesis_validators_root: [0x22; 32].into(),
-            forks: EthereumForks::default(),
+            forks: supported_forks(),
             max_current_slot: 1,
             deposit: ReserveDepositPolicy {
                 ethereum_chain_id: 1,

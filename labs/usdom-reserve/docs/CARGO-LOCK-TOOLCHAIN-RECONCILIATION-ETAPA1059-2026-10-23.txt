@@ -1,0 +1,43 @@
+Stage 1059 — Cargo.lock/toolchain pin reconciliation
+Date: 2026-10-23 (America/Sao_Paulo)
+Status: Cargo.lock blocker corrected; next independent blocker is unstaged Solc 0.8.37
+
+Finding
+=======
+The mainnet toolchain lock still pinned Cargo.lock SHA-256
+0251523c21a24a13d83140341899c5c193ed4934dc27d4cb74140bf93d47cd95,
+which was the graph recorded at Stage 613. The current Cargo.lock SHA-256 is
+a8cf3916a0e823e81bf0378721530fb07d5e82b7bd7bb7d821bc08c02bf4dfc2.
+The repository has since acquired the production USDOM, Ethereum-consensus and
+RISC0 workspace crates represented in the current manifests and lock. The
+mismatch was a stale downstream toolchain pin, not evidence that Cargo.lock was
+truncated or syntactically corrupted.
+
+Authoritative validation
+========================
+- Did not regenerate Cargo.lock and did not derive the lock from the stale pin.
+- `cargo metadata --locked --offline --no-deps --format-version 1` accepted all
+  172 workspace members without modifying Cargo.lock.
+- Full `cargo metadata --locked --offline --format-version 1`, run with an
+  isolated CARGO_HOME backed only by the already present local registry/git
+  caches, resolved exactly 1,024 packages and 1,024 resolve nodes. It performed
+  no network access and left Cargo.lock byte-identical.
+- Independent TOML/source checks accepted lock format v3: 1,125 entries, 930
+  registry entries with canonical 64-hex checksums, 11 Git entries pinned by
+  exact 40-hex revisions and 184 workspace/path entries.
+- Cargo.lock SHA-256 remained
+  a8cf3916a0e823e81bf0378721530fb07d5e82b7bd7bb7d821bc08c02bf4dfc2
+  before and after validation.
+
+Correction and gate result
+==========================
+Updated only the `../../Cargo.lock` SHA-256 entry in
+`config/mainnet-toolchain-lock.json` to the verified current lock digest.
+The pinned Node checker now advances beyond every executable and locked-file
+hash, including Cargo.lock, and fails closed at the next intended independent
+condition: `solc 0.8.37 is not pre-staged and hash-locked` (exit 1). This proves
+the Cargo.lock mismatch is removed without treating the overall mainnet
+readiness gate as green.
+
+No Cargo build, dependency download, network request, proof interruption,
+signing, deployment, transaction, funds action, commit or push occurred.

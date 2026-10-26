@@ -1,0 +1,44 @@
+USD + DOM — instalação central de artefatos privados imutáveis
+Etapa 363 — 2026-10-22
+
+Problema corrigido
+
+Vários escritores tratavam pedidos, autorizações, atestações e relatórios como
+imutáveis, mas implementavam a primeira publicação com “testar inexistência” e
+depois chamar um gravador com substituição habilitada. Uma criação concorrente
+entre esses passos poderia ser sobrescrita. A repetição idempotente também era
+validada por caminhos em shell.
+
+Correções
+
+- criado `install-private-file-immutable-stdin.mjs` com limite de 16 MiB;
+- um destino ausente é publicado pelo gravador durável em modo `replace=false`,
+  cuja criação atômica falha se qualquer nome já existir;
+- um destino existente precisa ser arquivo direto, proprietário, modo 0600,
+  link único e ter exatamente os mesmos bytes;
+- o inode final é relido com tamanho e modo exatos antes de sucesso;
+- symlinks, hardlinks, diretórios indiretos, conteúdo divergente e corrida de
+  criação falham sem substituir o destino;
+- pedidos de autorização, pedidos de atestação nativa, relatório de risco,
+  autorizações materializadas, atestações materializadas e o bundle dos Safes
+  usam a fronteira central;
+- saídas mostradas ao operador usam os snapshots construídos, sem reabrir o
+  destino persistido.
+
+Validação focada
+
+- sintaxe Bash e ShellCheck dos seis fluxos: passaram;
+- criação, repetição idêntica, divergência, symlink e hardlink: passaram;
+- testes focados dos escritores: 3/3 passaram;
+- suíte operacional, limites de leitura e escritores: 70/70 passaram;
+- lint de produção e compilação forçada dos 44 fontes Solidity: passaram;
+- regressão Node completa: 301/301 passaram;
+- proveniência completa: 169 importados, 45 fontes de programas de prova e
+  manifesto determinístico com 1.142 fontes passaram;
+- gate de mainnet não configurado: recusou como esperado com `ready=false` e
+  161 condições derivadas abertas;
+- `git diff --check`: passou.
+
+Nenhum segredo foi lido e nenhuma assinatura, transação, broadcast, fundo,
+push, commit, tag, deploy ou mineração ocorreu. A prova real de queima
+finalizada permaneceu ativa e não foi reiniciada.

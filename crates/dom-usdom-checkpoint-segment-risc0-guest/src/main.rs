@@ -1,4 +1,4 @@
-//! RISC Zero guest for one complete bounded `UDCSTN02` segment.
+//! RISC Zero guest for one complete bounded `UDCSTN04` segment.
 //!
 //! The guest authenticates the previous candidate-v2 native state, rebuilds
 //! every immutable policy, validates each canonical DOM block and proof

@@ -1,0 +1,34 @@
+ETAPA 632 — INTENÇÃO DE SUBMISSÃO DE QUEIMA PRIVADA EM JSON ESTRITO
+Data: 2026-10-23
+
+Escopo e impacto
+
+Foi auditada a fronteira que persiste a intenção imutável imediatamente antes
+da submissão autenticada de uma queima privada. O documento vincula o
+compromisso das entradas preparadas, o SHA-256 do manifesto nativo e o SHA-256
+do binário de submissão. Assim, ele é evidência operacional de qual estado e
+qual executável receberam autorização.
+
+Achado e correção
+
+O documento era produzido por jq e instalado de forma privada e imutável, mas
+atravessava o instalador em modo binário. Isso permitia que uma futura mudança
+do produtor ou uma entrada intermediária ambígua chegasse à autoridade antes
+da validação semântica como JSON.
+
+submit-closed-mainnet-private-burn.sh agora instala SUBMISSION_INTENT com
+`install-private-file-immutable-stdin.mjs --json`. A fronteira aplica
+decodificação UTF-8 fatal, rejeição de chaves duplicadas (inclusive escapadas),
+representação canônica e criação imutável privada. Uma entrada rejeitada não
+cria um alvo novo e não modifica um alvo existente.
+
+Validação
+
+- sintaxe shell aprovada por `bash -n`;
+- teste estrutural exige explicitamente `--json` para SUBMISSION_INTENT;
+- teste comportamental do instalador rejeita UTF-8 inválido e chaves duplicadas
+  e prova preservação byte a byte do alvo já instalado;
+- 2/2 testes focados e `git diff --check` passaram.
+
+Nenhuma compilação Cargo, assinatura, submissão, transmissão, deploy, staging,
+commit, push ou movimentação de fundos foi realizada.

@@ -1,0 +1,31 @@
+ETAPA 962 — slots disabled/padding e branches opcionais do circuito USDOM
+Data: 2026-10-23
+
+Resultado
+A correção da ETAPA960 fechou o único witness livre (siblings do input disabled). Esta
+etapa completou a matriz e não encontrou outro campo sem constraint. Foram ampliadas as
+regressões Rust para mutar individualmente todos os campos privados de padding.
+
+Matriz confirmada
+- input enabled é boolean e left-packed; slot 0 é obrigatório;
+- input disabled exige origin, value, leaf index, owner secret, rho e os 32 siblings zero;
+- nullifier público do slot disabled é zero;
+- output enabled é boolean e left-packed;
+- output disabled exige value, owner, rho e output commitment público zero;
+- inputs/outputs enabled exigem campos de identidade/value não-zero;
+- leaf-index bits acima da profundidade 32 são zero;
+- transfer (burn amount zero) exige pelo menos um output e effect zero;
+- burn exige effect não-zero e pode ter zero change outputs;
+- memo é zero exatamente quando não há outputs e não-zero quando há;
+- conservação impede dummy value: outputs + burn = inputs.
+
+Regressões
+- 9 mutações de fields disabled: origin, value, secret, rho, index, sibling, output value,
+  output owner e output rho;
+- gap de output (slot 1 ativo após slot 0 disabled);
+- memo presente sem outputs em burn integral.
+
+Validação
+- `native-usdom-disabled-slots-stage962.test.mjs`: 3/3 passou.
+- rustfmt --check e git diff --check: passaram.
+- Cargo/proving não executados.

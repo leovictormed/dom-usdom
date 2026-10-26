@@ -1,0 +1,35 @@
+ETAPA 995 — Ethereum deposit to native USDOM issuance authority
+Date: 2026-10-23
+
+Audit result
+The live implementation preserves a one-finalized-deposit/one-canonical-native-issuance relation.
+No protocol double-mint defect was found in the reviewed path.
+
+End-to-end binding
+- Solidity depositId is `keccak256(abi.encode(chainId,reserve,funder,salt))`; storage rejects reuse,
+  exact USDT balance deltas precede the canonical Deposited(id,funder,amount,commitment) log.
+- The witness replays Beacon finality, receipt inclusion and reserve account/storage-code proofs.
+  Event and runtime snapshot must share genesis root/block; policy binds Ethereum mainnet genesis,
+  reserve address, runtime code hash, bridge domain, amount ceiling and exact trust-policy hash.
+- The opaque VerifiedDeposit carries exact block/transaction/log locator, depositId, funder, amount
+  and receiving commitment. Consensus derives the issuance note itself; relayers cannot substitute
+  owner, amount or note commitment.
+- apply_issuance checks the consumed-deposit map before atomically inserting note, sparse deposit
+  leaf, issuance record, anchor references and checked total issued. The composite root commits the
+  consumed-deposit root and count.
+- Canonical persisted entries rebuild the map/sparse cache, recompute totals/high-water/root and
+  reject duplicate/malformed records on restart. Undo removes the exact issuance leaf/map/anchor
+  and restores totals/root; replay is possible only after the issuing DOM transition itself leaves
+  the canonical chain, which is the intended reorg semantics.
+
+Concrete assurance gap corrected
+The prior general replay gate checked only one `contains_key` line. It did not permanently enforce
+event postconditions, finalized receipt/runtime identity, all issuance-note inputs, sparse-set/root
+commitment, restart reconstruction or undo removal. A dedicated static composition gate now covers
+all of these boundaries and fails on deposit-domain, runtime, recipient-commitment, replay-set and
+restart mutations.
+
+Verification
+- Dedicated authority gate: 2/2 pass with five adversarial mutation families.
+- Node syntax and git diff --check: pass.
+- No Cargo, Forge, network, proof, signing, deployment, commit or push was executed.

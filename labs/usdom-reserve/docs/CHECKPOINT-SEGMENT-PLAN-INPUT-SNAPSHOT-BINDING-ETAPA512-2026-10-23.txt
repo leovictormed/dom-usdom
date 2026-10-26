@@ -1,0 +1,28 @@
+USD0M stage 512 — checkpoint segment-plan input snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The checkpoint segment planner combined five live indexes, private segment
+sources, RandomX receipts, economic block receipts and segment guest artifacts
+only after Cargo compilation. Replacement in any input directory could make a
+single job index describe multiple filesystem generations.
+
+Correction
+==========
+
+All five indexes are captured into one owner-only layout replica. Canonical
+bounded catalogs are derived from those fixed bytes, then every source and
+referenced RandomX/economic receipt is captured into the replica. The segment
+ELF/program/ImageID triplet is copied there and remains checked by compiled
+hashes. Planning runs only from this replica and the resulting single job index
+is captured and durably installed.
+
+Evidence and scope
+==================
+
+The operator-runbook suite asserts private capture, both receipt catalogs,
+isolated execution and durable publication. Readiness requires
+`production_checkpoint_segment_plan_inputs_snapshotted=true`. No proof,
+network, signing, deployment or funds operation is executed.

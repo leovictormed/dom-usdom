@@ -1,0 +1,41 @@
+USDOM stage 381 — captured finalized-deposit witness inputs
+Date: 2026-10-22
+
+Finding
+=======
+
+The finalized-deposit witness builder checked a source with symlink_metadata
+and then called fs::read on the pathname. A replacement between those calls
+could make the bytes differ from the file that passed the bounds/type check.
+
+Correction
+==========
+
+The builder now opens one handle, compares the opened device, inode and length
+with the direct named file, requires current-user ownership and one link, reads
+through a maximum-plus-one bound, and verifies the captured length. All later
+decoding and hashing use those captured bytes.
+
+Validation
+==========
+
+The focused test accepts one exact source and rejects a symbolic link, a
+multiply linked source and an over-bound source: 1/1 passed. Native USDOM v4
+binary compilation completed as part of that test. Formatting passes.
+
+Source SHA-256
+=============
+
+573209644bad4ecf45abe99033379d83849e5eb6a3d45f1d26247e107b75cfa7  crates/dom-node/src/bin/dom-usdom-build-finalized-deposit-witness.rs
+
+Operational boundary
+====================
+
+No RPC, wallet, secret, signature, transaction, deployment, funds, mining,
+commit, tag or push was used. The local finalized-burn prover remains active.
+
+Next action
+===========
+
+Continue auditing the remaining operational token/password/source readers for
+retained-directory or captured-handle binding.

@@ -1,0 +1,28 @@
+ETAPA 1091 — REBUILD V3 SEMANTIC VERIFICATION
+Date: 2026-10-26
+
+The V3 orchestrator previously authenticated files and command exit status, but
+did not parse evidence that each pinned command had performed the required
+cryptographic/semantic checks. A successful command could therefore advance a
+mispaired ELF, ImageID, journal or receipt until the late aggregate gate.
+
+Every stage must now publish a separate direct verification record using the
+exact `usdom-rebuild-stage-verification-v1` schema. The orchestrator parses it,
+requires exact stage identity, exact SHA-256 maps for every authenticated input
+and produced output, and an exact stage-specific set of true checks. The sets
+cover ProgramBinary decoding and ImageID recomputation, ELF/program pairing,
+predecessor hash propagation, segment/outer method identity, journal schema,
+receipt cryptographic verification, method ImageIDs, journal digests,
+ELF/receipt pairing, final Solidity verifier constants, the complete graph and
+publication readiness. Verification records are then hash-pinned and protected
+against mutation by every later stage.
+
+This design keeps cryptographic verification in pinned specialist commands but
+makes their parsed evidence mandatory; exit status alone cannot authorize the
+next generation or publication. The final gate remains an independent complete
+graph check, and publication remains sealed/fsynced plus RENAME_NOREPLACE.
+
+Validation: Python compilation passes. Disposable V3 tests pass 14/14,
+including a command that exits successfully while reporting a false journal
+digest check; the orchestrator rejects it at the receipts stage. No Cargo,
+Forge, guest compilation, proof, deploy, commit or push was used.

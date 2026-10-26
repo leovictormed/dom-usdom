@@ -1,0 +1,34 @@
+ETAPA 947 — inventário completo de recursos USDOM nativo
+Data: 2026-10-23
+
+Cobertura exata
+- 26 limites nomeados auditados entre block/envelope, mining pool, estado/witness,
+  carteira snapshot e burn prover input.
+- 7 preflights `require_records` da carteira confirmados antes de alocações por count.
+- 2 novas fronteiras count/length corrigidas no envelope e bundle V2.
+
+Achado corrigido
+`UsdomV4ProofEnvelope::from_bytes` e `UsdomV2ExecutionWitnesses::from_bytes`
+limitavam count a 1024, porém reservavam `Vec::with_capacity(count)` antes de provar que
+restavam ao menos os cinco bytes mínimos por item (kind/length ou length+um byte). Um
+payload truncado pequeno podia provocar reserva desnecessária controlada pelo input.
+
+Correção
+Cada decoder agora calcula com `checked_mul`/`checked_add` o framing mínimo completo e
+rejeita truncatura antes da reserva. A regra preserva todo encoding válido e complementa
+os limites por item e o re-encoding canônico já existentes.
+
+Limites confirmados
+- bloco: 1024 transições, 1 checkpoint, 4 issuances, 16 private spends, limites de
+  envelope/payload e bloco serializado;
+- pool: 16 candidates e 16 MiB total, duplicate candidate não é reverificado;
+- estado: 2 nullifiers, 2 notes, memo 32 KiB, 6 set effects, burn path 64 siblings,
+  sparse proof/frontier/undo/batch/witness bounds;
+- wallet: snapshot 64 MiB, 1.000.000 itens por count e sete minimum-record preflights;
+- prover: total input, package, batch undo e burn witness individualmente bounded,
+  relações internas verificadas antes de autoridade.
+
+Validação
+- `native-usdom-resource-inventory-stage947.test.mjs`: 3/3 passou.
+- rustfmt --check e git diff --check: passaram.
+- Cargo pesado não executado.

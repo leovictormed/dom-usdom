@@ -1,0 +1,54 @@
+Etapa 549 — auditoria de snapshot/restore/recovery native USDOM v4
+
+Escopo
+
+Foram revisados o snapshot cifrado da wallet, a reconstrução autenticada no
+checkpoint, o restore/rewind persistido de native USDOM v4/v2, o snapshot de
+equivalência de replay e a publicação do diretório privado de recovery.
+
+Evidência
+
+1. O snapshot cifrado liga geração, seal anterior, rede/chain, tip, inventário
+   completo de commitments/notas/issuances, intents pendentes e undo history.
+   O decoder é limitado e canônico, rejeita truncamento e bytes excedentes, e
+   a validação recompõe índices, reservas, nullifiers e relações entre intents
+   antes de liberar o estado.
+
+2. Rollback é detectado por um seal externo monotônico. Save exige o predecessor
+   exato; load exige o seal esperado. A persistência durável usa prepare/commit
+   e a reconciliação pós-crash aceita somente o arquivo preparado ou o último
+   arquivo committed, rejeitando qualquer terceira geração.
+
+3. O recovery operacional não reabre nem incorpora um snapshot antigo. Ele
+   autentica deposit e checkpoint Ethereum sob as políticas do bundle, rejeita
+   checkpoint anterior à ativação, começa no genesis/empty-state ratificado e
+   exige todos os blocos consecutivos até o tip exato. Cada página liga parent,
+   state root, header, projections e continuation; bloco faltante, duplicado,
+   extra, terminal incorreto ou state root divergente falha fechado.
+
+4. O restore persistido lê uma visão canônica no tip solicitado e requer o par
+   atômico activation record/marker, schedule exato, activation parent canônico,
+   bloco/package/witness/record completos e replay convergente. O rewind é
+   limitado pela profundidade de reorg e, em cada passo, liga schedule, bloco,
+   next state, previous state e parent; ausência ou divergência aborta.
+
+5. A saída de recovery é construída em diretório temporário 0700 retido por
+   descriptor. Filhos são 0600, create-once, single-link e fsyncados. O diretório
+   completo é publicado com rename NOREPLACE, fsync do pai e verificação de
+   device/inode. Uma interrupção deixa somente staging não publicado ou o
+   diretório completo; uma execução posterior não substitui destino existente.
+
+Limites
+
+- ReplaySnapshot é ferramenta diagnóstica e deliberadamente não persiste o
+  mempool; ele não é autoridade de restore de consenso.
+- A resistência a rollback da wallet depende de o operador manter a autoridade
+  de seal em armazenamento monotônico separado, como exige a API.
+- A revisão foi estática durante a prova RandomX ativa; não executou Cargo,
+  Foundry, readiness completo, hardware ou recuperação real.
+
+Resultado
+
+Não foi encontrado bypass concreto de rollback, inventário, activation/checkpoint
+floor, missing/extra blocks, instalação atômica ou recuperação pós-crash. Não foi
+adicionado fact nem alterado código de produção.

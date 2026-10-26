@@ -1,0 +1,17 @@
+ETAPA 895 — fechamento semântico da propriedade dos providers
+Data: 2026-10-23
+
+Contabilidade das 22 construções
+- 16 já possuíam proprietário que chama `destroy()` internamente ou em wrapper `finally`.
+- 6 defaults da família Safe eram leaks reais: deployment, snapshot agregado, observação pré-recuperação, recuperação agregada, plano de recuperação e receipt de execução.
+- Após esta etapa: 22/22 usam transporte limitado e têm proprietário responsável por destruir; leaks conhecidos: 0.
+
+Correção
+- Os defaults Safe restantes agora constroem `BoundedMainnetPreflightProvider`.
+- Cada boundary que instancia provider usa `finally` e chama `destroy()` em sucesso, rejeição de política, erro RPC ou exceção de parsing.
+- Factories injetadas continuam aceitas; mocks sem `destroy` permanecem compatíveis.
+
+Validação
+- `node --check` nos três módulos alterados.
+- Teste estrutural cobre os seis defaults, proíbe JsonRpcProvider cru e exige os finalizers.
+- Suíte funcional ampla teve 14 testes aprovados e 2 falhas preexistentes/concorrrentes em schemas/scripts de recovery sem relação com lifecycle do provider; nenhuma falha ocorreu nos caminhos alterados.

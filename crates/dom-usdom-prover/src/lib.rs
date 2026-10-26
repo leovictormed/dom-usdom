@@ -15,7 +15,7 @@ use ark_poly::{EvaluationDomain, GeneralEvaluationDomain};
 use ark_relations::r1cs::{
     ConstraintSynthesizer, ConstraintSystem, OptimizationGoal, SynthesisMode,
 };
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use dom_core::Hash256;
 use dom_crypto::hash::blake2b_256_tagged;
 use dom_usdom_privacy::{circuit::SpendCircuit, privacy_policy_hash, verifier::SpendVerifier};
@@ -93,8 +93,11 @@ impl SpendProver {
             return Err(ProverError::InvalidProvingKey);
         }
         let mut reader = bytes;
-        let proving_key = ProvingKey::<Bn254>::deserialize_compressed(&mut reader)
-            .map_err(|_| ProverError::InvalidProvingKey)?;
+        // Ceremony bytes are authoritative but still untrusted serialized
+        // curve points. Make the subgroup/on-curve validation mode explicit.
+        let proving_key =
+            ProvingKey::<Bn254>::deserialize_with_mode(&mut reader, Compress::Yes, Validate::Yes)
+                .map_err(|_| ProverError::InvalidProvingKey)?;
         if !reader.is_empty() {
             return Err(ProverError::InvalidProvingKey);
         }

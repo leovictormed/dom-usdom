@@ -1,0 +1,13 @@
+ETAPA955 — NODE PRIVATE READ CLASSIFICATION
+Date: 2026-10-23
+
+The 72 signals remaining after ETAPA952 classify as 37 actual Buffer reads and
+35 path/helper/metadata references. The next largest homogeneous missing-erase
+family was 10 Safe recovery JSON reads across four readers (release evidence,
+transaction checker, recovery assembler and envelope checker).
+
+All four readers now hold bytes in a named Buffer and erase it in finally after
+strict parsing, covering 10/10 success/error captures. Exact residual: 62
+signals = 27 actual Buffer reads plus 35 path/helper/metadata references.
+Parsed JS objects remain scoped to their command. Test 1/1, syntax for four
+scripts and diff-check pass; no operation.

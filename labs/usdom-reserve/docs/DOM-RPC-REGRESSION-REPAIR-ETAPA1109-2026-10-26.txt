@@ -1,0 +1,21 @@
+USDOM — correção das regressões dom-rpc (Etapa 1109)
+Data: 2026-10-26
+
+Correções
+- Os dois testes de history scan agora enviam explicitamente
+  `require_checkpoint_finality:false`. O campo continua obrigatório e
+  `deny_unknown_fields` permanece; não foi criado default silencioso.
+- O teste de wallet spend passa a esperar a representação pública uniforme de
+  `RpcError::Rejected`: prefixo `rejected:` e a mensagem de restrição a regtest.
+- A recuperação de token vazio agora usa a mesma definição antes e depois do
+  claim: zero bytes ou somente whitespace. Isso corrige o caso de arquivo com
+  newline deixado por escrita interrompida.
+- Erros da leitura segura do token existente deixam de ser mascarados por uma
+  tentativa de criação. Hardlink, symlink, owner/mode inválidos e troca de inode
+  preservam `PermissionDenied`; não se degradam para `AlreadyExists`.
+
+Verificação
+- Revisão estática dos contratos HTTP, de erro e persistência.
+- Formatação Rust verificada sem executar testes/build.
+- Os testes Cargo ficaram reservados ao coordenador conforme solicitado.
+- Sem rede, Forge, assinatura, deploy, commit ou push.

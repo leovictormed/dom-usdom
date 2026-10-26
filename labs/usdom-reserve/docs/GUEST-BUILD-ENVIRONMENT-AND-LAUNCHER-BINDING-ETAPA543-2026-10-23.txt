@@ -1,0 +1,34 @@
+Etapa 543 — ambiente e launcher dos builds de guest
+
+Achados
+
+Os builders source-based herdavam RUSTC_WRAPPER, RUSTC_WORKSPACE_WRAPPER,
+RUSTFLAGS e CARGO_ENCODED_RUSTFLAGS. Um wrapper injetado podia executar código
+durante o build mesmo que a comparação final do artefato falhasse. Além disso,
+os comandos cargo/rustup eram resolvidos repetidamente pelo PATH; os pins de
+rustc/LLVM da etapa 541 não ligavam o launcher rustup que seleciona o toolchain.
+
+Correção
+
+Os seis builders falham antes de qualquer build quando uma das quatro variáveis
+está presente e não vazia. cargo e rustup são resolvidos uma vez por realpath,
+precisam apontar para o mesmo launcher e esse arquivo precisa ter SHA-256
+4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10. Todas as
+invocações de cargo e a consulta de rustc passam pelos paths absolutos capturados.
+Os pins de commit rustc, LLVM, locks e artefatos continuam obrigatórios.
+
+Substituição de output
+
+Os outputs são produzidos dentro de CARGO_TARGET_DIR e build_root temporários
+privados, depois têm hash conferido e bytes comparados aos artefatos versionados.
+O packager recompõe ProgramBinary e IID do ELF recém-construído. Assim um output
+substituído não é aceito sem satisfazer simultaneamente hash, igualdade byte a
+byte e ImageID. O escopo desta etapa não executa esses builds.
+
+Teste adversarial
+
+O checker estrutural exige rejeição das quatro variáveis, paths absolutos
+capturados e hash do launcher. Seu self-test remove a proteção ambiental e o pin
+do launcher separadamente e exige falha. Bash -n valida os seis scripts.
+
+Nenhum manifesto/fact foi regenerado ou criado.

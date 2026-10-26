@@ -1,0 +1,32 @@
+ETAPA 664 — FRONTEIRA ESTRITA DE BYTES DO ARTEFATO CANÔNICO
+Data: 2026-10-23
+
+Inventário ampliado
+A busca cobriu `rpc rpc`, `cast rpc`, curl JSON, command substitution,
+pipelines para jq, JSON.parse e conversões UTF-8 em labs/usdom-reserve/scripts,
+labs/usdom-reserve/sdk, sdk e scripts. Após as etapas 660–663, não restou
+pipeline/command substitution shell de resposta JSON-RPC para jq no conjunto de
+produção pesquisado. Chamadas curl restantes no fluxo de wallet já escrevem
+arquivos e são consumidas por coletores com TextDecoder fatal e JSON estrito.
+
+Próximo risco corrigido
+`sdk/artifact-source-snapshot.mjs` vinculava os metadados do artefato canônico
+às fontes compiladas para quatro relatórios autoritativos: reserve, checkpoint
+registry, reserve verifier e checkpoint verifier. Embora rejeitasse chaves
+duplicadas, convertia bytes com Buffer.toString('utf8'), que substitui sequências
+inválidas antes do parser. Um artefato hostil podia, portanto, perder a identidade
+de bytes na fronteira que escolhe caminhos e hashes de fontes.
+
+Correção
+A fronteira usa agora `parseStrictJsonBytes`, com TextDecoder fatal antes do
+parser sem chaves duplicadas. O limite de 64 MiB, profundidade 128, vínculo
+keccak das fontes, leitura direta e recheck TOCTOU permanecem iguais.
+
+Regressões
+- Artefato com chave metadata duplicada por escape é rejeitado.
+- Artefato com byte UTF-8 inválido é rejeitado.
+- Regra estrutural exige parseStrictJsonBytes(artifactBytes) e proíbe
+  artifactBytes.toString('utf8').
+- 4/4 testes Node, node --check e git diff --check passaram.
+
+Nenhum RPC, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

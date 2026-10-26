@@ -1,0 +1,23 @@
+ETAPA 761 — Safe derivation child protocol
+Date: 2026-10-23
+
+Finding
+=======
+Safe-recovery envelope, target, raw-validation and final-report helpers wrote authoritative JSON
+without a uniform stderr policy; raw validation was unbounded and one recheck piped stdout directly
+to JQ. Diagnostics, malformed framing or unbounded output could cross into transaction authority.
+
+Correction
+==========
+All envelope builds, target checks, raw validations/rechecks and final collection now use pinned
+Node with a 120-second timeout, private stdout/stderr files, successful exit, empty stderr and the
+bounded fatal-UTF8/duplicate-key strict JSON checker. Semantic JQ reads the validated file only.
+The observer's documented status-3 protocol remains separate because its stderr is intentional.
+
+Validation
+==========
+Adversarial framing, executor structural and durable-writer suites pass 12/12. Structural tests
+require the shared protocol for all four helper classes and forbid the raw stdout pipeline. Shell/
+Node syntax and diff checks pass. No helper, executor, RPC or Ledger command ran.
+
+No signing, deploy, transmission, commit, push or funds were used.

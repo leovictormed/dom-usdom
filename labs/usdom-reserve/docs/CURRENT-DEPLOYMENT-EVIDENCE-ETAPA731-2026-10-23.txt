@@ -1,0 +1,44 @@
+ETAPA731 — current deployment finalized evidence manifest
+Date: 2026-10-23
+
+Finding
+=======
+
+ETAPA728 hardened recovery evidence, but the current deployment path still
+persisted raw validation and a provider receipt as separate leaves. There was
+no single create-once record proving that the exact signed role transaction had
+reached a canonical finalized block with the approved runtime. Recovery could
+reconstruct that graph, but initial production and recovery did not share one
+completion state.
+
+Correction
+==========
+
+After cross-RPC receipt agreement, canonical/finalized ancestry and runtime
+agreement, the executor now derives
+`contract-deployment-N-evidence.json`. Its exact v1 schema binds:
+
+- role index/name and Ethereum chain ID;
+- release, package, RPC catalog and identity-observation commitments;
+- signed raw SHA-256, transaction hash, sender and nonce;
+- initcode hash, predicted CREATE address and approved runtime hash; and
+- canonical finalized receipt block number and block hash.
+
+The manifest is installed create-once with mode 0600 and an identical rerun is
+the only accepted reuse. It is emitted only after the primary receipt evidence
+is durable. Recovery for every later role requires this manifest, strictly
+parses it, reconciles every field against package/validation/receipt evidence,
+and byte-rechecks it after RPC observation. Therefore a next role cannot treat
+a published, pending, failed, nonfinalized or incompletely recorded prior role
+as complete.
+
+Evidence
+========
+
+- Structural regression asserts manifest schema, path, context, receipt block
+  binding and recovery snapshot/recheck.
+- Focused Node tests: 19/19 passed.
+- Bash syntax and `git diff --check`: passed.
+
+No RPC call, materialization, signing, transmission, deployment, funds action,
+commit or push was performed.

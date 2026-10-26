@@ -1,0 +1,32 @@
+USDⓄM RESERVE — ATOMIC SAFE OWNER IDENTITY WRITE (STAGE 412)
+Date: 2026-10-22
+
+Finding
+
+The first persistent artifact in the production Safe ceremony was written with
+ordinary shell redirection and changed to mode 0600 only afterward. The parent
+directory was mode 0700, but this bypassed the project's existing durable
+create-only writer and left the procedure inconsistent with later hardened
+private artifacts.
+
+Correction
+
+The runbook now pipes the canonical owner-identity JSON directly into
+`install-private-file-new-stdin.mjs`. That writer requires an absolute target,
+an owner-only direct parent directory, rejects an existing or indirect target,
+writes with mode 0600, fsyncs, and never replaces the inode.
+
+A regression requires this exact writer and forbids both direct redirection to
+the owner-identity path and a later chmod repair.
+
+Validation
+
+- operator/runbook suite: 64/64 passed;
+- complete Node regression: 306/306 passed;
+- source manifest: 1,193 ordered SHA-256 entries;
+- imported provenance: 169 files and 16 explicit modifications;
+- JavaScript syntax and repository whitespace checks passed;
+- active non-development finalized-burn proof was not changed or restarted.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

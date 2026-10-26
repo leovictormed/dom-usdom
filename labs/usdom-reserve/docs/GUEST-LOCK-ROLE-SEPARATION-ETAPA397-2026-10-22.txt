@@ -1,0 +1,35 @@
+DOM/USDOM hardening stage 397 — guest lock role separation
+
+Date: 2026-10-22
+
+The first stage-395 implementation incorrectly replaced each historical guest
+Cargo.lock with the current workspace lock. The complete provenance chain
+correctly rejected that change because the finalized-burn guest checker binds
+the committed ProgramBinary to its original build-lock snapshot and provenance
+record.
+
+All seven original guest locks were recovered byte-for-byte from an earlier
+local publication snapshot and their known SHA-256 values were confirmed. No
+hash expectation was weakened. Build scripts now distinguish:
+
+- the current workspace lock used by a prospective rebuild; and
+- the historical guest lock that authenticates the committed binary's build.
+
+Both values are separately pinned and checked. A future successful clean
+rebuild may produce evidence under the current workspace lock, but it cannot
+rewrite historical provenance before that proof exists.
+
+Validation completed:
+
+- finalized-burn pinned guest/provenance checker: passed with original lock
+  SHA-256 3e9768113e223032ee85e0bce6128a59bc44be55b301b63a5d11400ad272e08d;
+- critical proof inventory and policy checker: 98/98 passed;
+- proof checker mutation self-test: passed;
+- seven build scripts parse and retain executable mode;
+- repository whitespace check: passed.
+
+The complete provenance command advanced through implementation claims,
+RustSec policy, 169 imported files and the finalized-burn guest. Its next
+`cargo tree` step waited on the global Cargo cache held by the active prover.
+The auxiliary run was interrupted without touching the prover and must be
+rerun after the capacity proof terminates.

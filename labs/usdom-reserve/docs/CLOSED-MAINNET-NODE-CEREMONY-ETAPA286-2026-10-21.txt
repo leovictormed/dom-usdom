@@ -1,0 +1,26 @@
+Closed mainnet DOM node ceremony — stage 286
+
+Status: fixed startup implementation and validation complete; node not started.
+
+The closed deposit flow now has a no-argument node command. It creates or
+validates a 256-bit lowercase-hex bearer token as a direct single-link 0600
+file, fsyncs it, retains chain data below an owner-only directory and builds the
+feature-enabled release node from the locked graph. Startup is pinned to the
+exact native runtime manifest and SHA-256 used by witness construction.
+
+Isolation is explicit: mainnet consensus identity remains selected, while P2P
+binds only to 127.0.0.1, minimum outbound and maximum inbound peers are zero,
+DNS seeds are disabled, and mining is false. RPC binds only to the canonical
+mainnet loopback port and reads its token from the file boundary. No wallet
+password, miner address, peer or secret is accepted through a placeholder.
+
+The node previously had no operator control for compiled DNS seed discovery.
+`DOM_DISABLE_DNS_SEEDS` now accepts only literal `true` or `false`; malformed
+values fail before storage and listeners instead of silently breaking the
+closed-network assumption. The feature-enabled release node check passed and
+the strict parser test passed 1/1.
+
+This ceremony starts a closed DOM node under mainnet rules. It does not start
+mining, connect to public peers, deploy Ethereum contracts, broadcast a deposit
+or move funds. Producing the block that includes an issuance remains a separate
+explicitly authorized action.

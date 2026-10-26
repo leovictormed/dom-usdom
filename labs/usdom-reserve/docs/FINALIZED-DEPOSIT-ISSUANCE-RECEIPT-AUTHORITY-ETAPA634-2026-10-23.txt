@@ -1,0 +1,34 @@
+ETAPA 634 — AUTORIDADE DO RECIBO DE EMISSÃO POR DEPÓSITO FINALIZADO
+Data: 2026-10-23
+
+Escopo
+
+Foi auditado o recibo `issuance-submission.json`, produzido após a aceitação de
+um depósito finalizado e consumido para selecionar a emissão incluída no
+primeiro bloco fechado. O artefato vincula candidateId, depositId, identidade
+da cadeia DOM e observação da submissão.
+
+Achados e correções
+
+1. O produtor usava escrita privada durável com substituição atômica. Uma nova
+   execução podia substituir a autoridade já registrada. A gravação agora usa
+   `writePrivateFileDurableNew`, que cria uma única vez, fixa o diretório e
+   falha se o alvo já existe.
+2. O consumidor aplicava o parser de chaves duplicadas após `Buffer.toString`,
+   cuja decodificação UTF-8 é tolerante. Agora usa `TextDecoder` com `fatal:true`
+   antes de `parseStrictJson`. UTF-8 inválido e chaves duplicadas são rejeitados
+   antes da validação do candidato.
+3. As rechecagens byte a byte do recibo/token antes e depois do RPC permanecem,
+   preservando a defesa TOCTOU existente.
+
+Validação
+
+- `node --check` passou nos dois scripts;
+- testes estruturais do produtor/consumidor passaram 2/2;
+- suites de escrita privada durável e JSON estrito passaram 10/10, cobrindo
+  no-clobber, symlink/hardlink, chaves duplicadas diretas/escapadas e entradas
+  malformadas;
+- `git diff --check` passou.
+
+Nenhum RPC operacional foi chamado. Nenhuma mineração, emissão, assinatura,
+transmissão, deploy, staging, commit, push ou movimentação de fundos ocorreu.

@@ -1,0 +1,33 @@
+SAFE / USDT FINALIZED LIVE RECHECK — ETAPA 1113
+Date: 2026-10-26
+Scope: local gates and lightweight tests. No network, signing, deployment, funds, Forge/Cargo, commit or push.
+
+RESULT
+The finalized preflight already pinned Ethereum genesis, canonical USDT runtime and legacy policy, and nearly all three Safe configurations across two to five independent RPCs. This stage added the missing Safe nonces and a live authority phase that runs after every operator authorization and immediately before each pilot signature and broadcast, closing the stale-attestation window for the first real deposit.
+
+SAFE SNAPSHOT
+For governance, guardian and checkpoint guardian, one pinned finalized snapshot now checks:
+- exact Safe proxy runtime code hash and distinct Safe address;
+- exact singleton address and singleton runtime code hash;
+- nonce exactly zero before the first authorized operation;
+- threshold exactly 2 and exactly three canonical, distinct owners;
+- no owner reuse across the three roles and code-free owner addresses;
+- no modules and correct module-list sentinel;
+- zero guard;
+- exact Safe v1.4.1 fallback handler and runtime code hash.
+All three control roles, the reserve, token, both adapters and registry must use distinct addresses.
+
+USDT SNAPSHOT
+The same finalized observation checks mainnet genesis and canonical USDT address/runtime, exact legacy owner and owner code hash, name/symbol/6 decimals, positive supply, paused=false, deprecated=false, zero upgrade target, zero EIP-1967 implementation/admin/beacon slots, zero basis-point fee and maximum fee, reserve not blacklisted, and reserve balance zero before the first deposit.
+
+MULTISOURCE / TOCTOU
+- The preflight transport accepts two to five catalog-bound sources with distinct operators and origins, pins one finalized number/hash, constrains all calls to it, rechecks its hash, and requires byte-identical complete observations.
+- Added `authority-recheck` phase: it validates current Safes, USDT, adapters, reserve/registry runtime and finalized genesis without requiring the historical paused cold-start state after governance resume.
+- The pilot deposit executor invokes this phase before the first prompt, again after every unbounded signing authorization immediately before Ledger signing, and again after every transmission authorization immediately before publishing. A governance/USDT/Safe change during a prompt therefore aborts instead of using stale evidence.
+- The persistent real-funds readiness check and historical cold-start attestation remain mandatory; the live recheck supplements rather than replaces them.
+
+VALIDATION
+- Combined preflight/RPC/readiness suites: 103/103 passed (21 focused plus 82 full readiness tests).
+- Final focused post-authorization ordering suite: 10/10 passed.
+- Node and shell syntax checks: passed.
+- `git diff --check`: passed.

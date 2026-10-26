@@ -1,0 +1,29 @@
+ETAPA1008 — RISC Zero burn/checkpoint private-input and public-journal binding
+Date: 2026-10-23
+
+Scope
+- UDFINL04 finalized-burn guest and portable relation;
+- complete checkpoint-segment and checkpoint-outer guests;
+- recursive receipt assumptions, host receipt verification and Solidity burn statement.
+
+Result
+No concrete authorization gap was found. A permanent structural gate was added because this multi-layer invariant previously depended on dispersed tests and review.
+
+Evidence
+1. UDFINL04 rejects length mismatch/trailing bytes, canonically re-encodes the whole input, reexecutes its Ethereum checkpoint and native burn witnesses, and requires the recomputed FinalizedBurn ABI hash to equal the embedded statement hash.
+2. The burn guest verifies the exact pinned checkpoint-outer ImageID and exact CheckpointStatementV4 hash before committing exactly the 32-byte finalized-burn statement hash.
+3. Each segment transition commits the domain-separated canonical bytes of all private block/package/native/economic witnesses. Execution checks that commitment and block count, derives all subordinate receipt journals, and commits only the 32-byte transition commitment.
+4. The outer relation validates exact policy/opening/segment continuity and pinned segment ImageID, then commits only the 32-byte CheckpointStatementV4 ABI hash.
+5. FinalizedBurn's Rust type string and ABI word construction include burnId, requestId, recipient, amount, DOM domain/height/block/state root, Ethereum-finality slot, deadline, chain ID, reserve and activation schedule. USDOMProofReserve recomputes this statement from calldata and passes it to the verifier, preventing reuse for another burn or deployment.
+6. Journals expose only 32-byte commitments. They do not commit raw note history, nullifiers beyond the public burn identity, deposit lineage, openings, policy bytes or witness bytes. Host-side SHA-256 values authenticate local/private proof-job artifacts; they are not guest journal fields or Solidity inputs.
+
+New gate
+scripts/check-risc0-private-public-binding.py checks canonical full consumption/re-encoding, private-input commitments, recursive ImageID/journal binding, single minimized guest commit and Solidity statement coverage.
+
+Validation
+PASS check-risc0-private-public-binding.py
+PASS python3 -m py_compile check-risc0-private-public-binding.py
+PASS git diff --check for the gate, report and continuation updates.
+No Cargo/Forge or competing heavy build was started while the long RISC Zero proof remained active.
+
+No network, push, deploy, signing, broadcast or funds operation occurred.

@@ -1,0 +1,32 @@
+ETAPA 675 — REVISÃO OPERACIONAL COM JSON DE BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O preparador do relatório de revisão operacional convertia release evidence e
+release config com Buffer.toString('utf8') antes do parser estrito. Esses dois
+documentos selecionam o conjunto de evidências operacionais, identidades dos
+contratos e controladores que formam a decisão reviewed.
+
+Correção
+O helper `parse` agora usa parseStrictJsonBytes diretamente nos dois snapshots.
+UTF-8 inválido falha antes de substituição e chaves duplicadas seguem rejeitadas.
+
+Garantias preservadas
+- máximo 4 MiB e profundidade 64 para release/evidence;
+- caminhos fixos para release, evidence e runbook;
+- cada evidência operacional é lida diretamente, limitada a 64 MiB e vinculada
+  ao SHA-256 declarado na release evidence;
+- relatório vincula release identity, contratos, controladores e runbook hash;
+- release/evidence/runbook e cada evidência são relidos e comparados byte a byte
+  para detectar mutação concorrente;
+- writer mantém locks, arquivo privado, instalação imutável/create-once e cmp
+  antes da atualização da configuração.
+
+Testes leves
+- chave duplicada por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige parser de bytes e proíbe toString;
+- testes de alteração semântica, inputs incompletos, SHA, TOCTOU estrutural e
+  writer create-once continuam passando;
+- 5/5 testes em <0,3 s; node --check e git diff --check passaram.
+
+Nenhum RPC, Cargo/Rust, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

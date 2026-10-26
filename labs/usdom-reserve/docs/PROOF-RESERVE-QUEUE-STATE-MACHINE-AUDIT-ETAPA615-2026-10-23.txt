@@ -1,0 +1,56 @@
+Stage 615 — proof-reserve queue state-machine audit (2026-10-23)
+
+Scope
+
+Audited `USDOMProofReserve` after the permanent debt binding introduced in
+stage 612, focusing on `totalPendingAmount`, `pendingCount`, the intrusive
+pending linked list, expiry cleanup, arbitrary-order discard, emergency queue
+epoch invalidation, exact debt renewal and identifier reuse.
+
+Result
+
+No additional contract defect was confirmed. The state transitions preserve
+the intended invariants:
+
+- queue admission appends one current-epoch record and increments both the
+  count and reserved amount exactly once;
+- execution, expiry discard and pruning unlink a current-epoch record and
+  decrement both values exactly once;
+- emergency pause advances `queueEpoch` and clears current aggregate/list
+  state in O(1), while cleanup of old-epoch records does not subtract the new
+  generation's aggregates;
+- an exact renewal may overwrite the same `burnId` storage slot from an old
+  epoch, but arbitrary-order old-epoch cleanup observes the renewed record as
+  current and cannot delete or unlink it;
+- `pendingRequests` is deleted only when it still points to the record being
+  removed, while the stage-612 permanent burn/statement and request/burn
+  bindings survive every temporary cleanup; and
+- duplicate and unknown prune candidates are idempotently skipped.
+
+Regression added
+
+`testOldEpochCleanupCannotEraseExactRenewalOrCorruptMixedQueue` exercises the
+storage-aliasing boundary directly:
+
+1. queue three finalized debts, pause, and invalidate their queue generation;
+2. resume and renew the middle debt under the exact same burn/request IDs;
+3. append another current debt, then batch-prune old, current, duplicate and
+   unknown candidates in mixed order;
+4. verify both links of the two-entry current queue, head/tail, request indexes,
+   permanent bindings, count and amount;
+5. renew a previously pruned debt, remove the middle current record, prune the
+   remaining expired head sequence, and verify the empty state; and
+6. renew the final old debt after both epoch invalidation and expiry cleanup.
+
+Validation
+
+- focused adversarial regression: 1/1 passed;
+- `USDOMProofReserveTest`: 41/41 passed, including three 1,024-run fuzz tests;
+- `USDOMProofReserveInvariantTest`: 256 runs, 16,384 calls, zero handler
+  reverts, invariant passed;
+- full Solidity campaign: 148/148 passed across 14 suites;
+- production contract lint with warnings denied: passed;
+- `git diff --check`: passed.
+
+No Rust/Cargo or RISC Zero script was touched or executed. No commit, push,
+deployment, signature or funds operation was performed.

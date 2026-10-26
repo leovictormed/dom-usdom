@@ -1,0 +1,40 @@
+USD + DOM — materialização do catálogo de fontes RISC Zero
+Etapa 316 — 2026-10-22
+
+Problema
+
+O gate exigia o catálogo como evidência, mas não havia um caminho canônico para
+produzir seus bytes e atualizar o SHA-256 na metadata. Edição manual poderia
+introduzir divergência entre o catálogo validado, o arquivo de evidência e a
+release assinada.
+
+Correção
+
+`prepareRiscZeroHealthSourceCatalogMaterialization` valida novamente o catálogo,
+serializa exatamente os bytes canônicos, calcula o SHA-256 e preserva todos os
+demais campos da metadata. O comando fixo
+`npm run materialize:risc0-health-source-catalog`:
+
+- não recebe caminhos ou valores por argumento;
+- usa somente os caminhos fixos do projeto;
+- rejeita symlinks e alvos que não sejam arquivos regulares;
+- escreve arquivos temporários exclusivos com modo 0600, sincroniza e renomeia;
+- materializa primeiro a evidência e depois sua metadata, de modo que uma
+  interrupção intermediária continue falhando no gate;
+- não cria commit, tag, assinatura, transação ou push.
+
+Validação final
+
+- materialização pura e coletor: 6/6 testes aprovados;
+- catálogo inválido e metadata incompatível rejeitados sem saída;
+- execução real no estado não configurado falha pelo número de fontes;
+- os dois arquivos de configuração permanecem byte a byte inalterados e nenhum
+  arquivo de evidência é criado nessa falha.
+- lint de produção e rebuild completo: aprovados;
+- regressão Node completa: 248/248 aprovada;
+- proveniência: 1.053 fontes completas e verificadas;
+- gates esperadamente fechados: 160 mainnet fechada e 171 fundos reais;
+- `git diff --check`: aprovado.
+
+Nenhuma RPC, mainnet, chave, assinatura, fundo, deploy, prova longa, commit,
+tag ou push foi utilizado.

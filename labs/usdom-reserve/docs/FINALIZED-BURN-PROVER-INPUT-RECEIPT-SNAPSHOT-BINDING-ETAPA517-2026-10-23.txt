@@ -1,0 +1,32 @@
+USDOM stage 517 — finalized-burn prover snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The long-running finalized-burn prover reopened its planned input and index,
+recursive checkpoint assumption and guest artifacts after compilation and
+between composite proving and succinct compression. Concurrent replacement
+could mix filesystem generations or make a resumable receipt authorize a
+different job.
+
+Correction
+==========
+
+The command captures the stage-516 source, job input and canonical job index,
+checkpoint statement, verified checkpoint-outer receipt, finalized-burn guest
+ELF/program and ImageID, and any existing succinct or composite resumable
+receipt into one owner-only replica. It enforces fixed canonical job paths,
+source/input equality, catalog hashes and explicit byte bounds before proving.
+The prover runs only from the replica. Any prior completion index is invalidated
+and synchronized before the long operation; after success the verified succinct
+receipt is durably installed first and its receipt index is installed last.
+
+Evidence and scope
+==================
+
+The operator-runbook regression checks complete capture, catalog validation,
+replica-only proving, resumable receipt capture and output-last publication.
+Readiness requires
+production_finalized_burn_prover_inputs_and_receipts_snapshotted=true. No proof,
+network, signature, deployment or funds operation is performed.

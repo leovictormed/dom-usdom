@@ -1,0 +1,47 @@
+USD/DOM stage 433 — independent native-attestation derivation at signing
+Date: 2026-10-22
+
+Finding
+=======
+
+The two-owner Ledger workflow extracted four stored digests from the native
+attestation request and signed them directly. The final materializer later
+rebuilt each request against the release, but hardware approval had already
+occurred. The signing boundary did not independently prove that the privacy,
+runtime, custody and recovery subjects came from the current authoritative
+artifacts.
+
+Correction
+==========
+
+A fixed offline helper now:
+
+- authenticates the exact release, release evidence and SHA-256-addressed Safe
+  bundle, including the three ordered owners;
+- reruns the locked Rust `dom-usdom-manifest-check` for mainnet;
+- hashes the exact native runtime manifest and wallet public identity;
+- reconciles that identity with TPM custody and the completed wallet recovery
+  drill;
+- rebuilds all four attestations, typed-data payloads and EIP-712 digests;
+- rejects malformed finalized anchors, subject substitution, digest changes,
+  unsafe HOME identity and any artifact change during validation.
+
+The helper runs immediately before Ledger signing and again after both Ledger
+interactions. The final native EIP-1271 materializer repeats it before preparing
+the finalized observation and before publishing outputs, while retaining byte
+snapshots of the request, release, Safe bundle and signatures.
+
+Validation
+==========
+
+- Focused native/readiness/operator tests: 118/118 pass.
+- Complete Node regression: 311/311 pass.
+- Production Solidity lint and forced 44-file build pass.
+- JavaScript and shell syntax checks pass.
+- Complete provenance passes for 169 imports, every proof and panic boundary,
+  and 1,219 sources.
+- Closed-mainnet and real-funds gates remain intentionally closed at 169 and
+  176 blockers; neither contains a stage-433 failure.
+
+No signature, public RPC write, transaction, deployment, funds, mining, commit,
+tag or push occurred.

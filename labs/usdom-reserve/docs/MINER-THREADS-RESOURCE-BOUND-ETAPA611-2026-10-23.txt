@@ -1,0 +1,45 @@
+ETAPA 611 — parsing fail-closed do numero de workers de mineracao
+Data: 2026-10-23
+
+Escopo
+------
+Auditoria dos flags e variaveis de ambiente de producao restantes do no por
+ativacao acidental, parsing nao canonico, truncamento e semantica fail-open.
+DOM_MINE, timeouts e rate limits ja corrigidos foram excluidos. Nenhum script
+ou SDK RISC Zero, release/publicacao, segredo, deploy, assinatura ou fundo foi
+tocado.
+
+Achado concreto
+---------------
+DOM_MINER_THREADS fazia trim, aceitava qualquer usize positivo e aplicava
+min(256). Portanto 257, 999999 ou um valor com zero digitado a mais eram
+silenciosamente convertidos em 256 workers. Na mainnet, cuja mineracao e
+habilitada por padrao, isso podia transformar a configuracao padrao de um
+worker em saturacao imediata de CPU e memoria. Texto invalido preservava o
+default sem informar ao supervisor que a politica solicitada nao foi aplicada.
+
+Correcao
+--------
+- O startup aceita somente decimal ASCII canonico entre 1 e 256, inclusive.
+- Vazio, zero, zeros a esquerda, sinais, espacos, overflow e valores acima do
+  teto retornam erro antes de DomNode::init, listeners ou mineracao.
+- O campo miner_threads so e alterado depois da validacao completa; nao ha
+  cast ou clamp silencioso.
+- Regressao cobre 1 e 256, mais onze classes invalidas incluindo 257,
+  999999 e overflow maior que u64.
+
+Verificacao
+-----------
+- rustfmt direto de crates/dom-node/src/main.rs: passou.
+- git diff --check: passou.
+- verificacao estrutural confirmou um unico leitor DOM_MINER_THREADS, chamada
+  ao parser antes de DomNode::init e ausencia do antigo trim/min(256).
+- Testes Cargo das etapas 600/605/608/611 continuam pendentes: o processo
+  externo PID 2296629 executa dom-interopd em /home/leonardov/dom-legs-codex e
+  ainda detem o cache global. Ele nao foi interrompido. Foco desta etapa:
+  cargo test -p dom-node --bin dom-node --locked miner_thread_override_rejects_accidental_resource_amplification
+
+Conclusao
+---------
+Um erro de configuracao nao pode mais multiplicar silenciosamente os workers
+de mineracao. O limite continua 256, mas sua selecao agora precisa ser exata.

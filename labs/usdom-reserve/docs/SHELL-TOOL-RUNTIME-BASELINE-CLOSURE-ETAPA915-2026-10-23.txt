@@ -1,0 +1,27 @@
+ETAPA915 — SHELL TOOL RUNTIME BASELINE CLOSURE
+Date: 2026-10-23
+
+Fixed inventory lineage
+- ETAPA884 current snapshot: 261 literal matches in exactly 91 shell scripts.
+- Non-runtime classifications: 25 build-only and 2 test/helper.
+- Runtime baseline reconciled here: 234 calls.
+
+Runtime reconciliation
+- ETAPA889 reproducible-build writers: 48
+- ETAPA893 release/evidence-writer Node: 60
+- ETAPA896 release/evidence-writer JQ: 26
+- ETAPA899 proof-planner Node: 22
+- ETAPA902 wallet/TPM/deposit/burn timeout: 20
+- ETAPA906 release-materializer JQ: 16
+- ETAPA908 release-materializer Node: 14
+- ETAPA910 commit-ceremony JQ: 9
+- ETAPA913 planner/collector timeout: 9
+- ETAPA915 final commit/wallet Node/JQ: 10
+- Total authenticated: 234
+- Remaining bare-real runtime baseline calls: 0
+
+ETAPA915 closes the final ten sites: four Node calls in commit ceremonies,
+four Node calls in wallet/TPM flows and two JQ calls in wallet/private-burn
+flows. Each now uses the shared bounded absolute executable/hash/canonical-
+parent pin and a same-shell immediate-recheck wrapper. No commit, build,
+Ledger, RPC, signing, publication or other external operation was executed.

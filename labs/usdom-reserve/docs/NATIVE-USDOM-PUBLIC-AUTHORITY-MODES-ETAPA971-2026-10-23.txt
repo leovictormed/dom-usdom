@@ -1,0 +1,20 @@
+ETAPA971 — NATIVE USDOM PUBLIC AUTHORITY MODE POLICY
+Date: 2026-10-23
+
+Threat model: manifests, verifying keys, restart/checkpoint witnesses and
+activation/sync policy are not secrets and may be world-readable. They are
+startup/consensus authority, so neither their leaf inode nor the immediate name
+authority directory may be writable by group or other. Both must be owned by
+the effective node user. Descriptor retention, no-follow, nlink=1 and inode
+rechecks still protect the capture window.
+
+The shared public `read_captured_bytes` already enforced owner, regular type,
+single link, stable device/inode/name and bounded reads, but omitted mode bits.
+An owner-created 0664 artifact or 0770 parent could therefore be mutated by a
+group member without violating those checks. Initial and final audits now
+reject `mode & 0o022 != 0` for named/retained parent and named/anchored/retained
+leaf. Mode 0644 remains accepted; secrecy is intentionally not required.
+
+Rust regressions cover accepted 0644, rejected 0664 and rejected 0770 parent.
+Focused structural gate 2/2, rustfmt and diff-check passed. Cargo was deferred
+while the proof runs. No external operation was executed.

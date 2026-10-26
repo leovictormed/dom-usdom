@@ -1,0 +1,51 @@
+ETAPA713 — máquina de estados preactivation → production release
+Data: 2026-10-23
+
+Achado
+
+Após ETAPA709, o produtor raiz preenchia corretamente os pins da reserve, mas a
+função pura ainda permitia omitir `reserveArtifact` e devolver uma release core
+com pins nulos. Também não havia uma rejeição nominal para o estado parcial em
+que somente runtime ou somente initcode estivesse preenchido.
+
+Máquina de estados implementada
+
+1. Preactivation: activation schedule, activation empty root, reserve config,
+   reserve runtime e reserve initcode devem estar todos nulos. Qualquer pin
+   antecipado é rejeitado.
+2. Derivação intermediária: somente o produtor raiz pode solicitar
+   `deferReserveArtifact:true`; isso é aceito exclusivamente quando os dois pins
+   ainda são nulos e nenhum artefato foi fornecido.
+3. Release completa: native facts devem conter schema exato, schedule, empty
+   root, bootstrap predecessor e state root coerentes. O reserveConfigHash é
+   derivado desses fatos e do restante da configuração.
+4. O artefato fonte é compilado/reconciliado contra essa configuração completa;
+   seu config hash deve ser idêntico. Runtime e initcode passam juntos de null
+   para valores não nulos.
+5. Rematerialização: uma release já completa é rederivada diretamente do mesmo
+   artefato e deve permanecer byte-idêntica. Estado parcial, pin stale, config
+   divergente ou tentativa de regressar ao modo deferido falham fechados.
+
+Atomicidade operacional
+
+- O preparador mantém snapshots de template, artefato e todas as fontes e
+  reabre cada entrada com tamanho exato antes de emitir o resultado.
+- O wrapper mantém flock, SHA-256 do template antes/depois, exige ambos pins no
+  resultado e instala somente por writer create-once/identical. Um resultado
+  idêntico não substitui o arquivo; resultado divergente passa pelo instalador
+  fail-closed.
+- Nenhum timestamp ou ordem de chaves JSON cria autoridade; o schema exato e os
+  vínculos criptográficos determinam o estado.
+
+Regressões
+
+- reserveArtifact ausente, runtime/initcode parcial, defer após materialização,
+  config hash stale, schedule ausente/nulo, root divergente, predecessor
+  incorreto e campos extras.
+- Caminho positivo null → completo e rematerialização idempotente.
+- Marcadores estruturais de source derivation, TOCTOU, flock, SHA, create-once
+  e exigência dos dois pins.
+
+Validação: Node 7/7; syntax Bash/Node e `git diff --check` aprovados. Nenhuma
+materialização real, RPC, commit, push, deploy, assinatura, transmissão ou fundo
+foi usado.

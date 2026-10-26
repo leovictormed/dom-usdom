@@ -1,0 +1,49 @@
+USD-native / USDOM — Stage 428: proof selector at value entrypoints
+Date: 2026-10-22
+
+Finding
+=======
+
+After stage 427, reserve and checkpoint entrypoints rejected noncanonical proof
+lengths but still passed a 260-byte seal with an arbitrary four-byte selector
+through their control checks to the immutable adapter. The adapter rejected it,
+so this did not grant authority, but the outer executable boundary remained
+broader than the signed RISC Zero Groth16 v3 policy.
+
+Correction
+==========
+
+USDOMProofReserve.queueWithdrawal and
+DOMCheckpointRegistry.submitCheckpointCandidate now require both the canonical
+260-byte size and the exact 0x73c457ba RISC Zero Groth16 v3 selector before any
+verifier interaction. The selector constants are private to avoid adding an
+unneeded runtime getter. Exact-length wrong-selector proofs are tested to leave
+reserve accounting and checkpoint candidate state unchanged.
+
+Deterministic artifacts
+=======================
+
+- USDOMProofReserve runtime:
+  0x7d7427f28c21693f582b900690dae10c7b1a769a337428e4e91e8819273a90d4
+  (17,229 bytes)
+- USDOMProofReserve initcode:
+  0xff80f88bce9637efb42d6bd87bb9dc31da98e3b7b40f2e3f7a37124bbe8f6c58
+  (23,408 bytes)
+- DOMCheckpointRegistry runtime:
+  0x7fd291a1399c1464d7234eeef9189181ab2119e4033ba6be31c091af0ec259f3
+  (8,478 bytes)
+- DOMCheckpointRegistry initcode:
+  0xc59009ee0e4127bdc797801ef5d69e50bb679c0cb4ff40b4946d538894a05221
+  (13,693 bytes)
+
+Verification
+============
+
+- Focused reserve/registry Solidity: 57/57 pass.
+- Runtime, local EVM and readiness integration: 49/49 pass.
+- Complete Solidity, fuzz and invariants: 146/146 pass.
+- Complete Node: 309/309 pass.
+- Production lint, Solidity formatting and repository whitespace pass.
+
+No public RPC, signature, transaction, deployment, funds, mining, commit, tag
+or push occurred.

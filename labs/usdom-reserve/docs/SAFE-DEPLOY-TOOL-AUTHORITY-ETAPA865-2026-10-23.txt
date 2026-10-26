@@ -1,0 +1,11 @@
+ETAPA865 — SAFE/DEPLOY TOOL AUTHORITY
+Date: 2026-10-23
+
+Safe recovery signing/execution and mainnet deployment had hashed Cast,
+timeout, Node and jq without size bounds or canonical parent identity. All
+three now require 1..512 MiB, pin parent identity, and recheck tool/hash/parent
+after hashing and through existing final assertions. Cleanup authenticates
+Node first. Lifecycle/proxy behavior was not changed.
+
+Focused boundary/signing tests pass 5/5; Bash syntax and diff checks pass. No
+Ledger, RPC, transaction, deployment, signature, funds, commit or push ran.

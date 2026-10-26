@@ -3,8 +3,10 @@ name = "usdom-ethereum-finality-experiment"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "MIT"
 
 [features]
+default = []
 # Explicitly unsafe fixture constructor. Never enable in consensus builds.
 unsafe-test-oracle = []
 

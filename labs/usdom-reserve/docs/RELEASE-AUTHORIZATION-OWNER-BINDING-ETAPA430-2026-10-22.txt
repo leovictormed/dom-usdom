@@ -1,0 +1,33 @@
+USD/DOM stage 430 — owner-bound production authorization
+Date: 2026-10-22
+
+Finding
+=======
+
+Stage 429 made the release and finalized preflight bind the exact ordered Safe
+owner set. The governance EIP-1271 authorization digest still committed those
+owners only indirectly through the release evidence and its residual-risk
+report. A self-contained authorization should identify this high-authority
+boundary directly.
+
+Correction
+==========
+
+`ReleaseAuthorization` now includes `controlPlaneOwnersHash`, defined as the
+Keccak-256 hash of canonical ABI encoding of the exact ordered three-address
+array. Missing, duplicate or zero owners are rejected before a signing request
+can be built. Any replacement or reordering changes the authorization digest.
+
+The EIP-712 domain version is now `2`; signatures made for version 1 cannot be
+presented as approvals of the expanded schema.
+
+Validation
+==========
+
+- Focused authorization/readiness/operator tests: 114/114 pass.
+- Complete Node regression: 309/309 pass.
+- Production Solidity lint and forced build pass.
+- Source manifest and full provenance are refreshed after this report.
+
+No signing, public RPC write, transaction, deployment, funds, mining, commit,
+tag or push occurred.

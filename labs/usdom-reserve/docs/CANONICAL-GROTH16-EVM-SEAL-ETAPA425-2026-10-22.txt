@@ -1,0 +1,48 @@
+USD-native / USDOM — Stage 425: canonical Groth16 EVM seal boundary
+Date: 2026-10-22
+
+Finding
+=======
+
+The production RISC Zero adapters accepted selector-prefixed proofs between
+four bytes and 64 KiB. The Rust packagers emitted a four-byte verifier selector
+followed by the canonical eight-word BN254 Groth16 seal, but the Solidity and
+JavaScript boundaries did not require that exact representation. This allowed
+locally authenticated packages whose length differed from the only format the
+pinned RISC Zero Groth16 verifier is expected to consume.
+
+Correction
+==========
+
+The finalized-burn and checkpoint adapters now require exactly 260 bytes:
+
+  4-byte RISC Zero verifier selector + 8 * 32-byte BN254 words.
+
+Both Rust EVM packagers verify that exact size before publishing a seal. Both
+JavaScript submission builders, serialized-package validators and artifact
+collectors enforce the same boundary. The finalized-burn capacity executor
+also rejects any noncanonical seal before measuring or exercising the EVM
+path. Truncated and extended packages are rejected even when their index,
+length and SHA-256 metadata are internally consistent.
+
+Verification
+============
+
+- Solidity adapter tests: 16/16 pass.
+- Focused JavaScript submission, collector, runtime and EVM tests: 25/25 pass.
+- Complete Solidity suite, including fuzz and invariants: 146/146 pass.
+- Complete Node suite: 309/309 pass.
+- Production Solidity lint and Solidity/Rust formatting pass.
+- Imported provenance: 169 files, including 16 declared modifications.
+- Proof-program boundary: 48 panic-free sources and 98 pinned critical
+  sources/artifacts verified.
+- Complete source manifest: 1,208 files, ordered and SHA-256 verified.
+
+The independent finalized-burn prover-capacity run remained active throughout
+the change. At closure it had run for about 16h46 on one CPU worker with about
+2.2 GiB RSS. It does not mine, access a wallet, use a public RPC or move funds.
+Because that process loaded the pre-stage-425 binary, a final source-bound run
+will still be required after the current capacity run is collected.
+
+No public RPC, signature, transaction, deployment, funds, mining, commit, tag
+or push occurred.

@@ -1,0 +1,71 @@
+USDOM — cerimônia local assinada de dois commits (etapa 306)
+Data: 2026-10-22
+Escopo: implementação e fixtures isoladas; nenhum commit da release real
+
+RISCOS TRATADOS
+
+O gate já exigia um commit fonte assinado, um filho exclusivamente de
+evidência e uma tag assinada, mas o operador ainda teria de montar essa
+sequência manualmente. Um stage incorreto, arquivo secreto, assinatura errada,
+pai diferente, tag prematura ou falha posterior do gate poderia deixar uma
+release ambígua. O runbook também posicionava a identidade antes de fatos
+técnicos que pertencem ao commit fonte.
+
+IMPLEMENTAÇÃO
+
+- o comando fonte não aceita argumentos, usa lock dentro do Git, exige índice
+  vazio, diário ignorado, configuração real-funds completa, finalidade
+  selecionada/aprovada e metadados pós-commit ainda nulos;
+- ele repete testes, proveniência e diff check antes de stagear o repositório;
+- `evidence/` fica fora do commit fonte; caminhos sensíveis e modos diferentes
+  de 100644/100755 são rejeitados;
+- autor e committer são fixados em `Soren Planck
+  <sorenplanck@tutamail.com>`; commit e fingerprint SSH são verificados;
+- falha posterior ao stage/commit volta ao pai anterior com reset mixed,
+  preservando toda a árvore de trabalho;
+- o comando de evidência autentica o sourceCommit, exige aprovação do operador,
+  aceitação residual exata e somente os dois JSONs obrigatórios mais arquivos
+  regulares não sensíveis abaixo de `evidence/`;
+- ele cria um único filho assinado, cria a tag anotada assinada, verifica pai,
+  autores, signer, diff e árvore limpa, e executa os gates closed-mainnet e
+  real-funds;
+- qualquer falha remove somente a tag/commit criados pela própria execução e
+  devolve os arquivos de evidência ao worktree sem stage;
+- nenhum dos comandos contém push, fetch, pull, remote, envio Ethereum ou
+  publicação de transação;
+- o runbook agora posiciona o commit fonte depois de todos os fatos técnicos e
+  o filho/tag depois das evidências ligadas ao hash fonte.
+
+ARQUIVOS PRINCIPAIS
+
+- `scripts/commit-release-source.sh`
+- `scripts/commit-release-evidence.sh`
+- `test/node/release-ceremony.test.mjs`
+- `docs/CLOSED-MAINNET-LINUX-RUNBOOK.md`
+
+VALIDAÇÃO LOCAL
+
+- sintaxe shell passa para ambos os comandos;
+- fixtures Git reais com chaves Ed25519 efêmeras provam assinatura, pai exato,
+  exclusão de evidência no source, diff restrito no child e tag verificável;
+- a fixture fonte prova rollback de `.env` rejeitado sem mudar HEAD ou índice;
+- a fixture de evidência força um gate falho, prova remoção do child/tag e,
+  depois, prova sucesso com árvore limpa;
+- 94/94 testes focados de readiness, operação e cerimônia passam;
+- 52/52 testes do runbook passam após corrigir a ordem;
+- lint dos contratos de produção, rebuild Foundry e 220/220 testes Node passam;
+- proveniência passa 169 imports/16 mudanças declaradas, 45 fontes de programas
+  de prova, 7 fontes de carteira/8 arquivos de crate e 1013 fontes do
+  laboratório;
+- os gates permanecem esperadamente fechados com 163 bloqueios únicos no
+  closed-mainnet e 174 no real-funds; não há bloqueio de implementação da etapa
+  306, auditoria externa ou garantia impossível de risco zero;
+- nenhuma cerimônia do projeto, chave persistente nova, RPC, transação, deploy,
+  fundo, mineração, prova, commit, tag ou push foi usada.
+
+LIMITES
+
+Os comandos reais não foram executados porque a configuração e as evidências
+mainnet ainda estão incompletas. A cerimônia não concede aprovação, não cria
+carteiras, não produz atestações e não publica nada. Geradores ainda ausentes
+para alguns documentos ligados ao sourceCommit continuam trabalho posterior.

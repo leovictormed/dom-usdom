@@ -1,0 +1,51 @@
+ON-CHAIN CANONICAL SAFE 1.4.1 PROXY PIN — 2026-10-26
+
+Finding
+=======
+
+The Ethereum-mainnet control-plane check pinned the Safe 1.4.1 singleton address
+and runtime hash, but it did not require the control account itself to use the
+canonical SafeProxy runtime. A custom proxy could expose masterCopy(), Safe-like
+views and the pinned singleton while retaining extra authorization behavior in
+its own runtime. Recording that custom proxy's hash made later drift detectable,
+but did not make the initial authority equivalent to the reviewed Safe release.
+
+Fix
+===
+
+USDOMProofReserve and DOMCheckpointRegistry now require, on chain ID 1, all of:
+
+* canonical SafeProxy runtime extcodehash
+  0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c;
+* canonical Safe 1.4.1 singleton address and runtime extcodehash;
+* the existing 2-of-3 owner policy, no modules, no guard, and pinned fallback
+  handler.
+
+The proxy hash was derived offline from test/fixtures/safe-1.4.1-mainnet.json.
+Its 486-byte proxyCreationCode hashes to the already pinned release value
+0x1856e0ee08399d74e0ea0b03adca210aeade6f748969ac023cdcb4dd62dcaf5f.
+The constructor returns the 171-byte segment at byte offset 0x119; that runtime
+hashes to the value pinned above.
+
+Chain-specific behavior
+=======================
+
+The canonical release restriction applies only to Ethereum chain ID 1. Other
+chains retain the explicit development/custom-control-plane path, while still
+binding the exact account runtime, implementation runtime and owner commitment
+observed at construction. On every chain, later code/implementation/owner/policy
+drift continues to fail closed. Ethereum chain ID is immutable for the lifetime
+of an ordinary mainnet deployment, so construction-time mainnet selection plus
+the existing continuous identity checks closes the relevant runtime path.
+
+Validation
+==========
+
+* Focused mainnet-policy tests pass with pinned Forge and solc 0.8.37.
+* The complete offline Forge suite exits 0.
+* Deployed runtime sizes: USDOMProofReserve 20,625 bytes (3,951-byte EIP-170
+  margin); DOMCheckpointRegistry 10,418 bytes (14,158-byte margin).
+* git diff --check passes for the changed Solidity and test files.
+
+No Rust/Cargo, operational script, network, signing, deployment, funds, commit
+or push was used.

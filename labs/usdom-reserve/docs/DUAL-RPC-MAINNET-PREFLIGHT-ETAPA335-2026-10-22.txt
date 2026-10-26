@@ -1,0 +1,35 @@
+USD0M — PREFLIGHT MAINNET COM DUPLA OBSERVAÇÃO — ETAPA 335
+
+Data: 2026-10-22
+
+Achado
+
+O coletor de preflight fixava todas as leituras em um snapshot finalizado e
+relia o hash no fim, mas uma execução dependia de um único RPC. Uma fonte
+comprometida poderia apresentar uma visão falsa internamente consistente.
+
+Correção
+
+`scripts/check-mainnet-preflight.mjs` agora executa a observação completa em
+duas infraestruturas independentes e fixas (`drpc` e `publicnode`). Cada uma
+observa cadeia, bloco finalizado, nonces, bytecodes, configurações, política do
+USDT, RISC Zero, recibos de deployment e, no cold start, todo o estado público
+da reserva e do registry. A atestação só é emitida se as duas estruturas forem
+byte a byte idênticas. Divergência ou atraso de qualquer fonte falha fechado e
+exige nova observação; nenhuma transação é reenviada.
+
+Cada requisição possui timeout explícito de 20 segundos e o provider é
+encerrado em `finally`, inclusive em erro, evitando espera indefinida ou
+handles de rede residuais durante a cerimônia.
+
+O formato hash-addressed da atestação permanece inalterado, portanto o gate
+continua a recalcular seu conteúdo independentemente. O runbook não injeta mais
+um RPC único nos dois comandos de preflight.
+
+Validação
+
+- teste estrutural do coletor de dupla fonte: aprovado;
+- predeployment e postdeployment positivos: aprovados;
+- mutações de schema e uints: aprovadas;
+- readiness e runbook: suíte combinada 107/107 aprovada;
+- nenhuma assinatura, carteira, broadcast, mineração ou fundo foi usado.

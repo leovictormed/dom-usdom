@@ -33,6 +33,7 @@ def packages(*extra: str) -> set[str]:
     result = subprocess.run(
         command, cwd=REPO, check=True, text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        timeout=120,
     )
     found: set[str] = set()
     for line in result.stdout.splitlines():
@@ -91,6 +92,8 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
+    except subprocess.TimeoutExpired as error:
+        fail(f"Cargo dependency graph command timed out after {error.timeout} seconds")
     except subprocess.CalledProcessError as error:
         sys.stderr.write(error.stderr)
         fail(f"cargo tree failed with exit code {error.returncode}")

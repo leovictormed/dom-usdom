@@ -1,0 +1,42 @@
+ETAPA 1004 — Safe control-plane authority and liveness — 2026-10-23
+
+Scope
+- Production reserve governance/guardian and checkpoint-registry guardian.
+- Constructor identity, Safe singleton/runtime, threshold, owners, modules,
+  guard, fallback handler, pause/resume/halt ordering and stale emergencies.
+
+Concrete finding and correction
+- The contracts committed to getOwners() linked-list order. Safe authority is
+  the 2-of-3 owner set, not its enumeration order. Removing and re-adding the
+  same owners can reorder the list and previously made control-plane health
+  fail forever, stranding deposits, payouts, checkpoints and resume despite no
+  authority change.
+- Both contracts now validate the three returned owners exactly as before, then
+  sort their addresses before hashing. Actual owner replacement still changes
+  the commitment; permutation of the same set preserves liveness.
+- The shared SDK safeOwnersCommitment now performs the identical numeric address
+  sort. Its regression expects all permutations to have one commitment.
+- Solidity regressions exercise reordered governance and guardian owners while
+  retaining healthy value/checkpoint control paths.
+
+Other audit conclusions
+- Mainnet constructors require Safe proxy identity, pinned proxy runtime,
+  singleton and singleton runtime, exact 2-of-3 distinct EOA owners, no modules
+  or guard, and the reviewed fallback handler/runtime.
+- Operational value and checkpoint paths repeat the complete identity. Drift
+  fails closed while pending payout/candidate state remains retryable after an
+  exact authority restoration.
+- Pause may remain callable after identity drift as an emergency fail-safe;
+  resume requires healthy governance and guardian, a fresh delayed schedule,
+  verifier identity and token policy. A later pause clears the schedule.
+- Queue-generation-bound pause rejects stale automation. The registry halt is
+  irreversible and requires the exact healthy guardian; guardian drift already
+  stops candidate submission/finalization, so loss of the explicit halt call
+  cannot leave checkpoint progression open.
+
+Checks
+- Lightweight Python structural gate passed 24/24 assertions.
+- git diff --check passed on all ETAPA1004 files.
+- Permanent Node gate: test/node/safe-control-plane-liveness.test.mjs.
+- Node is unavailable on PATH and Forge remains deferred during the live RISC0
+  proof. No network, push or deployment was performed.

@@ -2,11 +2,16 @@
 pragma solidity 0.8.37;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IDOMFinalizedBurnVerifier, USDOMProofReserve} from "../../contracts/USDOMProofReserve.sol";
-import {HostileToken, MockGovernance} from "./Mocks.sol";
+import {
+    IDOMFinalizedBurnVerifier,
+    IDOMGracefulShutdownRegistry,
+    USDOMProofReserve
+} from "../../contracts/USDOMProofReserve.sol";
+import {HostileToken, MockGovernance, MockGracefulShutdownRegistry} from "./Mocks.sol";
 import {TestBase} from "./TestBase.sol";
 
 contract InvariantBurnVerifier is IDOMFinalizedBurnVerifier {
+    bytes32 public constant PROOF_ACCEPTED = keccak256("USDOM_FINALIZED_BURN_PROOF_V1");
     bytes32 public constant CONFIG = keccak256("proof reserve invariant verifier");
     mapping(bytes32 => bool) private accepted;
 
@@ -43,6 +48,7 @@ contract ProofReserveHandler is TestBase {
     uint256 public ghostDonated;
     uint256 public ghostPending;
     uint256 public ghostPendingCount;
+    uint256 public ghostProvedDebt;
     uint256 public immutable startTime;
 
     constructor(
@@ -82,12 +88,13 @@ contract ProofReserveHandler is TestBase {
         // forge-lint: disable-next-line(unsafe-typecast)
         uint64 amount = MIN_QUEUE_AMOUNT + uint64(uint256(raw) % range);
         USDOMProofReserve.FinalizedBurn memory b = makeBurn(amount);
-        bytes memory proof = abi.encode("invariant proof", b.burnId);
+        bytes memory proof = canonicalRiscZeroProof(b.burnId);
         burnVerifier.approve(reserve.burnStatementHash(b), proof);
         reserve.queueWithdrawal(b, proof);
         requests.push(b);
         ghostPending += amount;
         ++ghostPendingCount;
+        ghostProvedDebt += amount;
     }
 
     function execute(uint256 index) external {
@@ -99,6 +106,7 @@ contract ProofReserveHandler is TestBase {
             ghostPaid += b.amount;
             ghostPending -= b.amount;
             --ghostPendingCount;
+            ghostProvedDebt -= b.amount;
             assertEq(token.balanceOf(RECIPIENT), recipientBefore + b.amount);
         } catch {
             assertEq(token.balanceOf(RECIPIENT), recipientBefore);
@@ -189,7 +197,7 @@ contract ProofReserveHandler is TestBase {
         // bound <= outflowCapacity (uint64), so this narrowing conversion is safe.
         // forge-lint: disable-next-line(unsafe-typecast)
         USDOMProofReserve.FinalizedBurn memory b = makeBurn(uint64(uint256(raw) % bound) + 1);
-        bytes memory proof = abi.encode("altered invariant proof", b.burnId);
+        bytes memory proof = canonicalRiscZeroProof(keccak256(abi.encode("altered invariant proof", b.burnId)));
         burnVerifier.approve(reserve.burnStatementHash(b), proof);
         ++b.height;
         (bool ok,) = address(reserve).call(abi.encodeCall(reserve.queueWithdrawal, (b, proof)));
@@ -258,10 +266,12 @@ contract USDOMProofReserveInvariantTest is TestBase {
         governor = new MockGovernance();
         guardian = new MockGovernance();
         burnVerifier = new InvariantBurnVerifier();
+        MockGracefulShutdownRegistry checkpointRegistry = new MockGracefulShutdownRegistry(DOMAIN, ACTIVATION_SCHEDULE);
         reserve = new USDOMProofReserve(
             USDOMProofReserve.Config(
                 IERC20(address(token)),
                 burnVerifier,
+                IDOMGracefulShutdownRegistry(address(checkpointRegistry)),
                 DOMAIN,
                 ACTIVATION_SCHEDULE,
                 address(governor),
@@ -312,8 +322,13 @@ contract USDOMProofReserveInvariantTest is TestBase {
         );
         assertEq(reserve.totalPendingAmount(), handler.ghostPending());
         assertEq(reserve.pendingCount(), handler.ghostPendingCount());
+        assertEq(reserve.totalProvedDebtAmount(), handler.ghostProvedDebt());
         assertTrue(reserve.totalReleased() <= reserve.totalDeposited());
         assertTrue(reserve.totalPendingAmount() <= reserve.outstanding());
+        assertTrue(reserve.totalPendingAmount() <= reserve.totalProvedDebtAmount());
+        assertTrue(reserve.totalProvedDebtAmount() <= reserve.outstanding());
+        assertTrue(reserve.totalReleased() + reserve.totalPendingAmount() <= reserve.totalDeposited());
+        assertTrue(reserve.totalReleased() + reserve.totalProvedDebtAmount() <= reserve.totalDeposited());
         assertTrue(token.balanceOf(address(reserve)) >= reserve.outstanding());
         assertTrue(reserve.availableOutflow() <= FLOW);
 
@@ -334,6 +349,8 @@ contract USDOMProofReserveInvariantTest is TestBase {
             assertEq(pendingEpoch, reserve.queueEpoch());
             assertEq(prev, previous);
             assertEq(reserve.pendingRequests(requestId), current);
+            assertEq(reserve.provedBurnStatements(current), statementHash);
+            assertEq(reserve.provedRequestBurns(requestId), current);
             assertFalse(reserve.paidBurns(current));
             assertFalse(reserve.paidRequests(requestId));
             linkedAmount += amount;

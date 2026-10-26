@@ -1,0 +1,40 @@
+DOM / USDOM — fronteira JSON/UTF-8 dos materializadores de release
+Etapa 614 — 2026-10-23
+
+Escopo
+======
+
+Foram auditados coletores e materializadores que substituem configurações de
+release, incluindo path resolution, owner/link/mode, publicação atômica,
+TOCTOU e interpretação JSON. Scripts RISC0, assinatura e publicação Git ficaram
+fora desta etapa.
+
+Achado corrigido
+================
+
+Todos os materializadores públicos convergem em
+`install-release-config-stdin.mjs`. O instalador limitava tamanho e publicava
+atomicamente, mas aceitava bytes arbitrários. Os wrappers normalmente usavam
+`jq` antes da instalação; `jq`, contudo, aceita chaves duplicadas pelo último
+valor, e a conversão UTF-8 permissiva pode substituir bytes inválidos. Assim,
+uma saída ambígua podia passar pelo wrapper e tornar-se configuração durável,
+com revisores e consumidores interpretando valores diferentes.
+
+O instalador central agora, antes de qualquer escrita:
+
+- exige round-trip byte a byte por UTF-8, recusando sequências inválidas;
+- usa `parseStrictJson`, que recusa chaves duplicadas inclusive quando uma usa
+  escapes Unicode, trailing content, nesting excessivo e gramática inválida;
+- só depois chama o escritor durável já protegido por owner, links, inode,
+  arquivo temporário exclusivo, fsync e verificação pós-publicação.
+
+Validação
+=========
+
+O teste comportamental instala JSON válido e tenta substituí-lo por (1) objeto
+com `release` e `\u0072elease` duplicados e (2) string contendo byte `0xff`.
+Ambos são recusados e o arquivo válido original permanece byte a byte intacto.
+O teste focado passou 1/1; `node --check` e `git diff --check` passaram.
+
+Nenhum staging, commit, push, deploy, assinatura, transmissão ou uso de fundos
+foi executado.

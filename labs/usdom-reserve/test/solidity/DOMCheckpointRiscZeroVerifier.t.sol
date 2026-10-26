@@ -84,6 +84,15 @@ contract ReturnBombCheckpointRiscZeroVerifierV3 is IRiscZeroVerifierV3 {
     }
 }
 
+contract GasBurningCheckpointRiscZeroVerifierV3 is IRiscZeroVerifierV3 {
+    bytes4 public constant override SELECTOR = 0x73c457ba;
+
+    function verify(bytes calldata, bytes32, bytes32) external view {
+        uint256 stopAt = gasleft() > 2_000 ? 2_000 : 0;
+        while (gasleft() > stopAt) {}
+    }
+}
+
 contract DOMCheckpointRiscZeroVerifierTest is TestBase {
     bytes32 internal constant IMAGE_ID = keccak256("DOM checkpoint RISC Zero guest ImageID");
     bytes32 internal constant STATEMENT = keccak256("DOM checkpoint statement");
@@ -98,7 +107,7 @@ contract DOMCheckpointRiscZeroVerifierTest is TestBase {
     }
 
     function seal(bytes32 payload) internal pure returns (bytes memory) {
-        return abi.encodePacked(SELECTOR, payload);
+        return abi.encodePacked(SELECTOR, new bytes(7 * 32), payload);
     }
 
     function testConfigurationBindsChainVerifierCodeSelectorImageJournalAndCapability() public view {
@@ -119,11 +128,21 @@ contract DOMCheckpointRiscZeroVerifierTest is TestBase {
         assertEq(adapter.imageId(), IMAGE_ID);
         assertEq(adapter.deploymentChainId(), block.chainid);
         assertEq(uint256(uint32(adapter.verifierSelector())), uint256(uint32(SELECTOR)));
-        assertEq(adapter.PROOF_ACCEPTED(), keccak256("DOM_CHECKPOINT_PROOF_V2"));
+        assertEq(adapter.RISC_ZERO_VERIFIER_GAS_LIMIT(), 4_500_000);
+        assertEq(adapter.PROOF_ACCEPTED(), keccak256("DOM_CHECKPOINT_PROOF_V3"));
+    }
+
+    function testUpstreamVerifierCannotConsumeUnboundedRegistryGas() public {
+        GasBurningCheckpointRiscZeroVerifierV3 burner = new GasBurningCheckpointRiscZeroVerifierV3();
+        DOMCheckpointRiscZeroVerifier bounded =
+            new DOMCheckpointRiscZeroVerifier(IRiscZeroVerifierV3(address(burner)), IMAGE_ID);
+        uint256 beforeGas = gasleft();
+        assertEq(bounded.verifyDOMCheckpoint(STATEMENT, seal(bytes32(uint256(1)))), bounded.PROOF_ACCEPTED());
+        assertTrue(beforeGas - gasleft() < 4_800_000);
     }
 
     function testJavascriptConfigurationVectorMatchesSolidityAdapterSchema() public view {
-        bytes32 expected = 0x85b1f2ba490ad5c9643c819c984cfba3e5338bbb02a5a6b2345e1745a6096bf6;
+        bytes32 expected = 0x757c4b08b41ede4e7f85f3d244d612b31ef53d90c84f1d2acfac42885ad2cd43;
         bytes32 actual = keccak256(
             abi.encode(
                 adapter.VERIFIER_CONFIG_TYPEHASH(),
@@ -155,9 +174,12 @@ contract DOMCheckpointRiscZeroVerifierTest is TestBase {
         adapter.verifyDOMCheckpoint(STATEMENT, hex"73c457");
         vm.expectRevert(DOMCheckpointRiscZeroVerifier.InvalidProof.selector);
         adapter.verifyDOMCheckpoint(STATEMENT, abi.encodePacked(bytes4(0x01020304), bytes32(uint256(1))));
-        uint256 oversized = adapter.MAX_PROOF_BYTES() + 1;
+        uint256 oversized = adapter.EVM_PROOF_BYTES() + 1;
+        uint256 truncated = adapter.EVM_PROOF_BYTES() - 1;
         vm.expectRevert(DOMCheckpointRiscZeroVerifier.InvalidProof.selector);
         adapter.verifyDOMCheckpoint(STATEMENT, new bytes(oversized));
+        vm.expectRevert(DOMCheckpointRiscZeroVerifier.InvalidProof.selector);
+        adapter.verifyDOMCheckpoint(STATEMENT, new bytes(truncated));
     }
 
     function testUnderlyingRejectionCannotBecomeAccepted() public {
@@ -272,17 +294,27 @@ contract DOMCheckpointRiscZeroRegistryIntegrationTest is TestBase {
             stateRoot: keccak256("proved checkpoint state"),
             contextHash: keccak256("proved checkpoint continuation context"),
             totalDifficulty: 1_000_360,
+            totalIssued: 0,
+            totalBurned: 0,
+            issuanceClosed: false,
             confirmationHeight: INITIAL_HEIGHT + INTERVAL + CONFIRMATION_DEPTH,
             confirmationBlock: keccak256("proved confirmation block"),
             confirmationTotalDifficulty: 1_000_390,
             confirmationTimestamp: uint64(block.timestamp - 1)
         });
-        bytes memory proof = abi.encodePacked(SELECTOR, keccak256("checkpoint Groth16 proof fixture"));
+        bytes memory proof =
+            abi.encodePacked(SELECTOR, new bytes(7 * 32), keccak256("checkpoint Groth16 proof fixture"));
         bytes32 statementHash = registry.checkpointStatementHash(checkpoint);
         riscZero.expect(proof, IMAGE_ID, sha256(abi.encodePacked(statementHash)));
 
         registry.submitCheckpointCandidate(checkpoint, proof);
-        (bytes32 selected,,,,,,,,,,) = registry.candidate();
+        (bool ok, bytes memory candidateResult) = address(registry).staticcall(abi.encodeWithSignature("candidate()"));
+        assertTrue(ok);
+        assertEq(candidateResult.length, 13 * 32);
+        bytes32 selected;
+        assembly ("memory-safe") {
+            selected := mload(add(candidateResult, 32))
+        }
         assertEq(selected, statementHash);
         assertEq(registry.verifierConfigHash(), adapter.verifierConfigHash());
     }

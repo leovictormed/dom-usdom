@@ -1,0 +1,31 @@
+ETAPA 674 — MATERIALIZAÇÃO DE PREFLIGHT COM JSON DE BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+A materialização das atestações predeployment e postdeployment decodificava
+cinco snapshots com Buffer.toString('utf8') antes do parser estrito: relatório
+privado do operador, release config, release evidence, production requirements
+e referência RISC Zero. Esses documentos controlam a evidência de preflight e
+as atualizações subsequentes da release.
+
+Correção
+O helper `json` agora chama parseStrictJsonBytes diretamente. Todos os cinco
+campos snapshot.report/release/evidence/requirements/riscZero usam esse helper,
+com UTF-8 fatal e rejeição de chaves duplicadas.
+
+Garantias preservadas
+- máximo 16 MiB e profundidade 96 por documento;
+- captureMainnetPreflightInputs fixa o catálogo absoluto e mantém snapshots;
+- relatório privado e arquivos de projeto preservam suas políticas de modo;
+- três assertOriginsUnchanged continuam ordenados antes/entre updates;
+- evidência é create-once/identical e as escritas continuam duráveis;
+- broadcastAuthorized permanece false.
+
+Testes leves
+- chave schema duplicada por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige parser de bytes e os cinco snapshot inputs;
+- teste real de mutação concorrente continua rejeitando origem alterada;
+- 5/5 testes passaram em ~3,3 s; node --check e git diff --check passaram.
+Nenhuma suíte pesada foi executada.
+
+Nenhum RPC, Cargo/Rust, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

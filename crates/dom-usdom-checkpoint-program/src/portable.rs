@@ -20,14 +20,18 @@ use dom_pow::{compute_expected_target, target_to_difficulty_for_network_height};
 use dom_serialization::{DomDeserialize, DomSerialize};
 use dom_usdom_state::{
     apply_v2_transition_batch_with_receipt, ethereum_checkpoint_transition,
-    ethereum_deposit_transition, verify_private_burn_payload, verify_private_transfer_payload,
-    BlockContext, NativeTransitionWitness, VerifiedTransition, MAX_NATIVE_TRANSITION_WITNESS_BYTES,
-    MAX_PRIVATE_BURN_PAYLOAD_BYTES, MAX_PRIVATE_TRANSFER_PAYLOAD_BYTES, MAX_TRANSITIONS_PER_BATCH,
+    ethereum_deposit_transition, ethereum_issuance_closure_transition, verify_private_burn_payload,
+    verify_private_transfer_payload, BlockContext, NativeTransitionWitness, VerifiedTransition,
+    MAX_NATIVE_TRANSITION_WITNESS_BYTES, MAX_PRIVATE_BURN_PAYLOAD_BYTES,
+    MAX_PRIVATE_TRANSFER_PAYLOAD_BYTES, MAX_TRANSITIONS_PER_BATCH,
 };
 use primitive_types::U256;
 use thiserror::Error;
 use usdom_ethereum_finality_experiment::checkpoints::{
     verify_checkpoint_witness, CheckpointTrustPolicy, MAX_CHECKPOINT_WITNESS_BYTES,
+};
+use usdom_ethereum_finality_experiment::closures::{
+    verify_issuance_closure_witness, MAX_ISSUANCE_CLOSURE_WITNESS_BYTES,
 };
 use usdom_ethereum_finality_experiment::deposits::{
     verify_deposit_witness, DepositTrustPolicy, MAX_DEPOSIT_WITNESS_BYTES,
@@ -73,7 +77,7 @@ pub struct PortableCheckpointSegmentExecution {
 }
 
 impl PortableCheckpointSegmentExecution {
-    /// Commitment of the fully executed `UDCSTN02` transition.
+    /// Commitment of the fully executed `UDCSTN04` transition.
     pub const fn transition_commitment(&self) -> [u8; 32] {
         self.transition_commitment
     }
@@ -108,6 +112,7 @@ enum ProofKind {
     Transfer,
     Burn,
     EthereumCheckpoint,
+    IssuanceClosure,
 }
 
 impl ProofKind {
@@ -117,6 +122,7 @@ impl ProofKind {
             2 => Ok(Self::Transfer),
             3 => Ok(Self::Burn),
             4 => Ok(Self::EthereumCheckpoint),
+            5 => Ok(Self::IssuanceClosure),
             _ => Err(PortableCheckpointSegmentError::InvalidComponent),
         }
     }
@@ -166,6 +172,14 @@ pub fn execute_checkpoint_segment_portable(
     let mut economic_block_bindings = Vec::new();
 
     let mut native_state = policy.previous_native_state();
+    if native_state.total_issued != transition.previous_total_issued
+        || native_state.total_burned != transition.previous_total_burned
+        || native_state.issuance_closure.is_some() != transition.previous_issuance_closed
+    {
+        return Err(PortableCheckpointSegmentError::InvalidNativeState);
+    }
+    let mut authenticated_total_issued = transition.previous_total_issued;
+    let mut authenticated_total_burned = transition.previous_total_burned;
     let mut economic_roots = EconomicRoots {
         utxo_root: transition.previous.economic_utxo_root,
         kernel_root: transition.previous.economic_kernel_root,
@@ -197,10 +211,14 @@ pub fn execute_checkpoint_segment_portable(
     for (index, block_input) in private_input.blocks.iter().enumerate() {
         let parsed = parse_package(block_input.package_bytes())?;
         let block = &parsed.block;
+        let height_offset = u64::try_from(index)
+            .ok()
+            .and_then(|value| value.checked_add(1))
+            .ok_or(PortableCheckpointSegmentError::InvalidConsensus)?;
         let expected_height = transition
             .previous
             .height
-            .checked_add(index as u64 + 1)
+            .checked_add(height_offset)
             .ok_or(PortableCheckpointSegmentError::InvalidConsensus)?;
         if block.header.height.0 != expected_height
             || block.header.prev_hash.as_bytes() != &previous_hash
@@ -263,6 +281,15 @@ pub fn execute_checkpoint_segment_portable(
             &witnesses,
         )
         .map_err(|_| PortableCheckpointSegmentError::InvalidNativeState)?;
+        if receipt.previous_total_issued != authenticated_total_issued
+            || receipt.previous_total_burned != authenticated_total_burned
+            || receipt.new_total_issued != next_native_state.total_issued
+            || receipt.new_total_burned != next_native_state.total_burned
+        {
+            return Err(PortableCheckpointSegmentError::InvalidNativeState);
+        }
+        authenticated_total_issued = receipt.new_total_issued;
+        authenticated_total_burned = receipt.new_total_burned;
         let validation_context = ValidationContext {
             current_height: block.header.height,
             chain_id: transition.previous.chain_id,
@@ -330,6 +357,9 @@ pub fn execute_checkpoint_segment_portable(
         || economic_roots.utxo_root != transition.next.economic_utxo_root
         || economic_roots.kernel_root != transition.next.economic_kernel_root
         || difficulty_bytes != transition.next.total_difficulty
+        || authenticated_total_issued != transition.new_total_issued
+        || authenticated_total_burned != transition.new_total_burned
+        || native_state.issuance_closure.is_some() != transition.new_issuance_closed
     {
         return Err(PortableCheckpointSegmentError::TerminalMismatch);
     }
@@ -437,11 +467,22 @@ fn parse_envelope(bytes: &[u8]) -> Result<Vec<ProofEntry<'_>>, PortableCheckpoin
     if count > MAX_TRANSITIONS_PER_BATCH {
         return Err(PortableCheckpointSegmentError::InvalidComponent);
     }
+    let minimum = CHECKPOINT_USDOM_V4_ENVELOPE_MIN_BYTES
+        .checked_add(
+            count
+                .checked_mul(CHECKPOINT_USDOM_V4_ENTRY_HEADER_BYTES)
+                .ok_or(PortableCheckpointSegmentError::InvalidComponent)?,
+        )
+        .ok_or(PortableCheckpointSegmentError::InvalidComponent)?;
+    if bytes.len() < minimum {
+        return Err(PortableCheckpointSegmentError::InvalidComponent);
+    }
     let mut cursor = CHECKPOINT_USDOM_V4_ENVELOPE_MIN_BYTES;
     let mut entries = Vec::with_capacity(count);
     let mut checkpoints = 0usize;
     let mut issuances = 0usize;
     let mut private_spends = 0usize;
+    let mut issuance_closures = 0usize;
     for _ in 0..count {
         let header_end = cursor
             .checked_add(CHECKPOINT_USDOM_V4_ENTRY_HEADER_BYTES)
@@ -479,6 +520,10 @@ fn parse_envelope(bytes: &[u8]) -> Result<Vec<ProofEntry<'_>>, PortableCheckpoin
                 checkpoints += 1;
                 MAX_CHECKPOINT_WITNESS_BYTES
             }
+            ProofKind::IssuanceClosure => {
+                issuance_closures += 1;
+                MAX_ISSUANCE_CLOSURE_WITNESS_BYTES
+            }
         };
         if length == 0 || length > limit {
             return Err(PortableCheckpointSegmentError::InvalidComponent);
@@ -486,7 +531,12 @@ fn parse_envelope(bytes: &[u8]) -> Result<Vec<ProofEntry<'_>>, PortableCheckpoin
         entries.push(ProofEntry { kind, payload });
         cursor = end;
     }
-    if cursor != bytes.len() || checkpoints > 1 || issuances > 4 || private_spends > 16 {
+    if cursor != bytes.len()
+        || checkpoints > 1
+        || issuances > 4
+        || issuance_closures > 1
+        || private_spends > 16
+    {
         return Err(PortableCheckpointSegmentError::InvalidComponent);
     }
     Ok(entries)
@@ -512,6 +562,16 @@ fn parse_native_witnesses(
     ))
     .map_err(|_| PortableCheckpointSegmentError::InvalidComponent)?;
     if count > MAX_TRANSITIONS_PER_BATCH {
+        return Err(PortableCheckpointSegmentError::InvalidComponent);
+    }
+    let minimum = WITNESS_HEADER_BYTES
+        .checked_add(
+            count
+                .checked_mul(4)
+                .ok_or(PortableCheckpointSegmentError::InvalidComponent)?,
+        )
+        .ok_or(PortableCheckpointSegmentError::InvalidComponent)?;
+    if bytes.len() < minimum {
         return Err(PortableCheckpointSegmentError::InvalidComponent);
     }
     let mut cursor = WITNESS_HEADER_BYTES;
@@ -568,6 +628,11 @@ fn verify_entries(
                 let dynamic = deposit_policy_for_block(block_timestamp, policy)?;
                 let deposit = verify_deposit_witness(entry.payload, &dynamic)
                     .map_err(|_| PortableCheckpointSegmentError::InvalidProof)?;
+                validate_finality_freshness(
+                    block_timestamp,
+                    policy,
+                    deposit.finalized_execution().timestamp,
+                )?;
                 ethereum_deposit_transition(policy.bridge(), &deposit)
                     .map_err(|_| PortableCheckpointSegmentError::InvalidProof)?
             }
@@ -575,7 +640,30 @@ fn verify_entries(
                 let dynamic = checkpoint_policy_for_block(block_timestamp, policy)?;
                 let checkpoint = verify_checkpoint_witness(entry.payload, &dynamic)
                     .map_err(|_| PortableCheckpointSegmentError::InvalidProof)?;
+                validate_finality_freshness(
+                    block_timestamp,
+                    policy,
+                    checkpoint.finalized_execution().timestamp,
+                )?;
                 ethereum_checkpoint_transition(policy.bridge(), &checkpoint)
+                    .map_err(|_| PortableCheckpointSegmentError::InvalidProof)?
+            }
+            ProofKind::IssuanceClosure => {
+                let static_policy = policy
+                    .issuance_closure_policy()
+                    .ok_or(PortableCheckpointSegmentError::InvalidProof)?;
+                let dynamic = static_policy
+                    .at_max_current_slot(ethereum_slot_ceiling(block_timestamp)?)
+                    .map_err(|_| PortableCheckpointSegmentError::InvalidProof)?;
+                let closure = verify_issuance_closure_witness(entry.payload, &dynamic)
+                    .map_err(|_| PortableCheckpointSegmentError::InvalidProof)?;
+                validate_finality_freshness(
+                    block_timestamp,
+                    policy,
+                    closure.finalized_execution().timestamp,
+                )?;
+                ethereum_issuance_closure_transition(policy.bridge(), &closure)
+                    .map(VerifiedTransition::IssuanceClose)
                     .map_err(|_| PortableCheckpointSegmentError::InvalidProof)?
             }
             ProofKind::Transfer => verify_private_transfer_payload(
@@ -594,6 +682,21 @@ fn verify_entries(
     Ok(transitions)
 }
 
+fn validate_finality_freshness(
+    block_timestamp: u64,
+    policy: &ValidatedPortableCheckpointSegmentPolicy,
+    finalized_timestamp: u64,
+) -> Result<(), PortableCheckpointSegmentError> {
+    let timing = policy.bridge().burn_timing;
+    usdom_ethereum_finality_experiment::validate_finalized_time_window(
+        finalized_timestamp,
+        block_timestamp,
+        timing.max_ethereum_anchor_age_secs,
+        timing.max_dom_clock_lead_secs,
+    )
+    .map_err(|_| PortableCheckpointSegmentError::InvalidProof)
+}
+
 fn checkpoint_policy_for_block(
     block_timestamp: u64,
     policy: &ValidatedPortableCheckpointSegmentPolicy,
@@ -606,6 +709,13 @@ fn checkpoint_policy_for_block(
         .checkpoint_policy()
         .at_max_current_slot(max_current_slot)
         .map_err(|_| PortableCheckpointSegmentError::InvalidProof)
+}
+
+fn ethereum_slot_ceiling(block_timestamp: u64) -> Result<u64, PortableCheckpointSegmentError> {
+    block_timestamp
+        .checked_sub(ETHEREUM_MAINNET_GENESIS_TIME)
+        .map(|elapsed| elapsed / ETHEREUM_SECONDS_PER_SLOT)
+        .ok_or(PortableCheckpointSegmentError::InvalidProof)
 }
 
 fn deposit_policy_for_block(

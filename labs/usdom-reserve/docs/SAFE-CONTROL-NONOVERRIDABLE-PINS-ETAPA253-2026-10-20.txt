@@ -1,0 +1,41 @@
+USDOM SAFE CONTROL NON-OVERRIDABLE IDENTITY PINS — STAGE 253
+Date: 2026-10-20
+
+Finding
+
+The exported unsigned Safe-control builder accepted an `expectedIdentity`
+argument for deterministic unit tests. The production CLI never passed it, but
+a library caller could replace the comparison object and make a noncanonical
+factory, singleton, fallback handler or proxy creation code appear accepted.
+That contradicted the stated invariant that production Safe identities are
+compiled and non-substitutable.
+
+Correction
+
+The public function no longer accepts an expected identity. Every address and
+code hash is compared only with the frozen `SAFE_MAINNET_IDENTITY` constant.
+`providerFactory` remains injectable so network behavior can be tested, but a
+fake provider must now return bytecode whose Keccak-256 hashes equal the
+production constants; it cannot provide alternative expected hashes.
+
+The tests use a checked-in bytecode fixture containing the exact finalized Safe
+1.4.1 factory, singleton, compatibility fallback handler and proxy creation
+code. PublicNode and MEV Blocker returned byte-identical values before capture.
+The fixture hashes reproduce all four production pins and its file SHA-256 is:
+
+20db960999248a07a1444504166e88d2f60d502e2eb0038fbc6af822db13a1cf
+
+Validation
+
+Five focused tests pass against the authentic bytecode: three distinct direct
+factory calls, deterministic rederivation after earlier deployments, EOA-owner
+enforcement, Ethereum-mainnet enforcement and rejection of changed factory
+runtime code. Static search confirms no `expectedIdentity` or fixture identity
+override remains in the SDK, CLI or focused test.
+
+Operational boundary
+
+The fixture is test evidence, not a source of deployment bytecode. Every real
+package still reads finalized Ethereum state through two independent RPCs and
+must match the compiled hashes. No signature, transaction, deployment, secret,
+commit or push was produced in this stage.

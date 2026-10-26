@@ -1,0 +1,263 @@
+ETAPA889 — RUNTIME SHELL TOOL AUTHENTICATION CLASSIFICATION
+Date: 2026-10-23
+
+Fixed baseline: the 234 runtime calls recorded by ETAPA884; no new filesystem inventory was performed.
+
+Summary:
+authenticated through pinned wrapper: 48
+bare real before ETAPA889 family fix: 234
+bare real after ETAPA889 family fix: 186
+
+The largest homogeneous family was the four reproducible-build report writers (48 literal calls: 36 Node, 12 JQ). Every call now resolves through a same-shell function that revalidates the bounded absolute executable, canonical parent identity, file identity and SHA-256 immediately before invocation.
+
+Remaining bare calls grouped by tool/family:
+jq	commit ceremonies	9
+jq	release materializers	16
+jq	release/evidence writers	26
+jq	wallet/TPM/deposit/burn	2
+node	commit ceremonies	4
+node	proof planners	22
+node	release materializers	14
+node	release/evidence writers	60
+node	wallet/TPM/deposit/burn	4
+timeout	collectors/services	4
+timeout	proof planners	5
+timeout	wallet/TPM/deposit/burn	20
+
+Authenticated call sites:
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:33: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" \
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:34: | jq '.verifierReproducibleBuildReport=null' >"$invalidation"
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:36: node "$project/scripts/install-release-config-stdin.mjs" "$metadata" <"$invalidation"
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:37: node "$project/scripts/remove-private-file-durable.mjs" \
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:47: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_snapshot"
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:48: node scripts/prepare-verifier-reproducible-build-report.mjs > "$report"
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:50: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:54: jq --arg path "$report_path" --arg sha "$report_sha" '
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:63: node "$project/scripts/install-private-file-immutable-stdin.mjs" "$target" < "$report"
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:65: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:70: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_installed"
+labs/usdom-reserve/scripts/write-verifier-reproducible-build-report.sh:73: jq '{verifierReproducibleBuildReport}' "$next_metadata"
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:33: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" \
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:34: | jq '.checkpointRegistryReproducibleBuildReport=null' >"$invalidation"
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:36: node "$project/scripts/install-release-config-stdin.mjs" "$metadata" <"$invalidation"
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:37: node "$project/scripts/remove-private-file-durable.mjs" \
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:47: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_snapshot"
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:48: node scripts/prepare-checkpoint-registry-reproducible-build-report.mjs > "$report"
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:50: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:54: jq --arg path "$report_path" --arg sha "$report_sha" '
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:63: node "$project/scripts/install-private-file-immutable-stdin.mjs" "$target" < "$report"
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:65: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:70: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_installed"
+labs/usdom-reserve/scripts/write-checkpoint-registry-reproducible-build-report.sh:73: jq '{checkpointRegistryReproducibleBuildReport}' "$next_metadata"
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:33: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" \
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:34: | jq '.checkpointVerifierReproducibleBuildReport=null' >"$invalidation"
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:36: node "$project/scripts/install-release-config-stdin.mjs" "$metadata" <"$invalidation"
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:37: node "$project/scripts/remove-private-file-durable.mjs" \
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:47: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_snapshot"
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:48: node scripts/prepare-checkpoint-verifier-reproducible-build-report.mjs > "$report"
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:50: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:54: jq --arg path "$report_path" --arg sha "$report_sha" '
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:63: node "$project/scripts/install-private-file-immutable-stdin.mjs" "$target" < "$report"
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:65: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:70: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_installed"
+labs/usdom-reserve/scripts/write-checkpoint-verifier-reproducible-build-report.sh:73: jq '{checkpointVerifierReproducibleBuildReport}' "$next_metadata"
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:33: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" \
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:34: | jq '.reproducibleBuildReport=null' >"$invalidation"
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:36: node "$project/scripts/install-release-config-stdin.mjs" "$metadata" <"$invalidation"
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:37: node "$project/scripts/remove-private-file-durable.mjs" \
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:47: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_snapshot"
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:48: node scripts/prepare-reserve-reproducible-build-report.mjs > "$report"
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:50: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:54: jq --arg path "$report_path" --arg sha "$report_sha" '
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:63: node "$project/scripts/install-private-file-immutable-stdin.mjs" "$target" < "$report"
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:65: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:70: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_installed"
+labs/usdom-reserve/scripts/write-reserve-reproducible-build-report.sh:73: jq '{reproducibleBuildReport}' "$next_metadata"
+
+Exact remaining bare-real call sites:
+labs/usdom-reserve/scripts/run-closed-mainnet-node.sh:46: timeout --signal=TERM --kill-after=2s 30s \
+labs/usdom-reserve/scripts/run-closed-mainnet-node.sh:164: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/commit-release-source.sh:65: jq -e '.releaseId == null and .sourceCommit == null and .sourceTag == null' \
+labs/usdom-reserve/scripts/commit-release-source.sh:67: jq -e '.release_signing_key_fingerprint == null
+labs/usdom-reserve/scripts/commit-release-source.sh:73: jq -e '.productionReady == true and .realFundsAuthorized == true' \
+labs/usdom-reserve/scripts/commit-release-source.sh:75: jq -e '.mainnet_ready == true and .deploy_authorized == true
+labs/usdom-reserve/scripts/commit-release-source.sh:87: node --input-type=module - "$source_tag" <<'NODE'
+labs/usdom-reserve/scripts/commit-release-source.sh:175: jq -n --arg sourceCommit "$created" --arg sourceTag "$source_tag" \
+labs/usdom-reserve/scripts/plan-authenticated-economic-receipt-set.sh:45: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$SOURCE_INDEX" > "$snapshot_source_index"
+labs/usdom-reserve/scripts/plan-authenticated-economic-receipt-set.sh:46: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$ECONOMIC_INDEX" > "$snapshot_economic_index"
+labs/usdom-reserve/scripts/plan-authenticated-economic-receipt-set.sh:80: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/plan-authenticated-economic-receipt-set.sh:86: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" \
+labs/usdom-reserve/scripts/plan-authenticated-economic-receipt-set.sh:88: | node "$LAB_ROOT/scripts/install-private-file-stdin.mjs" \
+labs/usdom-reserve/scripts/write-release-authorization-request.sh:37: node scripts/prepare-release-authorization-request.mjs > "$temporary"
+labs/usdom-reserve/scripts/write-release-authorization-request.sh:38: jq -e '.schema == "usdom-release-authorization-request/v1"
+labs/usdom-reserve/scripts/write-release-authorization-request.sh:43: node "$project/scripts/install-private-file-immutable-stdin.mjs" --json "$target" < "$temporary"
+labs/usdom-reserve/scripts/write-release-authorization-request.sh:45: jq '{schema,releaseId,sourceCommit,digest,finalizedAnchor,typedData}' "$temporary"
+labs/usdom-reserve/scripts/plan-authenticated-randomx-receipt-set.sh:40: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$STATEMENT_INDEX" > "$snapshot_index"
+labs/usdom-reserve/scripts/plan-authenticated-randomx-receipt-set.sh:67: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/plan-authenticated-randomx-receipt-set.sh:73: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" \
+labs/usdom-reserve/scripts/plan-authenticated-randomx-receipt-set.sh:75: | node "$LAB_ROOT/scripts/install-private-file-stdin.mjs" \
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:68: node scripts/read-release-config-file-stdout.mjs "$evidence_target" > "$evidence_snapshot"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:69: node scripts/read-private-file-stdout.mjs "$intent_target" > "$intent_snapshot"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:89: node scripts/prepare-release-provenance-materialization.mjs > "$envelope"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:90: jq -e '.schema == "usdom-release-provenance-materialization/v1"' "$envelope" >/dev/null
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:91: jq '.releaseEvidence' "$envelope" > "$evidence_temporary"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:92: jq '.operatorIntent' "$envelope" > "$intent_temporary"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:93: jq -e '.schema == 1 and .releaseId != null and .sourceCommit != null and .sourceTag != null' \
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:95: jq -e '.schema == 1 and .release_signing_key_fingerprint != null
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:107: node scripts/read-release-config-file-stdout.mjs "$evidence_target" > "$evidence_observed"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:112: node scripts/read-private-file-stdout.mjs "$intent_target" > "$intent_observed"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:131: jq '{releaseId,sourceCommit,sourceTag}' "$evidence_target"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:132: jq '{release_signing_key_fingerprint,residual_risk_acceptance:
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:35: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" \
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:36: | jq '.checkpointBootstrapRatificationReport=null' >"$INVALIDATION"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:38: node "$ROOT/scripts/install-release-config-stdin.mjs" "$METADATA" <"$INVALIDATION"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:39: node "$ROOT/scripts/remove-private-file-durable.mjs" \
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:48: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$SNAPSHOT"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:49: node "$ROOT/scripts/prepare-checkpoint-bootstrap-ratification-report.mjs" >"$REPORT"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:51: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$CURRENT"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:55: jq --arg path "$REPORT_PATH" --arg sha "$REPORT_SHA" '
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:64: node "$ROOT/scripts/install-private-file-immutable-stdin.mjs" "$TARGET" <"$REPORT"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:66: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$CURRENT"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:71: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$CURRENT"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-report.sh:74: jq '{checkpointBootstrapRatificationReport}' "$NEXT"
+labs/usdom-reserve/scripts/write-recoverable-safe-release-evidence.sh:73: node scripts/prepare-recoverable-safe-release-evidence.mjs > "$bundle"
+labs/usdom-reserve/scripts/write-recoverable-safe-release-evidence.sh:76: node scripts/check-recoverable-safe-release-evidence.mjs >/dev/null
+labs/usdom-reserve/scripts/write-recoverable-safe-release-evidence.sh:78: jq -S '.roleReports.governance' "$bundle" > "$temporary/governance-configuration.json"
+labs/usdom-reserve/scripts/write-recoverable-safe-release-evidence.sh:79: jq -S '.roleReports.guardian' "$bundle" > "$temporary/guardian-configuration.json"
+labs/usdom-reserve/scripts/write-recoverable-safe-release-evidence.sh:80: jq -S '.roleReports.checkpointGuardian' "$bundle" \
+labs/usdom-reserve/scripts/write-recoverable-safe-release-evidence.sh:82: jq -S '.separationReport' "$bundle" > "$temporary/control-plane-separation.json"
+labs/usdom-reserve/scripts/write-recoverable-safe-release-evidence.sh:83: jq -S '.recoveryDrillReport' "$bundle" > "$temporary/control-plane-recovery-drill.json"
+labs/usdom-reserve/scripts/write-recoverable-safe-release-evidence.sh:93: jq -n -S --slurpfile bundle "$bundle" \
+labs/usdom-reserve/scripts/write-recoverable-safe-release-evidence.sh:168: jq '{schema,bundleHash,controlPlaneEvidenceBundle,controlPlane,controlPlaneSeparationReport,
+labs/usdom-reserve/scripts/write-checkpoint-finalized-transaction-reference.sh:19: node "$ROOT/scripts/prepare-checkpoint-finalized-transaction-reference.mjs" > "$TEMPORARY/reference.json"
+labs/usdom-reserve/scripts/write-checkpoint-finalized-transaction-reference.sh:32: node "$ROOT/scripts/install-private-file-immutable-stdin.mjs" "$REFERENCE" < "$TEMPORARY/reference.json"
+labs/usdom-reserve/scripts/collect-ethereum-checkpoint-consensus.sh:18: timeout --signal=TERM --kill-after=2s 30s \
+labs/usdom-reserve/scripts/collect-ethereum-checkpoint-consensus.sh:31: timeout --signal=TERM --kill-after=5s 300s \
+labs/usdom-reserve/scripts/register-finalized-deposit-wallet.sh:215: timeout --signal=TERM --kill-after=30s 3600s "$CARGO_BIN" build --quiet --release --locked -p dom-node \
+labs/usdom-reserve/scripts/register-finalized-deposit-wallet.sh:248: timeout --signal=TERM --kill-after=5s 300s "$keystore_binary" unlock \
+labs/usdom-reserve/scripts/register-finalized-deposit-wallet.sh:262: timeout --signal=TERM --kill-after=5s 300s "$register_binary" \
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-observation.sh:15: node "$ROOT/scripts/remove-private-file-durable.mjs" "$TARGET"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-observation.sh:18: node "$ROOT/scripts/collect-checkpoint-bootstrap-ratification-observation.mjs" >"$TEMPORARY"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-observation.sh:20: node "$ROOT/scripts/install-private-file-immutable-stdin.mjs" "$TARGET" <"$TEMPORARY"
+labs/usdom-reserve/scripts/plan-authenticated-finalized-burn.sh:44: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$SOURCE_FILE" \
+labs/usdom-reserve/scripts/plan-authenticated-finalized-burn.sh:46: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" \
+labs/usdom-reserve/scripts/plan-authenticated-finalized-burn.sh:49: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" \
+labs/usdom-reserve/scripts/plan-authenticated-finalized-burn.sh:69: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/plan-authenticated-finalized-burn.sh:87: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" \
+labs/usdom-reserve/scripts/plan-authenticated-finalized-burn.sh:89: | node "$LAB_ROOT/scripts/install-private-file-stdin.mjs" \
+labs/usdom-reserve/scripts/plan-authenticated-finalized-burn.sh:91: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" \
+labs/usdom-reserve/scripts/plan-authenticated-finalized-burn.sh:93: | node "$LAB_ROOT/scripts/install-private-file-stdin.mjs" \
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:46: node scripts/prepare-mainnet-deployment-identity-materialization.mjs > "$envelope"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:50: jq '.configuration' "$envelope" > "$configuration"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:51: jq '.observation' "$envelope" > "$observation"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:52: jq -e --arg deployer "$USDOM_MAINNET_DEPLOYER" '
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:58: jq -e --arg deployer "$USDOM_MAINNET_DEPLOYER" '
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:64: node scripts/prepare-mainnet-deployment-identity-materialization.mjs > "$temporary/envelope.final.json"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:65: jq '.configuration' "$temporary/envelope.final.json" > "$temporary/configuration.final.json"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:74: node scripts/install-private-file-immutable-stdin.mjs --json "$observation_target" < "$observation"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:75: node scripts/read-private-file-stdout.mjs "$observation_target" \
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:80: node scripts/prepare-mainnet-deployment-identity-materialization.mjs > "$temporary/envelope.preconfig.json"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:81: jq '.configuration' "$temporary/envelope.preconfig.json" > "$temporary/configuration.preconfig.json"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:83: node scripts/install-release-config-stdin.mjs "$target" < "$configuration"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:84: node scripts/read-release-config-file-stdout.mjs "$target" \
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:89: node scripts/read-private-file-stdout.mjs "$observation_target" \
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:96: jq '{deployer,baseNonce,plans,rpcObservations}' "$observation_target"
+labs/usdom-reserve/scripts/collect-finalized-deposit-source.sh:40: | timeout --signal=TERM --kill-after=5s 300s \
+labs/usdom-reserve/scripts/write-native-release-attestation-requests.sh:35: node scripts/prepare-native-release-attestation-requests.mjs > "$temporary"
+labs/usdom-reserve/scripts/write-native-release-attestation-requests.sh:36: jq -e '.schema == "usdom-native-release-attestation-requests/v1"
+labs/usdom-reserve/scripts/write-native-release-attestation-requests.sh:41: node "$project/scripts/install-private-file-immutable-stdin.mjs" --json "$target" < "$temporary"
+labs/usdom-reserve/scripts/write-native-release-attestation-requests.sh:43: jq '{schema,releaseId,sourceCommit,finalizedAnchor,subjects,
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-rpc-catalog.sh:11: node "$ROOT/scripts/prepare-checkpoint-finalized-event-rpc-catalog.mjs" >"$TEMPORARY"
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-rpc-catalog.sh:13: node "$ROOT/scripts/install-public-file-create-once-stdin.mjs" "$TARGET" <"$TEMPORARY"
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:35: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" \
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:36: | jq '.mainnetForkRehearsalReport=null' > "$INVALIDATION"
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:38: node "$ROOT/scripts/install-release-config-stdin.mjs" "$METADATA" < "$INVALIDATION"
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:39: node "$ROOT/scripts/remove-private-file-durable.mjs" \
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:48: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$SNAPSHOT"
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:49: node "$ROOT/scripts/prepare-mainnet-fork-rehearsal-report.mjs" >"$REPORT"
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:51: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$CURRENT"
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:55: jq --arg path "$REPORT_PATH" --arg sha "$REPORT_SHA" '
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:63: node "$ROOT/scripts/install-private-file-immutable-stdin.mjs" "$TARGET" <"$REPORT"
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:65: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$CURRENT"
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:70: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$CURRENT"
+labs/usdom-reserve/scripts/write-mainnet-fork-rehearsal-report.sh:73: jq '{mainnetForkRehearsalReport}' "$NEXT"
+labs/usdom-reserve/scripts/prepare-native-receiving-wallet.sh:173: timeout --signal=TERM --kill-after=30s 3600s "$CARGO_BIN" build --locked --release -p dom-usdom-wallet --features recovery-cli \
+labs/usdom-reserve/scripts/prepare-native-receiving-wallet.sh:215: timeout --signal=TERM --kill-after=5s 300s "${COMMAND[@]}" > "$RAW_OUTPUT"
+labs/usdom-reserve/scripts/prepare-native-receiving-wallet.sh:245: jq -n \
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-outer.sh:73: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-outer.sh:76: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$snapshot_output/$name" | node "$LAB_ROOT/scripts/install-private-file-stdin.mjs" "$OUTPUT_DIR/$name"
+labs/usdom-reserve/scripts/write-operations-review-report.sh:33: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" \
+labs/usdom-reserve/scripts/write-operations-review-report.sh:34: | jq '.operationsReviewReport=null' > "$invalidation"
+labs/usdom-reserve/scripts/write-operations-review-report.sh:36: node "$project/scripts/install-release-config-stdin.mjs" "$metadata" < "$invalidation"
+labs/usdom-reserve/scripts/write-operations-review-report.sh:37: node "$project/scripts/remove-private-file-durable.mjs" "$output/operations-review-report.json"
+labs/usdom-reserve/scripts/write-operations-review-report.sh:47: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_snapshot"
+labs/usdom-reserve/scripts/write-operations-review-report.sh:48: node scripts/prepare-operations-review-report.mjs > "$report"
+labs/usdom-reserve/scripts/write-operations-review-report.sh:50: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-operations-review-report.sh:54: jq --arg path "$report_path" --arg sha "$report_sha" '
+labs/usdom-reserve/scripts/write-operations-review-report.sh:63: node "$project/scripts/install-private-file-immutable-stdin.mjs" "$target" < "$report"
+labs/usdom-reserve/scripts/write-operations-review-report.sh:65: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-operations-review-report.sh:70: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_installed"
+labs/usdom-reserve/scripts/write-operations-review-report.sh:73: jq '{operationsReviewReport}' "$next_metadata"
+labs/usdom-reserve/scripts/bootstrap-closed-mainnet-tpm-authority.sh:224: timeout --signal=TERM --kill-after=30s 3600s cargo build --quiet --release --locked -p dom-node \
+labs/usdom-reserve/scripts/bootstrap-closed-mainnet-tpm-authority.sh:253: timeout --signal=TERM --kill-after=5s 300s "$keystore_binary" unlock \
+labs/usdom-reserve/scripts/bootstrap-closed-mainnet-tpm-authority.sh:272: timeout --signal=TERM --kill-after=5s 300s "$bootstrap_binary" \
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-request.sh:19: node "$ROOT/scripts/prepare-checkpoint-bootstrap-ratification-request.mjs" > "$TEMPORARY/request.json"
+labs/usdom-reserve/scripts/write-checkpoint-bootstrap-ratification-request.sh:32: node "$ROOT/scripts/install-private-file-immutable-stdin.mjs" --json "$REQUEST" < "$TEMPORARY/request.json"
+labs/usdom-reserve/scripts/drill-closed-mainnet-wallet-recovery.sh:192: timeout --signal=TERM --kill-after=30s 3600s "$CARGO_BIN" build --quiet --release --locked -p dom-node \
+labs/usdom-reserve/scripts/drill-closed-mainnet-wallet-recovery.sh:210: timeout --signal=TERM --kill-after=5s 300s "$keystore_binary" unlock \
+labs/usdom-reserve/scripts/drill-closed-mainnet-wallet-recovery.sh:224: timeout --signal=TERM --kill-after=5s 300s "$recovery_binary" \
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:27: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" \
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:28: | jq '.checkpointFinalizedEventReport=null' >"$INVALIDATION"
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:30: node "$ROOT/scripts/install-release-config-stdin.mjs" "$METADATA" <"$INVALIDATION"
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:31: node "$ROOT/scripts/remove-private-file-durable.mjs" \
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:39: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$SNAPSHOT"
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:40: node "$ROOT/scripts/prepare-checkpoint-finalized-event-report.mjs" >"$REPORT"; chmod 0600 "$REPORT"
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:41: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$CURRENT"; cmp -s "$SNAPSHOT" "$CURRENT"
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:44: jq --arg path "$REPORT_PATH" --arg sha "$REPORT_SHA" '
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:52: node "$ROOT/scripts/install-private-file-immutable-stdin.mjs" "$TARGET" <"$REPORT"; sync -f "$TARGET"
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:53: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$CURRENT"; cmp -s "$SNAPSHOT" "$CURRENT"
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:55: node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$METADATA" >"$CURRENT"; cmp -s "$NEXT" "$CURRENT"
+labs/usdom-reserve/scripts/write-checkpoint-finalized-event-report.sh:57: jq '{checkpointFinalizedEventReport}' "$NEXT"
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-segment-set.sh:58: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$SOURCE_DIR/checkpoint-source-set-index.json" > "$snapshot_source/checkpoint-source-set-index.json"
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-segment-set.sh:59: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$RANDOMX_JOB_DIR/randomx-proof-job-index.json" > "$snapshot_randomx_jobs/randomx-proof-job-index.json"
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-segment-set.sh:60: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$RANDOMX_RECEIPT_DIR/randomx-receipt-set-index.json" > "$snapshot_randomx_receipts/randomx-receipt-set-index.json"
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-segment-set.sh:61: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$ECONOMIC_JOB_DIR/economic-proof-job-index.json" > "$snapshot_economic_jobs/economic-proof-job-index.json"
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-segment-set.sh:62: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$ECONOMIC_RECEIPT_DIR/economic-receipt-set-index.json" > "$snapshot_economic_receipts/economic-receipt-set-index.json"
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-segment-set.sh:105: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-segment-set.sh:112: node "$LAB_ROOT/scripts/read-private-file-stdout.mjs" \
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-segment-set.sh:114: | node "$LAB_ROOT/scripts/install-private-file-stdin.mjs" \
+labs/usdom-reserve/scripts/materialize-preactivation-policy.sh:19: node scripts/prepare-preactivation-policy-materialization.mjs > "$temporary"
+labs/usdom-reserve/scripts/materialize-preactivation-policy.sh:20: jq -e '.schema == "usdom-preactivation-policy-v1"
+labs/usdom-reserve/scripts/materialize-preactivation-policy.sh:30: jq . "$target"
+labs/usdom-reserve/scripts/observe-finalized-deposit-wallet.sh:214: timeout --signal=TERM --kill-after=30s 3600s "$CARGO_BIN" build --quiet --release --locked -p dom-node \
+labs/usdom-reserve/scripts/observe-finalized-deposit-wallet.sh:247: timeout --signal=TERM --kill-after=5s 300s "$keystore_binary" unlock \
+labs/usdom-reserve/scripts/observe-finalized-deposit-wallet.sh:261: timeout --signal=TERM --kill-after=5s 300s "$observer_binary" \
+labs/usdom-reserve/scripts/prepare-closed-mainnet-private-burn.sh:140: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST" \
+labs/usdom-reserve/scripts/prepare-closed-mainnet-private-burn.sh:142: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST_PIN" \
+labs/usdom-reserve/scripts/write-security-validation-report.sh:36: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" \
+labs/usdom-reserve/scripts/write-security-validation-report.sh:37: | jq '.securityValidationReport=null' > "$invalidation"
+labs/usdom-reserve/scripts/write-security-validation-report.sh:39: node "$project/scripts/install-release-config-stdin.mjs" "$metadata" < "$invalidation"
+labs/usdom-reserve/scripts/write-security-validation-report.sh:40: node "$project/scripts/remove-private-file-durable.mjs" \
+labs/usdom-reserve/scripts/write-security-validation-report.sh:51: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_snapshot"
+labs/usdom-reserve/scripts/write-security-validation-report.sh:52: node scripts/prepare-security-validation-report.mjs > "$report"
+labs/usdom-reserve/scripts/write-security-validation-report.sh:54: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-security-validation-report.sh:58: jq --arg path "$report_path" --arg sha "$report_sha" '
+labs/usdom-reserve/scripts/write-security-validation-report.sh:67: node "$project/scripts/install-private-file-immutable-stdin.mjs" "$target" < "$report"
+labs/usdom-reserve/scripts/write-security-validation-report.sh:69: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
+labs/usdom-reserve/scripts/write-security-validation-report.sh:74: node "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_installed"
+labs/usdom-reserve/scripts/write-security-validation-report.sh:77: jq '{securityValidationReport}' "$next_metadata"
+labs/usdom-reserve/scripts/provision-closed-mainnet-tpm-keystore.sh:120: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST" \
+labs/usdom-reserve/scripts/provision-closed-mainnet-tpm-keystore.sh:122: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST_PIN" \
+labs/usdom-reserve/scripts/provision-closed-mainnet-tpm-keystore.sh:159: timeout --signal=TERM --kill-after=30s 3600s cargo build --quiet --release --locked -p dom-node \
+labs/usdom-reserve/scripts/provision-closed-mainnet-tpm-keystore.sh:186: timeout --signal=TERM --kill-after=5s 300s "$keystore_binary" provision \
+labs/usdom-reserve/scripts/commit-release-evidence.sh:71: node --input-type=module - "$source_tag" <<'NODE'
+labs/usdom-reserve/scripts/commit-release-evidence.sh:84: jq -e --arg releaseId "$release_id" --arg sourceCommit "$source_commit" \
+labs/usdom-reserve/scripts/commit-release-evidence.sh:207: node scripts/check-mainnet-readiness.mjs closed-mainnet > "$closed_report"
+labs/usdom-reserve/scripts/commit-release-evidence.sh:208: node scripts/check-mainnet-readiness.mjs real-funds > "$real_report"
+labs/usdom-reserve/scripts/commit-release-evidence.sh:209: jq -e '.ready == true and (.blockers | length) == 0' "$closed_report" >/dev/null
+labs/usdom-reserve/scripts/commit-release-evidence.sh:210: jq -e '.ready == true and (.blockers | length) == 0' "$real_report" >/dev/null
+labs/usdom-reserve/scripts/commit-release-evidence.sh:213: jq -n --arg releaseId "$release_id" --arg sourceCommit "$source_commit" \
+labs/usdom-reserve/scripts/submit-closed-mainnet-private-burn.sh:225: timeout --signal=TERM --kill-after=30s 3600s "$CARGO_BIN" build --quiet --release --locked -p dom-node \
+labs/usdom-reserve/scripts/submit-closed-mainnet-private-burn.sh:244: timeout --signal=TERM --kill-after=5s 300s "$keystore_binary" unlock \
+labs/usdom-reserve/scripts/submit-closed-mainnet-private-burn.sh:258: jq -n --arg inputs "$input_commitment" --arg manifest "$manifest_sha256" \
+labs/usdom-reserve/scripts/submit-closed-mainnet-private-burn.sh:266: timeout --signal=TERM --kill-after=5s 300s "$submit_binary" \

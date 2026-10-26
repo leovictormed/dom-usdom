@@ -1,0 +1,61 @@
+ETAPA906 — RELEASE-MATERIALIZER JQ AUTHENTICATION
+Date: 2026-10-23
+
+Fixed input: the 58 bare-real baseline left by ETAPA902; no new filesystem inventory was performed.
+
+Corrected 16/16 JQ calls across the three release materializers. Each now resolves through a same-shell wrapper that rechecks the shared bounded absolute JQ executable/hash/canonical-parent pin immediately before exec; schemas, locks, temporary files and publication order are unchanged.
+
+Remaining bare-real baseline calls: 42
+
+Remaining groups:
+jq	commit ceremonies	9
+jq	wallet/TPM/deposit/burn	2
+node	commit ceremonies	4
+node	release materializers	14
+node	wallet/TPM/deposit/burn	4
+timeout	collectors/services	4
+timeout	proof planners	5
+
+Exact remaining baseline call sites:
+labs/usdom-reserve/scripts/run-closed-mainnet-node.sh:46: timeout --signal=TERM --kill-after=2s 30s \
+labs/usdom-reserve/scripts/run-closed-mainnet-node.sh:164: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/commit-release-source.sh:65: jq -e '.releaseId == null and .sourceCommit == null and .sourceTag == null' \
+labs/usdom-reserve/scripts/commit-release-source.sh:67: jq -e '.release_signing_key_fingerprint == null
+labs/usdom-reserve/scripts/commit-release-source.sh:73: jq -e '.productionReady == true and .realFundsAuthorized == true' \
+labs/usdom-reserve/scripts/commit-release-source.sh:75: jq -e '.mainnet_ready == true and .deploy_authorized == true
+labs/usdom-reserve/scripts/commit-release-source.sh:87: node --input-type=module - "$source_tag" <<'NODE'
+labs/usdom-reserve/scripts/commit-release-source.sh:175: jq -n --arg sourceCommit "$created" --arg sourceTag "$source_tag" \
+labs/usdom-reserve/scripts/plan-authenticated-economic-receipt-set.sh:80: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/plan-authenticated-randomx-receipt-set.sh:67: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:68: node scripts/read-release-config-file-stdout.mjs "$evidence_target" > "$evidence_snapshot"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:69: node scripts/read-private-file-stdout.mjs "$intent_target" > "$intent_snapshot"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:89: node scripts/prepare-release-provenance-materialization.mjs > "$envelope"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:107: node scripts/read-release-config-file-stdout.mjs "$evidence_target" > "$evidence_observed"
+labs/usdom-reserve/scripts/materialize-release-provenance.sh:112: node scripts/read-private-file-stdout.mjs "$intent_target" > "$intent_observed"
+labs/usdom-reserve/scripts/collect-ethereum-checkpoint-consensus.sh:18: timeout --signal=TERM --kill-after=2s 30s \
+labs/usdom-reserve/scripts/collect-ethereum-checkpoint-consensus.sh:31: timeout --signal=TERM --kill-after=5s 300s \
+labs/usdom-reserve/scripts/plan-authenticated-finalized-burn.sh:69: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:46: node scripts/prepare-mainnet-deployment-identity-materialization.mjs > "$envelope"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:64: node scripts/prepare-mainnet-deployment-identity-materialization.mjs > "$temporary/envelope.final.json"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:74: node scripts/install-private-file-immutable-stdin.mjs --json "$observation_target" < "$observation"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:75: node scripts/read-private-file-stdout.mjs "$observation_target" \
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:80: node scripts/prepare-mainnet-deployment-identity-materialization.mjs > "$temporary/envelope.preconfig.json"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:83: node scripts/install-release-config-stdin.mjs "$target" < "$configuration"
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:84: node scripts/read-release-config-file-stdout.mjs "$target" \
+labs/usdom-reserve/scripts/materialize-mainnet-deployment-identity.sh:89: node scripts/read-private-file-stdout.mjs "$observation_target" \
+labs/usdom-reserve/scripts/prepare-native-receiving-wallet.sh:245: jq -n \
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-outer.sh:73: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/plan-authenticated-checkpoint-segment-set.sh:105: timeout --signal=TERM --kill-after=30s 3600s \
+labs/usdom-reserve/scripts/materialize-preactivation-policy.sh:19: node scripts/prepare-preactivation-policy-materialization.mjs > "$temporary"
+labs/usdom-reserve/scripts/prepare-closed-mainnet-private-burn.sh:140: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST" \
+labs/usdom-reserve/scripts/prepare-closed-mainnet-private-burn.sh:142: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST_PIN" \
+labs/usdom-reserve/scripts/provision-closed-mainnet-tpm-keystore.sh:120: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST" \
+labs/usdom-reserve/scripts/provision-closed-mainnet-tpm-keystore.sh:122: node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST_PIN" \
+labs/usdom-reserve/scripts/commit-release-evidence.sh:71: node --input-type=module - "$source_tag" <<'NODE'
+labs/usdom-reserve/scripts/commit-release-evidence.sh:84: jq -e --arg releaseId "$release_id" --arg sourceCommit "$source_commit" \
+labs/usdom-reserve/scripts/commit-release-evidence.sh:207: node scripts/check-mainnet-readiness.mjs closed-mainnet > "$closed_report"
+labs/usdom-reserve/scripts/commit-release-evidence.sh:208: node scripts/check-mainnet-readiness.mjs real-funds > "$real_report"
+labs/usdom-reserve/scripts/commit-release-evidence.sh:209: jq -e '.ready == true and (.blockers | length) == 0' "$closed_report" >/dev/null
+labs/usdom-reserve/scripts/commit-release-evidence.sh:210: jq -e '.ready == true and (.blockers | length) == 0' "$real_report" >/dev/null
+labs/usdom-reserve/scripts/commit-release-evidence.sh:213: jq -n --arg releaseId "$release_id" --arg sourceCommit "$source_commit" \
+labs/usdom-reserve/scripts/submit-closed-mainnet-private-burn.sh:258: jq -n --arg inputs "$input_commitment" --arg manifest "$manifest_sha256" \

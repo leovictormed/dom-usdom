@@ -1,0 +1,32 @@
+USD0M stage 524 — checkpoint capacity report-log snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The checkpoint capacity E2E runner reopened RandomX, aggregate, segment, outer
+and compression transcript/resource logs from their live run paths after the
+long proof graph. Those values remained report inputs across runtime observation
+and isolated EVM execution without a common immutable generation or final
+origin recheck.
+
+Correction
+==========
+
+Before observation or Anvil, the runner captures the RandomX transcript and all
+five resource logs into an owner-only report-log replica. Every durable snapshot
+is reread for exact byte and SHA-256 equality. Parsing and report hashes use only
+the captured buffers. Immediately before report construction, every original
+log is reread and must still match both captured bytes and SHA-256; substitution,
+truncation or replacement therefore fails closed. The report remains durable
+before the succeeded run-status completion marker.
+
+Evidence and scope
+==================
+
+Focused tests enforce the complete six-file catalog, snapshot-before-observation
+ordering, byte/hash installation checks, origin recheck after isolated EVM, and
+report-last completion ordering. Readiness requires
+`production_checkpoint_capacity_report_logs_snapshotted_and_origins_rechecked=true`.
+No proof, Anvil, network, signing, deployment, funds operation, commit or push
+was run.

@@ -1,0 +1,44 @@
+USD + DOM — vinculação integral do diário de recuperação a snapshots
+Etapa 361 — 2026-10-22
+
+Problema corrigido
+
+O executor de recuperação dos três Safes já fixava pacote, baseline, plano e
+transações assinadas. Porém, uma retomada podia reabrir por caminho o envelope,
+a transação bruta e o hash de submissão, e o relatório final era relido do
+diretório persistente. Como a operação pode aguardar finalidade por vários
+blocos, uma substituição local durante esse intervalo precisava falhar antes do
+broadcast, não apenas durante validações anteriores.
+
+Correções
+
+- envelope, transação bruta e hash persistidos são lidos por descritor direto
+  para snapshots 0600 no workspace privado em `/dev/shm`;
+- validação, extração de nonce/gás/hash e transmissão usam apenas os snapshots;
+- imediatamente antes de consultar/publicar a transação, os três arquivos
+  persistidos são relidos pelo limite direto e comparados byte a byte;
+- transações recém-criadas também são relidas após a publicação durável e
+  comparadas com os rascunhos assinados;
+- hashes das três execuções são extraídos das observações privadas já validadas
+  por dois RPCs, sem reabrir os relatórios persistidos;
+- o relatório final mostrado ao operador usa o snapshot coletado e validado,
+  enquanto a cópia persistente continua sendo gravada pelo escritor durável;
+- os quatro documentos autoritativos são novamente comparados antes da coleta
+  final de recuperação.
+
+Validação
+
+- sintaxe Bash e ShellCheck: passaram;
+- teste focado do executor: 1/1 passou;
+- suíte operacional, limites de leitura e escritor durável: 69/69 passaram;
+- lint de produção e compilação forçada dos 44 fontes Solidity: passaram;
+- regressão Node completa: 300/300 passaram;
+- proveniência completa: 169 importados, 45 fontes de programas de prova e
+  manifesto determinístico com 1.139 fontes passaram;
+- gate de mainnet não configurado: recusou como esperado com `ready=false` e
+  161 condições derivadas abertas;
+- `git diff --check`: passou.
+
+Nenhum Ledger foi acessado, nenhuma transação foi construída ou transmitida e
+nenhum fundo foi usado. Nenhum push, commit, tag, deploy ou mineração ocorreu.
+A prova real de queima finalizada permaneceu ativa e não foi reiniciada.

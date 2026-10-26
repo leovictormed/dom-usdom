@@ -1,0 +1,81 @@
+ETAPA 1136 — AUDITORIA ADVERSARIAL DO DEPLOY CREATE E RECUPERAÇÃO PARCIAL
+Data: 2026-10-26
+
+Escopo executado
+
+- Preparação da identidade CREATE, executor dos quatro contratos e evidência final.
+- Nonce drift, endereço ocupado, hashes de initcode/runtime, sequência, crash/restart,
+  consenso de duas RPCs e fronteira anterior ao broadcast.
+- Somente análise e testes locais. Nenhuma RPC externa, assinatura, transmissão,
+  implantação, fundos, Cargo, Forge, commit ou push foi usado.
+
+Defeitos corrigidos
+
+1. A ocupação EIP-684 era verificada apenas por código. Uma conta de destino com
+   código vazio e nonce não zero passava pela preparação e falharia no CREATE.
+   Agora cada endereço previsto exige código vazio e nonce zero em duas leituras
+   do mesmo snapshot finalizado, em cada RPC. O executor repete nonce zero nos
+   estados finalized e pending antes da assinatura e antes da publicação.
+
+2. O executor exigia saldo ETH zero no destino CREATE. Saldo não causa colisão
+   EIP-684, portanto um terceiro podia bloquear a cerimônia enviando 1 wei ao
+   endereço previsto. Essa condição incorreta foi removida.
+
+3. Após persistir transação assinada e bloco finalizado de fee, uma reinicialização
+   exigia que o tag finalized móvel continuasse exatamente naquele bloco. O avanço
+   normal da finalidade tornava o raw imutável impossível de publicar. A retomada
+   agora autentica número e hash do anchor histórico em cada RPC, prova que o
+   finalized atual o estende e relê o anchor antes do único publish.
+
+4. A barreira final já vinculava recibo, ancestralidade e runtime. Ela agora também
+   exige `paused()==true` no quarto contrato (Reserve) no bloco finalizado comum,
+   antes de instalar recibo/evidência. A ordem canônica do pacote permanece
+   adapters, Registry e Reserve por último; initcode/runtime hashes seguem ligados
+   ao pacote, artefatos e evidência.
+
+Fronteira de publicação
+
+Depois da autorização explícita, o executor recompõe o handoff, revalida os
+deploys anteriores, nonce do deployer, nonce/código do destino, estimate, fee,
+saldo, ausência do tx hash, raw/validation/hash imutáveis e somente então chama
+`rpc publish` na fonte primária. A segunda RPC é autoridade independente para
+todas as precondições e para a finalidade/recibo/código resultantes.
+
+Validação
+
+- `bash -n scripts/execute-mainnet-deployment.sh`: passou.
+- Identidade, pacote e executor focais: 26/26 passaram.
+- O teste de retomada prova que avanço do finalized é aceito somente mantendo o
+  anchor histórico canônico e que nenhum publish precede nonce/ausência finais.
+
+Correção CREATE2 Safe
+
+- Um classificador novo consulta duas a cinco RPCs catalogadas, fixa snapshots
+  finalizados, relê bloco/código/nonce e aceita somente destino realmente vago
+  (código vazio e nonce zero) ou Safe já implantado cuja versão, singleton,
+  runtime, owners ordenados, threshold, nonce, fallback, guard e módulos sejam
+  exatamente os esperados. Ocupação incompatível e estado misto falham fechados.
+- O runbook não usa mais `cast send`, que juntava assinatura e broadcast. Ele
+  persiste primeiro raw assinado e validação semântica create-once; outra
+  autorização é exigida antes de `cast publish`.
+- Após a autorização de publicação, destino, nonce pending nas duas RPCs,
+  ausência do hash nas duas RPCs e raw imutável são revalidados. Reinicialização
+  reutiliza apenas o raw/hash exatos; hash já visível não é retransmitido.
+- Transação e recibo são conferidos nas duas RPCs, e o término exige que o Safe
+  exato esteja visível em finalidade. Uma implantação CREATE2 parcial é pulada
+  somente após essa validação completa, permitindo continuar os papéis restantes.
+- Corrigido também o pós-check que lia `.owners` inexistente: os owners esperados
+  agora são obtidos de `.ownersByRole[role]` para cada Safe.
+
+Validação combinada CREATE/CREATE2 focal: 51/51 testes passaram (25 Safe), incluindo target nonce-only,
+mudança TOCTOU, raw alterado e toda a suíte existente de implantação/observação/
+recuperação Safe.
+
+As três novas fontes operacionais e a dependência real do executor de payout foram
+incluídas no inventário crítico rebuild-v3; o grafo local ficou completo. Uma
+verificação posterior detectou alteração concorrente em
+`labs/usdom-ethereum-finality/tests/historical.rs` contra o pin do repositório;
+este trabalho não tocou Rust nem rematerializou um pin enquanto a fonte mudava.
+Expectativas operacionais antigas foram reconciliadas com os endurecimentos atuais
+(diagnósticos públicos redigidos, ferramentas pinadas, recibos retomáveis e
+entradas diretas). A suíte ampla de runbook/entradas/gerador passa 99/99.

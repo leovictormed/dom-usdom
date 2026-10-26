@@ -1,0 +1,66 @@
+Stage 633 — Safe control-plane TOCTOU audit (2026-10-23)
+
+Scope
+
+Audited only Solidity governance/guardian control-plane behavior and external
+Safe changes between queue, execution and resume. Reviewed ordered owners,
+threshold, proxy/singleton/code hashes, modules, guard, fallback handler,
+pause/recovery/rotation/cancellation and delayed resume. Stage 617 owner
+identity and stage 622 release-identity work were treated as established and
+not repeated.
+
+Result
+
+No additional contract defect was confirmed.
+
+- Every proof-reserve value path runs the complete current control-plane check,
+  not merely constructor-time checks. Proxy and singleton addresses/code,
+  ordered owner commitments, exact 2-of-3 threshold, empty modules/guard and
+  network-appropriate fallback policy must still match.
+- Safe nonce is intentionally not an identity input: normal authorized Safe
+  transactions advance it. Binding nonce would permanently disable value paths
+  after the first governance action. Authority-bearing owner/policy state is
+  bound instead.
+- Drift after proof admission cannot release collateral. Execution fails before
+  bucket, paid flags, pending amount or token balances change. Restoring the
+  exact approved Safe state permits the same queued debt to retry.
+- Emergency pause remains callable by the configured governance/guardian
+  contract address even during policy drift. This grants denial-only authority:
+  it invalidates the current queue and cancels resume, but cannot transfer
+  funds. Scheduling and executing resume both require the complete control
+  plane to be healthy.
+- Drift before scheduling leaves `resumeReadyAt` zero. Drift after scheduling
+  keeps the reserve paused and preserves the scheduled timestamp; restoring
+  the exact identity permits execution only after the original delay.
+- The quorum prototype's recovery/rotation state machine remains generation
+  bound: proposal replacement/cancellation clears resume, emergency revokes the
+  active keys, and recovery cannot resume until a fresh installation advances
+  the epoch. No arbitrary call or administrative collateral release exists.
+
+Material regression added
+
+`testSafeDriftBetweenQueueExecuteAndResumePreservesRetryableState` deploys the
+proof reserve behind mutable Safe fixtures, then:
+
+1. deposits and queues an authenticated burn;
+2. changes a governance owner between queue and execute and verifies the debt,
+   paid flags and bucket remain unchanged;
+3. restores that owner, installs a guardian module and proves execution still
+   fails without consuming state;
+4. restores the empty module policy and executes the exact queued debt;
+5. pauses, installs a governance guard and proves resume cannot be scheduled;
+6. restores policy, schedules resume, changes a guardian owner after scheduling
+   and proves delayed execution fails while pause/timestamp persist; and
+7. restores the exact owner set and completes resume.
+
+Validation
+
+- new TOCTOU regression: 1/1 passed;
+- focused reserve/recovery suites: 67/67 passed, including two
+  256-run/16,384-call invariant campaigns;
+- complete Solidity campaign: 157/157 passed across 14 suites;
+- production contract lint with warnings denied: passed;
+- changed-test formatting and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit,
+push, deployment, signature, transmission or funds operation was performed.

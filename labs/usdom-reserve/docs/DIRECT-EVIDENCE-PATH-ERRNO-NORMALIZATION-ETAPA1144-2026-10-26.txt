@@ -1,0 +1,28 @@
+DIRECT EVIDENCE PATH ERRNO NORMALIZATION — STAGE 1144
+Date: 2026-10-26
+
+Finding
+
+The direct-file reader correctly used O_NOFOLLOW and rejected a symlinked
+intermediate directory, but Linux returned ENOTDIR for that resolution shape.
+Only ELOOP was normalized into the reader's stable fail-closed error. The
+security test therefore failed and callers observed platform/path-shape errno
+instead of the authenticated file-boundary result.
+
+Correction
+
+`readDirectFile` now treats both ELOOP and ENOTDIR from the O_NOFOLLOW path
+boundary as the same rejection: the target is not a safe direct regular file.
+The change does not retry, follow, canonicalize through or otherwise accept the
+path. Existing inode, owner, link-count, mode, size, parent-directory, realpath
+and before/after stability checks are unchanged.
+
+Validation
+
+- Node syntax check: PASS.
+- Direct-file symlink/hardlink/mode/size/path suite: PASS, 1/1.
+- Evidence commitment, evidence path and readiness boundary suites: PASS, 14/14.
+- Combined focused result: PASS, 15/15.
+
+No production fact changed. No Cargo, Rust, Forge, network, signing, deployment,
+funds, commit or push ran.

@@ -1,0 +1,56 @@
+USDOM stage 399 — Safe singleton identity pinning
+Date: 2026-10-22
+
+Finding
+=======
+
+The reserve and checkpoint registry pinned each administrative Safe proxy's
+runtime code hash, while Safe stores its mutable singleton implementation in
+proxy storage. A supported Safe migration can therefore change masterCopy()
+without changing the proxy runtime code hash. Finalized off-chain Safe evidence
+observed the singleton, but the contracts did not continuously enforce it.
+
+Correction
+==========
+
+USDOMProofReserve now captures and commits the governance and guardian
+implementation address and implementation code hash. DOMCheckpointRegistry
+does the same for its guardian. Direct non-proxy contracts remain supported by
+binding the account itself as its implementation. Safe-style proxies are
+recognized through an exact, bounded, 32-byte masterCopy() STATICCALL.
+
+Every reserve value path and delayed resume rechecks both proxy and singleton
+identity. The permanent checkpoint halt rechecks the same identity. Invalid,
+changed or missing implementation state fails closed. The typed deployment
+commitments now include ControlPlaneIdentity hashes, so the singleton cannot be
+substituted between reviewed configuration, initcode and deployed runtime.
+
+The SDK, runtime derivation, checkpoint/finalized-burn submission builders,
+release schema, Safe materializer, preflight collector and readiness gate carry
+the same identities. Preflight reads all three masterCopy() values and all
+three implementation code hashes at one finalized Ethereum snapshot.
+
+Evidence
+========
+
+- Focused Solidity control-plane and configuration tests: 52/52 pass.
+- Complete Solidity suite: 141/141 pass, including invariant campaigns.
+- Complete Node suite after the final preflight extension: 304/304 pass.
+- Final preflight/readiness regression including three independent singleton
+  substitutions: 49/49 pass.
+- Production Solidity lint, formatting, JSON parsing, JavaScript syntax, shell
+  syntax and repository whitespace checks pass.
+- The complete 1,180-source manifest and 169-file imported provenance set pass.
+- Safe v1.4.1 official proxy and migration sources confirm that masterCopy()
+  exposes slot-zero singleton state and supported migration changes that state.
+
+No RPC, hardware signature, transaction, deployment, funds, mining, project
+commit, tag or push occurred. The detached one-worker finalized-burn capacity
+proof was not restarted or modified.
+
+Next action
+===========
+
+Inspect the remaining mutable Safe policy surface, especially threshold and
+module changes, then continue auditing locally correctable contract and
+release-boundary risks while the capacity proof remains active.

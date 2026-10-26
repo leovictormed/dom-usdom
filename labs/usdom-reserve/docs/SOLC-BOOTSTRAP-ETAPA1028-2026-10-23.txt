@@ -1,0 +1,47 @@
+ETAPA1028 — authenticated Solc 0.8.37 bootstrap
+Date: 2026-10-23
+
+Problem
+-------
+The prior runbook used `forge build --use 0.8.37` as installation. That allowed
+Foundry to choose/download compiler material implicitly and provided no atomic
+installation or deterministic toolchain-lock update.
+
+Pinned authority
+----------------
+`config/solc-0.8.37-official-manifest.json` records the exact official GitHub
+release asset URL, version `0.8.37+commit.f401782d.Linux.g++` and SHA-256
+`5de843c2c93563cc66425c99a4fb13fdbf32b4c4ae07469480faaf126e14404a`.
+This digest was independently matched to the official release asset in ETAPA63
+and preserved in its toolchain-provenance evidence before this bootstrap.
+
+Bootstrap properties
+--------------------
+- fixed official HTTPS URL; curl permits only HTTPS initially and on redirects,
+  TLS >=1.2, bounded connect/total time and explicit retries;
+- download is a private new file in the final owner-only directory, never a
+  pipe to a shell;
+- SHA-256 is checked before the candidate is executed;
+- exact compiler version is checked after authentication;
+- final installation uses an exclusive hard link, so a pre-existing/symlink
+  target wins the race and installation fails rather than overwriting it;
+- directory and installed file owner/mode/link count are validated;
+- repeat execution accepts only the exact already-installed artifact.
+
+Lock materialization
+--------------------
+The bootstrap never edits JSON itself. After verification it invokes
+`materialize-solc-toolchain-lock.mjs`. The materializer reopens Solc with
+O_NOFOLLOW, requires a regular single-link owner file at mode 0700, rechecks
+the pinned digest/version, accepts only a null-or-identical lock slot, detects
+concurrent lock changes and atomically renames a mode-0600 candidate. The full
+toolchain checker runs afterward.
+
+Validation
+----------
+Bash syntax, Node syntax, focused pinned-Node regression 1/1 and diff-check
+passed. The bootstrap itself was not executed, so no network access or download
+occurred. Solc remains absent and the mainnet prerequisite remains fail-closed.
+
+No hardware operation, secret, signature, deployment, broadcast, push or funds
+operation was performed.

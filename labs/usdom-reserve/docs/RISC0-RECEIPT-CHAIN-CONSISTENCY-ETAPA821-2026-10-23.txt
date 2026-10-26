@@ -1,0 +1,21 @@
+ETAPA 821 — consistência ponta a ponta dos sete caminhos RISC Zero
+Data: 2026-10-23
+
+ESCOPO
+RandomX, RandomX aggregate, economic chunk, economic block, checkpoint segment, checkpoint outer e finalized burn; hosts, recursão, packager Groth16 e adapters Ethereum.
+
+RESULTADO
+Nenhum novo bypass foi confirmado. Cada host compara os bytes exatos do journal antes de `Receipt::verify(ImageID)`. As quatro bordas recursivas vinculam conjuntamente ImageID e journal: RandomX→aggregate/economic, RandomX+economic→segment, segment→outer e outer→finalized-burn. Todos os índices declaram RISC Zero 3.0.6 e o tipo esperado. Os sete ImageIDs pinados nos hosts coincidem com os `.iid` efetivos.
+
+Na borda Ethereum, apenas checkpoint outer e finalized burn são raízes publicadas. Ambos os packagers verificam o receipt Groth16 contra ImageID+journal antes de extrair o seal. Os adapters fixam ImageID imutável e codehash/selector do verifier, calculam SHA-256 do journal bruto de 32 bytes e aceitam somente chamada `verify` sem returndata.
+
+REGRESSÃO ADICIONADA
+`scripts/check-risc0-receipt-chain.py` codifica o grafo completo, conta exatamente sete identidades, confere versão, comparação de journal, chamada criptográfica, arestas recursivas, round-trip dos `.iid` e as duas raízes Solidity. `--self-test` remove em memória uma chamada `receipt.verify` e exige rejeição.
+
+VALIDAÇÃO
+- `node --test test/node/risc0-receipt-chain.test.mjs`: 2/2.
+- `python3 scripts/check-risc0-receipt-chain.py --self-test`: passou 7/7 e rejeitou mutação.
+- `python3 -m py_compile`: passou.
+- `git diff --check`: passou.
+
+Nenhuma prova pesada, deploy, RPC, push, assinatura, transmissão ou fundo foi usado; o build concorrente não foi tocado.

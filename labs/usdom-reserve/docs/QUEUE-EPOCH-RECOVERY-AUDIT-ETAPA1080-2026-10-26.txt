@@ -1,0 +1,46 @@
+USDOM — AUDITORIA DA FILA, EPOCH, PAUSA E RECUPERAÇÃO — ETAPA 1080
+Data: 2026-10-26
+Escopo: USDOMProofReserve, DOMCheckpointRegistry e regressões Solidity/Node.
+Operações externas: nenhuma. Não houve deploy, broadcast, assinatura, uso de fundos, commit ou push.
+
+RESULTADO
+
+1. O reset da fila por queueEpoch permanece O(1): pause incrementa a geração uma única vez, zera count/amount/head/tail e não percorre storage. Entradas da geração anterior só podem ser apagadas individualmente ou em lote limitado por MAX_PRUNE_BATCH.
+
+2. Foi endurecido pruneExpired: o item apontado por firstPendingBurn precisa existir, pertencer à geração atual e declarar previous==0. Divergência de header/epoch/link reverte PendingMismatch antes de expiração ou escrita.
+
+3. Foi endurecido _removePending para a classificação stale: uma entrada com epoch diferente não pode ser apagada silenciosamente se ainda for head/tail ou estiver reciprocamente ligada a um vizinho da geração atual. Isto impede que corrupção/classificação errada de epoch transforme cleanup lazy em deleção de uma entrada viva. Cleanup legítimo de geração anterior continua O(1).
+
+4. A regressão testPruningRejectsGenerationCorruptionStillReferencedByCurrentQueue corrompe separadamente o epoch do head e do middle. prune/discard falham fechado; após restaurar os words exatos, o prune remove os três leases e preserva os 600 USDT de dívida provada permanente.
+
+5. A descoberta de slots do teste de corrupção não usa mais índices escalares codificados. A busca é estritamente limitada aos slots 0..63 e exige exatamente um candidato. A fixture cria 1 unidade de dívida já descartada para que totalProvedDebtAmount e totalPendingAmount sejam distintos; zero ou múltiplos candidatos fazem o teste falhar.
+
+6. Renewal preserva provedBurnDebt/request e pode atualizar somente o slot de finalidade mediante nova prova do statement. Fixtures antigas reutilizavam slots Beacon já vencidos depois de warps de sete dias; agora renovam slot, proof e approval, mantendo explícita a imutabilidade do statement originalmente provado.
+
+7. Corrigido o invariant handler do registry: uma proposta com confirmation work igual não é necessariamente "non-leading", pois os tie-breakers determinísticos ainda podem fazê-la vencer. O caso negativo agora usa work estritamente menor.
+
+ANÁLISE DE CORRIDAS
+
+- execute vs discard/prune: execute aceita timestamp <= expiresAt; cleanup aceita somente timestamp > expiresAt. Não há sobreposição no boundary.
+- pause vs queue/execute: transações EVM serializam a ordem; depois do pause nenhuma admissão/execução passa. A geração antiga perde apenas o lease, enquanto a dívida econômica permanente permanece reservada.
+- renewal vs cleanup: renewal exige ausência de lease ativo e nova prova recente da mesma dívida. Cleanup de old epoch não apaga mapping de request de uma renovação e agora falha se houver qualquer vínculo atual recíproco.
+- repeated pause/resume: pause já ativo não avança novamente epoch, mas sempre invalida autorização de resume; schedule/executeResume ficam ligados ao epoch e ao estado imutável do control plane.
+- candidate replacement vs finalize: substituição somente antes de readyAt; finalize somente em/apos readyAt. O mesmo timestamp pertence apenas à finalização.
+- halt vs candidate/finalize: a primeira transação minerada define o estado observável; depois de halt, submissão e finalização falham terminalmente. Halt não cria autoridade de checkpoint nem de payout.
+- graceful shutdown: exige depósitos fechados, circulação nativa terminal autenticada, nenhum pending lease e nenhuma dívida provada; não pode encerrar com burn aceito e ainda não pago.
+
+EVIDÊNCIA EXECUTADA
+
+- USDOMProofReserveTest: 63/63 PASS, pipeline padrão, Forge 1.8.5 e solc 0.8.37 pinados.
+- USDOMProofReserveInvariantTest: PASS, 256 runs / 16.384 calls / 0 reverts.
+- QueueV3Test: 8/8 PASS.
+- withdrawal-queue-state-machine.test.mjs: 4/4 PASS no Node 24.19.0 pinado.
+- DOMCheckpointRegistryTest: 29/29 PASS no pipeline padrão.
+- DOMCheckpointRegistryInvariantTest: 3/3 invariants PASS, 256 runs / 16.384 calls / 0 reverts.
+- Suíte Foundry total padrão: 189/189 PASS em 14 suites, sem via-ir.
+- O fixture do getter candidate (13 words) foi lido por STATICCALL com retorno exato de 416 bytes e offsets fixos, evitando Stack-too-deep sem omitir nenhum campo semântico.
+- Vetor de configuração RISC0 V3 reconciliado com o vetor JS já canônico: 0x757c4b08b41ede4e7f85f3d244d612b31ef53d90c84f1d2acfac42885ad2cd43.
+
+LIMITES
+
+A auditoria prova as propriedades exercitadas no código/fixtures locais. Não substitui deploy review, simulação fork/mainnet, prova RISC0 real, cerimônia Safe nem ensaio fechado de ponta a ponta.

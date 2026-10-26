@@ -1,0 +1,66 @@
+Stage 265 - Resumable local succinct checkpoint-segment prover
+Date: 2026-10-20
+
+Outcome
+
+A separate explicitly invoked lifecycle can now consume the authenticated stage
+264 segment-job index and create complete segment receipts with the local RISC
+Zero 3.0.6 prover. This stage implemented and compiled the path; it did not run
+the proving command or generate a receipt.
+
+Fail-closed lifecycle
+
+1. Proving requires the exact environment RISC0_PROVER=local and
+   RISC0_DEV_MODE=0. The selected prover name must also be local, and succinct
+   options explicitly disable development mode.
+2. Before proving, the host rebuilds the complete authenticated segment plan and
+   requires byte equality with the published index. This repeats canonical
+   source execution, upstream index hashing, receipt verification and all guest
+   artifact pins immediately before expensive work.
+3. The segment ELF is read again as a direct regular file and checked against
+   its reviewed SHA-256. The segment ImageID, state-pinned RandomX ImageID and
+   guest-pinned economic-block ImageID are decoded from canonical lowercase
+   values.
+4. For each segment, the exact transition, policy, native opening and private
+   input are re-read under size bounds and rehashed. Every ordered RandomX and
+   economic-block receipt is decoded without trailing bytes, required to be
+   succinct, cryptographically verified under its exact ImageID and matched to
+   the journal already derived by portable segment execution. These verified
+   receipts are the only assumptions supplied to the segment guest.
+5. Existing segment receipts are resumable only after full succinct-kind,
+   ImageID and journal verification. An invalid direct receipt is removed and
+   recomputed; a symlink or non-regular path fails closed. Each new receipt is
+   verified immediately before atomic publication.
+6. The final receipt-set index is removed safely before a run and atomically
+   recreated only after every planned segment receipt is verified. It records
+   the exact job-index hash, segment ImageID, RISC Zero version, receipt kind,
+   receipt hashes/sizes and explicit non-development proof claims.
+
+Operator boundary
+
+The fixed command is:
+
+  npm run --silent prove:authenticated-checkpoint-segment-set
+
+It accepts no arguments, indices, secrets or remote prover credentials. The
+wrapper removes Bonsai/server variables and fixes local non-development release
+proving. Running this command is expensive and remains subject to explicit
+operator authorization; it was not run during this stage.
+
+Verification
+
+- locked prove-feature compilation: passed;
+- locked prove-feature unit test: 1/1 passed;
+- strict all-target prove-feature Clippy with warnings denied: passed;
+- focused readiness/operator tests: 50/50 passed;
+- proof-program panic mutation self-test: passed;
+- no r0vm proof execution, mining, RPC, deployment, signing or fund movement.
+
+Remaining boundary
+
+Positive segment receipt execution and its measured cost remain false until an
+explicitly authorized proving run produces evidence. Outer checkpoint job
+planning/proving, receipt compression, EVM verification and gas/capacity
+measurement, release ratification, exact mainnet identities and custody
+ceremonies also remain objective release blockers. External audit availability
+and an impossible zero-risk guarantee are not blockers.

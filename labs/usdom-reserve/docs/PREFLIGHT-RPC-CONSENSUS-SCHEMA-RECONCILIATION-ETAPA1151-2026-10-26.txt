@@ -1,0 +1,37 @@
+PREFLIGHT RPC CONSENSUS SCHEMA RECONCILIATION — STAGE 1151
+Date: 2026-10-26
+
+Finding
+
+The official preflight materializer requires an exact report containing
+`rpcConsensus`. The mainnet readiness consumer required an exact schema that
+omitted and therefore rejected that field. Thus a real predeployment or cold-
+start report accepted by the producer could never be consumed by readiness.
+The consumer also did not independently validate the multi-provider source-set
+commitment.
+
+Correction
+
+Readiness now requires the same exact report schema as the materializer,
+including `rpcConsensus`, and calls `validateRpcConsensusEvidence` for both
+predeployment and postdeployment attestations. This enforces:
+
+- two to five distinct, canonically ordered operator IDs;
+- distinct nonzero endpoint-origin commitments;
+- exact source count and canonical source-set commitment;
+- rejection of missing, truncated, reordered or substituted RPC evidence.
+
+The existing independent recomputation of every finalized observation and the
+release identities remains unchanged. Both positive readiness fixtures now use
+two independent source identities, and negative tests cover missing sources and
+substituted commitments in both phases.
+
+Validation
+
+- Complete focused preflight/RPC/readiness boundary suites: PASS, 46/46.
+- Positive configured release plus machine predeployment/cold-start semantic
+  readiness tests: PASS, 2/2.
+- Combined focused evidence: PASS, 48/48.
+
+No production fact was flipped. No Cargo, Rust, Forge, real network, signing,
+deployment, funds, commit or push ran.

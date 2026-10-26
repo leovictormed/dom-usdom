@@ -1,0 +1,32 @@
+ETAPA 851 — SDK CHILD INVENTORY AND CANDIDATE MONITOR PROCESS GROUP
+Date: 2026-10-23
+
+Inventory
+---------
+A complete search of `labs/usdom-reserve/sdk/*.mjs` found no direct child
+process boundary apart from `pinned-executable-child.mjs`, the shared runner
+itself. The next operational module imported by the monitoring surface was
+`scripts/candidate-monitor.mjs`. Its locally pinned native snapshot verifier
+used direct execFile with timeout and output bounds, but timeout covered only
+the immediate child and could leave verifier descendants alive.
+
+Correction
+----------
+The snapshot verifier now runs through `runPinnedExecutable` using its existing
+immutable executable snapshot, caller-selected deadline and 2 MiB output bound.
+The runner terminates the complete process group, waits for close/reap and
+rechecks executable identity. Fatal JSON decoding, canonical byte equality,
+empty stderr and network/snapshot bindings remain unchanged.
+
+Validation
+----------
+- Candidate monitor Node syntax passed.
+- Focused authority and adversarial lifecycle tests passed 3/3, including a
+  timed-out grandchild and output-flood group termination.
+- The broader candidate monitor suite reached 5 passing tests; its 20 contract
+  fixture tests could not start because the previously cleaned
+  `out/USDOMReserve.sol/USDOMReserve.json` artifact is absent. No build was run
+  under this stage's no-heavy-operation constraint; every failure was ENOENT
+  for that same prerequisite, before exercising the changed boundary.
+- Diff whitespace validation passed.
+- No build, RPC, signing, deployment, publication or fund operation ran.

@@ -1,0 +1,39 @@
+Stage 613 — pinned RandomX prover binary boundary
+Date: 2026-10-23 (America/Sao_Paulo)
+Status: build active; proof not yet restarted
+
+Finding
+=======
+The second RandomX attempt failed after 5m37s, before proving, because `cargo
+run --locked` observed a workspace graph whose Cargo.lock needed regeneration.
+The earlier `cargo metadata --no-deps` check had not validated the complete
+resolved dependency graph. More broadly, calling Cargo from the long proof
+runner left compilation coupled to the mutable development worktree.
+
+Correction in progress
+======================
+- Archived the complete failed-attempt status/log/time under an owner-only
+  attempt directory; it produced no receipt.
+- Regenerated Cargo.lock offline, fetched the two missing registry archives,
+  and validated the complete 1,024-package/172-workspace-member graph with
+  `cargo metadata --locked --offline`.
+- Started an isolated, private-network, one-job, low-priority build. Before the
+  build it recorded Cargo.lock SHA-256
+  `0251523c21a24a13d83140341899c5c193ed4934dc27d4cb74140bf93d47cd95`,
+  local dependency source-graph SHA-256
+  `bee652653b307352839c7e5facfdac3b48b4cee742bd5d8a1c9a5fa54b1654ac`,
+  and the exact recursion artifact hash.
+- The build runner will reject any local dependency source change across the
+  compile, then atomically install an owner-only executable and record its
+  SHA-256.
+- The proof runner is now v3 and no longer invokes Cargo. It accepts only the
+  successfully built executable whose hash equals the durable build record,
+  and records both binary and source-graph hashes in proof status.
+
+Current evidence
+================
+Build service `usdom-randomx-build-pinned.service`, invocation
+`1fc212cecf7441bbb8221b04b0776e7f`, began at 2026-10-23T13:43:52Z and remains
+active. No proof, receipt, deploy, signature, transaction, funds action, commit
+or push is claimed. This record must be updated with terminal build and proof
+evidence; service-manager defaults are never sufficient.

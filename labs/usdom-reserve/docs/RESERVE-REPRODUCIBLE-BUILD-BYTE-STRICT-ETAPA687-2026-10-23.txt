@@ -1,0 +1,36 @@
+ETAPA 687 — BUILD REPRODUCÍVEL DA RESERVA COM BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O preparador do relatório reproducível do USDOMProofReserve decodificava release
+evidence, release config e os artefatos JSON das duas builds isoladas com
+Buffer.toString('utf8') antes do parser estrito. Esses documentos vinculam o
+contrato que custodia fundos ao compilador, fontes, bytecode e configuração.
+
+Correção
+As três fronteiras estáticas de parsing usam agora parseStrictJsonBytes:
+release evidence, release config e artifactBytes dentro de isolatedBuild (logo,
+as duas builds passam pela mesma fronteira). UTF-8 inválido falha antes de
+substituição e chaves duplicadas continuam rejeitadas.
+
+Garantias preservadas
+- 4 MiB/profundidade 64 para release docs e 64 MiB/profundidade 128 para artifact;
+- ambiente reproducível e Forge executável seguro/stável com hash;
+- duas builds isoladas com out/cache distintos e IDs distintos;
+- compiler version, artifact SHA-256, source-set commitment ordenado,
+  runtimeCodeHash e initcodeHash devem coincidir;
+- artefato canônico vinculado pelo SHA-256 da release evidence;
+- fontes vinculadas por keccak do compiler metadata e rechecadas contra TOCTOU;
+- release, config, artifact, fontes e Forge são rechecados após as builds;
+- writer mantém locks e instalação imutável/create-once;
+- relatório é evidência de build, não autorização de deploy/fundos.
+
+Testes leves
+- metadata duplicada por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige as três chamadas bytes strict e proíbe toString;
+- substituição de compiler/artifact/runtime/source/schema e identidade duplicada
+  continuam rejeitadas;
+- 6/6 testes em <0,3 s; node --check e git diff --check passaram.
+Nenhuma build Forge foi executada.
+
+Nenhum RPC, Cargo/Rust, Solidity build, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

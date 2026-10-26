@@ -1,0 +1,27 @@
+USDOM — conservação financeira exata do piloto de 1 USDT (Etapa 1111)
+Data: 2026-10-26
+
+Controles adicionados
+- A baseline exige allowance inicial zero em duas RPCs finalizadas. Cada recibo
+  revalida a sequência exata 0 -> 1_000_000 -> 0.
+- Depois dos dois approves, saldos do funder/reserva, totalDeposited e outstanding
+  devem permanecer idênticos à baseline. Somente o depósito pode produzir os
+  quatro deltas exatos de 1_000_000. Fee-on-transfer, rebase ou mutação paralela
+  abortam antes de produzir evidência terminal.
+- Antes de publicar queue, paidBurns/paidRequests são falsos e proved debt/request
+  estão vazios nas duas RPCs. Depois da queue, statement/debt são não zero, request
+  aponta para o burn exato e os flags continuam falsos.
+- O piloto isolado exige dívida permanente agregada exatamente 1_000_000 antes do
+  payout e zero depois. Após payout, paidBurns/paidRequests são verdadeiros e os
+  vínculos permanentes statement/debt/request continuam presentes.
+- Um gate transversal liga depositId ao witness de emissão verificado, exige todos
+  os amounts em 1_000_000 e conserva reserve/outstanding da saída do depósito até
+  a entrada do payout. Ele não publica vínculo entre o depósito e o burn; opera
+  somente sobre evidência privada do ensaio.
+- Nonces, receipts create-once, paid flags e identificadores permanentes impedem
+  segunda aprovação, segundo saque ou replay com burn/request alternativo.
+
+Verificação
+- Node pinado: 18/18 testes focais passaram.
+- Sintaxe dos executores, check Node do gate e `git diff --check` passaram.
+- Sem Cargo, Forge, rede, assinatura, deploy, commit ou push.

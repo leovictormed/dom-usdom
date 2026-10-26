@@ -18,10 +18,12 @@
     "decisionReport": null,
     "transcript": null
   },
+  "checkpointProofCapacityReport": null,
   "realFinalizedEndToEndReport": null,
   "operationsReviewReport": null,
   "mainnetForkRehearsalReport": null,
   "securityValidationReport": null,
+  "riscZeroHealthSourceCatalog": null,
   "residualRiskAcceptanceReport": null,
   "mainnetColdStartAttestationReport": null,
   "nativePrivacyTrustedSetupAttestationReport": null,
@@ -35,8 +37,10 @@
     "guardian": null,
     "checkpointGuardian": null
   },
+  "controlPlaneEvidenceBundle": null,
   "controlPlaneSeparationReport": null,
   "controlPlaneRecoveryDrillReport": null,
+  "safeRecoveryFinalEvidenceBundle": null,
   "mainnetPredeploymentAttestationReport": null,
   "reserveArtifact": null,
   "verifierArtifact": null,

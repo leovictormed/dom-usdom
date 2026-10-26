@@ -1,0 +1,27 @@
+ETAPA1048 — pilot gas-funding preconditions
+
+Concrete gap
+------------
+Deposit and redemption transactions bounded gas, fee and worst-case cost, but did not
+require the hardware signer to have enough ETH before asking for a signature. An
+underfunded transaction could be signed and then remain unpublished/stuck, consuming
+operator ceremony state without any chance of success.
+
+Correction
+----------
+A shared canonical wei validator requires both independent RPCs to report the same
+pending ETH balance and requires that balance to cover the complete gasLimit *
+maxFeePerGas worst case. Noncanonical numbers, zero cost, RPC disagreement and
+insufficient coverage fail closed.
+
+Both executors run the check after dual-RPC estimation and fee bounding but before
+Ledger signing. They run it again from the immutable signed-raw validation
+maximumCost immediately before the publication prompt. Receipt-recovery paths do not
+require a second funding check because they never publish again.
+
+Validation
+----------
+Pinned Node 24.19.0 helper plus deposit/redemption suites passed 11/11. Structural
+regression proves two checks per executor occur before signing and publication.
+Bash syntax and focused diff check passed. No network, signer, proof, deployment,
+publication, push or funds were used.

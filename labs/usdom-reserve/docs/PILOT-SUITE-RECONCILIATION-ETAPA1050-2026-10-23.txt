@@ -1,0 +1,19 @@
+ETAPA1050 — ETAPA1045 pilot schema reconciliation
+
+The five initially failing deposit tests exposed two related stale boundaries after
+the checkpoint-registry identity fields became mandatory:
+
+1. the deposit fixture lacked checkpointRegistry, checkpointRegistryRuntimeCodeHash
+   and checkpointRegistryConfigHash;
+2. the production proofReserveConfigurationFromRelease projection also silently
+   omitted those new canonical fields before calling the exact deployment hasher.
+
+The fixture now supplies distinct, nonzero checkpoint identity values without
+relaxing any assertion. More importantly, the production projection now carries all
+three fields, so deposit construction and finalized-burn submission use the same
+exact release identity introduced by ETAPA1045.
+
+Validation with pinned Node 24.19.0 ran the complete pilot set: deposit package/raw,
+deposit financial evidence, redemption package/raw/current-release/payout evidence,
+gas funding, nonce recovery and receipt cost. Result: 21/21 passed, zero failures.
+Focused diff check passed. No heavy build or external action occurred.

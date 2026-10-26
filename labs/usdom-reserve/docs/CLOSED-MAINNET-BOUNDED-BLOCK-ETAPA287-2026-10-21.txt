@@ -1,0 +1,27 @@
+ETAPA 287 - PRODUCAO LIMITADA DE BLOCO NO TESTE MAINNET FECHADO
+Data: 2026-10-21
+
+Resultado
+
+Foi adicionada uma capacidade RPC autenticada que produz exatamente um bloco
+por chamada e permanece desabilitada por padrao. Ela so aceita Mainnet com
+mining continuo desligado, P2P e RPC em loopback, zero peers de entrada e
+saida, DNS desabilitado e lista de seeds vazia. Cada requisicao inclui a altura
+e o hash exatos do tip anterior; repeticao ou mudanca concorrente falha antes
+de produzir outro bloco.
+
+O comando de inicializacao cria somente o genesis canonico fixo. O comando de
+emissao exige genesis na altura zero, uma emissao previamente enfileirada e
+produz somente o bloco de altura um. Ambos sao fixos, sem campos manuais, e o
+segundo registra explicitamente que a observacao da carteira ainda e pendente.
+
+Validacao
+
+- cargo check release feature-enabled: passou.
+- teste RPC bearer/tip/resposta exata: 1/1 passou.
+- teste nativo de modo armado, genesis canonico e anti-replay: 1/1 passou.
+- testes focados Node de politica, substituicao e readiness: 76/76 passaram.
+- suite Node completa depois da integracao: 178/178 passou.
+
+Nenhum comando de genesis ou bloco foi executado. Nao houve mineracao, deploy,
+push, transacao Ethereum ou movimento de fundos.

@@ -1,0 +1,31 @@
+ETAPA 683 — EVENTO FINALIZADO DE CHECKPOINT COM BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O preparador do relatório finalizado decodificava release evidence, release
+config e a observação bruta do evento com Buffer.toString('utf8') antes do parser
+estrito. Esses documentos provam receipt, bloco, runtime e estado do registry.
+
+Correção
+O helper `parse` agora usa parseStrictJsonBytes e recebe os três documentos via
+a mesma iteração `before.map`. UTF-8 inválido falha antes da substituição e
+chaves duplicadas continuam rejeitadas.
+
+Garantias preservadas
+- máximo 2 MiB e profundidade 24 para cada documento;
+- caminhos fixos e leitura direta;
+- chain, registry, runtime/config hashes e DOM domain vinculados à release;
+- receipt/status/block/log, checkpoint e estado pós-evento precisam concordar;
+- fontes RPC catalogadas continuam distintas e comprometidas;
+- os três inputs são relidos e comparados byte a byte antes da saída;
+- writer mantém locks, create-once/imutável e atualização vinculada da release;
+- relatório é evidência finalizada e não autorização de submissão/fundos.
+
+Testes leves
+- chave duplicada por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige parser de bytes nos três inputs e recheck TOCTOU;
+- divergências de receipt/bloco/runtime/estado, logs estrangeiros/duplicados e
+  fontes não confiáveis continuam rejeitadas;
+- 6/6 testes em <0,9 s; node --check e git diff --check passaram.
+
+Nenhum RPC, Cargo/Rust, Solidity, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

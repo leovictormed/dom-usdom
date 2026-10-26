@@ -1,0 +1,30 @@
+ETAPA 729 — mainnet deployment JQ executable pinning
+Date: 2026-10-23
+
+Finding
+=======
+The mainnet deployment executor pinned Cast and Node, but continued resolving JQ through PATH.
+JQ extracts the deployer, nonce, initcode, expected address and runtime hash; it also evaluates
+fee anchors, transaction validation, receipt/finality consensus and the final pre-broadcast
+absence check. Replacement after operator consent could therefore alter signed or transmitted
+authority despite the existing JSON syntax checks.
+
+Correction
+==========
+The executor now resolves JQ once to a canonical absolute path and requires a regular executable
+with one link, safe root/current ownership, non-group/world-writable file and parent directory.
+Device/inode/size/mtime/ctime and SHA-256 are snapshotted. Every JQ invocation uses the captured
+absolute path.
+
+JQ is rechecked after signing and transmission TTY consent and again immediately before publish,
+alongside Cast and Node. Existing strict JSON validation, input snapshots, multi-RPC consensus,
+nonce/code/fee re-observation, raw-transaction validation and create-once evidence controls remain.
+
+Validation
+==========
+The focused structural test passes 1/1. Node test syntax, shell `bash -n` and git diff checks pass.
+The structural test also rejects any remaining unpinned JQ invocation in the executor. No
+executor, RPC, Ledger, signing, transmission or operational child ran.
+
+No deployment, funds, build, Cargo, Rust, Solidity, RISC0 proof, staging, commit, tag,
+publication or push was performed.

@@ -1,0 +1,36 @@
+ETAPA673 — COMPLETE MAINNET PREFLIGHT GETTER AND RUNTIME HEALTH AUDIT
+Date: 2026-10-23
+
+Scope
+- Compared source/artifact public getters for USDOMProofReserve,
+  DOMCheckpointRegistry and both RISC Zero adapters against predeployment and
+  postdeployment collector schemas and reconciliation logic.
+- No release materialization or external operation was performed.
+
+Findings and corrections
+1. Adapter runtime capability was not observed. A contract with the expected
+   address, runtime codehash and config getter but an unexpected PROOF_ACCEPTED
+   value would only be detected later by reserve/registry execution. The
+   finalized snapshot collector now calls PROOF_ACCEPTED on both adapters and
+   the assessor requires the exact domain-specific finalized-burn/checkpoint
+   capability hashes in both predeployment and cold-start phases.
+2. Reserve linked-list and accounting health getters were absent from the
+   cold-start evidence. The exact postdeployment schema now includes
+   firstPendingBurn, lastPendingBurn, outstanding and unreservedCollateral.
+   Both list endpoints and all accounting values must be zero alongside the
+   already enforced pendingCount, totalPendingAmount and zero USDT balance.
+3. ETAPA667 checkpoint guardian owner identity remains directly observed and
+   reconciled. Token live codehash, the reserve's immutable tokenCodeHash,
+   adapter runtime/config identities, CREATE initcode transaction hashes,
+   registry bootstrap floor, checkpoint count, halt flag, empty candidate and
+   Safe owner commitments are all present and independently checked.
+4. Drift regressions cover both adapter capabilities, both pending endpoints,
+   outstanding/unreserved collateral, checkpoint guardian owner commitment and
+   the existing runtime/config/initcode/bootstrap fields.
+
+Validation
+- Focused preflight suite: 6/6 passed.
+- Mainnet-readiness positive cold-start regressions: 2/2 passed.
+- SDK/source/deployed EVM differential: 1/1 passed.
+- Solidity runtime capability and Safe drift regressions: 2/2 passed.
+- Node syntax and repository whitespace checks passed.

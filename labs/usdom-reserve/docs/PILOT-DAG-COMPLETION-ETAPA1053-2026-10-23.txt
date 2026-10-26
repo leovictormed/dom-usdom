@@ -1,0 +1,25 @@
+ETAPA1053 — fail-closed pilot DAG completion modes
+
+Concrete gap
+------------
+The semantic DAG checker correctly labeled missing, resumable, finality-recheck and
+complete pilot phases, but inventory mode always exited successfully. Generated
+execution phases invoked inventory mode at the end, so a partial artifact set could
+still let the generated phase return exit code zero.
+
+Correction
+----------
+The checker now accepts only three explicit modes: inventory,
+require-deposit-complete and require-pilot-complete. Requirement modes inspect the
+semantic reconciliation result and fail unless the requested phase set is exactly
+complete. The generated deposit phase requires completed deposit evidence; the
+generated redemption phase requires both deposit and redemption complete. Unknown
+modes fail with usage status 64. Read-only checklist inventory remains usable before
+execution.
+
+Validation
+----------
+Pinned Node 24.19.0 full generated-command and pilot operational set passed 25/25,
+zero failures. Tests execute requirement modes against the intentionally incomplete
+local evidence and prove nonzero failure. Bash syntax and focused diff check passed.
+No heavy build or external action occurred.

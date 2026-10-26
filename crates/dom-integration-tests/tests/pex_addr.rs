@@ -357,7 +357,7 @@ async fn authenticated_inbound_peer_becomes_a_confirmed_pex_candidate() {
     let (stream, codec) = connect_pex_peer_from_announcing(
         &node_a,
         "127.0.0.2:0".parse().expect("source address"),
-        node_b.noise_privkey,
+        *node_b.noise_privkey,
         default_port,
     )
     .await;

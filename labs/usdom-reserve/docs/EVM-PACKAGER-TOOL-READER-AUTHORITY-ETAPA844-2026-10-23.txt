@@ -1,0 +1,33 @@
+ETAPA844 — EVM PACKAGER TOOL READER AUTHORITY
+Date: 2026-10-23
+
+Finding
+=======
+
+The checkpoint-outer and finalized-burn EVM proof packagers retained the old
+shell `pin_tool` boundary after the authenticated proof launchers were fixed.
+They accepted unbounded executable files, checked parent permissions without
+pinning canonical parent identity, and hashed by pathname without a post-hash
+file/parent metadata check.  These tools transform proof receipts into EVM
+authority artifacts, so replacement during hashing could split the approved
+tool identity from the bytes actually observed.
+
+Correction
+==========
+
+Both EVM packagers now reject empty tools and tools above 512 MiB, require the
+resolved parent to be canonical, snapshot parent device/inode/owner/mode, and
+recheck file plus parent immediately after each initial and last-moment hash.
+Existing ownership, single-link, immutable-mode and PATH-to-canonical-path
+checks remain.
+
+Validation
+==========
+
+* Dedicated two-packager structural and Bash syntax test: 1/1 pass.
+* Private proof temporary and ProgramBinary binding suites: 5/5 pass.
+* Bash syntax for both packagers: pass.
+* Diff whitespace check: pass.
+
+Focused total: 6/6.  No proof, build, RPC, signature, deployment, commit or
+push ran.

@@ -1,0 +1,37 @@
+USDⓄM RESERVE — SECURITY-VALIDATION EXECUTABLE IDENTITY (STAGE 562)
+
+Finding
+
+The final security-validation materializer hashed each selected executable
+before and after launching it, but did not enforce the stronger executable
+boundary already used by the reproducible Solidity builds. A PATH-selected
+tool could therefore be a hard-linked file, be installed in a group/world
+writable directory, or be replaced and restored around execution. Its output
+hash and zero exit status would then enter signed release evidence.
+
+Correction
+
+Every validation executable is now selected through the shared
+stable-executable boundary. Selection accepts only absolute PATH entries (or
+the exact directory of an absolute executable), resolves one real path, and
+requires a regular single-link file owned by root or the invoking account.
+The executable and its containing directory must not be group/world writable.
+The boundary records device, inode, size, high-resolution timestamps, directory
+identity and SHA-256. It checks all of those immediately before launch and
+again after completion; the report records the authenticated SHA-256.
+
+The Solidity lint no longer runs Forge indirectly through npm while recording
+only npm's identity. It invokes the authenticated Forge path directly, and the
+report requires its hash to equal the Forge used for build and both test runs.
+The boundary also covers npm, the running Node executable, Git and Python used
+by the remaining fixed validation set. Ambient compiler/build overrides remain
+rejected.
+
+Validation
+
+The focused security-report and executable-boundary suites pass 7/7, including
+relative-PATH, writable installation, hard-link and post-snapshot replacement
+rejections; the targeted readiness fixture passes 1/1. The active RandomX proof
+was left running, so no Cargo, Foundry, full readiness, proof, network,
+signature, deployment or funds operation ran.
+

@@ -1,0 +1,60 @@
+USD DOM — finalized checkpoint candidate observer (stage 270)
+Date: 2026-10-20
+Status: read-only lifecycle observer implemented; no public RPC action executed
+
+Purpose
+
+The observer independently rebuilds the stage-269 unsigned submission package,
+pins one Ethereum finalized block and determines which exact checkpoint lifecycle
+state is present without signing or broadcasting any transaction.
+
+Authenticated inputs
+
+- exact production release and checkpoint-verifier manifests;
+- canonical UDCPST04 statement;
+- stage-268 Groth16 EVM proof index and selector-prefixed seal;
+- byte-identical stage-269 checkpoint-submission.json;
+- checkpoint registry runtime code and state observed at one finalized block.
+
+Fail-closed observation
+
+The collector records the Ethereum chain ID, finalized block number, hash and
+timestamp, then performs every registry code/state read at that same block tag.
+It rereads the exact block tag afterward and rejects a changed block hash. It
+checks the release runtime-code hash, checkpointConfigHash, halt state and the
+registry's own checkpointStatementHash result.
+
+The lifecycle assessment recognizes four states:
+
+1. submission-ready — the registry still equals the proved predecessor, has no
+   candidate, and the complete submission succeeds under read-only eth_call;
+2. challenge-window — the exact statement is installed and readyAt is later
+   than the finalized Ethereum timestamp;
+3. finalization-ready — the exact candidate is installed and its immutable
+   challenge window has elapsed at finalized state;
+4. finalized — the registry state equals the checkpoint result.
+
+A competing candidate, mismatched field, changed snapshot, wrong runtime,
+halted registry, rejected eth_call or unrelated predecessor produces an invalid
+assessment with explicit blockers. A successful assessment includes only the
+deterministic zero-value finalizeCheckpoint calldata and records
+broadcastAuthorized=false.
+
+Fixed project command
+
+  npm run --silent observe:authenticated-checkpoint
+
+The endpoint is supplied outside the repository through ETHEREUM_RPC_URL by the
+operator launcher. Errors redact it. The project command
+accepts no positional fields and contains no transaction-send operation. It
+atomically writes the public observation to:
+
+  evidence/checkpoint-submission-observation/checkpoint-submission-observation.json
+
+Verification
+
+Pure lifecycle and mutation tests cover all four accepted states and rejection
+of snapshot, runtime, candidate, predecessor and halt substitutions. The fixed
+command fails before RPC access while the production release is unconfigured.
+No proof, compression, mining, deployment, fund movement or public RPC action
+was executed during this stage.

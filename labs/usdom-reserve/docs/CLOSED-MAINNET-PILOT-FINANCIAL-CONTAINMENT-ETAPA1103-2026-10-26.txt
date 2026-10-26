@@ -1,0 +1,30 @@
+USD0M closed-mainnet pilot financial containment — Stage 1103 — 2026-10-26
+
+The pilot already fixed the asset amount at 1,000,000 USDT base units for the
+deposit and redemption, bounded EIP-1559 fee/gas per transaction, required two
+mainnet RPCs and rechecked receipt finality. It lacked one independent
+cumulative ETH budget. A sequence of individually valid transactions could
+therefore exceed the intended aggregate pilot exposure.
+
+Implemented caps
+
+- deposit transaction: <= 0.05 ETH; at most 3; phase <= 0.15 ETH
+- redemption transaction: <= 0.10 ETH; at most 2; phase <= 0.20 ETH
+- entire pilot signed worst case: <= 0.35 ETH
+
+Both executors aggregate all prior signed validation records and the proposed
+transaction before the signature prompt. They recheck all durable validations
+again before broadcast. The offline phase checker independently derives the
+same budget from hash/plan/signer/block-bound receipt chains and publishes the
+summary in its checklist. Noncanonical, zero, extra-step and over-cap costs are
+rejected.
+
+The preceding Stage 1102 bindings remain mandatory: exact release SHA/config,
+USDT/reserve, funder/recipient, burn/request, chain 1, calldata, signer, target,
+successful receipt and two-RPC finalized identity. No missing evidence was
+created or accepted.
+
+Validation: pinned Node suites 14/14 passed across budget, funding, receipt,
+state and financial evidence; both executor scripts pass bash syntax; diff
+checks pass. No network, Cargo, Forge, key access, signing, deployment, commit
+or push ran.

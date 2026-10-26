@@ -1,0 +1,35 @@
+ETAPA 783 — canonical Safe recovery raw journal
+Date: 2026-10-23
+
+Inventory and finding
+
+The Safe recovery plan, transaction package and v2 envelope already have shared
+exact-key validators, document hashes, cross-links and private strict readers.
+The authorization is an interactive phrase and is intentionally not persisted.
+The durable signed raw journal was semantically bound to chain 1, surviving
+relayer, nonce/fees/gas and the exact Safe calldata, but its text reader accepted
+uppercase hex and an absent final LF. Equivalent encodings could therefore pass
+recovery while differing from the create-once writer's canonical bytes.
+
+Correction
+
+- Added one shared byte parser requiring exactly one lowercase `0x` hex line
+  terminated by one LF. It rejects CRLF, missing/extra newline, whitespace,
+  uppercase, odd length, nonhex and malformed UTF-8.
+- The private raw reader now additionally requires exact mode 0600 and retains
+  its 128 KiB bound/stable direct-file protections.
+- The semantic transaction validator and Ledger-output admission now require
+  lowercase encoding. Before create-once persistence, the same checker binds
+  the signed bytes to the exact plan, transaction package and v2 envelope.
+- Recovery and all later rechecks use that same parser and semantic validator.
+
+Validation
+
+- Focused framing plus semantic journal tests: 3/3 pass.
+- The broader Safe suite has 17 substantive passes; one unrelated structural
+  assertion is stale because concurrent hardening prefixed `cmp -s` with
+  `assert_cmp_unchanged;`.
+- Node/shell syntax and diff checks pass.
+
+No RPC, Ledger signing, deployment, transmission, commit, push or fund action
+was performed.

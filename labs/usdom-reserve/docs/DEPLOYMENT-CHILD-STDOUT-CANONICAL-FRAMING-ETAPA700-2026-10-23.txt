@@ -1,0 +1,36 @@
+ETAPA 700 — deployment child stdout canonical framing
+Date: 2026-10-23
+
+Finding
+=======
+The raw mainnet deployment validator consumes the Ledger handoff emitted by the deployment
+transaction derivation child process. It already bounded stdout, required empty stderr and
+used fatal UTF-8 plus duplicate-key-safe JSON. It did not require the child's authoritative
+stdout to have one canonical framing, so semantically equivalent whitespace/number framing
+could cross the subprocess boundary without detection.
+
+Correction
+==========
+The validator now parses child stdout directly as bytes with parseStrictJsonBytes and then
+requires byte equality with the single canonical compact JSON serialization plus one newline.
+This makes the subprocess output a precisely framed authority before its package, observation,
+transaction and CREATE bindings are used. Empty stderr remains mandatory.
+
+Related preflight audit
+=======================
+check-mainnet-preflight itself has no child subprocess. Its raw deployment validations and
+three configuration snapshots now parse byte-strict and retain exact re-read equality after
+RPC observation (ETAPA697). Its JSON-RPC provider already bounds response bytes, performs
+fatal UTF-8 and duplicate-key parsing, rejects redirects, validates envelopes and pins the
+finalized snapshot. The deployment shell's rpc/cast JSON block outputs pass through private
+files and the strict JSON checker before jq; signed raw transaction output has exact hex
+framing and is independently decoded/validated.
+
+Validation
+==========
+Focused mainnet deployment execution suite: 6/6 pass, including the new structural child
+stdout framing regression. Node syntax checks pass for implementation and test. git diff
+--check passes. No child command, RPC, Ledger or operational checker was executed.
+
+No heavy build, Cargo, Rust, Solidity, RISC0 proof, RPC, signing, transmission, deployment,
+fund movement, staging, commit or push was performed.

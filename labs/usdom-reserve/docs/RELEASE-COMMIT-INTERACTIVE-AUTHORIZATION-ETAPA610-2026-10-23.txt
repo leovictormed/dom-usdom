@@ -1,0 +1,46 @@
+DOM / USDOM — autorização interativa de commits e tag de release
+Etapa 610 — 2026-10-23
+
+Escopo
+======
+
+Foram auditados todos os prompts shell restantes de assinatura/transmissão e
+os dois signatários Git da cerimônia de release. Os executores corrigidos nas
+etapas 606/609 e scripts RISC0 ficaram fora das alterações.
+
+Achado corrigido
+================
+
+`commit-release-source.sh` e `commit-release-evidence.sh` criavam commits
+assinados; o segundo também criava a tag assinada. Nenhum deles exigia terminal
+ou uma confirmação explícita. Em uma sessão com chave desbloqueada/agent, uma
+invocação automatizada poderia produzir esses objetos de release sem presença
+humana no ponto de assinatura.
+
+Ambas as cerimônias agora:
+
+- exigem stdin e stderr ligados a terminal antes de ler estado operacional;
+- pedem frase exata vinculada ao `source_tag`, depois dos gates/proveniência;
+- congelam HEAD mais o status completo, incluindo untracked, antes do prompt e
+  recusam qualquer mudança durante a pausa humana;
+- rechecagem de que a tag ainda não existe antes de staging/commit/tag;
+- mantêm inspeção do índice, identidade única Soren Planck, assinatura SSH,
+  verificação da assinatura e rollback local existentes.
+
+Auditoria dos demais prompts
+============================
+
+Os três signatários Ledger restantes já exigem TTY e repetem a validação de
+inputs/rede depois das pausas humanas. Senhas/recovery usam TTY sem eco. Não foi
+estabelecido outro bypass de stdin neste escopo.
+
+Validação
+=========
+
+- testes comportamentais invocam as duas cerimônias com pipes e confirmam
+  recusa status 1 antes de acessar Git/chaves;
+- testes Node focados: 2/2 passaram;
+- `bash -n` e `git diff --check` passaram.
+
+Nenhum commit, tag, assinatura, transmissão, deploy, staging, push ou uso de
+fundos foi executado.

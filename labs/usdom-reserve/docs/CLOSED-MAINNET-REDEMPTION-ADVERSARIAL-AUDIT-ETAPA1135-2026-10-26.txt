@@ -1,0 +1,54 @@
+CLOSED MAINNET REDEMPTION — ADVERSARIAL AUDIT, STAGE 1135
+Date: 2026-10-26
+
+Scope
+-----
+Closed one-USDT redemption preparation, queueing, delayed execution, finality,
+payout reconciliation and crash recovery. No real RPC, Ledger operation,
+signature, broadcast, deployment or funds were used.
+
+Findings corrected
+------------------
+1. Ethereum reads could be taken from independently moving finalized heads.
+   The executor now requires both RPCs to identify canonical Ethereum mainnet
+   by genesis and to agree on the exact finalized number, block hash, timestamp
+   and base fee. All contract reads use that numeric snapshot, whose hash is
+   rechecked after the reads.
+2. Chain ID alone did not bind the deployed authorities. Both RPCs now prove the
+   release-pinned Reserve and token runtime code hashes and Reserve configuration
+   hash at every consensus snapshot. Any mismatch stops before signing/publish.
+3. The signed transaction validator accepted an otherwise exact transaction
+   signed by a different account. It now requires the recovered sender to equal
+   the package's burn recipient. The shell also retains Ledger-address equality.
+4. A pre-existing payout baseline accepted any decimal proved-debt value. It now
+   requires exactly 1,000,000 base units. New baselines record the exact finalized
+   block number/hash; payout validation and final execution evidence require
+   well-formed snapshot identities.
+5. The executor created terminal payout evidence without invoking its semantic
+   validator. A dedicated checker now recomputes the baseline SHA-256 and checks
+   exact recipient, Reserve, released, outstanding and proved-debt deltas before
+   the execution artifact can be installed.
+6. The final signing and publication checks now refresh the shared finalized
+   snapshot before nonce/state/deadline decisions, closing stale-snapshot use.
+
+Existing controls confirmed
+---------------------------
+- Exact two-transaction package and calldata bind burn ID, request ID, recipient,
+  amount and proof/execute calls.
+- One explicit authorization precedes each signature and each publication.
+- EIP-1559 chain, nonce, zero value, destination, calldata, gas/fee ceilings and
+  transaction hash are validated before the private raw transaction is stored.
+- Nonce recovery publishes only at the exact nonce, recovers only the exact known
+  successor hash, and fails closed on replacement or RPC disagreement.
+- Receipts and finalized block identities agree across both RPCs; raw signed
+  transactions are deleted after durable finality evidence.
+- Terminal accounting requires the recipient to gain exactly 1,000,000 token
+  base units and the Reserve balance/debt/outstanding/released values to move by
+  the exact inverse deltas across both RPCs.
+
+Verification
+------------
+- Bash syntax passes.
+- Focused redemption, payout, nonce recovery, receipt consensus, restart and
+  private raw-transaction tests pass 12/12.
+- No Cargo, Forge, real network, signing, deployment, commit or push was run.

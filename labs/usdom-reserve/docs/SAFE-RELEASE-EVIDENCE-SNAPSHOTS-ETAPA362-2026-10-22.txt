@@ -1,0 +1,41 @@
+USD + DOM — snapshots e publicação imutável da evidência dos Safes
+Etapa 362 — 2026-10-22
+
+Problema corrigido
+
+O escritor da evidência de controle lia pacote, baseline e relatório de
+recuperação em momentos distintos. Artefatos já publicados eram comparados por
+caminho, e a instalação de um destino aparentemente ausente ainda permitia uma
+corrida entre o teste de inexistência e a criação.
+
+Correções
+
+- os três inputs são normalizados sem seguir links e lidos uma vez pelo leitor
+  privado direto para snapshots 0600;
+- a construção e validação do bundle usam somente esses snapshots;
+- os três inputs originais são relidos e comparados antes de publicar qualquer
+  artefato e novamente antes do fragmento final de conclusão;
+- destinos existentes são relidos pelo mesmo limite direto e comparados com a
+  fonte privada;
+- destinos novos usam criação durável sem substituição; uma corrida que crie o
+  nome primeiro causa falha, sem sobrescrever dados;
+- cada destino é relido por descritor e comparado após a publicação;
+- a saída apresentada ao operador usa o fragmento privado já validado, sem
+  reabrir o arquivo persistido.
+
+Validação focada
+
+- sintaxe Bash e ShellCheck: passaram;
+- rejeição de inputs indiretos e contrato estrutural do escritor: 2/2 passaram;
+- suíte operacional, limites de leitura e escritor durável: 69/69 passaram;
+- lint de produção e compilação forçada dos 44 fontes Solidity: passaram;
+- regressão Node completa: 300/300 passaram;
+- proveniência completa: 169 importados, 45 fontes de programas de prova e
+  manifesto determinístico com 1.140 fontes passaram;
+- gate de mainnet não configurado: recusou como esperado com `ready=false` e
+  161 condições derivadas abertas;
+- `git diff --check`: passou.
+
+Nenhuma transação, assinatura, chave, broadcast ou fundo foi usado. Nenhum
+push, commit, tag, deploy ou mineração ocorreu. A prova real de queima
+finalizada permaneceu ativa e não foi reiniciada.

@@ -1,0 +1,54 @@
+Stage 646 — verifier capability mutability audit (2026-10-23)
+
+Scope
+
+Adversarially audited the stage-639 `PROOF_ACCEPTED()` boundary in the proof
+reserve and checkpoint registry. Covered revert, short/trailing returndata, a
+one-megabyte return bomb, bounded gas/copy behavior, mutable responses, stable
+config/code hashes and constructor/runtime TOCTOU.
+
+Confirmed defect
+
+Stage 639 required the correct capability at construction, but runtime verifier
+identity checks still compared only code hash and `verifierConfigHash()`. A
+verifier with stable bytecode and configuration could return the correct
+capability during construction and change it afterward. The reserve could then
+continue admitting collateral, and the registry candidates, even though the
+capability identity that authorized deployment no longer matched.
+
+This did not authorize a wrong proof by itself because exact proof-result magic
+and function selectors remained enforced. It did reopen the fund-lock and
+configuration risk that stage 639 closed only at installation time.
+
+Correction
+
+- Both `_requireVerifierUnchanged()` implementations now require the exact
+  protocol-specific capability alongside pinned code and configuration hashes.
+- Drift fails before deposit credit, candidate state, identifiers or collateral
+  can change; exact restoration remains retryable.
+- Capability discovery stays gas-bounded and copies one word. Success requires
+  exactly 32 return bytes. Revert, 31-byte, 33-byte and one-megabyte responses
+  all fail closed without copying attacker-sized returndata.
+- Immutable real adapters remain compatible; the runtime check protects generic
+  or proxy verifiers and constructor/runtime TOCTOU.
+
+Material regressions
+
+- Reserve capability mutation rejects a deposit before credit changes; exact
+  restoration permits that deposit.
+- Registry capability mutation rejects submission without a candidate or anchor
+  change; restoration permits the exact candidate.
+- Constructor fixtures exercise revert, short, trailing and one-megabyte
+  responses, plus the wrong protocol domain.
+
+Validation
+
+- new/extended capability regressions: 4/4 passed;
+- focused production suites: 89/89 passed;
+- complete Solidity campaign: 160/160 passed across 14 suites, including all
+  invariant campaigns;
+- post-format capability regressions: 4/4 passed;
+- production lint, formatting and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit,
+push, deployment, signature, transmission or funds operation was performed.

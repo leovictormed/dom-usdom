@@ -1,0 +1,25 @@
+ETAPA 919 — fronteira do servidor DOM RPC
+Data: 2026-10-23
+
+Escopo auditado
+- Listener/wiring: `crates/dom-rpc/src/lib.rs` e `crates/dom-rpc/src/middleware.rs`.
+- Bind e serve revalidam loopback; transporte é HTTP local deliberado e não presume TLS remoto.
+- Bearer usa comparação constant-time e as rotas autenticadas aplicam auth via route layer antes do handler/extractor.
+- Existem limites explícitos de corpo, timeout, rate e concorrência para rotas comuns, scans, mempool, wallet, issuance, candidate e mineração.
+- Mutações administrativas/privadas estão na allowlist de rotas autenticadas; CORS `*` existe somente no router público GET.
+- Erros internos são logados no servidor e redigidos para o cliente; graceful shutdown está conectado ao supervisor.
+
+Gap corrigido
+- O socket loopback não validava `Host`. DNS rebinding ou proxy local podia alcançar o serviço com authority controlada por terceiro.
+- O servidor real agora instala `require_listener_host` como camada externa. Só aceita o endereço/porta exatos do listener ou `localhost` com a mesma porta; Host ausente, outra porta, sufixo ou hostname é rejeitado com 421 antes de auth, buffering, rate/concurrency e handler.
+- A política é ligada ao `local_addr()` real, incluindo porta efêmera; testes unitários de router continuam independentes do transporte real.
+
+Validação
+- `rustfmt --edition 2021 --check crates/dom-rpc/src/middleware.rs crates/dom-rpc/src/lib.rs`: aprovado.
+- `git diff --check -- crates/dom-rpc/src/middleware.rs crates/dom-rpc/src/lib.rs`: aprovado.
+- Regressão adicionada cobre três authorities aceitas e cinco ausentes/maliciosas.
+- O teste Cargo focado ficou pendente: duas tentativas com deadline de 60s/30s terminaram em 124 durante compilação, sem executar RPC e sem deixar Cargo/rustc ativo. Não foi ampliado para build pesado.
+
+Risco residual explícito
+- TLS termina fora do processo se algum futuro deployment expuser RPC além de loopback; a validação atual rejeita bind não-loopback.
+- O limite de headers permanece o default do stack Hyper/Axum; corpo, tempo, concorrência e taxa são limitados explicitamente.

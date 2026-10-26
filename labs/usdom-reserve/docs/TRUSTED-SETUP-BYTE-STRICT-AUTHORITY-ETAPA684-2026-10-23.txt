@@ -1,0 +1,31 @@
+ETAPA 684 — DECISÃO DE TRUSTED SETUP COM JSON DE BYTES ESTRITOS
+Data: 2026-10-23
+
+Risco corrigido
+O preparador da decisão compartilhada de trusted setup decodificava release
+evidence/config e as configurações dos verificadores finalized-burn/checkpoint
+com Buffer.toString('utf8') antes do parser estrito. Esses documentos vinculam
+verifying keys, config hashes e o transcript da cerimônia.
+
+Correção
+O helper `parse` usa agora parseStrictJsonBytes para os quatro documentos JSON.
+O transcript da cerimônia não é JSON e permanece como bytes brutos, limitado e
+vinculado pelo SHA-256 declarado.
+
+Garantias preservadas
+- 4 MiB/profundidade 64 para cada JSON e 64 MiB para transcript;
+- paths de verifier distintos e fornecidos pela release evidence;
+- SHA-256 de ambos manifests e transcript conferido sobre bytes originais;
+- config hashes, verifying keys e o mesmo transcript obrigatoriamente vinculados
+  aos dois sistemas de prova;
+- release, quatro configs/evidências e transcript relidos byte a byte contra TOCTOU;
+- writer mantém locks, instalação imutável/create-once e atualização vinculada;
+- decisão é evidência de configuração, não autorização de assinatura/deploy/fundos.
+
+Testes leves
+- chave duplicada por escape e UTF-8 inválido são rejeitados;
+- regra estrutural exige bytes strict nos quatro JSONs e proíbe toString;
+- drift de setup/transcript/release/config e alteração de report seguem rejeitados;
+- 13/13 testes em <0,6 s; node --check e git diff --check passaram.
+
+Nenhum RPC, Cargo/Rust, Solidity, prova, assinatura, transmissão, deploy, fundo, commit ou push ocorreu.

@@ -1,0 +1,26 @@
+USD0M — REVALIDAÇÃO SOLIDITY DA RESERVA DE PROVA — ETAPA 334
+
+Data: 2026-10-22
+
+Escopo validado sem deploy, assinatura, broadcast ou fundos:
+
+- `forge lint` dos quatro contratos de produção: aprovado sem avisos;
+- `USDOMProofReserveTest`: 36/36 testes aprovados;
+- `DOMCheckpointRegistryTest`: 14/14 testes aprovados;
+- três propriedades fuzz críticas executadas com 1.024 casos cada;
+- invariant test da reserva: 256 campanhas, 16.384 chamadas, zero reverts
+  do handler e nenhuma divergência do ledger/fila independente;
+- limpeza máxima de 256 registros mediu 8.564.458 unidades de gás;
+- duas fontes Ethereum observaram 60.000.000 de gas limit no mesmo bloco
+  finalizado 26246551.
+
+O valor de 92.447.908 mostrado pelo Foundry para o teste de limpeza inclui a
+preparação completa de 256 retiradas provadas e não representa uma única
+transação `pruneDiscardable`. O trace isolado confirma 8.564.458 de gás para a
+chamada, mantendo margem ampla sob o limite observado. Nenhuma redução do lote
+foi aplicada.
+
+A inspeção manual revalidou efeitos antes da transferência, rollback atômico,
+delta exato do USDT, replay por `burnId` e `requestId`, reserva de colateral,
+limite de saída, invalidação O(1) por época, retomada atrasada, identidade
+imutável do verificador e seleção do checkpoint por trabalho confirmado.

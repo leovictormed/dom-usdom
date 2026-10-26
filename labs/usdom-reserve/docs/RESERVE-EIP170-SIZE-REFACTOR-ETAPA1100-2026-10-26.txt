@@ -1,0 +1,70 @@
+USDOMProofReserve EIP-170 size refactor — etapa 1100 — 2026-10-26
+
+Objective
+
+Bring the reserve's production runtime to at most 20,480 bytes, preserving a
+minimum 4,096-byte margin below EIP-170's 24,576-byte ceiling. The last
+diagnostic artifact was 22,792 bytes and is stale; it is useful only as the
+2,312-byte minimum-reduction baseline. A fresh canonical build must establish
+the result.
+
+Implemented reductions without removing a security property or public ABI
+
+1. The statement, permanent-debt and native-intent hashes now share one
+   fixed-width canonical encoder. Its three layouts retain the exact type hash,
+   ABI word order, chain id, reserve address and activation binding. A Foundry
+   regression independently computes all three old abi.encode preimages.
+2. Safe guard and fallback-handler reads now share one bounded canonical
+   getStorageAt decoder. The 96-byte return size, 0x20 offset and 0x20 length
+   checks remain mandatory; handler address canonicality and pinned code hash
+   checks remain at the consumer.
+3. Registry and token one-word reads now reuse the existing bounded 32-byte
+   STATICCALL decoder while retaining distinct fail-closed errors and gas caps.
+4. The three discard paths share the same two-event emitter. Emergency
+   authority checks share one predicate. Neither change alters ordering,
+   authorization or event data.
+5. The canonical production optimizer policy changed from 200 runs to one run,
+   which asks solc to optimize deployed size. Foundry, deterministic production
+   build arguments and artifact-metadata verification all bind the same value.
+
+Tradeoff
+
+One optimizer run can increase execution gas relative to 200 runs. This is an
+explicit code-size/gas tradeoff, not a validation reduction. Production queue,
+prune, Safe administration and deployment gas remain separately blocked until
+measured from the fresh canonical artifact, so the increased gas cannot be
+silently accepted.
+
+Lightweight evidence
+
+- production build-policy and metadata suite: 4/4 pass;
+- observability/event structural suite: 3/3 pass;
+- JavaScript syntax and whitespace checks pass;
+- stale 200-run artifacts now fail the production metadata check as intended.
+
+Final measurement
+
+The canonical solc 0.8.37 build now also pins via-IR. This compiler pipeline
+shares more of the already equivalent internal routines without changing the
+ABI or validation predicates. The reproducible build policy and publication
+gate reject both a non-via-IR artifact and any optimizer drift.
+
+- deployed runtime: 20,060 bytes;
+- EIP-170 margin: 4,516 bytes (required minimum: 4,096);
+- initcode before constructor arguments: 26,106 bytes;
+- EIP-3860 margin: 23,046 bytes;
+- complete Foundry suite: 195/195 pass, including fuzz and invariants;
+- production artifact/publication gates pass;
+- deterministic runtime/initcode binding and deployment policy: 25/25 pass.
+
+via-IR treats block timestamp and chain id as invariant during one EVM
+transaction, as the protocol does. Five tests used Foundry cheatcodes to mutate
+those values mid-transaction and then reread the opcode. Their clocks/chain were
+made explicit; no production predicate changed.
+
+Deployment gas ceilings were refreshed from the new compiler traces: Registry
+CREATE measured 2,508,454 gas (ceiling 2,600,000), Reserve CREATE measured
+4,627,582 (ceiling 4,800,000). The planner still adds exact calldata/EIP-3860
+cost and a separate 25% margin. The minimum four-component buffered total is
+11,230,032, below the unchanged 12,000,000 sequence cap. Per-transaction,
+half-block, EIP-1559 and ETH cost caps remain unchanged.

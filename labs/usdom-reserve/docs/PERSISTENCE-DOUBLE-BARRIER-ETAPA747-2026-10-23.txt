@@ -1,0 +1,31 @@
+ETAPA747 — current deployment double finalized barrier
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+The final persistence sweep authenticated a common finalized head and read code
+at its number, but did not reauthenticate that numbered block after the code
+read. A source inspected early could also advance or reorganize while later
+sources were processed.
+
+For every RPC, the executor now fetches the common finalized block by exact
+number before `eth_getCode`, validates number/hash, reads code at that same
+number, then refetches and requires the exact block response unchanged. After
+all local raw/validation/hash/catalog prerequisites are reread, a second
+all-source pass immediately precedes create-once persistence. It requires the
+moving finalized tag to remain at the same number/hash and the numbered anchor
+to remain byte-identical to the post-code response.
+
+Any finalized-head advance, reorg, source divergence, interleaving drift or
+runtime mismatch invalidates the attempt and requires a fresh collection.
+
+Verification
+============
+
+- Interleaving/adversarial structural regression covers pre/post-code anchors,
+  second-pass moving tag and fixed anchor, byte equality and absence of latest.
+- Focused Node tests: 15/15 passed.
+- Bash syntax and `git diff --check`: passed.
+
+No real RPC, signature, deployment, funds action, commit or push occurred.

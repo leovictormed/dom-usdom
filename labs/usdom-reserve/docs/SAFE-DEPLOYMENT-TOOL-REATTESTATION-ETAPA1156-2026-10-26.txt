@@ -1,0 +1,19 @@
+USDOM — ETAPA 1156 — REATESTAÇÃO CONTÍNUA DAS FERRAMENTAS SAFE
+Data: 2026-10-26
+
+Bloqueio corrigido
+
+O executor calculava pins de Node, jq e cmp, mas vários usos posteriores chamavam diretamente os caminhos fotografados sem revalidar inode, diretório e SHA-256. Uma substituição durante a cerimônia podia alcançar leitura privada, verificação do pacote, journal ou recibo.
+
+Implementação
+
+- Todos os usos ordinários de Node, jq e cmp passam por wrappers que reatestam identidade e hash imediatamente antes da execução.
+- Os poucos usos necessariamente diretos dentro de `timeout` reatestam Node/timeout antes; operações Ledger reatestam Cast/timeout; o lançamento do proxy reatesta o conjunto completo.
+- Cleanup, snapshots, reconstrução do pacote, parsing, journals, validação de raw, observação de target e recibos agora compartilham a mesma barreira TOCTOU.
+- O teste estrutural limita explicitamente quantas referências diretas a cada binário podem existir, impedindo regressão silenciosa.
+
+Validação
+
+- Sintaxe Bash e seleção ampla Safe/recibo/CREATE2/runbook: 91/91.
+- Diff-check direcionado aprovado.
+- Nenhuma rede real, assinatura, broadcast, deploy, fundos, Cargo, Rust, Forge, commit ou push foi executado.

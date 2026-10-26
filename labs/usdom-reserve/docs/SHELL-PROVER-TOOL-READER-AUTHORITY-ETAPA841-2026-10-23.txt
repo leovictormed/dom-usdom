@@ -1,0 +1,45 @@
+ETAPA841 — SHELL PROVER TOOL READER AUTHORITY
+Date: 2026-10-23
+
+Scope
+=====
+
+Audited shell-side executable readers that do not use the Node
+stable-executable helper.  The highest-impact shared copy was the `pin_tool` /
+`assert_tool_unchanged` boundary in all six authenticated RISC Zero prover
+launchers.
+
+Finding
+=======
+
+These launchers checked executable ownership, link count, mode, one parent
+mode and a content hash, but did not bound executable size, did not bind the
+canonical parent identity, and did not re-stat file/parent after hashing.
+Directory replacement or mutation during a pathname hash could therefore
+separate approved metadata from the bytes actually recorded.  A very large
+file could also force unbounded hashing work before the proof process.
+
+Correction
+==========
+
+All six authenticated prover scripts now:
+
+* reject empty executable files and files above 512 MiB before hashing;
+* require the resolved parent itself to be canonical;
+* snapshot parent device/inode/owner/mode;
+* recheck file identity and parent identity after the initial hash;
+* recheck canonical parent, file identity, hash, then file/parent identities
+  again at every last-moment tool validation.
+
+This covers RandomX receipt, RandomX aggregate, economic receipt, checkpoint
+segment, checkpoint outer and finalized-burn proof launchers.  No proof ran.
+
+Validation
+==========
+
+* New six-script structural/syntax boundary test: 1/1 pass.
+* Private proof temporary and ProgramBinary binding suites: 5/5 pass.
+* Bash syntax for every authenticated prover script: pass.
+* Diff whitespace check: pass.
+
+Focused total: 6/6.  No proof, RPC, signature, deployment, commit or push ran.

@@ -1,0 +1,32 @@
+ETAPA 1098 — RISC ZERO VERIFY-ONLY RECEIPT HOST
+Date: 2026-10-26
+
+The checkpoint proof host now exposes one narrow verify-only API. It captures a
+nonempty receipt through the retained-parent/O_NOFOLLOW reader, rejects
+symlinks, hard links, owner/mode drift, replacement races and oversized input,
+checks the pinned receipt SHA-256, decodes fixed-int bincode with a byte limit
+and trailing-byte rejection, requires byte-for-byte canonical re-encoding,
+requires a succinct receipt, compares the exact 32-byte journal and invokes
+RISC Zero Receipt::verify with the exact canonical lowercase ImageID.
+
+The CLI additionally captures and hashes the declared predecessor artifact
+instead of trusting a supplied predecessor hash. It produces no proof, receipt,
+seal, pin or other build artifact. Only after all verification succeeds does it
+publish one JSON evidence record through save_private_bytes_noclobber. That
+shared primitive anchors the owner-only parent by descriptor, uses no-follow
+operations, rejects an existing destination, writes mode 0600, atomically
+publishes and fsyncs both file and directory. Unit tests cover owner-only mode,
+create-once behavior and symlink destination rejection.
+
+Stable Rust/Cargo files awaiting the coordinated Cargo run:
+
+* crates/dom-usdom-checkpoint-proof-host/Cargo.toml
+* crates/dom-usdom-checkpoint-proof-host/src/lib.rs
+* crates/dom-usdom-checkpoint-proof-host/src/bin/verify-rebuild-receipt.rs
+
+Static validation: rustfmt on the new binary, git diff --check and the rebuild
+stage-template validator pass. Cargo was intentionally not executed. The V3
+template remains non-materializable until this binary is compiled, tested,
+hashed and a receipt-stage aggregator consumes its per-receipt records.
+
+No Forge, proof build, deployment, signing, broadcast, funds, commit or push.

@@ -1,0 +1,22 @@
+Stage 487 — Safe recovery observer envelope-role binding
+Date: 2026-10-23
+
+The finalized Safe execution observer accepted a role selector through the
+environment even though the persisted recovery envelope already commits the
+exact role, Safe transaction, relayer and Ethereum fee envelope. The executor
+could therefore observe under semantics supplied separately from its durable
+journal.
+
+The executor now prepares and persists the role envelope before its first
+finalized-state observation. The observer requires that direct envelope file,
+semantically validates it against the recovery plan and transaction package,
+derives the role exclusively from the envelope, and rereads the envelope after
+multi-RPC observation. Crash recovery continues from the same create-once
+envelope; a missing journal fails before observation.
+
+`production_safe_recovery_observer_role_derived_from_envelope` is a structural
+fact. No network access, signature, transaction, funds, mining, commit or push
+occurred while producing this evidence.
+
+Validation: direct operational inputs 13/13; operator runbook 71/71; readiness
+60/60.

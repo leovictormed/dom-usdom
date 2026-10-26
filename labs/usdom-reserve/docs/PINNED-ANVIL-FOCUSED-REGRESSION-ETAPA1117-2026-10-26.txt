@@ -1,0 +1,35 @@
+USDOM pinned-Anvil focused regression — Stage 1117
+Date: 2026-10-26
+
+Corrections
+===========
+- Updated the direct operational-input expectation to the private wallet reader
+  wrapper; the wrapper still delegates to the direct single-link private-file
+  boundary and retains buffers for zeroization.
+- Added one authenticated Anvil resolver for local EVM tests. It accepts only
+  /home/leonardov/.foundry/bin/anvil with SHA-256
+  00f97668e1ae0fcca118fd7d2d1b6d25c0496447a523ca6bc2dfd10958c99604,
+  a direct executable regular file, one link, trusted owner and safe mode, and
+  rechecks inode metadata after hashing. Ambient PATH and USDOM_ANVIL overrides
+  are no longer test authority.
+- Updated the two EVM fixtures for the current ProofReserve checkpoint-registry
+  immutable and 2-of-3 Safe control identity. Adapter size assertions now compare
+  the source-derived artifact result to deployed bytecode instead of stale
+  historical byte counts.
+- Fixed candidate-monitor restart comparison by canonicalizing its expected
+  binding through the strict JSON parser. The parsed checkpoint and expected
+  binding now share the same null-prototype representation.
+- Kept failure classification useful without leaking exception text: source
+  disagreement gets a fixed public category while underlying Error messages stay
+  out of journals and diagnostics.
+
+Focused validation
+==================
+All commands used /usr/bin/timeout with TERM and a 5-second KILL fallback.
+- direct operational boundary + pinned Anvil + both EVM integrations: 17/17.
+- candidate restart, emergency revocation and source disagreement: 3/3.
+- no residual Anvil or node --test processes after completion.
+- scoped git diff --check passed.
+
+The previously started broad suite was stopped and was not rerun. No Cargo,
+Forge, network, signing, deployment, funds, commit or push was used.

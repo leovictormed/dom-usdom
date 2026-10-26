@@ -1,0 +1,33 @@
+Stage 467 — finalized-deposit durable source/catalog binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The finalized-deposit collector validated and reconciled multiple execution
+and Beacon sources against a catalog, but the durable source document discarded
+the catalog identities after collection. The resulting proof input could not
+show which independent endpoint origins produced the reconciled observation.
+
+Remediation
+===========
+
+The durable finalized-deposit source now embeds the exact canonical source
+catalog, its source count and a domain-separated commitment over the ordered
+operator, execution-origin and Beacon-origin commitments. Validation checks the
+catalog schema and independence, recomputes the commitment and requires the
+exact count. Catalog or commitment substitution fails closed.
+
+Evidence boundary
+=================
+
+`production_finalized_deposit_durable_source_binds_catalog` is a structural
+fact. It does not claim a live finalized deposit was observed. No network,
+signing, deployment, funds, mining, commit or push occurred.
+
+Validation
+==========
+
+- Focused source/catalog tests pass 6/6.
+- Changed Node syntax, JSON and diff checks pass.
+- Full readiness passes 60/60.

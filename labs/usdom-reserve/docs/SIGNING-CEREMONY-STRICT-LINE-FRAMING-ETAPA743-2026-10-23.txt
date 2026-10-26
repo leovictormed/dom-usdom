@@ -1,0 +1,24 @@
+ETAPA 743 — strict line framing without TR in signing ceremonies
+Date: 2026-10-23
+
+Finding
+=======
+Checkpoint signing used PATH-resolved `tr` to normalize an expected SHA-256, Ledger address and
+signature. The release/native and Safe-recovery ceremonies also stripped CR/LF from Ledger
+signatures. This both trusted another mutable executable and accepted ambiguous extra framing.
+
+Correction
+==========
+The checkpoint request checksum now requires exactly one newline-terminated line containing 64
+lowercase hexadecimal characters; whitespace, missing newline, extra blank/data lines and
+uppercase are rejected. Ledger address/signature outputs are captured directly, reject embedded
+CR/LF, and retain their existing exact address/signature validation. The same strict signature
+framing replaces `tr` in release/native and Safe-recovery signing.
+
+Validation
+==========
+Direct adversarial checksum tests cover canonical input, missing newline, uppercase, whitespace,
+blank/data extra lines and short hashes. Combined suite passes 4/4. All scripts pass `bash -n`,
+Node syntax and diff checks. No ceremony, Ledger, RPC or signing ran.
+
+No commit, push, deploy, transmission or funds were used.

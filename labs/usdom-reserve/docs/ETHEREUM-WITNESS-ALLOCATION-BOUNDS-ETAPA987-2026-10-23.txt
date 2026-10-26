@@ -1,0 +1,38 @@
+ETAPA 987 — limites de alocação dos testemunhos Ethereum
+Data: 2026-10-23
+
+Escopo
+- testemunhos de depósito e checkpoint;
+- ancestry de execution headers;
+- receipt bytes e receipt MPT proof;
+- account/storage MPT proofs e runtime bytecode.
+
+Achados e correções
+1. O framing externo limitava o JSON de evidência a 2 MiB, porém `serde_json` podia
+   construir vetores, strings e árvores profundas antes que os limites semânticos de
+   count/tamanho fossem aplicados pelo verificador criptográfico.
+2. Uma pré-validação sem alocação agora percorre os bytes antes de `serde_json::from_slice` e
+   limita profundidade (32), tokens (16.384) e tamanho de string (máximo necessário para um
+   node/receipt de 256 KiB em hex). Isso fecha amplificação de objetos/arrays, nesting e strings.
+   O transcript de finality passa pelo mesmo scanner antes de serde, com limite próprio de
+   profundidade/tokens/string e contagem prévia máxima de 4.096 updates.
+3. Logo após serde e antes de finality/MPT/hash, depósito e checkpoint validam todas as famílias:
+   ancestry (256 headers, 4 KiB/header, 1 MiB total), receipt/proof (32 nodes, 256 KiB/node,
+   512 KiB total), account/storage proof (32 nodes, 256 KiB/node, 512 KiB total), account RLP
+   (128 bytes) e runtime code (24.576 bytes).
+4. A ordem é explícita: preflight de transcript/evidence -> cópia Vec/serde -> limites semânticos -> recodificação canônica ->
+   replay/verificação cara. Comprimentos do framing seguem checked_add e igualdade exata.
+5. Não existe caminho de descompressão nos decoders auditados; portanto não há razão de
+   expansão comprimida adicional a limitar nesta etapa.
+
+Regressões e gates
+- Testes Rust cobrem profundidade 33, string excessiva, mais de 16.384 tokens e JSON canônico.
+- Gate permanente: `labs/usdom-reserve/test/node/ethereum-witness-allocation-bounds.test.mjs`.
+- Gate estrutural Python equivalente: PASS (3 grupos).
+- `rustfmt` executado nos seis fontes Rust alterados.
+- Node não está no PATH desta sessão; o `.mjs` fica para a rodada pós-prova.
+- Cargo/Forge não foram executados para não competir com a prova RISC0 ativa.
+
+Limite
+- O gate limita alocação e trabalho preparatório; autenticidade continua dependendo das
+  verificações de finality, ancestry, receipt e state MPT já existentes.

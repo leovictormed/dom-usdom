@@ -59,7 +59,7 @@ async fn wallet_v3_rpc_uses_canonical_node_evidence() {
     let server = tokio::spawn(dom_rpc::serve_with_token(
         Arc::new(NodeHandleImpl(node.clone())),
         listener,
-        Some("wallet-v3-test-token".into()),
+        Some("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210".into()),
     ));
     let client = reqwest::Client::new();
     let base = format!("http://127.0.0.1:{port}");
@@ -119,7 +119,7 @@ async fn wallet_v3_rpc_uses_canonical_node_evidence() {
     // wallet client presents the node's bearer token for it.
     let scan: serde_json::Value = client
         .get(format!("{base}/chain/scan?from=0&to={tip_height}"))
-        .bearer_auth("wallet-v3-test-token")
+        .bearer_auth("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210")
         .send()
         .await
         .unwrap()

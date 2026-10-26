@@ -1,0 +1,37 @@
+ETAPA723 — four-contract CREATE sequencing
+Date: 2026-10-23
+
+Findings and correction
+=======================
+
+The identity ceremony already derived four consecutive CREATE addresses from
+one finalized/pending nonce and rejected occupied addresses. The package layer,
+however, still accepted distinct deployers or nonconsecutive nonces when every
+individual plan was internally valid. It now requires one deployer and exactly
+four consecutive nonces in the fixed order finalized-burn verifier, checkpoint
+verifier, checkpoint registry, reserve. Each address remains independently
+re-derived with Ethereum CREATE; CREATE2 is never accepted.
+
+During a partial deployment, an advanced account nonce proves only that some
+transaction consumed an earlier slot. Before preparation, signing and
+transmission of index N, the executor now reads every earlier package address
+at finalized on every independent RPC and requires its bytecode hash to equal
+the role-bound approved runtime. A failed constructor leaves the nonce consumed
+without approved code and therefore stops continuation. A foreign transaction,
+wrong contract, occupied/colliding address or reordered retry also stops. The
+current address must remain empty and finalized/pending nonces must both equal
+the current package nonce immediately before sensitive boundaries.
+
+Regression evidence
+===================
+
+- Different deployer, nonce gap, role substitution and duplicate address fail.
+- First and fourth planned address collisions fail in multi-RPC observation.
+- The maximum valid four-nonce uint64 window passes; one higher base fails.
+- Executor structural tests require prior finalized runtime validation at all
+  three mutable ceremony boundaries.
+- Focused Node tests: 18/18 passed after the concurrent ETAPA722 update
+  stabilized; bash syntax, Node syntax and diff checks passed.
+
+No RPC call, materialization, signing, transmission, deployment, funds action,
+commit or push was performed.

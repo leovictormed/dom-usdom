@@ -37,7 +37,10 @@ async fn test_spend_e2e_cross_node_propagation() {
     init_tracing();
 
     // Deterministic Bearer token so the HTTP client knows it without poking files.
-    std::env::set_var("DOM_RPC_TOKEN", "spend-e2e-token");
+    std::env::set_var(
+        "DOM_RPC_TOKEN",
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    );
 
     let p2p_a = free_local_port();
     let p2p_b = free_local_port();
@@ -127,7 +130,7 @@ async fn test_spend_e2e_cross_node_propagation() {
     let wallet_spend_url = format!("http://{rpc_a_addr}/wallet/spend");
     let resp = client
         .post(wallet_spend_url)
-        .bearer_auth("spend-e2e-token")
+        .bearer_auth("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
         .json(&body)
         .send()
         .await

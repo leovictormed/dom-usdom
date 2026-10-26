@@ -1,0 +1,49 @@
+USDOM stage 405 — Safe guard pinning
+Date: 2026-10-22
+
+Finding
+=======
+
+The production Safe evidence required an empty transaction guard, but the
+contracts continuously enforced only singleton, 2-of-3 owners, EOA owners and
+empty modules. Safe v1.4.1 intentionally has no public getGuard(); the official
+GuardManager directs integrations to the StorageAccessible.getStorageAt()
+interface and its fixed guard slot.
+
+Correction
+==========
+
+Both contracts now call Safe v1.4.1 getStorageAt(uint256,uint256) through the
+pinned singleton, requesting exactly one word at the official guard slot. The
+STATICCALL has a 50,000-gas cap and copies at most 96 bytes. Only the canonical
+ABI encoding of a 32-byte zero value is accepted: offset 0x20, length 0x20 and
+zero guard word. Failure, truncation, oversized return, malformed framing or a
+nonzero guard fails closed.
+
+The same check participates in construction, public health views and every
+critical runtime control-plane predicate. The finalized preflight independently
+reads the exact guard storage slot for all three Safes at the same block as all
+other release evidence; strict policy schema requires the zero address and two
+RPCs must agree.
+
+Evidence
+========
+
+- Focused Solidity policy tests and 50 preflight/readiness tests pass.
+- Complete Solidity suite: 145/145 pass, including invariant campaigns.
+- Complete Node suite: 304/304 pass.
+- Production lint and forced compilation pass. Current runtimes are 16,632 and
+  7,768 bytes, below EIP-170.
+- Safe v1.4.1 official StorageAccessible documents one-word storage reads;
+  official GuardManager identifies getStorageAt as the guard read interface.
+
+No live RPC, signature, transaction, deployment, funds, mining, project commit,
+tag or push occurred. The detached finalized-burn capacity proof remained
+active and was not restarted or modified.
+
+Next action
+===========
+
+Inspect the fallback-handler boundary and determine which parts affect direct
+contract authority versus release EIP-1271 evidence, then continue the next
+locally correctable boundary while the capacity proof runs.

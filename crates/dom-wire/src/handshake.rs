@@ -25,10 +25,7 @@ pub const HANDSHAKE_TIMEOUT_SECS: u64 = 10;
 /// set `DOM_TEST_HANDSHAKE_TIMEOUT_SECS` to shorten wall-clock waits without
 /// changing production defaults.
 pub fn handshake_timeout_secs() -> u64 {
-    std::env::var("DOM_TEST_HANDSHAKE_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(HANDSHAKE_TIMEOUT_SECS)
+    bounded_test_timeout("DOM_TEST_HANDSHAKE_TIMEOUT_SECS", HANDSHAKE_TIMEOUT_SECS)
 }
 
 /// Idle timeout for established connections.
@@ -60,10 +57,28 @@ pub const WRITE_TIMEOUT_SECS: u64 = 30;
 /// `DOM_TEST_WRITE_TIMEOUT_SECS` to shorten wall-clock waits without changing
 /// production defaults (mirrors [`handshake_timeout_secs`]).
 pub fn write_timeout_secs() -> u64 {
-    std::env::var("DOM_TEST_WRITE_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(WRITE_TIMEOUT_SECS)
+    bounded_test_timeout("DOM_TEST_WRITE_TIMEOUT_SECS", WRITE_TIMEOUT_SECS)
+}
+
+/// Test acceleration may only shorten a production deadline. Noncanonical,
+/// zero and oversized values retain the compiled safe default, so a stray
+/// `DOM_TEST_*` variable in a production service cannot disable liveness.
+fn bounded_test_timeout(name: &str, production_default: u64) -> u64 {
+    let text = std::env::var(name).ok();
+    parse_bounded_test_timeout(text.as_deref(), production_default)
+}
+
+fn parse_bounded_test_timeout(text: Option<&str>, production_default: u64) -> u64 {
+    let Some(text) = text else {
+        return production_default;
+    };
+    let Ok(value) = text.parse::<u64>() else {
+        return production_default;
+    };
+    if value == 0 || value > production_default || value.to_string() != text {
+        return production_default;
+    }
+    value
 }
 
 /// Prologue versions this build can speak, most preferred first.
@@ -465,6 +480,20 @@ pub async fn read_framed(stream: &mut tokio::net::TcpStream) -> Result<Vec<u8>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_timeout_override_can_only_canonically_shorten_default() {
+        assert_eq!(parse_bounded_test_timeout(None, 10), 10);
+        assert_eq!(parse_bounded_test_timeout(Some("1"), 10), 1);
+        assert_eq!(parse_bounded_test_timeout(Some("10"), 10), 10);
+        for invalid in ["0", "11", "01", "+1", " 1", "x"] {
+            assert_eq!(
+                parse_bounded_test_timeout(Some(invalid), 10),
+                10,
+                "invalid override {invalid:?} must retain production safety"
+            );
+        }
+    }
 
     #[test]
     fn prologue_is_deterministic() {

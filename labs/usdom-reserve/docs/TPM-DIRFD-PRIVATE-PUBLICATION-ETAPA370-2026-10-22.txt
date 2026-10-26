@@ -1,0 +1,39 @@
+USD + DOM — publicação privada TPM presa ao descritor
+Etapa 370 — 2026-10-22
+
+Problemas corrigidos
+
+O escritor comum de envelopes retinha e auditava o diretório pai, mas ainda
+criava o temporário e persistia o destino usando o pathname do pai. Uma troca
+do diretório entre as operações poderia fazer bytes secretos chegarem a outro
+diretório antes da auditoria final. O exportador da senha operacional também
+tentava remover o caminho de destino após qualquer falha, inclusive quando o
+erro era a existência legítima de um arquivo anterior.
+
+Correções
+
+- temporário e destino final são resolvidos por `/proc/self/fd/<dirfd>` abaixo
+  do descritor 0700 retido;
+- o caminho textual normalizado, inode, dispositivo, dono, modo e link direto
+  do pai são comparados antes e depois da persistência;
+- a rotina pública no-clobber permite reutilizar essa fronteira para evidência
+  e arquivos secretos sem duplicar implementação;
+- evidência do keystore TPM usa a rotina presa ao descritor, relê o arquivo
+  criado e compara todos os bytes;
+- senha operacional temporária usa a mesma criação durável sem substituição;
+- um destino preexistente agora permanece intacto em qualquer falha.
+
+Validação focada
+
+- envelopes existentes não são substituídos e symlink de arquivo é recusado;
+- pai por symlink é recusado sem escrever no diretório alvo;
+- exportação operacional cria 0600 com os bytes derivados e preserva um arquivo
+  preexistente byte a byte;
+- nó com recurso operacional TPM compila sem warnings novos;
+- formatação Rust e regressão estrutural passaram em 62/62;
+- proveniência completa passou para 169 importados, 45 fontes de programas de
+  prova, oito arquivos do manifesto de carteira e 1.151 fontes totais.
+
+Nenhum TPM foi acessado, nenhum segredo real foi criado e nenhuma chamada RPC,
+assinatura, transação, fundo, deploy, mineração, commit, tag ou push ocorreu. A
+prova longa permaneceu ativa e não foi reiniciada.

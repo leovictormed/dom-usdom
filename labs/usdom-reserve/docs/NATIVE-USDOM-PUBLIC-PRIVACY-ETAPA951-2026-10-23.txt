@@ -1,0 +1,43 @@
+ETAPA 951 — privacidade e vinculação do envelope/estado USDOM
+Data: 2026-10-23
+
+Resultado
+Nenhum leak removível foi confirmado sem alterar o protocolo ou impedir auditoria de
+oferta/resgate. Foi acrescentado um gate estrutural para preservar a separação entre
+campos privados, commitments e obrigações públicas.
+
+Transferência privada
+- públicos: anchor, 1–2 nullifiers, 1–2 novos note commitments, memo commitment e bytes
+  cifrados (incluindo quantidade de outputs);
+- ocultos pelo Groth16+memo AEAD: valores, openings, owner/scan secrets e destinatários;
+- cada output usa rho aleatório, ephemeral X25519 e nonce XChaCha20 independentes, com
+  AAD que vincula chain, owner commitment, scan key, ephemeral key, note e slot;
+- nullifier determinístico é necessário para anti-double-spend e não contém uma abertura
+  que permita ligá-lo ao note commitment sem o segredo.
+
+Emissão/deposito — campos públicos inevitáveis
+- depositId, valor, note commitment e âncora Ethereum. Deposit/value já são públicos na
+  Ethereum e precisam ser vinculados para anti-replay, backing e auditoria de supply.
+- A correlação depósito -> primeiro note commitment é portanto explícita na entrada; o
+  destinatário/owner e transferências posteriores permanecem ocultos pelo commitment.
+
+Burn/resgate — campos públicos inevitáveis
+- burnId, requestId aleatório, valor, recipient Ethereum, validade, chain/reserve e
+  commitment da obrigação; nullifiers e eventual change commitment também são públicos.
+- valor/recipient precisam chegar ao contrato Ethereum e serão públicos no pagamento.
+- burnId determinístico vincula a obrigação aos nullifiers daquela própria queima para
+  impedir substituição/replay; não revela os notes de origem.
+
+Metadados residuais
+- tipo da transição, número de inputs/outputs, presença/ausência de change, tamanho fixo
+  por quantidade de memo entries, timing/height e padrões de uso permanecem observáveis.
+- A carteira escolhe até dois notes deterministicamente, mas seus commitments de entrada
+  não são publicados junto aos nullifiers; randomizar seleção não remove o vazamento de
+  contagem e criaria novas exigências de política/testes.
+- Ethereum continua permitindo correlação externa de depósito e resgate; não há promessa
+  de anonimato absoluto.
+
+Validação
+- `native-usdom-public-privacy-stage951.test.mjs`: 3/3 passou.
+- git diff --check: passou.
+- Sem Cargo pesado ou alteração de protocolo.

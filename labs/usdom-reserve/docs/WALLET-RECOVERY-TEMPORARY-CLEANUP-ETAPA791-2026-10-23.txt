@@ -1,0 +1,21 @@
+ETAPA791 — WALLET RECOVERY TEMPORARY CLEANUP
+Date: 2026-10-23
+
+Finding and correction
+----------------------
+The closed-mainnet recovery drill stores recovery/state passwords and private
+wallet/RPC snapshots in `/dev/shm`, but cleanup used PATH-resolved `find` and a
+shared signal trap. Node is now pinned by path, ownership, link count, mode,
+trusted directory, inode metadata and SHA-256; Node authority reads use the
+pinned path with identity rechecks.
+
+Cleanup disarms traps, unsets the recovery password, removes the full private
+tree through pinned Node, preserves normal EXIT status and maps HUP/INT/TERM to
+129/130/143. The drill starts no background child, so no residual child wait is
+required.
+
+Validation
+----------
+Wallet recovery, TPM bootstrap and burn cleanup suites pass 6/6 and reject PATH
+deletion or ambiguous signal traps. `bash -n` and `git diff --check` pass. No
+TPM, recovery, RPC, wallet or funds operation ran.

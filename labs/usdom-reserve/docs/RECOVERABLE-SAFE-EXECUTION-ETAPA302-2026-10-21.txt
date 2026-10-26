@@ -1,0 +1,74 @@
+USDOM — executor retomável do ensaio Safe (etapa 302)
+Data: 2026-10-21
+Escopo: implementação local; nenhuma assinatura ou transação executada
+
+RISCO TRATADO
+
+Executar três rotações Mainnet é uma operação parcialmente ordenada: uma Safe
+pode concluir e o processo pode cair antes das outras. Recriar ou retransmitir
+calldata, nonce ou taxas sem estado durável pode causar gasto duplicado de gás,
+confusão de evidência ou assinatura de uma operação diferente.
+
+IMPLEMENTAÇÃO
+
+- o executor revalida plano, pacote assinado e dois RPCs antes de cada papel;
+- exige a frase exata `AUTORIZO TRES SWAPOWNER SAFE MAINNET` somente quando há
+  uma operação ainda ausente;
+- confere duas vezes que o Ledger relayer é a chave secundária esperada;
+- usa `cast mktx` para produzir a transação Ethereum assinada sem publicar;
+- exige consenso entre nonces finalized/pending de dois RPCs, EOA e saldo;
+- deriva gás com margem de 25% e teto 500.000, fixa priority fee em 2 gwei e
+  limita maxFeePerGas a 500 gwei;
+- grava o plano EIP-1559, raw transaction e Keccak-256 em arquivos 0600 por
+  substituição atômica no mesmo filesystem antes de `cast publish`;
+- segura um lock exclusivo do diretório para impedir executores concorrentes;
+- decodifica toda raw transaction nova ou retomada e exige chain 1, relayer
+  sobrevivente, nonce, gás, taxas, Safe, valor e calldata idênticos ao plano;
+- numa retomada, observa primeiro o evento `ExecutionSuccess(safeTxHash)` em
+  bloco finalizado. Se já existe, não transmite novamente; se há raw transaction
+  durável, publica exatamente os mesmos bytes;
+- uma Safe ainda não executada precisa passar novamente por singleton, owners,
+  threshold, nonce, fallback, guard, módulos e package reconstruction em duas
+  RPCs finalizadas;
+- cada resultado é observado em duas RPCs, preso ao bloco canônico e ao calldata
+  assinado; somente então o executor avança para o papel seguinte;
+- após os três papéis, o coletor completo da etapa 300 verifica recibos, eventos,
+  assinaturas sobreviventes, nonces e estado final, e grava um relatório único.
+
+ARQUIVOS PRINCIPAIS
+
+- `sdk/safe-control-recovery-envelope.mjs`
+- `sdk/safe-control-recovery-execution.mjs`
+- `scripts/prepare-recoverable-safe-recovery-envelope.mjs`
+- `scripts/check-recoverable-safe-recovery-envelope.mjs`
+- `scripts/check-recoverable-safe-recovery-raw-transaction.mjs`
+- `scripts/check-recoverable-safe-recovery-transactions.mjs`
+- `scripts/check-recoverable-safe-recovery-target.mjs`
+- `scripts/observe-recoverable-safe-recovery-execution.mjs`
+- `scripts/execute-recoverable-safe-recovery.sh`
+
+LIMITES
+
+O executor contém capacidade de publicação e, por isso, não foi executado. A
+existência do script não marca o ensaio como concluído. O flag
+`production_control_plane_recovery_drill_passed` permanece falso até os três
+eventos e recibos reais passarem pelo coletor final. Os dois URLs RPC precisam
+ser operados por infraestruturas realmente independentes; o código só consegue
+provar que as strings são distintas. O relayer deve permanecer sem outras
+transações pending durante o ensaio. Os tetos de gás/taxa priorizam segurança
+de custo e podem adiar uma recuperação durante congestionamento extremo.
+Nenhum push foi realizado.
+
+VALIDAÇÃO LOCAL
+
+- 96/96 testes focados de recuperação, runbook e readiness passam;
+- lint dos quatro contratos de produção, rebuild Foundry e 203/203 testes Node
+  passam;
+- smoke test Anvil efêmero com chain ID 1 confirmou estimate, mktx EIP-1559,
+  hash, publish assíncrono e consulta pelo mesmo hash;
+- proveniência passa 169 imports/16 mudanças declaradas, 45 fontes de programas
+  de prova, 7 fontes de carteira/8 arquivos de crate e 992 fontes do laboratório;
+- os gates continuam fechados por fatos externos ainda ausentes: 161 bloqueios
+  únicos no closed-mainnet e 172 no real-funds; zero bloqueios de etapa 302,
+  auditoria externa ou garantia de risco zero;
+- nenhuma execução desse script, assinatura Ledger ou chamada mainnet ocorreu.

@@ -1,0 +1,20 @@
+Stage 489 — Safe recovery signer owner-plan binding
+Date: 2026-10-23
+
+The Safe recovery signing ceremony reobserved network state by rebuilding the
+plan, but supplied lostOwner and replacementOwner independently through the
+environment. Those values already exist in the canonical, hash-addressed plan,
+so a loose substitution could make the presign reconstruction disagree with
+the reviewed transition and only fail indirectly.
+
+The ceremony now derives both owner addresses from the direct immutable plan
+snapshot before reobservation. It no longer requires either address from the
+caller. The executor also removes the same two loose requirements because it
+never consumed them. Omission or external substitution can no longer change
+the owner transition reconstructed at the signing boundary.
+
+`production_safe_recovery_signer_owner_transition_derived_from_plan` is a
+structural fact. No network access, signature, transaction, funds, mining,
+commit or push occurred while producing this evidence.
+
+Validation: shell syntax and complete operator runbook 71/71; readiness 60/60.

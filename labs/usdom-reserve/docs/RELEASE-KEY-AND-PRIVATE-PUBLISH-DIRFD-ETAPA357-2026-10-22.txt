@@ -1,0 +1,51 @@
+USD + DOM — chave de release e publicação privada fixadas por descritor
+Etapa 357 — 2026-10-22
+
+Problemas corrigidos
+
+O configurador da chave de assinatura aceitava caminhos que ainda podiam ser
+links e aplicava `chmod` antes de provar que os arquivos eram inodes diretos. A
+publicação de vários artefatos privados de autorização, atestação e controle
+Safe ainda terminava com `mv` por caminho, sem fixar o diretório de destino.
+
+Correções
+
+- a hierarquia privada da chave é percorrida com
+  `O_DIRECTORY|O_NOFOLLOW`, criada com modo 0700 quando ausente e comparada por
+  dispositivo/inode ao caminho canônico;
+- as partes privada e pública precisam ser arquivos regulares, do usuário
+  local, com um único link e tamanho limitado antes de qualquer `chmod`;
+- ambas ficam em modo 0600 e seus fingerprints SHA-256 precisam coincidir,
+  provando que formam o mesmo par Ed25519;
+- uma troca do diretório durante a inspeção é detectada antes de configurar o
+  Git;
+- `install-private-file-stdin.mjs` fornece uma fronteira pequena e limitada que
+  encaminha bytes ao gravador durável comum;
+- o arquivo `allowedSigners`, solicitações de assinatura, relatórios privados,
+  autorizações materializadas, atestações nativas e o conjunto de evidências
+  dos Safes agora são instalados com diretório fixado, temporário exclusivo,
+  `fsync`, leitura exata pós-instalação e rejeição de symlink/hardlink.
+
+Validação inicial
+
+- sintaxe Bash e JavaScript: passou;
+- ShellCheck dos sete scripts alterados: passou;
+- chave existente válida e configuração Git: passaram;
+- chave privada simbólica e chave com hard link: rejeitadas antes de alterar o
+  alvo;
+- instalador privado: criação 0600 passou e ataques com symlink/hardlink foram
+  rejeitados;
+- suíte operacional: 60/60 testes passaram;
+- lint e compilação forçada dos 44 fontes Solidity de produção: passaram;
+- regressão Node completa: 298/298 testes passaram;
+- proveniência completa: 169 importações, 45 fontes de prova e 1.132 fontes
+  do manifesto foram verificadas;
+- gate não configurado: permaneceu nos 161 fatos derivados esperados, sem
+  bloqueio de auditoria externa, risco zero ou integridade do manifesto;
+- `git diff --check`: passou.
+
+Limites preservados
+
+Nenhuma chave real foi criada, aberta ou assinada. Nenhum push, commit, tag,
+deploy, broadcast, mineração ou uso de fundos foi executado. O prover ativo não
+foi alterado nem reiniciado.

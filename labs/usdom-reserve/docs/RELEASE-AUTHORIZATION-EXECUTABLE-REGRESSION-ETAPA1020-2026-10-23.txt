@@ -1,0 +1,26 @@
+ETAPA 1020 — executable release-authorization regression
+Date: 2026-10-23
+
+Finding
+The ETAPA1007 structural test still required the pre-ETAPA1011 inline expression
+keccak256(toUtf8Bytes(canonicalJson(releaseEvidence))). ETAPA1011 intentionally
+split canonicalization, the 4 MiB bound, and hashing into three statements. The
+implementation was correct, but the stale structural assertion failed under the
+pinned Node runtime and could no longer serve as a release gate.
+
+Correction
+The gate now independently requires:
+1. canonicalJson(releaseEvidence) assigned to encoded;
+2. the 4 MiB UTF-8 byte-length bound applied to encoded; and
+3. keccak256(toUtf8Bytes(encoded)) returned.
+This preserves the security property and makes removal of the size bound or
+hashing step independently detectable.
+
+Evidence
+/home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test \
+  labs/usdom-reserve/test/node/release-authorization-binding.test.mjs \
+  labs/usdom-reserve/test/node/release-evidence-commitment-boundary.test.mjs
+Result: 2 tests, 2 pass, 0 fail.
+git diff --check: pass.
+
+No network, signing, deployment, funds, commit, or push was performed.

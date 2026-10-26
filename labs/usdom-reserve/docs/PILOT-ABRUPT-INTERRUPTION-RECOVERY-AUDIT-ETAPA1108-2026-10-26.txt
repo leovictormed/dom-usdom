@@ -1,0 +1,31 @@
+USDOM — interrupção abrupta e recovery do piloto (Etapa 1108)
+Data: 2026-10-26
+
+Resultado
+- EXIT/HUP/INT/TERM continuam removendo temporários normalmente.
+- SIGKILL e perda de energia não podem executar traps por definição do sistema
+  operacional. Dados transitórios ficam em tmpfs: reinício os elimina. Se houver
+  SIGKILL sem reinício, a próxima execução, após adquirir o lock exclusivo do
+  control-plane, remove somente diretórios abandonados do papel, pertencentes ao
+  uid atual, diretos, não symlink e modo 0700.
+- O raw persistente 0600 é proposital entre assinatura e finalidade. Se a morte
+  ocorrer entre sua instalação e a instalação da validação, a próxima execução
+  deriva novamente a validação canônica do mesmo raw e usa create-once.
+- Antes de transmitir, duas RPCs devem concordar com o nonce pendente. Nonce exato
+  permite retransmitir somente o mesmo raw/hash; sucessor exato entra em recuperação
+  do recibo pelo hash já conhecido sem novo broadcast; divergência, atraso, avanço
+  maior ou nonce ambíguo abortam.
+- Depois da finalidade confirmada em duas RPCs, o raw é apagado. Recibos, hashes e
+  deltas públicos sustentam as retomadas posteriores.
+
+Regressões corrigidas
+- Dois asserts textuais foram atualizados para o parser UTF-8 fatal seguido de JSON
+  estrito atual e para o Cargo pinado/frozen/feature-minimal atual.
+- A fixture do coletor de burn passou a incluir os campos obrigatórios do registry,
+  preservando a validação exata da configuração do ProofReserve.
+
+Verificação
+- Suíte ampla privada/closed-mainnet/burn: 51/51 passou.
+- Testes focais de raw e nonce/recovery: passaram.
+- Shell syntax e diff checks: passaram.
+- Sem rede, assinatura, Cargo, Forge, deploy, commit ou push.

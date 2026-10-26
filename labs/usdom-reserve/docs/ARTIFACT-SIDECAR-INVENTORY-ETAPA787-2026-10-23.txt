@@ -1,0 +1,27 @@
+ETAPA 787 — proof-to-Ethereum artifact/sidecar inventory
+Date: 2026-10-23
+
+Inventory result
+The remaining proof-to-Ethereum create-once pairs in which one artifact is unusable without a sibling SHA sidecar are exactly:
+1. checkpoint finalized transaction reference JSON + SHA-256;
+2. checkpoint bootstrap ratification request JSON + SHA-256;
+3. checkpoint bootstrap ratification signature + SHA-256.
+
+All three now follow the same logical transaction:
+- construct artifact and hash privately;
+- install/read back the hash sidecar first;
+- permit a crash-prefix retry only if the existing sidecar is a direct owner-only 0600 file and exactly equals the rebuilt hash;
+- reject any substituted sidecar;
+- install/read back the semantic artifact last as the completion marker;
+- sync only after exact installed-byte checks.
+
+Proof receipt/Groth16 pipelines use artifact-first/index-last completion indexes rather than sibling SHA files and were already covered in ETAPAs 737–765. Submission JSON packages are single durable create-once completion artifacts and were covered in ETAPA770.
+
+Regression
+Added `test/node/artifact-sidecar-publication.test.mjs`, an explicit three-item inventory. The test fails if a sidecar install is missing, follows its completion artifact, lacks authenticated retry, or lacks sidecar/completion readback. Its fixed count forces review when a new pair enters this trust boundary.
+
+Validation
+node --test test/node/artifact-sidecar-publication.test.mjs: 1/1 passed.
+bash -n on all three publishers: passed.
+git diff --check: passed.
+No RPC, signature, broadcast, proof, Cargo or funds operation ran.

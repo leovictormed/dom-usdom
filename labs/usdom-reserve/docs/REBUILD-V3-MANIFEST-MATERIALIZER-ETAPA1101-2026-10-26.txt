@@ -1,0 +1,22 @@
+ETAPA 1101 — REBUILD V3 MANIFEST MATERIALIZER
+Date: 2026-10-26
+
+Added a create-once V3 manifest materializer driven only by a SHA-256 pinned
+local recipe. It requires the complete eight-stage graph and non-placeholder
+producer commands, refuses absent real receipt/proof evidence, resolves the
+verify-rebuild-receipt and aggregator executables to direct executable regular
+files, recomputes their hashes and compares separate reviewed pins.
+
+For every declared receipt it derives the full verify-only argv and output,
+then derives the aggregator argv from the authenticated receipts-stage input.
+Both executable paths/hashes are inserted into the manifest tool inventory.
+The result is written mode 0600 with O_EXCL/O_NOFOLLOW and file/directory fsync.
+
+Lightweight tests pass 4/4: complete recipe materialization, missing real
+receipts, substituted executable hash, and verifier binary not built. Python
+compilation and diff checks pass.
+
+The real verify-rebuild-receipt binary is currently absent from both known
+target/debug and target/release paths, and real receipt/proof evidence is not
+available. Consequently no production manifest was materialized. No Cargo,
+Forge, network, deployment, funds, commit or push was used.

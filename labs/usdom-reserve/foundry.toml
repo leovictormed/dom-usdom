@@ -4,11 +4,16 @@ test = "test/solidity"
 out = "out"
 cache_path = "cache"
 libs = ["vendor"]
+fs_permissions = [{ access = "read", path = "test/fixtures/safe-1.4.1-mainnet.json" }]
 remappings = ["@openzeppelin/contracts/=vendor/openzeppelin-contracts-5.6.1/"]
 solc_version = "0.8.37"
 evm_version = "cancun"
 optimizer = true
-optimizer_runs = 200
+# Custody contracts are constrained by EIP-170 with a 4 KiB release margin.
+# One run asks solc to optimize for deployed size; release gas ceilings are
+# independently measured from the resulting canonical artifact.
+optimizer_runs = 1
+via_ir = true
 bytecode_hash = "none"
 ast = true
 fuzz = { runs = 1024 }

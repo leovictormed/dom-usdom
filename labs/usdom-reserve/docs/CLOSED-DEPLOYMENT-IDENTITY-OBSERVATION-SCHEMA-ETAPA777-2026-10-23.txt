@@ -1,0 +1,35 @@
+ETAPA 777 — closed deployment identity observation schema
+Date: 2026-10-23
+
+Finding
+
+The observation already had a closed top-level key set, self-hash, release
+configuration hashes, source consensus commitment and source-derived CREATE
+plans. Its nested `rpcObservations` were only checked for nonce equality and
+their source commitments. Extra keys, malformed block quantities, type drift
+and disagreement in the finalized block were therefore not rejected by a
+dedicated nested schema. The executor checked only the document SHA before
+using the package linked to it.
+
+Correction
+
+- Every RPC observation now has exactly six keys: source, origin commitment,
+  finalized block number/hash and finalized/pending nonce.
+- The validator requires 2..5 observations, unique canonical source IDs and
+  nonzero unique origin commitments, lowercase bytes32 hashes, canonical
+  decimal uint64 quantities, equal finalized snapshots and nonce equality.
+- Existing top-level exact keys, observation hash, RPC consensus, release
+  before/after hashes and source-derived four-CREATE plan checks remain.
+- A private mode-0600 bounded/stable reader performs fatal UTF-8 and duplicate
+  key parsing, verifies the package-bound document SHA and invokes the shared
+  validator. The executor runs it before RPC setup. Transaction preparation
+  now invokes the same validator directly before using any observation field.
+
+Validation
+
+- Focused identity/package tests: 13/13 pass, including nested extra/missing,
+  type, leading-zero, uint64 overflow, block disagreement, duplicate source and
+  duplicate origin mutations with a recomputed outer observation hash.
+- Node and shell syntax and diff checks pass.
+
+No RPC, deploy, signature, commit, push or fund action was performed.

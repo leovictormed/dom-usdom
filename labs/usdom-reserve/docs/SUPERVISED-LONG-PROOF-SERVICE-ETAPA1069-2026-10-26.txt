@@ -1,0 +1,77 @@
+Stage 1069 — supervised long-proof service and signal provenance
+Date: 2026-10-26
+
+Finding
+=======
+
+The historical v5 runner could preserve a child exit code, but it did not trap
+supervisor signals, retain the transient unit, identify an ordinary signal's
+sending PID/UID, or prevent reuse of one run directory. That made exit 143
+provable as SIGTERM while leaving its sender permanently undetermined.
+
+Hardening
+=========
+
+`run-supervised-long-proof.py` now gives every attempt an immutable run ID: the
+SHA-256 of a canonical, one-use command manifest containing a 128-bit nonce,
+absolute argv/cwd, exact environment and executable SHA-256. It holds a global
+nonblocking flock, creates the run directory exclusively and refuses any reuse.
+The authenticated executable is copied to a private memfd, rechecked against
+its descriptor metadata, sealed against writes/growth/shrinkage, and executed
+from that sealed descriptor. Loader injection variables and inherited ambient
+environment are excluded.
+
+TERM, INT and HUP are blocked before setup and consumed with `sigtimedwait`.
+Linux therefore supplies sender PID, UID and signal code without root. Each
+signal is synchronously appended and fsynced before it is forwarded to the
+child process group. A cooperative stop also has an exclusive, durable
+`stop-request.json` containing requester PID/UID and systemd InvocationID.
+Signals sent only to the child cannot reveal their sender after the fact; the
+terminal record says so rather than inventing attribution.
+
+Run manifest, event stream, combined child log and terminal record are private,
+durable and attempt-local. Terminal publication is create-only and atomic.
+The child gets 540 seconds to terminate, leaving one minute for the supervisor
+to fsync terminal evidence before systemd's ten-minute final kill boundary.
+Unexpected descendants surviving the authenticated child leader are terminated
+and convert nominal success into failure before the startup lock is released.
+
+Service policy
+==============
+
+The persistent user-unit template uses `Restart=no` and `ExitType=cgroup`; a failure can never start
+a second attempt or mix receipts. `KillMode=mixed` sends TERM to the supervisor,
+which logs and forwards it, while `TimeoutStopSec=10min` retains a bounded final
+SIGKILL fallback for the whole cgroup. CPUWeight=10, IOWeight=100,
+MemoryHigh=5500M and MemoryMax=6500M retain the proven constrained-host
+envelope. OOMPolicy=stop, TasksMax=256, a private network/device/tmp view,
+read-only home/system and kernel/control-group restrictions reduce accidental
+interference. The only writable service path is its private state root.
+
+`install-supervised-proof-user-service.py` validates and materializes the
+absolute repository path, verifies the unit before atomic installation and
+never overwrites a different installed unit. `prepare-supervised-proof-job.py`
+creates the canonical one-use job without starting it. The fail-closed control
+tool reports the exact unit or stops it only after matching its main process to
+the requested run ID. Installation, job creation and start remain distinct
+operator actions. This stage installed or started none of them.
+
+Validation
+==========
+
+Three fake-process tests pass: successful durable terminal state and run-ID
+non-reuse; TERM sender logging, forwarding and graceful terminal publication;
+and complete unit stop/resource/sandbox policy. Python byte compilation,
+materialized `systemd-analyze --user verify`, and repository diff integrity
+pass. No proof/build, network access, push, deployment, signature or funds were
+used. Historical v5 evidence was not modified.
+
+Trust boundary
+==============
+
+PID/UID from `sigwaitinfo` identifies the immediate kernel signal sender. For a
+systemd stop this is normally the user manager; the authenticated cooperative
+stop marker records the requesting control process. A same-UID actor outside
+this workflow can still signal or alter same-UID files, and root/kernel can do
+so invisibly. Stronger forensic attribution requires a preconfigured audit/eBPF
+facility and is intentionally not claimed here.

@@ -1,0 +1,51 @@
+ETAPA1057 — independent post-1045 Solidity reserve invariant audit
+
+Scope and result
+----------------
+Reviewed USDOMProofReserve after checkpoint-registry identity integration, focusing on
+economic accounting, reentrancy, USDT behavior, pause/recovery/closure, storage types
+and liveness. Registry review was limited to its immutable identity/health/closure
+boundary; candidate selection was deliberately excluded from this independent front.
+No new concrete contract defect was found, so production Solidity was not changed.
+
+Invariant matrix
+----------------
+- Collateral: outstanding = totalDeposited-totalReleased; deposits cap outstanding;
+  reservations cap against unreserved collateral; exact token balance deltas reject
+  fee-on-transfer/rebase behavior.
+- Queue: amount is added once, removed once, and replay identities become terminal;
+  O(1) pause increments queueEpoch and resets only current aggregate/head/tail state;
+  stale entries remain permissionlessly and boundedly pruneable/renewable.
+- Effects/interactions: deposit, queue and execute are nonReentrant; payout marks
+  accounting/replay and removes pending before bounded token CALL; any callback,
+  false/malformed return or delta mismatch reverts the whole transaction.
+- USDT: immutable codehash, paused/deprecated, fee policy and blacklist are checked;
+  static calls and transfer calls cap gas and copied returndata; empty legacy return
+  or canonical true alone is accepted.
+- Pause/recovery: emergency invalidates one queue generation; repeated pause cancels
+  resume without epoch churn; resume requires delay plus unchanged control plane,
+  verifier and usable token.
+- Closure: deposits close permanently without blocking debt renewal/payout. Terminal
+  shutdown requires unpaused state, zero outstanding/pending, deposited=released,
+  unchanged registry/control plane, registry issuance closure and issued=burned.
+- Packing/types: monetary totals remain uint256, externally authenticated amounts and
+  queue epochs/times use bounded uint64 conversions, booleans cannot alias authority;
+  the contract is immutable/non-upgradeable, so slot packing creates no upgrade-layout
+  migration surface.
+- Liveness: expired/head-blocked entries have bounded prune paths; token pause,
+  blacklist, fee activation or code drift intentionally stop value paths fail-closed;
+  governance can resume only after those conditions are restored.
+
+Residual assumptions
+--------------------
+USDT governance can intentionally pause/freeze accounts, causing safe loss of
+liveness. Safe governance/guardian and the immutable verifier/registry remain trusted
+within their explicit threshold and code-identity assumptions. Graceful closure needs
+all proved burn debts paid and the registry's authenticated zero-circulation state.
+These are declared operational/trust conditions, not uncovered code bypasses.
+
+Validation
+----------
+Pinned Node 24.19.0 structural invariant gate plus existing proof-reserve and
+payout-once suites passed 9/9. Focused diff check passed. Forge was not run while the
+long proof workload remained active. No network, signing, deployment, push or funds.

@@ -1,0 +1,93 @@
+ETAPA 1071 — AUDITORIA INDEPENDENTE DA SUPERVISÃO DE PROVA LONGA
+Data: 2026-10-26
+
+Escopo
+======
+Revisão somente local da ETAPA1069: sinais síncronos, grupos/sessões/órfãos,
+KillMode/ExitType/TimeoutStop systemd, execução por memfd, publicações create-only,
+fsync, identidade do run, lock global e autenticação de status/stop. Nenhuma prova,
+build Cargo, serviço, rede, deploy, assinatura ou fundo foi iniciado.
+
+Achados corrigidos
+==================
+
+1. Um filho podia capturar SIGTERM e sair 0. O supervisor registrava TERM, mas
+   publicava exitStatus 0 e também retornava sucesso ao systemd. Agora qualquer
+   saída normal após sinal gerenciado vira o status de interrupção 128+signal;
+   SIGTERM cooperativo resulta inequivocamente em 143. Um SIGKILL real do filho
+   continua preservado como 137.
+
+2. `killpg(child.pid, ...)` não cobre um descendente que chama `setsid()`. O
+   supervisor agora se torna Linux child-subreaper antes do fork, autentica
+   descendentes por PID+start-ticks, termina também os que escaparam do process
+   group, reaproveita nenhum PID sem rechecagem e converte sucesso nominal em 125
+   se qualquer descendente sobreviveu ao líder. Regressão adversarial com
+   descendente `setsid` prova que ele é encerrado antes de terminal.json.
+
+3. Registros e manifestos usavam um único `os.write`, que pode ser parcial, e
+   alguns caminhos faziam fsync antes de fchmod. Todos os publishers agora repetem
+   write até consumir o buffer, repetem após EINTR, rejeitam write zero, aplicam
+   modo antes de fsync, publicam por hard-link create-only e fsyncam o diretório.
+   O process.log é fsyncado antes do terminal. A hierarquia root/runs/run também
+   recebe fsync após criação. Um teste injeta EINTR e sucessivos writes de 3 bytes
+   e comprova conteúdo byte-exato.
+
+4. O cwd era verificado por pathname e reaberto no Popen. Agora deve ser absoluto,
+   canônico e sem componentes symlink; é aberto uma vez com O_DIRECTORY|O_NOFOLLOW,
+   mantido por descriptor e usado pelo filho via `/proc/self/fd/<cwd_fd>`.
+
+5. status/stop confiavam em presença de arquivo e tokens soltos no cmdline. O
+   controle agora exige diretórios privados/canônicos, JSON byte-canônico com
+   schema exato, binding terminal->run SHA, boot ID, runner PID, start ticks,
+   systemd InvocationID, supervisor path/hash e pares cmdline adjacentes para
+   state-root, run-id, command-manifest e supervisor pin. Stop falha antes de
+   publicar pedido se qualquer identidade divergir. Um run.json alterado por um
+   único byte é rejeitado.
+
+6. O serviço executava o supervisor diretamente da árvore sem um pin materializado.
+   O instalador agora mede o supervisor por descriptor estável, embute seu SHA-256
+   no unit e o runner se recusa antes de criar state se seu próprio conteúdo não
+   coincidir. run.json registra path e SHA do supervisor.
+
+7. Job, stop-request e unit tinham janelas de visibilidade parcial ou publicação
+   check-then-rename. Agora usam temporário fsynced + hard-link sem overwrite +
+   unlink + fsync do diretório. O instalador rejeita unit indireto, hard-linked,
+   permissivo ou divergente e nunca substitui um concorrente. Preparação também
+   rejeita cwd indireto, setid executable e variáveis loader/ambient proibidas.
+
+Semântica systemd confirmada
+============================
+`Type=exec`, `ExitType=cgroup`, `Restart=no`, `KillMode=mixed`, SIGTERM inicial
+somente ao supervisor, `TimeoutStopSec=10min`, SendSIGKILL e FinalKillSignal
+SIGKILL são coerentes. O supervisor registra e encaminha TERM/INT/HUP e aplica
+grace máximo de 540 segundos, preservando até um minuto para fechamento antes do
+fallback do manager. ExitType=cgroup mantém a unidade não-terminal enquanto há
+processos no cgroup; o subreaper adiciona a verificação local que faltava para
+sessões/process groups destacados.
+
+Execução imutável
+=================
+O executável de prova continua aberto O_NOFOLLOW, limitado a 1 GiB, rejeita
+setuid/setgid e hard links, é copiado integralmente a um memfd privado, conferido
+por SHA-256 e metadados do descriptor, recebe F_SEAL_WRITE/GROW/SHRINK/SEAL e é
+executado somente pelo descriptor. O cwd também permanece fd-bound. Confiança no
+kernel, root, Python, loader e bibliotecas dinâmicas do host segue explícita.
+
+Validação
+=========
+- suite Node supervisionada: 9/9;
+- Python byte-compilation dos quatro scripts;
+- unit materializado com SHA real aceito por `systemd-analyze --user verify`;
+- teste adversarial setsid/orphan;
+- teste de pin de supervisor substituído;
+- teste EINTR/partial-write;
+- teste de tamper byte-canônico em run.json;
+- `git diff --check` aprovado.
+
+Limites residuais
+=================
+Um ator de mesmo UID ou root pode alterar código, unit e arquivos antes de uma
+execução e reinstalar um novo pin; isso pertence à confiança do host/cerimônia.
+OOM ou SIGKILL do próprio supervisor pode impedir terminal.json, mas nunca produz
+terminal de sucesso. Atribuição sigwaitinfo identifica o emissor imediato do
+sinal; não prova a pessoa ou causa além do kernel sender PID/UID/code.

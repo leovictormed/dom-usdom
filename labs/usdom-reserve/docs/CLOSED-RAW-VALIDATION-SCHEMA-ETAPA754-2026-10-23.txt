@@ -1,0 +1,33 @@
+ETAPA754 — closed deployment raw-validation schema
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+Persisted raw-validation evidence used strict JSON but recovery accepted
+unknown keys and relied on scattered jq comparisons. This allowed schema or
+type drift and did not independently recompute its fee arithmetic.
+
+The shared deployment-evidence module now also defines the exact eighteen-key
+raw-validation v1 schema. It fixes version, mainnet chain, role/index relation,
+checksummed sender/contract, canonical uint64 nonce, nonzero transaction and
+observation hashes, five SHA-256 context/raw commitments, and canonical decimal
+gas/fee/cost fields. Gas and fee obey production caps, priority fee equals the
+fixed policy and `maximumCost` must exactly equal `gasLimit * maxFeePerGas` in
+BigInt.
+
+The raw writer validates this schema before emitting bytes. Recovery reads the
+private bounded snapshot with fatal UTF-8 and duplicate-key-safe parsing and
+uses the same exact validator before linking it to package, raw, receipt and
+completion manifest.
+
+Verification
+============
+
+- Writer-shaped fixture passes.
+- Extra/missing/nested fields, unknown version, type/index drift,
+  noncanonical quantities and fee/cost inconsistency fail.
+- Focused Node tests: 14/14 passed.
+- Bash/Node syntax and `git diff --check`: passed.
+
+No real RPC, signature, deployment, funds action, commit or push occurred.

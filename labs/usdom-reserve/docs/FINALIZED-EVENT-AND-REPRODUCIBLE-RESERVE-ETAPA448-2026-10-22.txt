@@ -1,0 +1,18 @@
+USD0M stage 448 - finalized checkpoint event and reproducible reserve build
+
+The release gate now reconstructs the finalized checkpoint report rather than
+accepting its path and digest alone. It validates independent source identity,
+one successful receipt, the exact Checkpoint event ABI and registry address,
+release-bound domain/network/config, runtime identity, stable finalized block
+and matching active post-state with no candidate left pending.
+
+The reserve reproducible-build report now requires two clean isolated Forge
+outputs. Both artifacts must be byte-identical to the release artifact, use the
+pinned compiler and identical ordered source metadata, and independently derive
+the exact release runtime and initcode hashes through the production SDK.
+Inputs are reread after both builds to reject concurrent release drift.
+
+Canonical and mutation tests pass for the report modules and integrated release
+gate. The real two-build materializer remains a release-time operation and has
+not yet been run against a configured immutable release. No live RPC, push,
+commit, tag, deployment, signature, transaction or funds were used.

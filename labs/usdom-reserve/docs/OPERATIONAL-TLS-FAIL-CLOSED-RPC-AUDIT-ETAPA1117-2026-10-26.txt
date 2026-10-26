@@ -1,0 +1,24 @@
+OPERATIONAL TLS AND FAIL-CLOSED RPC AUDIT — ETAPA 1117
+Date: 2026-10-26
+Scope: local policy, scripts and lightweight tests only.
+
+RESULT
+- The stale generator assertion now requires the exact redacted pilot diagnostic
+  and rejects leaked error, stack, cause or semantic completion text. The four
+  generator/DAG suites pass 8/8.
+- RPC catalog TLS policy now names the actual boundary: Node default CA trust,
+  native hostname and certificate-expiry verification, and create-once origin
+  commitment. Custom CA files, CA-selection/OpenSSL flags, proxy environment and
+  disabled TLS verification are rejected.
+- Host time must be a safe integer between 2025-01-01 and 2100-01-01 before a
+  request. This catches gross clock faults; it does not claim an independent
+  trusted-time source. Node TLS evaluates certificate validity with host time.
+- Every configured source remains mandatory. Collection uses Promise.all, has no
+  Promise.any/race failover, refuses HTTP and redirects, and cannot silently
+  replace a failed source with an uncatalogued endpoint.
+
+VALIDATION
+- Generator/DAG group: 8/8 passed.
+- TLS/RPC/preflight group: 25/25 passed.
+- Node and shell syntax plus focused diff integrity passed.
+- No network, Cargo, Forge, signing, deployment, funds, commit or push ran.

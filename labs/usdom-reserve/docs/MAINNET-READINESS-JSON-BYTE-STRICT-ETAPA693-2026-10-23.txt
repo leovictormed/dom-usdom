@@ -1,0 +1,36 @@
+ETAPA 693 — CHECKER AGREGADO MAINNET COM JSON DE BYTES ESTRITOS
+Data: 2026-10-23
+
+Auditoria dos quatro relatórios reproducíveis
+Os preparadores reserve, finalized-burn verifier, checkpoint registry e
+checkpoint verifier usam parseStrictJsonBytes para release/config/artifacts e
+mantêm duas builds, tool/source/artifact/runtime/initcode/config bindings.
+O checker agregado de readiness era a próxima fronteira: ainda usava conversão
+UTF-8 tolerante em oito caminhos de JSON de projeto/evidência.
+
+Correção
+Todas as oito chamadas foram migradas para parseStrictJsonBytes: JSON fixo do
+projeto, requirements, evidence/project opcionais, raw fork evidence, ambas
+verifier configs e attestations. Fontes Solidity continuam texto não-JSON.
+
+Vínculo cruzado preservado
+- os quatro documentos reproducible-build são enumerados pela release evidence;
+- cada evidence file permanece SHA-256 conferido;
+- deriveReserveArtifactBinding, deriveFinalizedBurnVerifierArtifactBinding,
+  deriveCheckpointRegistryArtifactBinding e deriveCheckpointVerifierArtifactBinding
+  recalculam artefatos/configs em vez de confiar apenas no relatório;
+- readiness continua somente avaliação, sem autorização de broadcast/fundos.
+
+Validação leve
+- duplicate escaped key e UTF-8 inválido são rejeitados;
+- regra estrutural exige exatamente oito fronteiras byte-strict, nenhuma chamada
+  antiga parseStrictJson, os quatro relatórios e os quatro derivadores;
+- 2/2 testes em <0,1 s; node --check e git diff --check passaram.
+- Não foi executado o checker completo porque ele inicia Forge/Cargo/RPC.
+
+Reconciliação ETAPA692
+O operador executou rebuild autorizado dos quatro contratos e repetiu a suíte
+exata: 10/10 passaram. A antiga falha por artifact Solidity stale foi removida
+do relatório e de ambas continuações; não permanece pendência dessa falha.
+
+Nenhum Cargo/Rust, Solidity build, RISC0, prova, RPC, assinatura, transmissão, deploy, fundo, commit ou push foi executado por esta etapa.

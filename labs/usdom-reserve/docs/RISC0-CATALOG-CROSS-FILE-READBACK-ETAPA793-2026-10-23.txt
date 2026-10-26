@@ -1,0 +1,25 @@
+ETAPA 793 — RISC Zero catalog cross-file completion readback
+Date: 2026-10-23
+
+Finding
+The RISC Zero health source catalog materializer already used the correct crash-safe order: immutable catalog precursor first, mutable release-evidence aggregate last. Durable writers individually fsync and exact-read back their target, and an identical immutable precursor permits retry. However, after the aggregate completion write, the materializer did not revalidate the input snapshot or read both published files as one generation. A concurrent owner-side replacement after the precursor write could therefore escape set-level successful-return verification.
+
+Correction
+After the release-evidence completion write, the materializer now:
+- revalidates both captured input origins;
+- reads the immutable catalog with exact expected length/private-file checks;
+- reads the release-evidence aggregate with exact expected length/private-file checks;
+- compares both installed byte strings to the prepared generation and rejects any mismatch.
+The completion-order inventory now requires this cross-file generation error guard for the RISC Zero case.
+
+Crash behavior
+- before catalog: clean retry;
+- catalog-only: immutable exact-or-reject retry;
+- after aggregate: both installed files and all origins must still match before success;
+- mixed/substituted generation: fail closed.
+
+Validation
+Node syntax check: passed.
+Inventory, RISC Zero SDK and operator suites: 87/87 passed.
+git diff --check: passed.
+No signing, Git mutation, RPC, commit, push, broadcast or funds operation ran.

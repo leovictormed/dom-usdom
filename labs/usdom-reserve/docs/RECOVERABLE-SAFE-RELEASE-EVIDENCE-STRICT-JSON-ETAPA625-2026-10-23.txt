@@ -1,0 +1,37 @@
+DOM / USDOM — evidência de recovery Safe com JSON estrito
+Etapa 625 — 2026-10-23
+
+Fronteira auditada
+==================
+
+Priorizando recovery, a próxima fronteira do catálogo foi o conjunto imutável
+produzido por `write-recoverable-safe-release-evidence.sh`: bundle, relatórios
+dos três papéis, relatório de separação, recovery drill e fragmento final. Esse
+conjunto prova a configuração 2-de-3, owners independentes e capacidade de
+recuperação antes de integrar a evidência de release.
+
+Achado e correção
+=================
+
+Todos os membros são documentos JSON validados semanticamente, porém a função
+comum `publish_immutable` ainda os instalava como bytes opacos. Uma chave
+duplicada aceita por ferramenta permissiva ou UTF-8 inválido não pertence a
+essa fronteira de autoridade e poderia causar interpretação divergente antes
+do hashing/referenciamento no fragmento final.
+
+O publicador comum agora usa `install-private-file-immutable-stdin.mjs --json`
+para todo o conjunto, antes de cada verificação byte a byte instalada. Nenhum
+hash, assinatura ou prova binária foi migrado. Permanecem create-once/identical,
+owner 0600, single-link, O_NOFOLLOW, inode estável, fsync, ordem bundle-antes-
+fragment e rechecagens de inputs.
+
+Validação
+=========
+
+O teste estrutural fixa `--json` na função comum. O teste comportamental tenta
+substituir um alvo válido por duplicate key escapada e UTF-8 inválido; ambas as
+entradas falham e preservam o alvo byte a byte. Testes focados passaram 2/2;
+shell syntax e diff integrity passaram.
+
+Nenhum Rust/Cargo/Solidity/RISC0, staging, commit, push, deploy, assinatura,
+transmissão ou uso de fundos foi executado.

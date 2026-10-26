@@ -1,0 +1,66 @@
+USDOM — inventário de testes ignorados e vetores obrigatórios de release
+ETAPA 1091 — 2026-10-26
+
+Escopo
+======
+
+Foram inspecionados todos os atributos `#[ignore]` nos crates `dom-usdom-*` e
+todos os usos de skip nos testes Node e Foundry da reserva. Nenhuma compilação
+pesada, prova RISC Zero, deploy, broadcast ou movimentação de fundos foi
+executada.
+
+Inventário e classificação
+==========================
+
+1. `full_360_plus_30_v2_checkpoint_extension_is_recomputed` é obrigatório
+   para release. Ele recompõe os 390 blocos, a fronteira 360+30, transferência
+   e burn privados Groth16, persistência/undo/replay, raízes e totais V6 e a
+   rejeição do statement V5. Continua ignorado na suíte cotidiana somente por
+   custo; há agora um executor explícito e isolado em perfil de release.
+
+2. `upstream_randomx_argon2d_cache_vector_matches` é obrigatório para release.
+   Ele valida a construção canônica do cache RandomX de 256 MiB e vetores do
+   início/fim do cache. Continua fora da CI cotidiana por consumo de recursos,
+   mas integra o executor agregado obrigatório de vetores de release.
+
+3. `spend_verifier_benchmark` é benchmark operacional, não teste de correção.
+   A correção de cada input público e de prova adulterada já é coberta por
+   testes ativos. O benchmark permanece opt-in porque seu resultado depende do
+   host e serve para capacidade, não para decidir validade consensual.
+
+Não foi encontrado `test.skip`, `describe.skip`, `it.skip` ou `vm.skip` na
+superfície Node/Foundry USDOM.
+
+Correções
+=========
+
+- Criado perfil Cargo `release-validation`, herdando integralmente `release` e
+  preservando informação de linha para falhas auditáveis.
+- Criados executores fail-closed para os vetores 390-block e RandomX, ambos
+  offline, locked, single-job, single-thread e com opt-in literal
+  `USDOM_RUN_LONG_RELEASE_TEST=YES`.
+- Criado executor agregado que roda ambos e impede que um release execute só
+  um dos vetores obrigatórios.
+- Adicionado teste curto determinístico ativo que confirma o span 360+30=390 e
+  rejeita drift de `totalIssued`, `totalBurned` e `issuanceClosed` no alvo V6.
+  A CI seleciona esse teste por nome completo e `--exact`; ele antecipa drift,
+  sem substituir a prova longa.
+- Adicionado `check-usdom-required-tests.py` ao gate de proveniência. O gate
+  fixa o inventário completo de ignores, recusa skips Node/Foundry, verifica os
+  executores, o perfil e a seleção exata do teste curto na CI.
+
+Validação leve
+==============
+
+- `check-usdom-required-tests.py`: PASS; 2 vetores obrigatórios, 1 guard curto,
+  nenhum skip silencioso Node/Foundry.
+- `bash -n` nos três executores: PASS.
+- os três executores sem opt-in recusam execução com exit 64: PASS.
+- `python3 -m py_compile` no gate: PASS.
+- `rustfmt --check` focal em `reference.rs`: PASS.
+- `git diff --check` nos arquivos desta etapa: PASS.
+
+Os vetores pesados não foram executados nesta etapa porque a suíte Cargo do
+workspace já estava ativa. O próximo passo de evidência é executar primeiro o
+teste curto focal após o término dessa suíte e, na cerimônia de release, rodar
+`USDOM_RUN_LONG_RELEASE_TEST=YES labs/usdom-reserve/scripts/run-usdom-release-vectors.sh`.

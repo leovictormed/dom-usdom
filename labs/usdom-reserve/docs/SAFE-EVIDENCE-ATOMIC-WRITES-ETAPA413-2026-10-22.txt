@@ -1,0 +1,36 @@
+USDⓄM RESERVE — ATOMIC SAFE EVIDENCE WRITES (STAGE 413)
+Date: 2026-10-22
+
+Finding
+
+After hardening the initial owner-identity artifact, the operator runbook still
+wrote finalized Safe baselines, per-role configurations and recovery plans with
+ordinary shell redirection followed by chmod. These artifacts contain public
+data, but they authorize and bind later release/recovery steps and therefore
+must not be replaceable, linked or partially published.
+
+Correction
+
+All six paths now stream canonical command output directly into the durable
+create-only private writer:
+
+- primary and secondary finalized Safe baselines;
+- governance, reserve-guardian and checkpoint-guardian configurations;
+- primary and secondary recovery plans.
+
+The writer rejects an unsafe parent, existing path, symbolic link or inode
+replacement, creates mode 0600, and durably publishes only complete bytes.
+Runbook regressions require the writer for every named artifact and forbid the
+previous redirection/chmod patterns.
+
+Validation
+
+- operator/runbook suite: 64/64 passed;
+- complete Node regression: 306/306 passed;
+- source manifest: 1,194 ordered SHA-256 entries;
+- imported provenance: 169 files and 16 explicit modifications;
+- JavaScript syntax and repository whitespace checks passed;
+- active non-development finalized-burn proof remained unchanged.
+
+No push, deployment, signature, transaction broadcast, funds, or mining was
+performed.

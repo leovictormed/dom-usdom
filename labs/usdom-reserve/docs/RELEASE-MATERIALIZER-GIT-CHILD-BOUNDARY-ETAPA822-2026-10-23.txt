@@ -1,0 +1,29 @@
+ETAPA 822 — release materializer Git child boundary
+Date: 2026-10-23
+
+Finding
+
+The finalized-burn and checkpoint-capacity release materializers invoked `git`
+through PATH for every source-boundary check. Their custom spawn collector capped
+combined bytes only after receipt, had no timeout, merged stderr into stdout,
+decoded UTF-8 permissively and never authenticated the executable. These checks
+run immediately before persistent release-evidence writes, so substitution,
+hanging children or ambiguous output could affect publication authority.
+
+Correction
+
+- Both materializers snapshot the safely owned Git executable once.
+- Every Git child rechecks executable path/inode/metadata/hash immediately before
+  spawn and in `finally` after termination.
+- Children use the exact pinned path, a 30-second timeout, SIGKILL on timeout and
+  the caller's explicit maximum output bound.
+- stdout remains separate from stderr; any stderr fails closed.
+- stdout is decoded with fatal UTF-8, eliminating replacement-character parsing.
+
+Validation
+
+- Both scripts pass Node syntax checks.
+- Focused materializer, mutation, completion-order and child-boundary tests:
+  9/9 pass.
+- Diff check passes.
+- No build, RPC, deployment, signature, commit, push or funds operation ran.

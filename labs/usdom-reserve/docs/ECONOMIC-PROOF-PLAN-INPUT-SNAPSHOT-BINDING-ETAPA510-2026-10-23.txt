@@ -1,0 +1,28 @@
+USD0M stage 510 — economic proof-plan input snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The economic planner checked two live indexes before `cargo run`, then reopened
+them, every private economic source component and six chunk/block guest
+artifacts after compilation. A replacement could produce a plan from a source
+view different from the one present when the operator started the command.
+
+Correction
+==========
+
+Both indexes are captured first. A bounded canonical catalog is derived from
+their fixed bytes and all segment private inputs, block transitions, chunk
+transitions and chunk witnesses are captured into an owner-only layout replica.
+The chunk and block ELF/program/ImageID triplets are copied into the same
+replica and remain checked against the host's compiled SHA pins. Planning runs
+only there, and its single job index is captured and durably installed.
+
+Evidence and scope
+==================
+
+The operator-runbook suite asserts the private reader, isolated working root,
+both guest families and durable publication. Readiness requires
+`production_economic_proof_plan_inputs_snapshotted=true`. No proof generation,
+network access, signing, deployment or funds operation occurs in this stage.

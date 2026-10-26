@@ -1,0 +1,28 @@
+Private-directory SIGKILL recovery — Stage 1128 — 2026-10-26
+
+Finding
+=======
+
+`remove-private-directory-durable.mjs` durably renamed sensitive derived state
+before recursive deletion. A SIGKILL between those operations left a hidden
+owner-only tombstone indefinitely, and later invocations returned success when
+the original name was absent without removing the orphan.
+
+Correction
+==========
+
+The remover now discovers a bounded set of canonical `invalid` and `purge`
+tombstones through its pinned parent-directory descriptor. It rejects indirect,
+wrong-owner or wrong-mode entries, claims each deletion by atomic rename, syncs
+the directory on both sides, and removes it recursively. Both pre-existing
+orphans and a new tombstone are purged. Concurrent removers converge safely;
+missing names from a winning concurrent rename are accepted.
+
+Validation
+==========
+
+Focused tests pass 5/5. They cover recovery of both crash phases, two concurrent
+starts, preservation of an external symlink target, existing wallet observation
+cleanup ordering and Node syntax. Scoped diff integrity passes. No Cargo, Forge,
+network, signing, deployment, commit or push ran.
+

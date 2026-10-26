@@ -1,0 +1,59 @@
+ETAPA 1005 — CONSERVAÇÃO ECONÔMICA ETHEREUM ↔ DOM
+Data: 2026-10-23
+
+Escopo
+======
+Reconciliação dos livros totalDeposited/totalReleased/outstanding/pending da
+reserve com total_issued/total_burned/circulating e dívidas de burn nativas,
+incluindo várias queimas antes da fila, payouts parciais, restart, undo/reorg e
+limite de exposição.
+
+Equação auditada
+================
+Definindo D=depósitos creditados, I=USDÓM emitido, B=USDÓM queimado e R=payouts:
+
+  0 <= R <= B <= I <= D
+  outstanding_reserve = D - R
+  outstanding_reserve = (D-I) + (I-B) + (B-R)
+
+Os três termos à direita são, respectivamente, collateral ainda não emitido,
+supply nativa circulante e dívidas de burn ainda não pagas. Portanto várias
+queimas podem existir antes de queue sem undercollateralization: elas movem
+valor de circulação para dívida, mas não reduzem D-R até o payout atômico.
+
+Resultados
+==========
+- emissão é derivada de depósito finalizado único e soma checked total_issued;
+- burn é único por nullifier/burnId/requestId e next_burned não pode exceder
+  total_issued;
+- restart recompõe issued e burned dos registros e rejeita divergência;
+- undo restaura ambos os totais com o mesmo state root; o reorg floor protege
+  burns já autorizados para payout;
+- reserve limita nova exposição por outstanding, não por totalDeposited
+  histórico, permitindo substituir collateral já pago sem exceder liabilities;
+- pending soma no máximo outstanding livre; payout exige credited suficiente,
+  marca burn/request terminal e só então reduz outstanding, atomicamente;
+- pagamentos anteriores não voltam a liberar burn/request, mesmo após pause,
+  prune ou renovação.
+
+Não foi encontrado cenário de overburn ou dívida sem backing sob as premissas
+do verifier e da finalidade já auditadas. A lacuna concreta era de cobertura:
+o invariant comprovava as desigualdades separadas, mas não registrava
+explicitamente released + pending <= deposited nem reconciliava os dois livros.
+O invariant ganhou essa propriedade e o novo gate enumera o espaço econômico,
+além de fixar as fronteiras de persistence/undo/proof/paid mappings.
+
+Riscos externos
+===============
+Indisponibilidade do prover, pausas do control plane e bloqueio/depreciação do
+USDT podem atrasar pagamento; não criam supply nem removem a dívida. Doações de
+USDT não viram crédito. A igualdade I=D não é exigida porque um depósito pode
+ainda não ter sido emitido; a desigualdade I<=D é a relação correta.
+
+Validação leve
+==============
+- end-to-end-economic-conservation-stage1005.test.mjs: 4/4;
+- git diff --check: aprovado.
+
+Forge/Cargo não foram executados durante a prova longa. O invariant Solidity
+deve integrar a próxima rodada Forge autorizada.

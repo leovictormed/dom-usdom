@@ -1,0 +1,70 @@
+ETAPA 1039 — AUDITORIA INDEPENDENTE CHECKPOINT V5 / DOMCheckpointV3
+Data: 2026-10-23
+
+Escopo
+======
+
+CheckpointStatementV5/UDCPST05, DOMCheckpointV3, composição recursiva de
+segmentos, seleção/finalização no Registry, codec SDK e inclusão de burn
+finalizado. Nenhum deploy, push, assinatura, rede ou fundo foi usado.
+
+Conclusões sobre a relação fonte
+================================
+
+1. O framing V5 é separado de V3/V4 por magic, versão, tamanho e versão do
+   transition batch. O payload tem 550 bytes; os totais são u128 big-endian
+   nos offsets 518 e 534 e a recodificação canônica impede trailing bytes.
+2. O hash DOMCheckpointV3 contém exatamente 25 palavras ABI. totalIssued e
+   totalBurned ocupam as palavras 15 e 16 (offsets ABI 496 e 528), antes da
+   confirmação, embora sejam anexados ao fim do framing binário. Rust,
+   Solidity e SDK usam a mesma ordem e tipos.
+3. Cada transição recursiva exige igualdade de estado, altura e dos dois
+   totais com a transição anterior. Os totais publicados são capturados quando
+   a cadeia alcança a altura alvo. O estado posterior usado como confirmação
+   não pode substituir esses totais.
+4. O Registry exige progressão de altura/trabalho, monotonicidade de emissão e
+   queima e totalBurned <= totalIssued. A janela não reinicia e o desempate é
+   total. A finalização copia exatamente o candidato provado.
+5. A prova de burn exige que block/state root/altura do evento finalizado,
+   statement recursivo, totalIssued, totalBurned e estado que contém a queima
+   sejam todos o mesmo checkpoint alvo.
+
+Correção/regressão
+==================
+
+O teste Rust de CheckpointStatementV5 agora verifica explicitamente os offsets
+dos totais e demonstra que a alteração isolada de cada total muda o hash ABI.
+O parser SDK agora rejeita diretamente registry zero, predecessor/PoW zero,
+alturas não crescentes, blocos/contextos repetidos, trabalho não crescente,
+timestamp zero e totalBurned > totalIssued, em paridade com o decoder Rust.
+O gate independente
+`test/node/checkpoint-v5-independent-audit-stage1039.test.mjs` cobre framing,
+25 palavras, adjacência, alvo versus confirmação, monotonicidade, codec e burn.
+
+Achado de release: artefatos RISC Zero obsoletos
+================================================
+
+Os binários presentes foram construídos em 2026-10-20, antes das fontes V5 de
+2026-10-23. A proveniência do segment guest ainda declara UDCSTN02. A do outer
+guest ainda declara UDCPST04, UDCSTN02 e journal V4. Portanto os ImageIDs hoje
+pinados no proof-host, SDK e finalized-burn program NÃO implementam a relação
+V5/V3 revisada.
+
+Isso falha fechado: ambos os PROVENANCE têm productionApproved=false e os três
+pins de produção do Registry continuam zero, o que faz deployment em chain 1
+reverter. Não há base para declarar esses artefatos prontos para mainnet.
+
+Ordem obrigatória de reconstrução após a prova longa ativa
+===========================================================
+
+1. reconstruir deterministicamente o segment guest UDCSTN03;
+2. propagar seu ImageID e reconstruir o outer guest UDCPST05;
+3. propagar o novo outer ImageID e reconstruir o finalized-burn guest;
+4. reconstruir adapters, manifests, SDK pins e artefatos Solidity;
+5. gerar e verificar receipts reais, incluindo EVM seals, com dev mode zero;
+6. somente então preencher os pins mainnet e repetir os gates de release.
+
+O gate aceita artefatos antigos apenas enquanto permanecerem explicitamente
+não aprovados e o contrato continuar indisponível em mainnet. Uma proveniência
+que alegue V5 precisa declarar de forma conjunta UDCPST05, UDCSTN03 e journal
+V5; combinação parcial é rejeitada pela auditoria.

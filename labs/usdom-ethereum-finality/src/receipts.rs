@@ -6,11 +6,11 @@ use alloy::{
     eips::eip2718::{Decodable2718, Encodable2718},
     primitives::{Address, Bytes, Log, B256},
 };
-use alloy_trie::{proof::verify_proof, Nibbles};
+use alloy_trie::{proof::ProofRetainer, root::adjust_index_for_rlp, HashBuilder, Nibbles};
 use eyre::{ensure, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::{FinalizedExecution, HistoricalCapellaClient};
+use crate::{state::verify_mpt_proof, FinalizedExecution, HistoricalCapellaClient};
 
 const MAX_RECEIPT_BYTES: usize = 256 * 1024;
 const MAX_PROOF_NODES: usize = 32;
@@ -27,6 +27,85 @@ pub struct ReceiptEvidence {
     pub transaction_index: u32,
     pub receipt_bytes: Bytes,
     pub proof: Vec<Bytes>,
+}
+
+pub(crate) fn validate_receipt_allocation_bounds(evidence: &ReceiptEvidence) -> Result<()> {
+    ensure!(
+        !evidence.receipt_bytes.is_empty() && evidence.receipt_bytes.len() <= MAX_RECEIPT_BYTES,
+        "receipt byte limit"
+    );
+    ensure!(
+        !evidence.proof.is_empty() && evidence.proof.len() <= MAX_PROOF_NODES,
+        "proof node count"
+    );
+    let total = evidence.proof.iter().try_fold(0usize, |total, node| {
+        ensure!(
+            !node.is_empty() && node.len() <= MAX_RECEIPT_BYTES,
+            "proof node size"
+        );
+        total
+            .checked_add(node.len())
+            .ok_or_else(|| eyre::eyre!("proof size overflow"))
+    })?;
+    ensure!(total <= MAX_PROOF_BYTES, "proof byte limit");
+    Ok(())
+}
+
+/// Deterministically construct and independently root-check one receipt proof
+/// from a complete ordered block receipt set. The output remains untrusted
+/// until verified against a finalized header.
+pub fn build_receipt_evidence(
+    block_hash: B256,
+    block_number: u64,
+    transaction_index: u32,
+    receipts: &[Bytes],
+) -> Result<(B256, ReceiptEvidence)> {
+    ensure!(
+        block_hash != B256::ZERO && block_number != 0,
+        "zero receipt block identity"
+    );
+    ensure!(
+        !receipts.is_empty() && receipts.len() <= 4096,
+        "receipt set count"
+    );
+    let target = transaction_index as usize;
+    ensure!(target < receipts.len(), "receipt transaction index");
+    for receipt in receipts {
+        ensure!(
+            !receipt.is_empty() && receipt.len() <= MAX_RECEIPT_BYTES,
+            "receipt byte limit"
+        );
+        decode_ethereum_receipt(receipt)?;
+    }
+    let target_key = Nibbles::unpack(alloy_rlp::encode(transaction_index as u64));
+    let retainer = ProofRetainer::new(vec![target_key]);
+    let mut builder = HashBuilder::default().with_proof_retainer(retainer);
+    for index in 0..receipts.len() {
+        let adjusted = adjust_index_for_rlp(index, receipts.len());
+        builder.add_leaf(
+            Nibbles::unpack(alloy_rlp::encode(adjusted as u64)),
+            receipts[adjusted].as_ref(),
+        );
+    }
+    let root = builder.root();
+    let proof: Vec<Bytes> = builder
+        .take_proof_nodes()
+        .into_nodes_sorted()
+        .into_iter()
+        .map(|(_, node)| node)
+        .collect();
+    let evidence = ReceiptEvidence {
+        block_hash,
+        block_number,
+        transaction_index,
+        receipt_bytes: receipts[target].clone(),
+        proof,
+    };
+    ensure!(
+        !evidence.proof.is_empty() && evidence.proof.len() <= MAX_PROOF_NODES,
+        "proof node count"
+    );
+    Ok((root, evidence))
 }
 
 /// Position is receipt-relative. A transaction hash/global log index is not proven.
@@ -117,11 +196,11 @@ pub(crate) fn verify_receipt_at(
     }
     // Receipt keys are RLP(index), NOT keccak(index), unlike account/storage keys.
     let key = alloy_rlp::encode(evidence.transaction_index as u64);
-    verify_proof(
+    verify_mpt_proof(
         header.receipts_root,
         Nibbles::unpack(key),
         Some(evidence.receipt_bytes.to_vec()),
-        evidence.proof.iter(),
+        &evidence.proof,
     )?;
     let receipt = decode_ethereum_receipt(&evidence.receipt_bytes)?;
     Ok(VerifiedReceipt {

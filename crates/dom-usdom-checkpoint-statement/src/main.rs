@@ -4,22 +4,18 @@
 
 use std::io::{self, Read, Write};
 
-use dom_usdom_checkpoint_statement::{
-    hash_canonical_statement, hash_canonical_statement_v4, CHECKPOINT_STATEMENT_BYTES,
-    CHECKPOINT_STATEMENT_V4_BYTES,
-};
+use dom_usdom_checkpoint_statement::{hash_canonical_statement_v6, CHECKPOINT_STATEMENT_V6_BYTES};
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut input = Vec::new();
     io::stdin()
         .lock()
-        .take((CHECKPOINT_STATEMENT_V4_BYTES + 1) as u64)
+        .take((CHECKPOINT_STATEMENT_V6_BYTES + 1) as u64)
         .read_to_end(&mut input)?;
-    let output = match input.len() {
-        CHECKPOINT_STATEMENT_BYTES => hash_canonical_statement(&input)?,
-        CHECKPOINT_STATEMENT_V4_BYTES => hash_canonical_statement_v4(&input)?,
-        _ => return Err("invalid checkpoint statement length".into()),
-    };
+    if input.len() != CHECKPOINT_STATEMENT_V6_BYTES {
+        return Err("invalid checkpoint statement length".into());
+    }
+    let output = hash_canonical_statement_v6(&input)?;
     let mut stdout = io::stdout().lock();
     stdout.write_all(&output)?;
     stdout.flush()?;

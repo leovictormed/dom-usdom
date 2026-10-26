@@ -1,0 +1,59 @@
+USDOM stage 400 — Safe runtime policy pinning
+Date: 2026-10-22
+
+Finding
+=======
+
+Stage 399 continuously authenticated each administrative Safe proxy and its
+singleton implementation, but identity alone did not prevent an authorized or
+compromised Safe transaction from lowering its threshold or enabling a module.
+Either change could weaken the authority without changing proxy or singleton
+bytecode. Owner recovery also requires owner identities to remain mutable, so
+pinning a static owner set would make the reviewed one-key recovery path fail.
+
+Correction
+==========
+
+USDOMProofReserve and DOMCheckpointRegistry now recognize a Safe-style control
+only when masterCopy(), getThreshold(), getOwners() and getModulesPaginated()
+all return exact bounded canonical ABI. Safe controls must continuously retain:
+
+- threshold exactly 2;
+- exactly three distinct, nonzero, canonical owners; and
+- no enabled modules.
+
+Every call is a STATICCALL with an independent 50,000-gas cap and a fixed
+maximum return size. Oversized, malformed, unavailable or inconsistent policy
+data fails closed. Direct immutable control contracts remain supported and do
+not impersonate the Safe interface. Owner addresses are intentionally allowed
+to rotate while the 2-of-3 structure remains intact, preserving the reviewed
+loss-of-one-key recovery procedure.
+
+Reserve value paths and delayed resume now reject policy drift with
+ControlPlaneChanged. Permanent checkpoint halt rejects it with GuardianChanged.
+Construction rejects a Safe that is already below threshold, has the wrong
+owner count or has a module enabled. Emergency reserve pause remains available
+as its existing safety action even after control-plane drift.
+
+Evidence
+========
+
+- Six focused constructor/runtime adversarial tests pass.
+- Complete Solidity suite: 145/145 pass, including three invariant campaigns.
+- Complete Node suite after bytecode-vector regeneration: 304/304 pass.
+- Reserve deployed runtime is 15,834 bytes; checkpoint registry runtime is
+  7,082 bytes, both below the EIP-170 limit of 24,576 bytes.
+- Production Solidity lint and repository whitespace checks pass.
+- Imported provenance and the complete source manifest pass after recording
+  the exact current test-mock digest and regenerating the manifest.
+
+No RPC, hardware signature, transaction, deployment, funds, mining, project
+commit, tag or push occurred. The detached one-worker finalized-burn capacity
+proof was not restarted or modified.
+
+Next action
+===========
+
+Audit Safe policy observation in the finalized-snapshot preflight and continue
+the next locally correctable contract/release boundary while monitoring the
+detached capacity proof.

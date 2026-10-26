@@ -1,0 +1,70 @@
+Stage 659 — permanent liveness and economic DoS audit (2026-10-23)
+
+Scope
+
+Audited legitimate-fund liveness across USDT blacklist/freeze/confiscation,
+Safe and verifier drift, pause/resume, permanent checkpoint halt, queue expiry,
+permanent burn/request bindings and the deliberate absence of collateral sweep
+or deposit refund.
+
+Result
+
+No additional contract defect was confirmed and no administrative escape hatch
+was added.
+
+Recoverable failures
+
+- A temporary recipient blacklist rolls back execution before paid flags,
+  pending accounting, bucket balance or token balances change.
+- Queue expiry releases only the reservation. The permanent proved statement
+  and burn/request pairing survive, and the exact debt can renew even after its
+  original finality slot becomes old.
+- Emergency pause invalidates the queue generation but not the permanent debt.
+  After delayed resume, the same statement can be proved and queued again.
+- Safe or verifier identity drift fails before value movement. Restoring the
+  exact committed identity makes the existing/renewed debt executable.
+- A failed token transfer or policy check reverts the complete payout and leaves
+  the claim retryable.
+
+Intentional permanent-risk boundaries
+
+- Permanent USDT blacklisting of the signed recipient makes that exact payout
+  unavailable. Redirecting it administratively would violate the native burn's
+  authenticated recipient. A safe redirect would require a separately designed
+  recipient authorization protocol, including contract-wallet signatures and
+  replay protection; it cannot be inferred by this reserve.
+- USDT confiscation that removes reserve collateral produces explicit
+  insolvency. Minting accounting credit, paying from donations without backing,
+  or adding a sweep does not restore one-to-one collateral.
+- Permanent loss or destruction of the exact Safe/verifier identities can stop
+  progress. An upgrade/rotation escape hatch would create new authority over
+  the proof root or collateral and contradict the immutable production model.
+- `haltPermanently()` is deliberately irreversible emergency containment for
+  the checkpoint registry. It cannot be treated as ordinary recovery.
+- Deposits have no refund because an accepted deposit is the authorization for
+  native USDOM issuance. An Ethereum-only refund could coexist with issued
+  USDOM and create unbacked supply.
+
+These are explicit trust/availability risks for operations and user disclosure,
+not hidden claims that zero risk is achievable. None can be removed locally
+without changing the cross-chain consensus or authorization model.
+
+Material regression
+
+`testLegitimateDebtSurvivesBlacklistExpiryPauseAndVerifierDrift` follows one
+authenticated debt through a temporary recipient blacklist, queue expiry and
+discard, stale-finality exact renewal, emergency queue invalidation, delayed
+resume, another exact renewal and verifier drift. Every failed attempt preserves
+the debt. Restoring the verifier pays the original recipient exactly once and
+clears pending accounting.
+
+Validation
+
+- new end-to-end liveness regression: 1/1 passed;
+- focused reserve/registry and invariant suites: 75/75 passed;
+- complete Solidity campaign: 163/163 passed across 14 suites;
+- post-format regression: 1/1 passed;
+- production lint, formatting and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit,
+push, deployment, signature, transmission or funds operation was performed.

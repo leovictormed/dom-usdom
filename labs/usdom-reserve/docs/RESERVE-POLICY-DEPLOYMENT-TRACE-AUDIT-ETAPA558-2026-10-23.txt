@@ -1,0 +1,34 @@
+USD + DOM — reserve policy deployment trace audit
+Stage 558 — 2026-10-23
+
+Scope and result
+----------------
+Traced withdrawal delay, governance delay, maximum outstanding credit and daily
+outflow capacity from the fixed pilot policy through release-core derivation,
+preactivation hash, Solidity compile pins, constructor initcode, deployment
+package, finalized preflight getters, mainnet readiness and finalized-burn
+submission configuration.
+
+No new exploitable defect was established. Every consumer retains decimal base
+units, uses the same field mapping, enforces uint64 at the constructor boundary,
+and feeds the four values into `ReservePolicy` and therefore both the
+preactivation and full reserve configuration hashes. Source-verified immutable
+patching derives the runtime and initcode from the same release object. The
+postdeployment preflight reads all four getters and compares them exactly with
+that object while the reserve is still paused and empty.
+
+The first pilot's `outflowCapacityBaseUnitsPerDay` name matches the contract's
+token-bucket semantics: one full burst is available at construction and the
+bucket refills linearly to that capacity over `REFILL_PERIOD = 1 days`. With
+both exposure and capacity fixed at 1 USDT, the release cannot accumulate more
+than the reviewed total credit even though capacity begins full.
+
+Validation
+----------
+Focused compiled-runtime, production-preactivation-core and
+production-release-core tests passed 6/6. Together with Stage 554's 7/7
+configuration tests, these exercise type bounds, exact policy hashing,
+constructor derivation, immutable runtime derivation and drift rejection.
+
+No code or readiness fact changed in this stage. No Cargo, Foundry, public RPC,
+proof-runner, signing, deployment, funds, commit or push operation ran.

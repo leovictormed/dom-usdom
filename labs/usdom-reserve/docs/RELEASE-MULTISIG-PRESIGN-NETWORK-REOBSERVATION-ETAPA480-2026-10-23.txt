@@ -1,0 +1,19 @@
+Stage 480 — release multisig per-signature network reobservation
+Date: 2026-10-23
+
+The two-owner release and native-attestation signer previously validated only
+local snapshots after the human authorization. Device connection and multiple
+approvals could therefore occur after its finalized governance observation had
+become stale. Before every Ledger signature, the signer now collects a fresh
+finalized anchor from every cataloged RPC and requires the same governance,
+runtime code and domain-separated RPC source consensus, plus monotonic finalized
+height. The request, release configuration and RPC catalog are read again after
+the observation to close the local TOCTOU boundary. The exact stored digest
+remains the payload presented to each signer.
+
+`production_release_multisig_each_signature_network_reobserved` is a structural
+fact. No network access, signature, deployment, funds, mining, commit or push
+occurred while producing this evidence.
+
+Validation: release-authorization tests 5/5; complete operator runbook 71/71;
+readiness 60/60.

@@ -1,0 +1,6 @@
+ETAPA 872 — invalidacao dos pares report/metadata restantes
+Data: 2026-10-23
+
+Operations review, fork rehearsal, residual risk e trusted setup agora limpam e sincronizam seus ponteiros metadata sob lock, removem duravelmente o report antigo e so depois geram a nova versao. O report novo precede a publicacao do metadata final, mantendo completion-pointer-last. Trusted setup limpa os dois ponteiros correlatos juntos.
+
+Validacao: 4/4 testes, sintaxe Bash e diff-check aprovados. Sem build/RPC.

@@ -1,0 +1,27 @@
+ETAPA 1063 — REVISÃO INDEPENDENTE CARGO.LOCK E SOLC
+Data: 2026-10-23
+
+Escopo
+Revisão independente das correções ETAPA1059/1062, sem regenerar lock, baixar dependências, compilar ou usar rede.
+
+Cargo.lock
+- SHA-256 recalculado: a8cf3916a0e823e81bf0378721530fb07d5e82b7bd7bb7d821bc08c02bf4dfc2.
+- O slot `../../Cargo.lock` do mainnet-toolchain-lock contém exatamente esse digest.
+- Parser TOML independente confirmou lock v3 com 1.125 packages: 930 registry, 11 Git e 184 path/workspace.
+- Todos os 930 registry entries têm checksum canônico de 64 hex; as 11 fontes Git terminam em revisão exata de 40 hex.
+- `cargo metadata --locked --offline --no-deps` aceitou os 172 packages/membros do workspace e deixou Cargo.lock byte-idêntico.
+- A evidência da correção registra também resolução offline completa de 1.024 packages/nodes em CARGO_HOME isolado, sem modificação do lock. As contagens e o hash são coerentes com a inspeção independente.
+
+Conclusão Cargo
+A alteração do pin não foi apenas feita para silenciar o checker: ela aponta para um lock parseável, estruturalmente completo para o workspace atual e aceito por Cargo em modo locked/offline. Nenhuma correção adicional foi necessária.
+
+Solc 0.8.37
+- Manifesto exato fixa schema, release oficial, asset HTTPS, versão `0.8.37+commit.f401782d.Linux.g++` e SHA-256 `5de843...404a`.
+- O slot materializado fixa `/home/leonardov/.svm/0.8.37/solc-0.8.37`, a mesma hash e versão 0.8.37.
+- Inspeção independente confirmou arquivo regular não-symlink, owner atual, modo 0700, link count 1, 15.473.648 bytes, SHA e saída de versão exatas.
+- Bootstrap usa candidate privado, hash antes da execução e hard-link exclusivo sem overwrite; rerun autentica o arquivo existente.
+- Materializer usa O_NOFOLLOW e `fstatSync(descriptor)` antes de ler pelo descriptor; publica o lock por arquivo O_EXCL, fsync e rename após rechecagens.
+- Bash/Node syntax, regressão focada 1/1 e checker completo passaram. Checker reportou `verified`, oito tools e três locked files.
+
+Conclusão
+Não foi encontrada falha concreta nessas duas correções. O lock e Solc agora formam evidência local coerente e fail-closed. Nenhum build pesado, prova, promoção, rede, push, deploy ou fundo foi usado.

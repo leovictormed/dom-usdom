@@ -1,0 +1,36 @@
+PINNED RUST SELECTOR READINESS FIX — STAGE 1149
+Date: 2026-10-26
+
+Finding
+
+The closed-mainnet toolchain checker required the repository selector to contain
+`channel = "stable"`. The authoritative `rust-toolchain.toml` and toolchain lock
+both pin Rust 1.98.0. Consequently the readiness prerequisite always rejected
+the correct current selector. The substring check could also have been
+satisfied by a comment or an additional unrelated line.
+
+Correction
+
+The checker now compares the directly read selector bytes with one exact
+canonical document:
+
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]
+
+This binds version, components, order, whitespace, line endings and absence of
+extra/commented settings. The separately snapshotted `rustc` and `cargo`
+executables must still hash-match the lock, self-report 1.98.0 and remain
+unchanged through the checker.
+
+Validation
+
+- Authoritative selector equals the expected bytes: PASS.
+- Node syntax: PASS.
+- Toolchain authority, direct-file and closed-mainnet command regression tests:
+  PASS, 5/5.
+
+The full checker was not invoked because it intentionally executes Cargo,
+rustc and Forge version probes while the workspace Cargo suite is active. No
+production fact changed. No Cargo, Rust, Forge, network, signing, deployment,
+funds, commit or push ran.

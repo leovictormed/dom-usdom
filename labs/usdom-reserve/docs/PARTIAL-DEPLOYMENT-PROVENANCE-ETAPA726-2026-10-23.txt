@@ -1,0 +1,43 @@
+ETAPA726 — partial deployment transaction provenance
+Date: 2026-10-23
+
+Finding
+=======
+
+ETAPA723 required the exact approved runtime at every prior CREATE address, but
+runtime identity alone does not prove which transaction created it. A distinct
+deployment could consume the planned nonce and yield identical runtime. Partial
+recovery therefore needed to bind code presence to the authorized transaction
+and its finalized canonical receipt.
+
+Correction
+==========
+
+Before preparing, signing or transmitting deployment index N, the executor now
+requires create-once evidence for every earlier index: submission hash, raw
+validation and receipt. It reconciles their role, sender, nonce, predicted
+contract and transaction hash with the immutable package.
+
+On every independent RPC it then fetches the prior transaction and receipt by
+that exact hash and checks sender, nonce, complete initcode input, zero value,
+null destination, success, created address, receipt block number/hash and
+transaction hash. The receipt block must remain canonical and at or below the
+current finalized head. Its block identity must equal the persisted receipt,
+which makes all RPCs converge on the same provenance. Finally, the exact
+approved runtime remains required at finalized.
+
+Failure, replacement, unrelated nonce consumption, same-runtime foreign
+deployment, receipt drift, reorg, absent evidence and cross-RPC disagreement all
+fail before the next mutable ceremony boundary.
+
+Evidence
+========
+
+- Structural regression checks cover persisted receipt/validation linkage,
+  eth_getTransactionByHash, eth_getTransactionReceipt, input, created address,
+  finalized ancestry and all three ceremony boundaries.
+- Focused Node tests: 19/19 passed.
+- Bash syntax and `git diff --check`: passed.
+
+No RPC call, materialization, signing, transmission, deployment, funds action,
+commit or push was performed.

@@ -1,0 +1,32 @@
+USD0M closed-mainnet pilot state-machine audit — Stage 1102 — 2026-10-26
+
+Findings corrected
+
+1. The offline phase checker validated the internal deposit package but did not
+   bind it to the current release bytes, reserve config hash, USDT and reserve.
+   A self-consistent package for another reserve could therefore enter the DAG.
+   It now requires an exact current-release SHA-256 and address/config binding.
+
+2. Receipt reconciliation compared the finality marker with selected receipt
+   block fields, but did not comprehensively bind validation -> transaction
+   hash -> receipt -> finality, chain, transaction index, calldata commitment,
+   signer and target. The new shared validator rejects cross-transaction,
+   cross-chain, stale-block, wrong-signer and wrong-contract composition.
+
+3. Financial evidence omitted mandatory package context. Deposit evidence now
+   binds funder/token/reserve and chain/step count to the exact package. Payout
+   evidence now includes the reserve and binds chain, reserve, recipient,
+   burnId, requestId and step count. Existing payout baseline resume checks
+   also require chain 1 and the exact reserve.
+
+Limits remain fixed at exactly 1,000,000 base units. Missing evidence remains
+missing; no receipt, RPC result, authorization or operational evidence was
+created or promoted.
+
+Validation
+
+- pinned Node focused/adversarial suites: 26/26 passed
+- bash syntax for both pilot executors: passed
+- git diff --check: passed
+
+No network, Forge, Cargo, key access, signing, deployment, commit or push ran.

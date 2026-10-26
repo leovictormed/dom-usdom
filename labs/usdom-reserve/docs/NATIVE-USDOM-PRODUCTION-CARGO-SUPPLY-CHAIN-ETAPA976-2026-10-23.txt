@@ -1,0 +1,22 @@
+ETAPA976 — NATIVE USDOM PRODUCTION CARGO SUPPLY CHAIN
+Date: 2026-10-23
+
+Audited the exact production node ceremony, Cargo.lock v3, remote Git sources,
+registry checksums and the source authority for build scripts/proc macros.
+Repository path crates are bound by the release source commit; registry crates,
+including proc macros and build dependencies, are content-bound by lockfile
+checksums; Git sources carry an exact 40-hex rev and the lock resolves that same
+commit.
+
+Concrete gap: the ceremony used `cargo build --locked`. Locked prevents
+resolution drift but still permits Cargo to fetch a missing registry crate or
+Git checkout during the ceremony. The exact native USDOM node build now uses
+`--frozen`, which combines lockfile immutability with offline mode. A machine
+without every reviewed source cached fails closed rather than consulting the
+network.
+
+Permanent gates require the exact frozen/package/bin/feature command, validate
+all remote lock entries (registry checksum or Git requested=resolved commit),
+and reject branch/tag Git declarations in the production graph. Gate 3/3,
+bash syntax and diff-check passed. No Cargo build, fetch or external operation
+was run.

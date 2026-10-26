@@ -1,0 +1,50 @@
+USD + DOM — fechamento verificável das alegações amplas de implementação
+Etapa 309 — 2026-10-22
+
+Achado
+
+O ledger ainda declarava `native_consensus_implemented`,
+`consensus_proof_implemented` e
+`production_finalized_burn_verifier_implemented` como falsos. Esses valores
+foram criados antes da integração V2 no ChainState/nó, da prova recursiva de
+checkpoint e do guest/adaptador de queima finalizada. As lacunas que
+justificavam os valores antigos foram implementadas em etapas posteriores,
+mas as três alegações amplas não foram reconciliadas.
+
+Correção
+
+As três alegações agora refletem implementação existente. Um verificador
+executável e testado liga cada alegação ampla a fatos concretos do ledger:
+
+- consenso nativo: estado/persistência atômica, emissão sem minerar USDOM,
+  transferências/queimas privadas, cabeçalho, ativação, fork choice, P2P, IBD,
+  mineração de DOM e barreira de reorganização por checkpoint;
+- prova de consenso: registro imutável, extensão completa, RandomX,
+  Bulletproof, abertura de estado, segmentos e composição recursiva;
+- verificador de queima: statement cruzado, inclusão na raiz de checkpoint,
+  guest RISC Zero reproduzível, adaptador EVM, planejador, empacotador Groth16
+  e pacote de submissão localmente revalidado.
+
+O comando `npm run --silent check:implementation-claims` rejeita qualquer
+alegação ampla verdadeira quando um único fato concreto dependente deixa de
+ser verdadeiro. Ele usa o parser JSON estrito e integra `check:provenance`.
+
+Limite preservado
+
+Implementação não equivale a evidência operacional de produção. Permanecem
+falsos e independentes: geração/aceitação de recibos criptográficos não-dev,
+medidas de capacidade e gas, artefatos e ImageIDs ratificados, configuração
+final, cerimônias, evento mainnet real e autorizações. Em particular,
+`production_finalized_burn_risc0_evm_receipt_verifier_implemented` continua
+falso até um recibo real ser aceito pelo verificador imutável fixado.
+
+Nenhuma prova cara, mineração, deploy, transação, fundo, commit ou push foi
+executado nesta etapa.
+
+Validação
+
+- lint de produção e rebuild forçado dos contratos Solidity: aprovados;
+- suíte Node completa: 232/232 testes aprovados;
+- proveniência completa e manifesto: 1.036 fontes verificadas;
+- gate de mainnet fechada: NOT READY esperado, 160 bloqueios únicos;
+- gate de fundos reais: NOT READY esperado, 171 bloqueios únicos.

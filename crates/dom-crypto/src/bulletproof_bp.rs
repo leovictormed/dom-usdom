@@ -675,6 +675,13 @@ pub fn bp_verify_with_extra_commit(
             proof_bytes.len()
         )));
     }
+    // Keep adversarial proof bytes out of the C verifier on the transcript-bound
+    // path too. The ordinary verifier applies the same check: malformed curve
+    // encodings otherwise enter dependency error paths which historically leaked
+    // scratch frames and are outside Rust's panic/error boundary.
+    if !proof_has_valid_curve_points(proof_bytes) {
+        return Ok(false);
+    }
     let backend = backend()?;
     let h_dom = h_dom_internal(backend)?;
     let complement_sec1 = derive_complement_commitment(
@@ -1852,6 +1859,10 @@ mod tests {
         let commitment: [u8; 33] = commitment.try_into().expect("commitment length");
         let proof = [0u8; SINGLE_BULLETPROOF_SIZE];
         assert_eq!(bp_verify(&commitment, &proof), Ok(false));
+        assert_eq!(
+            bp_verify_with_extra_commit(&commitment, &proof, b"remote-output-capsule"),
+            Ok(false)
+        );
     }
 
     /// DS-001 regression: `bp_verify` must reject any proof whose length is not

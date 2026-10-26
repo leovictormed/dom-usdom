@@ -490,9 +490,19 @@ fn decode_checkpoint_witness(bytes: &[u8]) -> Result<CheckpointWitness> {
     };
     validate_expected_finalized(&expected_finalized)?;
     let transcript_end = CHECKPOINT_WITNESS_HEADER_BYTES + transcript_len;
-    let transcript = bytes[CHECKPOINT_WITNESS_HEADER_BYTES..transcript_end].to_vec();
+    let transcript_bytes = &bytes[CHECKPOINT_WITNESS_HEADER_BYTES..transcript_end];
     let evidence_bytes = &bytes[transcript_end..];
+    crate::preflight_transcript_json(transcript_bytes)?;
+    crate::preflight_evidence_json(evidence_bytes)?;
+    let transcript = transcript_bytes.to_vec();
     let evidence: CheckpointEvidence = serde_json::from_slice(evidence_bytes)?;
+    if let Some(ancestry) = &evidence.execution_ancestry {
+        crate::ancestry::validate_ancestry_allocation_bounds(ancestry)?;
+    }
+    crate::receipts::validate_receipt_allocation_bounds(&evidence.receipt)?;
+    crate::state::validate_account_allocation_bounds(&evidence.registry_account)?;
+    crate::state::validate_storage_allocation_bounds(&evidence.config_storage)?;
+    crate::state::validate_runtime_code_allocation_bounds(&evidence.runtime_bytecode)?;
     ensure!(
         serde_json::to_vec(&evidence)?.as_slice() == evidence_bytes,
         "noncanonical checkpoint evidence encoding"
@@ -520,6 +530,7 @@ fn validate_expected_finalized(expected: &FinalizedExecution) -> Result<()> {
 
 fn validate_trust_policy(policy: &CheckpointTrustPolicy) -> Result<()> {
     validate_policy(&policy.checkpoint)?;
+    crate::validate_fork_schedule(&policy.forks)?;
     ensure!(
         policy.trusted_checkpoint != B256::ZERO
             && policy.ethereum_genesis_validators_root
@@ -787,6 +798,23 @@ mod tests {
         b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     const DOM_STATE: B256 =
         b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+
+    fn supported_forks() -> EthereumForks {
+        let fork = |epoch, version| EthereumFork {
+            epoch,
+            fork_version: [version, 0, 0, 0].into(),
+        };
+        EthereumForks {
+            genesis: fork(0, 0),
+            altair: fork(74_240, 1),
+            bellatrix: fork(144_896, 2),
+            capella: fork(194_048, 3),
+            deneb: fork(269_568, 4),
+            electra: fork(364_032, 5),
+            fulu: fork(411_392, 6),
+            gloas: fork(u64::MAX, 7),
+        }
+    }
     const SLOT: B256 = b256!("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
     const NETWORK: u32 = 0x4450_4d52;
 
@@ -933,7 +961,7 @@ mod tests {
         let trust = CheckpointTrustPolicy {
             trusted_checkpoint: B256::repeat_byte(0x41),
             ethereum_genesis_validators_root: GENESIS,
-            forks: crate::EthereumForks::default(),
+            forks: supported_forks(),
             max_current_slot: 17_000_000,
             checkpoint: policy(),
         };
@@ -958,7 +986,7 @@ mod tests {
         let dynamic = CheckpointTrustPolicy {
             trusted_checkpoint: B256::repeat_byte(0x41),
             ethereum_genesis_validators_root: GENESIS,
-            forks: crate::EthereumForks::default(),
+            forks: supported_forks(),
             max_current_slot: u64::MAX,
             checkpoint: policy(),
         };

@@ -1,0 +1,51 @@
+USD + DOM — limite local interno do prover de queima finalizada
+Etapa 322 — 2026-10-22
+
+Achado
+
+Os três comandos oficiais de prova e compressão já removiam os endpoints
+Bonsai/RISC Zero e selecionavam o prover local sem modo de desenvolvimento.
+Entretanto, a biblioteca `dom-usdom-finalized-burn-proof-host` conferia apenas
+`RISC0_PROVER` e `RISC0_DEV_MODE`. Um novo chamador Rust poderia invocar a API
+diretamente mantendo `BONSAI_API_URL`, `BONSAI_API_KEY`, `RISC0_SERVER_PATH` ou
+`RISC0_SERVER_ADDR` no ambiente e expor a entrada privada fora do limite local.
+O código fixado do RISC Zero 3.0.6 também lê `RISC0_EXECUTOR`, que seleciona
+execução local ou IPC independentemente do seletor de prover.
+
+Correção
+
+A biblioteca agora exige o modo local não-dev e rejeita pela presença qualquer
+variável remota/executor antes de invalidar índices, ler a testemunha ou
+selecionar o prover. A mesma guarda protege tanto a prova succinct quanto a
+compressão Groth16. O checker de fontes prova que as duas chamadas e o conjunto
+completo permanecem presentes, e valida os lançadores fixos correspondentes.
+
+A inspeção completa das variáveis lidas pelo upstream também identificou
+`RISC0_PPROF_OUT`, `RISC0_PPROF_ENABLE_INLINE_FUNCTIONS`, `RISC0_KECCAK_PO2`,
+`RISC0_DEFAULT_PROVER_NUM_GPUS`, `RISC0_INFO`, `RISC0_REDIS_CHANNEL_SIZE` e
+`BONSAI_POLL_INTERVAL_MS`. Bibliotecas e lançadores agora rejeitam/removem todos
+esses controles não fixados. Isso evita escrita de perfil em caminho herdado e
+mantém o envelope de execução/capacidade reproduzível.
+
+A cadeia completa de dados de prova agora usa `umask 077`; todos os writers de
+host usam `0600`. A proteção vale para testemunhas, jobs, recibos, índices e
+selos mesmo quando o binário é chamado diretamente.
+
+O planejador de queima finalizada, último entrypoint de prova que ainda
+ignorava argumentos extras, agora também nega código inseguro e rejeita todos
+os argumentos. O checker cobre os 14 binários fixos de planejamento, prova e
+empacotamento das quatro camadas.
+
+A alegação ampla do verificador de queima finalizada passou a depender desse
+fato. Remover a proteção faz a proveniência falhar antes de qualquer gate de
+release.
+
+Validação e limite
+
+- formatação Rust, checker com autoteste e regressão focada: aprovados; as
+  suítes atuais de runbook, capacity runner e claims passam 63/63 no total;
+- a prova não-dev já ativa usa o processo carregado antes desta alteração e
+  não foi reiniciada, interrompida ou desviada;
+- nenhum novo prover, minerador, nó, deploy, transação, fundo, commit ou push
+  foi iniciado;
+- recibo, capacidade e gás continuam pendentes da conclusão objetiva da prova.

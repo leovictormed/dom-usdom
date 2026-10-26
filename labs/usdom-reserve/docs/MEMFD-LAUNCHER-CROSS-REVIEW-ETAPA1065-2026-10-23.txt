@@ -1,0 +1,15 @@
+ETAPA1065 — MEMFD LAUNCHER CROSS-REVIEW
+Date: 2026-10-23
+
+Independent change reviewed with no corrective diff required. The launcher source
+hash is e3eacf90ba359bc4baa1c43a05c244367b1c5d3488d623624ac0a606a176f3ed
+and both credential workflows pin that exact value before and after compilation.
+
+The launcher reads and hashes the openat2-constrained input while copying the same
+bytes into a private memfd, verifies the expected digest, closes the pathname-backed
+fd, applies F_SEAL_SEAL|SHRINK|GROW|WRITE, confirms all seals, and executes the sealed
+image with execveat(AT_EMPTY_PATH). It also rejects set-id, writable, hardlinked,
+oversized and nonregular inputs and applies no_new_privs plus an explicit environment.
+
+Evidence: focused launcher/wallet suites 4/4; gate and bash syntax checks passed;
+broad mainnet readiness 62/62. No code change was necessary in this cross-review.

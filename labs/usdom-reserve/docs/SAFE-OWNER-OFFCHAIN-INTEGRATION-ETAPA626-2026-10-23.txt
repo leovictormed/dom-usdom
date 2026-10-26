@@ -1,0 +1,26 @@
+ETAPA 626 — integração off-chain da identidade ordenada dos owners
+Data: 2026-10-23
+
+Achado
+O contrato passou a incluir ownersCommitment no CONTROL_PLANE_IDENTITY_TYPEHASH,
+mas SDK, planos de implantação e readiness ainda derivavam a identidade anterior.
+Isso bloqueava a implantação correta e poderia fazer ferramentas externas aprovarem
+um manifesto diferente daquele efetivamente exigido pelo bytecode.
+
+Correção
+- configuration.mjs reproduz exatamente o typehash Solidity de cinco campos e exige
+  governanceOwnersCommitment e guardianOwnersCommitment não nulos.
+- safeOwnersCommitment deriva keccak256(abi.encode(owner0,owner1,owner2)), preservando
+  ordem, exigindo três endereços distintos e não nulos.
+- runtime patching, init/deployment plans, preactivation pins, burn submission,
+  preflight e release readiness carregam os dois compromissos.
+- readiness reconcilia cada compromisso declarado contra o trio ordenado aprovado.
+- observações pós-deploy leem e comparam os dois getters imutáveis.
+- fixtures, vetores determinísticos e testes foram migrados para a nova identidade.
+
+Validação
+- Node configuration/runtime/preflight/release/preactivation/solidity pins: 24/24.
+- Node configuration + readiness: 69/69.
+- Foundry diferencial de config e identidade runtime: 2/2.
+
+Nenhum commit, push, deploy, assinatura ou movimentação de fundos foi realizado.

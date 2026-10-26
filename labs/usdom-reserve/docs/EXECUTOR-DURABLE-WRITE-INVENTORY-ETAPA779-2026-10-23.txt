@@ -1,0 +1,28 @@
+ETAPA779 — EXECUTOR DURABLE WRITE INVENTORY
+Date: 2026-10-23
+
+Finding
+-------
+Deployment invoked PATH-resolved `sync -f` after publishing its receipt and
+evidence. The calls were redundant: `persist_new` delegates to the pinned Node
+create-once installer, whose durable writer fsyncs the new file and parent
+directory before returning. Keeping a second durability command enlarged the
+late executable surface and made successful completion depend on an unpinned
+tool without strengthening the commit boundary.
+
+Correction and inventory
+------------------------
+The two redundant `sync` calls and bootstrap dependency were removed. Neither
+executor uses `mv` or `cp`, changes permissions on a final durable path, or
+redirects bytes directly to a final receipt/evidence/raw/hash path. Final writes
+continue exclusively through `persist_new`/`persist_private_new`; `rm` is limited
+to private temporary/error cleanup, and `chmod` is limited to private drafts and
+temporary snapshots whose installed result is independently asserted.
+
+Regression and validation
+-------------------------
+The shared executor parity test now rejects `sync`, `mv`, `cp`, direct final-path
+redirection, and chmod of final paths, while requiring create-once installer
+calls for durable artifacts. Adversarial source mutations prove the rule.
+Focused tests pass 15/15; both executors pass `bash -n`; `git diff --check`
+passes. No executor, RPC, signing, deployment or transmission ran.

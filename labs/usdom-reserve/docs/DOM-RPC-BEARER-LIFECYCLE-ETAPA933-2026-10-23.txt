@@ -1,0 +1,27 @@
+ETAPA 933 — lifecycle server-side do Bearer DOM RPC
+Data: 2026-10-23
+
+Cobertura confirmada
+- Geração: 32 bytes pelo CSPRNG `thread_rng`, codificados como 64 hex; mínimo configurado 32 bytes, máximo 512, ASCII visível sem whitespace.
+- Arquivo fallback: leitura limitada; regular, owner efetivo, modo owner-only, link count um e dev/inode rechecados no descritor aberto; symlink/hardlink/permissões fracas falham.
+- Criação/reparo: create-new 0600 desde o primeiro estado visível, sync, corrida sem clobber e reparo de arquivo vazio sem substituir token vivo.
+- Exposição: token reutilizável não vem de env/argv; logs registram somente origem/path, nunca valor; NodeConfig redige Debug/serde e zeroiza no Drop.
+- Autenticação: header após Host/framing, comparação `subtle::ct_eq`, auth antes do handler/body extractor, resposta autenticada no-store.
+- Encerramento: `BearerToken` implementa ZeroizeOnDrop e o router é descartado pelo graceful shutdown.
+
+Gap corrigido
+- O servidor recebia um `String`, envolvia a cópia em `Zeroizing`, mas chamava helper borrowed que clonava para outro `String`. Ambas as alocações secretas ficavam vivas durante todo o `serve().await`.
+- `take_or_create_token_with_config` agora consome e move a mesma alocação validada para `BearerToken`, sem clone. Material configurado inválido é explicitamente zeroizado antes do erro de startup.
+- Regressão prova preservação do endereço da alocação ao atravessar esse boundary.
+
+Rotação/revogação
+- Não existe hot reload. Troca do arquivo exige graceful restart; o processo antigo mantém exatamente o token que iniciou, e o novo autentica o arquivo revalidado. Isso evita estados em que dois arquivos/versões são aceitos silenciosamente.
+- Após shutdown, o token antigo em memória é apagado; após restart ele deixa de ser aceito. Operadores não devem interpretar substituir o arquivo com servidor ativo como revogação imediata.
+
+Validação leve
+- Checker estrutural de lifecycle: 10/10.
+- rustfmt e git diff --check: aprovados.
+- Cargo focado reservado para aggregate pós-prova; nenhum servidor/RPC/segredo real foi usado.
+
+Limite residual
+- `DomNode` conserva sua cópia redigida/zeroizing em `NodeConfig` enquanto vive; o servidor não acrescenta mais uma segunda cópia longa. Remover a cópia de configuração exigiria mudar ownership do config compartilhado pelo nó inteiro.

@@ -1,0 +1,26 @@
+ETAPA782 — PRIVATE TEMPORARY CLEANUP
+Date: 2026-10-23
+
+Finding
+-------
+The two executors and three signing ceremonies removed secret-bearing `/dev/shm`
+trees with PATH-resolved `rm`. Their shared EXIT/HUP/INT/TERM trap also did not
+encode signal status explicitly. Tool substitution could retain raw
+transactions, signatures or RPC proxy material, while a signal handler could
+return ambiguously before the shell's final exit path.
+
+Correction
+----------
+All five flows now erase their private tree through the already pinned Node
+binary and `fs.rmSync(...,{recursive:true,force:true})`. EXIT preserves the
+current status; HUP, INT and TERM exit as 129, 130 and 143. Each cleanup first
+disarms all traps to prevent recursion. Executors terminate and wait for the RPC
+proxy before erasing its stdout, stderr, ready catalog and transaction material.
+Descriptor 9 remains owned until shell exit and then closes automatically.
+
+Validation
+----------
+A structural inventory covers all five flows. A local no-RPC TERM harness proves
+status 143 and removal, and ordering checks require proxy kill→wait→erase.
+Focused tests pass 12/12; all five scripts pass `bash -n`; `git diff --check`
+passes. No Ledger, RPC, signing, deployment, commit or push operation ran.

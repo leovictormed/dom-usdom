@@ -1,0 +1,21 @@
+USDOM stage 373 — captured wallet snapshot readers
+
+Three remaining operator flows restored wallet state by reopening a pathname
+after a direct, owner-only file read: existing finalized-deposit registration,
+finalized-deposit observation and private-burn construction. Each now decrypts
+and validates the rollback seal against the exact captured buffer.
+
+This binds filesystem validation and decoded wallet state to one read. Later
+snapshot updates still validate the predecessor seal inside the locked wallet
+persistence layer, so replacement after capture fails closed before state can
+advance.
+
+Validation:
+
+- cargo fmt --check: pass
+- cargo check --locked -j1 -p dom-node --features usdom-wallet-operator --bins: pass
+- repository whitespace validation: pass
+
+No live RPC, secret, TPM, signing, transaction, deployment, funds, mining,
+commit, tag or push was used. The detached finalized-burn proof remained
+active and was not restarted.

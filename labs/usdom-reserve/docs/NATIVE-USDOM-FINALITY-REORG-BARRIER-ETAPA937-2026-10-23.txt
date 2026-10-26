@@ -1,0 +1,37 @@
+ETAPA 937 — auditoria da finalidade/checkpoint/barreira de reorg USDOM nativa
+Data: 2026-10-23
+
+Escopo
+- crates/dom-chain/src/native_usdom_v4.rs
+- crates/dom-chain/src/chain_state.rs
+- crates/dom-chain/src/ethereum_checkpoint_poc.rs
+- crates/dom-usdom-finalized-burn-program/src/lib.rs
+
+Resultado
+Nenhum defeito de produção foi confirmado neste recorte. Foi adicionada uma regressão
+estrutural leve para impedir que as garantias abaixo desapareçam silenciosamente. Não
+houve alteração de Rust nem execução de Cargo/prova.
+
+Invariantes confirmados (8)
+1. A testemunha de burn precisa verificar contra o state root exato do statement.
+2. O statement de checkpoint vincula height, block hash e state root dessa testemunha.
+3. A finalidade Ethereum precisa estar depois do evento tanto em execution block quanto
+   em beacon slot.
+4. Os três caminhos de reorg (ordinário, native-v1 e native-v2) chamam check_reorg antes
+   de desconectar a cadeia canônica.
+5. check_reorg permite ancestor == checkpoint, mas rejeita ancestor < checkpoint; assim
+   nenhum bloco checkpointado, inclusive burn posteriormente resgatável, é desfeito.
+6. V2 também não pode reorganizar abaixo do pai de ativação ratificado; o marcador de
+   ativação é persistente e a restauração exige schedule/parent/state exatos.
+7. Compaction V2 limita remoção a min(rolling floor, checkpoint - 1), preserva o block
+   record do checkpoint e o burn archive compacto, e rejeita cursor abaixo da ativação.
+8. Startup chama ensure_restart_floor antes de reparo/pruning e valida que o checkpoint
+   persistido ainda aponta para o hash canônico na altura correta.
+
+Validação
+- node --test native-usdom-finality-reorg-barrier-stage937.test.mjs: 3/3 passou.
+- git diff --check: passou.
+
+Limite
+O teste é estrutural e não substitui a suíte Cargo agregada nem uma prova RISC Zero; ambas
+permanecem reservadas para quando o trabalho pesado ativo permitir.

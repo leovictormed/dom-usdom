@@ -1,0 +1,81 @@
+Noise handshake and session identity audit — stage 600
+Date: 2026-10-23
+Scope: static/ephemeral identity, transcript binding, replay/reflection,
+version fallback, nonce exhaustion, secret lifetime and reconnect churn
+
+Findings corrected
+==================
+1. DOM_TEST_HANDSHAKE_TIMEOUT_SECS and DOM_TEST_WRITE_TIMEOUT_SECS are named for
+   tests but are read by production binaries. Zero made all sessions fail and a
+   huge value weakened slowloris/write-stall bounds. Parsing also accepted
+   noncanonical decimals.
+2. The node retained its static Noise private key and copied it into every
+   inbound/outbound session as ordinary [u8;32] values. Loaded metadata buffers
+   and task-local copies were not explicitly cleared on drop.
+3. Outbound TcpStream::connect had no application deadline. A black-holed route
+   could retain one of the bounded outbound reservations until the operating
+   system's much longer connect timeout, slowing recovery and peer rotation.
+
+Corrections
+===========
+* Test timeout overrides can only be canonical positive decimals no greater than
+  the compiled production default. Missing, malformed, zero, signed/padded or
+  oversized values retain the safe default. A pure parser regression covers
+  valid shortening and adversarial values without process-environment races.
+* DomNode now stores the static private key in Zeroizing<[u8;32]>. Every
+  per-session clone is also Zeroizing and clears on all normal, error,
+  cancellation and task-abort drops. The temporary metadata Vec is wrapped in
+  Zeroizing before validation/copy.
+* Outbound TCP connect is bounded to ten seconds inside the existing shutdown
+  select. Timeout returns the normal retryable outcome, after which reservation
+  cleanup, failure accounting, deterministic cooldown and candidate rotation
+  run unchanged.
+
+Identity and protocol evidence
+==============================
+* Noise_XX authenticates both static keys and supplies fresh ephemeral keys for
+  each connection. The authenticated remote static key becomes PeerId; the peer
+  manager prevents one PeerId from owning multiple active aliases/sessions.
+* The exact prologue commits to the literal DOM domain, selected protocol
+  version, network magic and genesis-derived chain_id. Hello repeats version,
+  magic and chain_id inside the encrypted transcript and must exactly match the
+  selected prologue/session. Native USDOM and sync capabilities require
+  bilateral authenticated v4 Hello bits and mutually exclusive phases fail.
+* Role-specific XX message ordering and transcript hashes prevent reflection.
+  Replaying captured handshake or transport ciphertext into a fresh session
+  fails because ephemeral transcript keys/nonces differ; replay within a
+  session fails at the monotonically advancing Noise receive nonce.
+* snow checks the 64-bit sending and receiving nonce and returns Exhausted before
+  wrap/reuse. Codec errors terminate the TCP session; at protocol rates 2^64
+  frames is unreachable, so an application rekey schedule is not a practical
+  exhaustion control requirement.
+* Version fallback always reconnects with a fresh Noise state. Only an AEAD
+  transcript failure or responder msg2-abort marker changes bounded per-IP
+  version memory; connect-close, timeout and scanners do not. Native authority
+  is never granted on an older fallback session. An active path attacker can
+  still deny newest-version handshakes and force compatibility or denial of
+  service; without a pre-authenticated peer-version commitment this is an
+  inherent availability tradeoff, not authority escalation.
+* Static identity persists deliberately across restart for stable PeerId.
+  Corrupt, wrong-length or noncanonical unclamped persisted keys fail closed
+  without replacement. Store directory/file protections remain the at-rest
+  boundary; this stage improves process-memory erasure rather than rotating
+  node identity.
+
+Light validation
+================
+* rustfmt on handshake and node source: PASS
+* git diff whitespace/integrity check: PASS
+* Structural checks cover bounded canonical timeouts, Zeroizing owner/session/
+  metadata buffers, ten-second connect bound, transcript fields, exact Hello
+  binding, PeerId uniqueness path and snow nonce-exhaustion behavior.
+* Correction after authoritative log reconciliation: the vanished transient
+  unit exposed empty systemd-manager defaults (`Result=success`, status 0), but
+  durable `status.json`, `time.log` and `prover.log` prove exit 101 before any
+  proof during the RISC Zero recursion-artifact download. No receipt exists.
+  `cargo test -p dom-wire --lib --locked` remained blocked on package-cache
+  ownership held by an independent `dom-interopd` validation; that waiting
+  invocation was cancelled without compilation.
+
+No readiness fact, commit, push, deploy, signature, external RPC, transaction,
+mining or funds action occurred.

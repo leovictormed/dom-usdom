@@ -1,0 +1,28 @@
+USD + DOM — compromissos de conjuntos de artefatos da capacidade de checkpoint
+Etapa 326 — 2026-10-22
+
+Achado
+
+As camadas RandomX, agregadora, econômica e de segmento podem produzir vários
+recibos. A primeira versão do relatório usava nomes no singular e exigia apenas
+32 bytes de journal por camada, o que só representava corretamente a prova
+externa, cujo conjunto possui um elemento.
+
+Correção
+
+- Cada camada registra compromissos distintos dos conjuntos ordenados de
+  entradas, journals e recibos: `inputSetSha256`, `journalSetSha256` e
+  `receiptSetSha256`.
+- `journalCount` e `receiptCount` são inteiros canônicos, positivos, limitados a
+  4.096 e obrigatoriamente iguais.
+- `journalBytes` deve ser exatamente `journalCount * 32`, preservando o output
+  público fixo de cada receipt sem restringir o conjunto inteiro a um item.
+- Todos os compromissos de conjuntos e artefatos externos devem ser distintos.
+- A prova externa continua exigindo um único journal e seu compromisso deve ser
+  o SHA-256 do statement hash da release.
+
+Validação
+
+O conjunto focado passa 46/46. Mutações de contagem, bytes totais, compromisso
+de conjunto e reutilização de hash são rejeitadas. Esta etapa corrige a
+representação da evidência; não afirma que os conjuntos de recibos já existem.

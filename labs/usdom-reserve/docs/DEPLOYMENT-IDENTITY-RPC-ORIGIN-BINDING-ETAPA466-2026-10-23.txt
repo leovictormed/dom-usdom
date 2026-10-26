@@ -1,0 +1,35 @@
+Stage 466 — deployment-identity RPC-origin binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The deployment-identity materializer verified runtime RPC URLs against the
+hash-addressed catalog, but its durable observation retained only operator IDs.
+The exact catalog origin commitments used for the nonce and empty-address
+observations were discarded, so later review could not bind each result to its
+endpoint origin.
+
+Remediation
+===========
+
+Deployment identity observation now requires one distinct, nonzero canonical
+origin commitment for every provider and stores it beside that provider's
+operator ID and finalized observation. The materializer supplies the ordered
+`originKeccak256` values directly from the catalog whose exact bytes it already
+rechecks after observation. Missing, malformed, duplicate or count-mismatched
+origin commitments fail closed.
+
+Evidence boundary
+=================
+
+`production_mainnet_deployment_identity_observation_binds_rpc_origins` is a
+structural fact. It does not claim a live deployment observation. No network,
+signing, deployment, funds, mining, commit or push occurred.
+
+Validation
+==========
+
+- Focused deployment-identity tests pass 6/6.
+- Changed Node syntax, JSON and diff checks pass.
+- Full readiness passes 60/60.

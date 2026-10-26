@@ -1,0 +1,58 @@
+USDOM stage 380 — descriptor-anchored wallet locks
+Date: 2026-10-22
+
+Finding
+=======
+
+Wallet snapshot and TPM authority locks validated an owner-only parent and
+then opened the lock by its pathname. A same-user concurrent process could
+replace a pathname component inside that interval. Post-open inode checks
+detected most substitutions, but the authority was not continuously anchored
+to the directory descriptor used for lookup.
+
+Correction
+==========
+
+dom-wallet-crypto now exposes open_private_lock_file. On Unix it retains and
+authenticates the exact mode-0700 current-user parent, resolves the child with
+openat plus O_NOFOLLOW and O_CLOEXEC, creates it exclusively at mode 0600 or
+opens the existing direct file, synchronizes creation, and authenticates the
+descriptor-relative name, original path, owner, mode, link count, device and
+inode before returning the handle.
+
+SnapshotLock and the shared TPM authority/keystore lock path now use this one
+implementation. The verification-only checkpoint planner also drops verified
+receipt objects immediately; it retains them only when the prove feature needs
+them as recursive assumptions.
+
+Validation
+==========
+
+- descriptor lock symlink/identity test: 1/1 passed
+- wallet snapshot suite: 4/4 passed
+- TPM authority suite: 6/6 passed
+- TPM-enabled wallet check: passed without warnings
+- checkpoint verify-only suite: 1/1 passed without its former dead-code warning
+- formatting and repository whitespace checks pass
+
+Source SHA-256
+=============
+
+db05ba5f6aa4ad24a464dda09ada1bb1741cd4fc6943d57b3db717ae970917ae  crates/dom-wallet-crypto/src/lib.rs
+c6fb39bc09a2734a0e894c12e07c3e68ba3728ed8b11b2d2c31e0b15da23fbcc  crates/dom-usdom-wallet/src/snapshot.rs
+db1c4e663485edf45358b433e30fa7a48e31086ce38b1030d63f332f3a892681  crates/dom-usdom-wallet/src/tpm2_authority.rs
+c3fb1e493996b3efc0d6b912a5e5d73c397fdc89a0e9d589d9629ea0c91c5ce3  crates/dom-usdom-checkpoint-proof-host/src/lib.rs
+
+Operational boundary
+====================
+
+No TPM command, secret, wallet identity, network, signature, transaction,
+deployment, funds, mining, commit, tag or push was used. The existing local
+capacity prover was left running.
+
+Next action
+===========
+
+Audit all remaining USDOM pathname lock/read boundaries and proof generation
+commit markers. Keep broad prove-feature compilation deferred until the active
+capacity proof releases enough host resources.

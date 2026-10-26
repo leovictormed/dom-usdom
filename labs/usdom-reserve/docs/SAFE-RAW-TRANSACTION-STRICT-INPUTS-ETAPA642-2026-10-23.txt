@@ -1,0 +1,22 @@
+ETAPA 642 — VALIDAÇÃO ESTRITA DA TRANSAÇÃO BRUTA DE RECUPERAÇÃO SAFE
+Data: 2026-10-23
+
+Foi auditado o validador executado entre a assinatura Ledger e a publicação da
+transação de recuperação de cada Safe. Ele consome plano, pacote de transações,
+envelope autorizado e transação bruta, validando role, relayer, nonce, destino,
+valor e calldata antes do envio.
+
+Os JSONs usavam parser de chaves duplicadas e arquivos diretos, mas eram
+convertidos por `Buffer.toString('utf8')`, que tolera bytes inválidos. A
+transação hexadecimal também usava essa conversão. Agora ambas as fronteiras
+aplicam `TextDecoder('utf-8',{fatal:true})`; os documentos JSON só então passam
+por `parseStrictJson`, e o raw mantém framing hexadecimal exato.
+
+O executor continua criando envelope/raw/hash sem sobrescrita, tirando
+snapshots, comparando fontes e exigindo autorização interativa imediatamente
+antes da publicação. Essas proteções de no-clobber e TOCTOU foram preservadas.
+
+Validação: ataques de chave `role` duplicada escapada e byte 0xff; teste
+adversarial e estrutural passaram 2/2; `node --check` e `git diff --check`
+passaram. Nenhum Ledger, assinatura, Safe, RPC, transmissão, deploy, staging,
+commit, push ou movimentação de fundos foi utilizado.

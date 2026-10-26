@@ -1,0 +1,59 @@
+Stage 635 — checkpoint external identity and retry audit (2026-10-23)
+
+Scope
+
+Audited only the Solidity checkpoint registry and the two RISC Zero adapters at
+external ABI, returndata, revert and gas boundaries, with emphasis on accepted
+candidates whose verifier or guardian identity changes before finalization.
+The ABI-shape work from stage 616, domain binding from stage 618 and adapter
+configuration work from stage 624 were treated as established and not repeated.
+
+Result
+
+No additional production-contract defect was confirmed.
+
+- Verifier calls are static, gas-bounded and require exact returndata. A hostile
+  verifier cannot mutate registry state, return a prefix plus trailing data or
+  turn a revert/return bomb into acceptance.
+- Submission checks the verifier identity both before and after proof
+  verification. This closes configuration drift during the external call.
+- Finalization rechecks the current verifier and guardian identities before
+  advancing any checkpoint anchor. It intentionally does not repeat the
+  expensive proof call: the selected statement and verifier identity were
+  already fixed at admission.
+- A temporary verifier configuration change or Safe guardian policy change
+  causes a fail-closed revert without deleting or replacing the accepted
+  candidate. The statement hash, original ready time, latest anchors and
+  checkpoint count remain unchanged.
+- Restoring both exact committed identities allows the same candidate to
+  finalize after its original delay. The resulting predecessor progression
+  makes submission of that checkpoint fail, so restoration does not open a
+  replay path.
+- Activation, chain, registry and configuration commitments remain part of the
+  authenticated statement/configuration boundaries established in the earlier
+  stages.
+
+Material regression added
+
+`testFinalizeExternalIdentityFailuresPreserveCandidateForExactRetry` selects an
+authenticated checkpoint, reaches its ready time, then:
+
+1. changes the verifier configuration and proves finalization fails while the
+   candidate, ready time, anchors and count remain intact;
+2. restores the verifier, adds a forbidden guardian Safe module and proves the
+   second failure also preserves the same state;
+3. restores the exact guardian policy and finalizes that original candidate;
+   and
+4. proves the finalized checkpoint cannot be submitted again.
+
+Validation
+
+- new retry regression: 1/1 passed;
+- focused registry and adapter suites: 37/37 passed;
+- complete Solidity campaign: 158/158 passed across 14 suites, including all
+  invariant campaigns;
+- production contract lint with warnings denied: passed;
+- changed-test formatting and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit,
+push, deployment, signature, transmission or funds operation was performed.

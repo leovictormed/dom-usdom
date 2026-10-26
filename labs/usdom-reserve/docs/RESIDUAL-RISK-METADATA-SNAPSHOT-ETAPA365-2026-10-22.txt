@@ -1,0 +1,38 @@
+USD + DOM — snapshot exato do metadado de risco residual
+Etapa 365 — 2026-10-22
+
+Problema corrigido
+
+O escritor do relatório de risco segurava o lock cooperativo da configuração,
+mas o preparador e o `jq` abriam o metadado em momentos diferentes. Um processo
+local que ignorasse o lock podia trocar o arquivo entre a construção do relatório
+e a atualização do ponteiro, associando evidência a uma geração diferente.
+
+Correções
+
+- criado leitor de configuração que exige caminho absoluto, arquivo direto,
+  proprietário atual, link único, modo 0644 exato e tamanho limitado;
+- o metadado é capturado antes da construção do relatório;
+- após o preparador, o arquivo original é relido e comparado byte a byte;
+- o próximo metadado é construído somente a partir do snapshot;
+- imediatamente antes da publicação, a origem é relida e comparada novamente;
+- após a gravação durável, o arquivo instalado é relido pelo limite direto e
+  precisa coincidir exatamente com o documento calculado;
+- a saída usa o documento calculado, sem reabrir o destino por caminho.
+
+Validação focada
+
+- sintaxe Bash/JavaScript e ShellCheck: passaram;
+- leitor aceitou 0644 direto e rejeitou modo incorreto, symlink e hardlink;
+- escritor de autorização/risco: passou;
+- lint de produção e compilação forçada dos 44 fontes Solidity: passaram;
+- regressão Node completa: 302/302 passaram;
+- proveniência completa: 169 importados, 45 fontes de programas de prova e
+  manifesto determinístico com 1.145 fontes passaram;
+- gate de mainnet não configurado: recusou como esperado com `ready=false` e
+  161 condições derivadas abertas;
+- `git diff --check`: passou.
+
+Nenhuma aprovação de risco foi criada. Nenhuma assinatura, transação, fundo,
+push, commit, tag, deploy ou mineração ocorreu. A prova real de queima
+finalizada permaneceu ativa e não foi reiniciada.

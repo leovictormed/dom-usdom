@@ -1,0 +1,71 @@
+Pool, queue and orphan lifecycle audit — stage 590
+Date: 2026-10-23
+Scope: P2P/RPC transaction relay state, future-block queues, native USDOM
+future/orphan/candidate pools, ordinary orphan retention, missing-parent tracking,
+PEX/peer lifecycle and bounded channels
+
+Finding corrected
+=================
+Dandelion's route_new_tx unconditionally replaced an existing stem entry for
+the same canonical transaction hash. Exact transaction replay is normal after a
+lost RPC reply, and /tx/submit is public and intentionally idempotent. Replaying
+the same accepted bytes at intervals shorter than STEM_TIMEOUT therefore reset
+stem_start each time. A caller could prevent the periodic promoter from ever
+observing the entry as expired, delaying fluff propagation indefinitely.
+
+Correction
+==========
+* An exact replay of a live stem identity now returns Stem while preserving the
+  original start time and selected peer.
+* If route_new_tx observes that identity after its original deadline, it removes
+  the entry and returns Fluff directly; it never starts a second stem lifetime.
+* Added deterministic unit regressions for live replay and expired replay. They
+  manipulate private test state rather than sleeping or relying on randomness.
+
+Lifecycle and amplification evidence
+====================================
+* The Dandelion timeout task scans every five seconds with skipped missed ticks,
+  removes expired identities, and re-reads canonical bytes from the mempool
+  before fluff broadcast. Live stem identities derive from accepted
+  transactions; the runtime mempool is capped at 50,000 entries, and broadcast
+  channels are fixed at 256 messages. The replay fix closes indefinite
+  retention within that bounded state.
+* Ordinary and native future queues are runtime-only, deduplicate/replace by
+  block hash, retain at most 256 entries and 64 MiB, use checked byte/count
+  accounting, deterministic height/size/hash eviction, canonical height/hash
+  replay order and age expiry. Payload metadata is parsed and canonical block
+  identity is derived before admission. Replay through ingress re-runs all
+  consensus validation.
+* Ordinary and native orphan pools deduplicate by canonical block hash and cap
+  state at 1,024 entries, 32 children per missing parent and 256 MiB total.
+  Oversized single items and parent fanout are rejected; pressure evicts the
+  oldest retained item while maintaining both indexes and byte accounting.
+  Children replay in deterministic height/hash order and are fully revalidated.
+* Missing-parent request state caps distinct parents at 4,096 and dependents at
+  256 per parent. A fixed-tick clock, a 16-hash request batch and capped
+  exponential backoff prevent arrival bursts from resetting retry cadence.
+* Native USDOM mining candidates remain volatile and idempotent by candidate
+  identity, capped at 16 entries/16 MiB, and reverified during template creation
+  and final ingress.
+* PEX holds at most 10,000 peers; wire Addr responses are count bounded, only
+  confirmed public Mainnet endpoints are re-advertised, and GetAddr cooldown
+  memory is bounded and pruned. Pending peer reservations, penalties, aliases,
+  duplicate relay trackers and outbound failure history have independent caps
+  or are tied to bounded connection state. Dialback uses per-IP cooldown,
+  4,096-source memory, eight in-flight probes and five-second timeouts.
+* RPC surfaces do not expose direct queue insertion. Transaction submission is
+  rate and in-flight bounded; native candidate and mining routes have the
+  stricter admission classes documented in stages 578/579/583/586.
+
+Light validation
+================
+* rustfmt on crates/dom-wire/src/dandelion.rs: PASS
+* git diff whitespace/integrity check: PASS
+* Structural checks cover replay-before-insert ordering, preservation of
+  stem_start/peer, expired Fluff transition, future/orphan count+byte bounds,
+  missing-parent bounds, and bounded relay channels.
+* Cargo execution is queued until the active RandomX proof releases shared
+  compiler and memory resources.
+
+No readiness fact, commit, push, deploy, signature, external RPC, transaction,
+mining or funds action occurred.

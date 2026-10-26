@@ -24,7 +24,7 @@ use dom_pow::{
 use dom_serialization::DomSerialize;
 use dom_usdom_checkpoint_statement::{
     required_historical_seed_heights, CheckpointContext, CheckpointStatement,
-    CheckpointStatementV4, ContextHeader, SeedAnchor, CHECKPOINT_CONTEXT_HEADER_COUNT,
+    CheckpointStatementV6, ContextHeader, SeedAnchor, CHECKPOINT_CONTEXT_HEADER_COUNT,
     CHECKPOINT_CONTEXT_MAX_SEED_ANCHORS, MAX_CONTEXT_SPAN,
 };
 use dom_usdom_privacy::verifier::SpendVerifier;
@@ -34,7 +34,8 @@ use dom_usdom_state::{
 use primitive_types::U256;
 use thiserror::Error;
 use usdom_ethereum_finality_experiment::{
-    checkpoints::StaticCheckpointTrustPolicy, deposits::StaticDepositTrustPolicy,
+    checkpoints::StaticCheckpointTrustPolicy, closures::StaticIssuanceClosureTrustPolicy,
+    deposits::StaticDepositTrustPolicy,
 };
 
 use crate::{EconomicBlockWitness, EconomicRoots, EconomicState, EconomicStateError};
@@ -319,12 +320,41 @@ impl NativeExecution<'_> {
         }
     }
 
+    fn economic_totals(&self) -> Option<(u128, u128)> {
+        match self {
+            Self::Full(_) => None,
+            Self::StatelessV2 { state, .. } => Some((state.total_issued, state.total_burned)),
+        }
+    }
+
+    fn issuance_closed(&self) -> Option<bool> {
+        match self {
+            Self::Full(_) => None,
+            Self::StatelessV2 { state, .. } => Some(state.issuance_closure.is_some()),
+        }
+    }
+
     fn validate_length(&self, expected: usize) -> Result<(), CheckpointProgramError> {
         if matches!(self, Self::StatelessV2 { witnesses, .. } if witnesses.len() != expected) {
             return Err(CheckpointProgramError::InvalidExtension);
         }
         Ok(())
     }
+}
+
+fn validate_v6_target_state(
+    actual_totals: Option<(u128, u128)>,
+    actual_issuance_closed: Option<bool>,
+    expected: Option<(u128, u128, bool)>,
+) -> Result<(), CheckpointProgramError> {
+    if let Some((issued, burned, issuance_closed)) = expected {
+        if actual_totals != Some((issued, burned))
+            || actual_issuance_closed != Some(issuance_closed)
+        {
+            return Err(CheckpointProgramError::PublicMismatch);
+        }
+    }
+    Ok(())
 }
 
 impl EconomicExecution<'_> {
@@ -393,6 +423,8 @@ pub fn execute_checkpoint_extension(
         ProgramPolicy::V1(policy),
         statement,
         public_output,
+        None,
+        None,
         previous_context_bytes,
         NativeExecution::Full(Box::new(previous_native_state.clone())),
         EconomicExecution::Full(previous_economic_state.clone()),
@@ -427,6 +459,8 @@ pub fn execute_checkpoint_extension_with_economic_witnesses(
         ProgramPolicy::V1(policy),
         statement,
         public_output,
+        None,
+        None,
         previous_context_bytes,
         NativeExecution::Full(Box::new(previous_native_state.clone())),
         EconomicExecution::Witnessed {
@@ -454,9 +488,10 @@ pub fn execute_checkpoint_extension_v2_with_witnesses(
     economic_witnesses: &[EconomicBlockWitness],
     checkpoint_policy: &StaticCheckpointTrustPolicy,
     deposit_policy: &StaticDepositTrustPolicy,
+    closure_policy: &StaticIssuanceClosureTrustPolicy,
     spend_verifier: &SpendVerifier,
 ) -> Result<CheckpointPublicOutput, CheckpointProgramError> {
-    let statement = CheckpointStatementV4::from_bytes(statement_bytes)
+    let statement = CheckpointStatementV6::from_bytes(statement_bytes)
         .map_err(|_| CheckpointProgramError::InvalidStatement)?;
     let public_output = statement
         .statement_hash()
@@ -472,6 +507,12 @@ pub fn execute_checkpoint_extension_v2_with_witnesses(
         ProgramPolicy::V2(policy),
         legacy,
         public_output,
+        Some((
+            statement.total_issued,
+            statement.total_burned,
+            statement.issuance_closed,
+        )),
+        Some(closure_policy),
         previous_context_bytes,
         NativeExecution::StatelessV2 {
             state: Box::new(previous_native_state),
@@ -493,6 +534,8 @@ fn execute_checkpoint_extension_inner(
     policy: ProgramPolicy,
     statement: CheckpointStatement,
     public_output: [u8; 32],
+    expected_target_state: Option<(u128, u128, bool)>,
+    closure_policy: Option<&StaticIssuanceClosureTrustPolicy>,
     previous_context_bytes: &[u8],
     mut native_execution: NativeExecution<'_>,
     mut economic_execution: EconomicExecution<'_>,
@@ -501,6 +544,9 @@ fn execute_checkpoint_extension_inner(
     deposit_policy: &StaticDepositTrustPolicy,
     spend_verifier: &SpendVerifier,
 ) -> Result<CheckpointPublicOutput, CheckpointProgramError> {
+    if matches!(policy, ProgramPolicy::V2(_)) && closure_policy.is_none() {
+        return Err(CheckpointProgramError::InvalidPolicy);
+    }
     let context = CheckpointContext::from_bytes(previous_context_bytes)
         .map_err(|_| CheckpointProgramError::InvalidContext)?;
     validate_public_policy(
@@ -628,6 +674,7 @@ fn execute_checkpoint_extension_inner(
                     policy.bridge,
                     checkpoint_policy,
                     deposit_policy,
+                    closure_policy,
                     spend_verifier,
                     policy.schedule,
                 )
@@ -645,6 +692,7 @@ fn execute_checkpoint_extension_inner(
                     policy.bridge,
                     checkpoint_policy,
                     deposit_policy,
+                    closure_policy,
                     spend_verifier,
                     policy.schedule,
                 )
@@ -694,6 +742,11 @@ fn execute_checkpoint_extension_inner(
         )?;
 
         if index == target_index {
+            validate_v6_target_state(
+                native_execution.economic_totals(),
+                native_execution.issuance_closed(),
+                expected_target_state,
+            )?;
             validate_target(
                 policy,
                 &statement,
@@ -800,7 +853,10 @@ fn validate_target(
         .map_err(|_| CheckpointProgramError::InvalidContext)?;
     let mut seed_anchors = [SeedAnchor::default(); CHECKPOINT_CONTEXT_MAX_SEED_ANCHORS];
     for (index, height) in required.iter().copied().enumerate() {
-        seed_anchors[index] = SeedAnchor {
+        let slot = seed_anchors
+            .get_mut(index)
+            .ok_or(CheckpointProgramError::InvalidContext)?;
+        *slot = SeedAnchor {
             height,
             block: known_blocks
                 .get(&height)
@@ -946,5 +1002,36 @@ mod tests {
             CheckpointProgramPolicyV2::new(v2_schedule, bridge(), &wrong_state, genesis, 360, 30,),
             Err(CheckpointProgramError::InvalidPolicy)
         );
+    }
+
+    #[test]
+    fn short_390_v6_target_binding_rejects_span_total_and_closure_drift() {
+        let genesis = Hash256::from_bytes([0x77; 32]);
+        let chain_id = derive_chain_id(NETWORK_MAGIC_REGTEST, &genesis);
+        let schedule =
+            NativeUsdomV4ActivationSchedule::new(NETWORK_MAGIC_REGTEST, chain_id, 100, bridge())
+                .expect("schedule");
+        let policy = CheckpointProgramPolicy::new(schedule, bridge(), genesis, 360, 30)
+            .expect("program policy");
+        assert_eq!(policy.span(), 390);
+
+        let expected = Some((10, 4, false));
+        assert_eq!(
+            validate_v6_target_state(Some((10, 4)), Some(false), expected),
+            Ok(())
+        );
+        for (totals, closed) in [
+            (Some((11, 4)), Some(false)),
+            (Some((10, 5)), Some(false)),
+            (Some((10, 4)), Some(true)),
+            (None, Some(false)),
+            (Some((10, 4)), None),
+        ] {
+            assert_eq!(
+                validate_v6_target_state(totals, closed, expected),
+                Err(CheckpointProgramError::PublicMismatch)
+            );
+        }
+        assert_eq!(validate_v6_target_state(None, None, None), Ok(()));
     }
 }

@@ -1,0 +1,64 @@
+USDOM — Ledger/Safe signing and authorization audit — stage 589
+Date: 2026-10-23
+
+Scope
+=====
+Audited the checkpoint-bootstrap ratification signer, recoverable-Safe recovery
+signer, deployment Ledger flows and their request/transaction assemblers for Safe
+signature ordering, secret exposure through argv/environment/logs/core files,
+schema/digest/source binding and time-of-check/time-of-use gaps. The release and
+native-attestation signer implementation was excluded because stage 588 was
+concurrently correcting that exact file.
+
+Findings corrected
+==================
+1. The checkpoint signer concatenated signatures in `ownersAfter` array order.
+   A Safe requires contract signatures in ascending signer-address order, while
+   its linked-list owner enumeration is not an ordering guarantee. The signer
+   now sorts the three governance owners canonically by lowercase address,
+   rejects duplicate adjacent owners and selects/signs the first two in the same
+   order used in the final bundle.
+2. The checkpoint signer invokes the signing-network check, which reads
+   credential-bearing RPC catalogs, but had no protection against inherited
+   shell tracing, Rust backtraces or core dumps. It now disables xtrace and the
+   inherited trace fd, forces Rust backtraces off and refuses to proceed unless
+   core dumps can be disabled.
+3. The checkpoint ceremony snapshotted the release configuration but its TOCTOU
+   guard rechecked only the request, request hash and Safe bundle. Every guard
+   now also rereads the authoritative release configuration and compares it to
+   the captured snapshot before each Ledger signature and before publication.
+4. The recoverable-Safe signer accepted its authorization phrase over redirected
+   stdin and inherited the caller's umask. It now requires interactive stdin and
+   stderr and sets umask 077 before creating any signing artifact.
+
+Confirmed properties
+====================
+- Checkpoint request schema and digest are independently recomputed; governance,
+  owner set, threshold, release configuration and signing-network identity are
+  checked before signing. Every individual signature is recovered against the
+  exact digest before canonical concatenation.
+- Recoverable-Safe plans require chain ID 1, three fixed roles and exactly two
+  distinct surviving owners sorted numerically. Each role's typed data is
+  independently hashed to the recorded safeTxHash. Assembly recovers, sorts and
+  requires exactly those two signers before producing execTransaction calldata.
+- Recovery network state is reobserved around Ledger signing. Deployment and
+  recovery executors recheck source artifacts, nonce, finalized state, Safe
+  configuration and transaction identity after operator pauses and before any
+  optional publication.
+- Ledger interfaces carry only public addresses, public digests, typed-data file
+  paths or transaction fields in argv. No mnemonic, private key, passphrase,
+  provider credential or TPM authorization is placed in argv. Credential paths,
+  not credential values, cross the environment boundary.
+- Signing scripts do not transmit transactions. No signature was created during
+  this audit.
+
+Validation
+==========
+- Bash syntax for both signers and both executors: pass.
+- Checkpoint ratification suite: 5/5 pass.
+- Operator-runbook suite: 78/78 pass.
+- Final focused signer regressions: 2/2 pass.
+- Diff integrity checks: pass.
+
+No Cargo/Foundry workload, signature, transaction, commit, push, deploy or fund
+action was performed. The active RandomX proof was not interrupted.

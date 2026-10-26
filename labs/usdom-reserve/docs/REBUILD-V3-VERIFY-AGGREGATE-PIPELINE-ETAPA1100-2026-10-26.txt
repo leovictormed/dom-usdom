@@ -1,0 +1,29 @@
+ETAPA 1100 — REBUILD V3 VERIFY-ONLY / AGGREGATE PIPELINE
+Date: 2026-10-26
+
+The V3 orchestrator now models receipt verification as an authenticated
+subpipeline: producer, zero or more manifest-declared verify-only commands, then
+the independent stage aggregator. Verification steps are permitted only for the
+receipts stage, must use pinned executables distinct from both producer and
+aggregator, and must declare nonempty unique outputs.
+
+Before every verify-only command, all prior artifacts are fixed by hash. The
+command receives canonical authenticated input/output maps. Its declared output
+must not exist before execution and must afterwards be a direct single-link
+file. Tools are reauthenticated around the command, and every producer/prior
+verification output is rehashed before the next step. The aggregator receives
+the union of producer and verify-only outputs and its record must bind that
+exact map. Any mutation, missing/extra output or mixed generation aborts the
+temporary candidate; crashes never publish it and a restart begins from the
+pinned source snapshot.
+
+The stage template fixes the only accepted order as producer ->
+verify-only-per-receipt -> aggregate and remains non-materializable until both
+executables are pinned.
+
+Adversarial tests cover successful authenticated verify-only handoff and a
+verify command that tries to rewrite the producer receipt output. The latter is
+rejected before aggregation. Python compilation and the full lightweight
+orchestrator suite pass 17/17; template and diff checks pass.
+
+No Rust/Solidity edits, Cargo, Forge, network, deploy, funds, commit or push.

@@ -31,6 +31,22 @@ ignore = [
     # RUSTSEC entry ever reports an actual defect in 1.0.15 or natpmp's
     # stack moves off it.
     "RUSTSEC-2024-0436",
+    # derivative 2.2.0 is pulled by the pinned Arkworks 0.3/0.4/0.5 families.
+    # This is an unmaintained notice without a reported defect or patched
+    # release. The exact version/checksum and parent set are fail-closed by
+    # scripts/check-rustsec-policy.py.
+    "RUSTSEC-2024-0388",
+    # The remaining vulnerability exceptions are transitive pins of the latest
+    # stable RISC Zero 3.0.6 / Arkworks 0.5 stack. They are accepted only while
+    # the reachability constraints, exact checksums and parent graph enforced by
+    # scripts/check-rustsec-policy.py remain true. A package/version/parent or
+    # application-use change invalidates the exception before cargo-deny runs.
+    "RUSTSEC-2023-0071", # rsa: rzup verification only; no application private-key signing path
+    "RUSTSEC-2025-0055", # tracing-subscriber 0.2: Arkworks static constraint metadata only
+    "RUSTSEC-2026-0344", # ruzstd: only hash-pinned local RISC Zero guest artifacts
+    "RUSTSEC-2026-0367", # zip extraction APIs are never called
+    "RUSTSEC-2026-0368", # zip symlink extraction APIs are never called
+    "RUSTSEC-2026-0369", # zip permission/symlink extraction APIs are never called
 ]
 
 [licenses]

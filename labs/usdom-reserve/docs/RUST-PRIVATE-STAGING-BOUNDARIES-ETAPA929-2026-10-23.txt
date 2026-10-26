@@ -1,0 +1,35 @@
+ETAPA929 — RUST PRIVATE STAGING BOUNDARIES
+Date: 2026-10-23
+
+Inventory (4/4)
+- finalized-deposit observation, finalized-deposit registration, checkpoint
+  wallet recovery and private-burn preparation all use the shared
+  PrivateStagingDirectory boundary.
+- Production uses no tempfile/TempDir in this scope; every tempfile occurrence
+  found is under cfg(test). Staging is beside the durable destination rather
+  than /tmp, under a direct current-user mode-0700 parent.
+
+Existing guarantees
+- Random mkdirat name, retained parent/staging descriptors, 0700 directory,
+  create-new/no-follow 0600 explicit children, owner/link/mode/length checks,
+  file and directory fsync, renameat2 NOREPLACE, parent fsync, inode readback,
+  and Drop cleanup on ordinary error/unwind.
+- SIGKILL/power loss cannot run process cleanup; the random unpublished name
+  remains inside the owner-only parent and is never accepted as a published
+  generation. This is an operational cleanup condition, not public exposure.
+
+Concrete shared gap and correction
+- Wallet APIs create encrypted snapshot children via a /proc/self/fd path.
+  Before this change publish authenticated only the staging directory inode;
+  it did not enumerate and authenticate every child created by those path-only
+  APIs. A wrong mode, hardlink, symlink or substituted inode could therefore be
+  published by all four boundaries.
+- publish now audits at most 64 canonical children before rename, opens each
+  with openat(NO_FOLLOW|CLOEXEC) on the retained descriptor and requires the
+  same device/inode, direct regular type, current owner, link count one and
+  exact mode 0600. Failure leaves the generation unpublished and Drop removes
+  the staging tree.
+
+Validation
+- Structural regressions pass 2/2, rustfmt check and diff-check pass. No Cargo
+  build, wallet, proof, secret, RPC or external operation was executed.

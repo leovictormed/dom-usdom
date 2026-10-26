@@ -1,0 +1,36 @@
+RELEASE EVIDENCE PATH CONFINEMENT — STAGE 1143
+Date: 2026-10-26
+
+Finding
+
+The mainnet readiness assessor rejected absolute paths, traversal components and
+hash mismatches, but accepted any canonical relative project path as a release
+evidence document. A release manifest could therefore point an evidence slot at
+an unrelated source, configuration or repository document. Semantic validators
+would reject this for several structured reports, but opaque artifacts and
+existence-only documents did not share that protection.
+
+Correction
+
+`validDocument` now delegates to an exported, directly tested path policy. A
+release evidence reference is accepted only when it is:
+
+1. a descendant of the component's `evidence/` authority directory; or
+2. one of the four exact source-bound Foundry artifacts already recognized by
+   readiness: Reserve, checkpoint registry, finalized-burn verifier and
+   checkpoint verifier.
+
+Bare roots, absolute paths, backslashes, NUL bytes, empty components, dot
+components, traversal, arbitrary `out/` files, source paths and configuration
+paths are rejected. Existing direct-file and hash-snapshot checks remain in
+force, so confinement complements rather than replaces byte authentication.
+
+Validation
+
+- Node syntax check: PASS.
+- Evidence-path positive/negative policy tests: PASS, 2/2.
+- Readiness byte-boundary and diagnostic regression tests: PASS, 11/11.
+- Combined focused result: PASS, 13/13.
+
+No requirement flag or production evidence was changed. No Cargo, Rust, Forge,
+network, signing, deployment, funds, commit or push ran.

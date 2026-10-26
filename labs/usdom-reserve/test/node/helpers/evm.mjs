@@ -4,10 +4,11 @@ import {createServer} from 'node:net';
 import {once} from 'node:events';
 import {setTimeout as delay} from 'node:timers/promises';
 import {JsonRpcProvider} from 'ethers';
+import {pinnedAnvil} from './pinned-anvil.mjs';
 export async function localEvm(t) {
   const server = createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const port = server.address().port; await new Promise(resolve => server.close(resolve));
-  const child = spawn(process.env.USDOM_ANVIL ?? 'anvil', ['--host','127.0.0.1','--port',String(port),'--chain-id','31337','--silent'], {stdio:'ignore'});
+  const child = spawn(await pinnedAnvil(), ['--host','127.0.0.1','--port',String(port),'--chain-id','31337','--silent'], {stdio:'ignore'});
   let spawnError; child.on('error',error=>{spawnError=error;});
   const exited = new Promise(resolve => {child.once('exit',resolve);child.once('error',resolve);});
   const provider = new JsonRpcProvider(`http://127.0.0.1:${port}`,31337,{staticNetwork:true,cacheTimeout:-1});

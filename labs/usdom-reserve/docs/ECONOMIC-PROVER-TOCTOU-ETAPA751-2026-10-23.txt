@@ -1,0 +1,8 @@
+ETAPA 751 — Economic receipt prover TOCTOU closure
+Date: 2026-10-23
+
+Finding: the runner privately snapshotted indexed inputs and supported verified receipt resumption, but Cargo/Node/JQ/cp/env remained PATH-resolved and the reviewed job catalog/artifacts were not revalidated immediately before the long proof.
+
+Correction: pins/rechecks the five tools by direct regular-file identity, ownership/mode/link/directory and SHA-256; all reads/parsing/copies use pinned tools. The verify-only planner reconstructs the economic job index from the same private source snapshot and requires byte identity. A final manifest covers job/source/economic indexes, every selected source, chunk/block ELF/BIN/IID and resumed receipts, and is checked immediately before pinned env/Cargo. Receipt index remains the last published artifact.
+
+Validation: focused structural/adversarial test 1/1, bash -n and git diff --check pass. No Cargo, proof, active compilation, RPC, commit or push.

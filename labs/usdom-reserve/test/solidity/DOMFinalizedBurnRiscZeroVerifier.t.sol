@@ -4,10 +4,16 @@ pragma solidity 0.8.37;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {DOMFinalizedBurnRiscZeroVerifier} from "../../contracts/DOMFinalizedBurnRiscZeroVerifier.sol";
+import {DOMCheckpointRiscZeroVerifier} from "../../contracts/DOMCheckpointRiscZeroVerifier.sol";
+import {IDOMCheckpointVerifier} from "../../contracts/DOMCheckpointRegistry.sol";
 import {IRiscZeroVerifierV3} from "../../contracts/IRiscZeroVerifierV3.sol";
-import {IDOMFinalizedBurnVerifier, USDOMProofReserve} from "../../contracts/USDOMProofReserve.sol";
+import {
+    IDOMFinalizedBurnVerifier,
+    IDOMGracefulShutdownRegistry,
+    USDOMProofReserve
+} from "../../contracts/USDOMProofReserve.sol";
 import {TestBase} from "./TestBase.sol";
-import {HostileToken, MockGovernance} from "./Mocks.sol";
+import {HostileToken, MockGovernance, MockGracefulShutdownRegistry} from "./Mocks.sol";
 
 contract MockRiscZeroVerifierV3 is IRiscZeroVerifierV3 {
     bytes4 public override SELECTOR;
@@ -86,8 +92,17 @@ contract ReturnBombRiscZeroVerifierV3 is IRiscZeroVerifierV3 {
     }
 }
 
+contract GasBurningRiscZeroVerifierV3 is IRiscZeroVerifierV3 {
+    bytes4 public constant override SELECTOR = 0x73c457ba;
+
+    function verify(bytes calldata, bytes32, bytes32) external view {
+        uint256 stopAt = gasleft() > 2_000 ? 2_000 : 0;
+        while (gasleft() > stopAt) {}
+    }
+}
+
 contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
-    bytes32 internal constant IMAGE_ID = 0x3975a5f01dc85b6e89925913c5555ade4aefb951c65261142384fd829a70f88a;
+    bytes32 internal constant IMAGE_ID = 0x2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea;
     bytes32 internal constant STATEMENT = keccak256("finalized USDOM burn statement");
     bytes4 internal constant SELECTOR = 0x73c457ba;
 
@@ -100,7 +115,7 @@ contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
     }
 
     function seal(bytes32 payload) internal pure returns (bytes memory) {
-        return abi.encodePacked(SELECTOR, payload);
+        return abi.encodePacked(SELECTOR, new bytes(7 * 32), payload);
     }
 
     function testConfigurationBindsChainVerifierCodeSelectorImageAndJournal() public view {
@@ -121,6 +136,16 @@ contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
         assertEq(adapter.imageId(), IMAGE_ID);
         assertEq(adapter.deploymentChainId(), block.chainid);
         assertEq(uint256(uint32(adapter.verifierSelector())), uint256(uint32(SELECTOR)));
+        assertEq(adapter.RISC_ZERO_VERIFIER_GAS_LIMIT(), 4_500_000);
+    }
+
+    function testUpstreamVerifierCannotConsumeUnboundedCallerGas() public {
+        GasBurningRiscZeroVerifierV3 burner = new GasBurningRiscZeroVerifierV3();
+        DOMFinalizedBurnRiscZeroVerifier bounded =
+            new DOMFinalizedBurnRiscZeroVerifier(IRiscZeroVerifierV3(address(burner)), IMAGE_ID);
+        uint256 beforeGas = gasleft();
+        assertEq(bounded.verifyFinalizedBurn(STATEMENT, seal(bytes32(uint256(1)))), bounded.PROOF_ACCEPTED());
+        assertTrue(beforeGas - gasleft() < 4_800_000);
     }
 
     function testJournalDigestIsSha256OfExactlyThirtyTwoRawBytes() public view {
@@ -134,6 +159,30 @@ contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
         assertEq(adapter.verifyFinalizedBurn(STATEMENT, proof), adapter.PROOF_ACCEPTED());
     }
 
+    function testIdenticalReceiptInputsCannotMergeBurnAndCheckpointAdapterCapabilities() public {
+        DOMCheckpointRiscZeroVerifier checkpointAdapter =
+            new DOMCheckpointRiscZeroVerifier(IRiscZeroVerifierV3(address(riscZero)), IMAGE_ID);
+        bytes memory proof = seal(keccak256("shared raw receipt fixture"));
+        bytes32 digest = sha256(abi.encodePacked(STATEMENT));
+        riscZero.expect(proof, IMAGE_ID, digest);
+
+        // The raw RISC Zero tuple can be identical, but each adapter exposes a
+        // distinct configuration namespace, ABI and caller capability.
+        assertEq(adapter.journalDigest(STATEMENT), checkpointAdapter.journalDigest(STATEMENT));
+        assertTrue(adapter.VERIFIER_CONFIG_TYPEHASH() != checkpointAdapter.VERIFIER_CONFIG_TYPEHASH());
+        assertTrue(adapter.verifierConfigHash() != checkpointAdapter.verifierConfigHash());
+        assertTrue(adapter.PROOF_ACCEPTED() != checkpointAdapter.PROOF_ACCEPTED());
+        assertEq(adapter.verifyFinalizedBurn(STATEMENT, proof), adapter.PROOF_ACCEPTED());
+        assertEq(checkpointAdapter.verifyDOMCheckpoint(STATEMENT, proof), checkpointAdapter.PROOF_ACCEPTED());
+
+        (bool checkpointAsBurn,) = address(checkpointAdapter)
+            .staticcall(abi.encodeCall(IDOMFinalizedBurnVerifier.verifyFinalizedBurn, (STATEMENT, proof)));
+        (bool burnAsCheckpoint,) =
+            address(adapter).staticcall(abi.encodeCall(IDOMCheckpointVerifier.verifyDOMCheckpoint, (STATEMENT, proof)));
+        assertFalse(checkpointAsBurn);
+        assertFalse(burnAsCheckpoint);
+    }
+
     function testRejectsZeroStatementShortWrongSelectorAndOversizedSeal() public {
         bytes memory proof = seal(keccak256("proof"));
         vm.expectRevert(DOMFinalizedBurnRiscZeroVerifier.InvalidProof.selector);
@@ -142,9 +191,12 @@ contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
         adapter.verifyFinalizedBurn(STATEMENT, hex"73c457");
         vm.expectRevert(DOMFinalizedBurnRiscZeroVerifier.InvalidProof.selector);
         adapter.verifyFinalizedBurn(STATEMENT, abi.encodePacked(bytes4(0x01020304), bytes32(uint256(1))));
-        uint256 oversized = adapter.MAX_PROOF_BYTES() + 1;
+        uint256 oversized = adapter.EVM_PROOF_BYTES() + 1;
+        uint256 truncated = adapter.EVM_PROOF_BYTES() - 1;
         vm.expectRevert(DOMFinalizedBurnRiscZeroVerifier.InvalidProof.selector);
         adapter.verifyFinalizedBurn(STATEMENT, new bytes(oversized));
+        vm.expectRevert(DOMFinalizedBurnRiscZeroVerifier.InvalidProof.selector);
+        adapter.verifyFinalizedBurn(STATEMENT, new bytes(truncated));
     }
 
     function testUnderlyingRejectionCannotBecomeAccepted() public {
@@ -216,7 +268,7 @@ contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
 }
 
 contract DOMFinalizedBurnRiscZeroReserveIntegrationTest is TestBase {
-    bytes32 internal constant IMAGE_ID = 0x3975a5f01dc85b6e89925913c5555ade4aefb951c65261142384fd829a70f88a;
+    bytes32 internal constant IMAGE_ID = 0x2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea;
     bytes4 internal constant SELECTOR = 0x73c457ba;
     bytes32 internal constant DOMAIN = keccak256("DOM RISC Zero reserve integration domain");
     bytes32 internal constant ACTIVATION = keccak256("DOM RISC Zero activation schedule");
@@ -231,10 +283,12 @@ contract DOMFinalizedBurnRiscZeroReserveIntegrationTest is TestBase {
         HostileToken token = new HostileToken();
         MockGovernance governance = new MockGovernance();
         MockGovernance guardian = new MockGovernance();
+        MockGracefulShutdownRegistry checkpointRegistry = new MockGracefulShutdownRegistry(DOMAIN, ACTIVATION);
         USDOMProofReserve reserve = new USDOMProofReserve(
             USDOMProofReserve.Config({
                 token: IERC20(address(token)),
                 verifier: IDOMFinalizedBurnVerifier(address(adapter)),
+                checkpointRegistry: IDOMGracefulShutdownRegistry(address(checkpointRegistry)),
                 domDomain: DOMAIN,
                 activationScheduleCommitment: ACTIVATION,
                 governance: address(governance),
@@ -266,7 +320,7 @@ contract DOMFinalizedBurnRiscZeroReserveIntegrationTest is TestBase {
             ),
             validUntil: uint64(block.timestamp + 6 days)
         });
-        bytes memory proof = abi.encodePacked(SELECTOR, keccak256("Groth16 proof fixture"));
+        bytes memory proof = abi.encodePacked(SELECTOR, new bytes(7 * 32), keccak256("Groth16 proof fixture"));
         bytes32 statementHash = reserve.burnStatementHash(burn);
         riscZero.expect(proof, IMAGE_ID, sha256(abi.encodePacked(statementHash)));
 

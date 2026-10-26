@@ -45,7 +45,7 @@ fn synced() -> EthereumFinalityClient {
     let update = GenericUpdate::from(&finality);
     let mut client =
         EthereumFinalityClient::bootstrap(&bootstrap, CHECKPOINT, GENESIS, forks()).unwrap();
-    client.accept(&update, update.signature_slot).unwrap();
+    client.accept(&update).unwrap();
     client
 }
 

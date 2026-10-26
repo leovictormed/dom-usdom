@@ -1,0 +1,22 @@
+ETAPA 926 — admissão e amplificação dos handlers DOM RPC
+Data: 2026-10-23
+
+Cobertura
+- Paginação/resposta: mempool limita 1.000 itens e overflow de page; legacy scan 1.000 blocos; full scan 64 blocos/soft 8 MiB; history 16 blocos/soft 2 MiB; private transition scan 256 blocos; ancestry 256 passos.
+- Trabalho caro: scans compartilham rate-limit e gate fail-fast de 2; mempool possui gate 1; ancestry 2; submissão pública 2; wallet e mining 1. Os point reads usam índices, sem chain walk.
+- Runtime async: scans síncronos têm contrato explícito de snapshot/try-lock não bloqueante e gate pequeno. Provas e mineração expõem futures; timeouts são 30s comuns, 120s issuance e 4h mine-one.
+- Mutações/replay: tx submit retorna estado already-known/confirmed; Slate usa replay/pending keys persistidos; transfer/burn/issuance/candidate delegam replay e atomicidade ao runtime validado; wallet spend não recuperável permanece restrito a regtest.
+
+Gap corrigido
+- Transfer/burn/history aceitavam `max_blocks` 0 ou u64 arbitrário até o backend, dependendo de cada implementação NodeHandle para aplicar a política.
+- Os handlers agora rejeitam antes do backend: private scan fora de 1..=256 e history fora de 1..=16.
+- O legacy `/chain/scan` agora calcula seu clamp de 1.000 blocos antes de chamar NodeHandle; preserva a semântica existente de range vazio (`from > to`).
+
+Validação
+- Regressão unitária pura cobre limite inferior, superior e vizinhos inválidos do helper comum.
+- Checker estrutural focado: 5/5.
+- rustfmt e git diff --check: aprovados.
+- Cargo focado reservado para aggregate pós-prova; nenhum RPC/build pesado executado.
+
+Limite residual
+- Os DTOs de full/history usam soft response budgets porque um único bloco canônico pode excedê-los; o tamanho máximo desse bloco continua limitado pelas regras de consenso. Transformar o soft budget em corte cego quebraria a continuidade/autenticidade da página.

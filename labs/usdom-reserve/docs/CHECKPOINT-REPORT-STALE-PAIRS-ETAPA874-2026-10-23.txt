@@ -1,0 +1,6 @@
+ETAPA 874 — invalidacao dos pares de reports checkpoint
+Data: 2026-10-23
+
+Bootstrap ratification e CheckpointFinalized agora limpam+fsync o ponteiro metadata, removem report antigo e reconstroem sob locks. Report novo precede metadata final. Requests, assinaturas, transaction refs e observacoes raw permanecem intactos.
+
+Validacao: 2/2 testes, sintaxe Bash e diff-check. Sem RPC/build.

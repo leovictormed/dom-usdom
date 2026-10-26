@@ -1,0 +1,46 @@
+Stage 462 — isolated-EVM receipt binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The checkpoint capacity report carried the adapter acceptance result and gas
+used, but those derived values were not committed to the exact isolated Anvil
+transaction receipt that produced them. A replaced transaction/block identity
+could therefore accompany otherwise unchanged capacity evidence without
+invalidating the report.
+
+Remediation
+===========
+
+The capacity report schema is now v4 and requires a canonical
+`usdom-checkpoint-isolated-evm-receipt-v1` transcript. It commits the exact
+transaction hash, block hash and nonzero block number together with the
+adapter address, runtime code hash, verifier configuration hash, checkpoint
+statement hash, EVM seal SHA-256 and measured gas. The transcript records only
+a successful receipt and retains the existing 5,000,000 gas ceiling.
+
+The executor constructs the transcript directly from the successful receipt
+and the same verified inputs used for the adapter call, durably writes its
+exact newline-terminated bytes, and places their SHA-256 in the report. Report
+validation independently reconstructs the transcript, compares the hash, and
+includes it in the global uniqueness check. V3 and earlier reports fail
+closed. Mutation tests cover transaction, block, block number and transcript
+hash substitutions.
+
+Evidence boundary
+=================
+
+The structural fact
+`production_checkpoint_isolated_evm_receipt_bound_to_capacity_report` is true.
+This does not claim that a production proof, Ethereum transaction or live
+mainnet receipt exists. No network access, signing, deployment, funds, mining,
+commit or push was performed in this stage.
+
+Validation
+==========
+
+- Node syntax checks pass for the report, executor and changed tests.
+- Focused capacity and executor tests pass 7/7.
+- Full readiness passes 60/60.
+- JSON parsing and whitespace/error checks pass.

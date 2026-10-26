@@ -1,0 +1,49 @@
+USD + DOM — automatic Ethereum mainnet deployment identity
+Stage 439 — 2026-10-22
+
+Problem closed
+--------------
+The release still required the operator to supply four deployer addresses,
+four nonces and four predicted CREATE addresses. Manual entry can reorder
+dependencies, reuse a nonce, select a busy account or bind the release to an
+address already occupied on mainnet.
+
+Implementation
+--------------
+`npm run --silent materialize:mainnet-deployment-identity` now performs the
+entire public derivation without accepting arguments:
+
+- reads the deployer twice from the connected Ledger without requesting a
+  signature;
+- requires two distinct HTTPS RPC URLs and chain ID 1;
+- requires the deployer to be an EOA and its pending nonce to equal its
+  finalized nonce on both sources;
+- requires both sources to agree on that nonce;
+- derives four consecutive CREATE addresses in dependency order: finalized
+  burn verifier, checkpoint verifier, checkpoint registry and reserve;
+- rejects collision with the token, configured administrative roles, another
+  planned contract, or any address containing finalized code;
+- refuses any pre-existing release field that differs from the derivation;
+- preserves `productionReady=false` and `realFundsAuthorized=false`;
+- rereads the source configuration after all network observations and writes
+  through the locked, fsync-backed configuration boundary.
+
+The two finalized observations are stored in the owner-only control evidence
+directory without endpoint URLs. Provider failures are converted to fixed RPC
+1/RPC 2 messages so an API key embedded in a URL cannot reach logs.
+
+Validation
+----------
+- consecutive address, idempotence and dual-RPC positive tests pass;
+- chain, pending nonce, cross-RPC nonce, contract deployer, occupied address,
+  collision, field drift and uint64 overflow cases fail closed;
+- a provider error containing a test API secret is redacted;
+- focused identity and operator regression passes 74/74;
+- the shell wrapper passes Bash syntax and ShellCheck;
+- complete Node regression passes 324/324;
+- complete provenance passes for 169 imported files, every proof and panic
+  boundary, and 1,238 source files;
+- the mainnet and real-funds gates remain fail-closed at 169 and 176 facts;
+- the independent finalized-burn capacity proof remains healthy after about
+  18h29, without wallet, network, funds or mining;
+- no signing, broadcast, deployment, funds, mining, commit, tag or push occurs.

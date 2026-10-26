@@ -1,0 +1,32 @@
+USD0M stage 507 — RandomX statement-set input snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The statement-set wrapper checked the live checkpoint source-set index before
+`cargo run`, but the exporter reopened that index and every private segment
+component after Cargo compilation. The unbounded interval allowed replacement
+of the source index or any transition/private-input/policy/native-opening file.
+
+Correction
+==========
+
+The wrapper captures the index with the descriptor-backed private reader,
+derives a bounded unique catalog of canonical component names from that fixed
+index, and captures every component into an owner-only snapshot tree. The
+exporter receives only that tree through its fixed `--evidence-dir` interface.
+It creates the statement set in the same private tree. Each statement is then
+captured and durably installed, followed by the index last. An interrupted
+publication therefore leaves the prior index with a hash mismatch and fails
+closed; a completed publication exposes the new canonical index only after all
+of its referenced statement bytes are durable.
+
+Evidence and scope
+==================
+
+The operator-runbook suite asserts the snapshot reader, fixed evidence root,
+durable output installer and index-last order. The production gate requires
+`production_randomx_statement_set_inputs_snapshotted=true`. This is structural
+evidence and performs no proof generation, signing, network access, deployment
+or funds operation.

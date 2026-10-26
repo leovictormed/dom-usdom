@@ -1,0 +1,53 @@
+ETAPA 998 — BURN NATIVO → PROVA FINALIZADA → PAYOUT ÚNICO
+Data: 2026-10-23
+
+Escopo
+======
+Auditoria estática do caminho inverso completo: admissão privada do burn pelo
+consenso DOM, unicidade de nullifier/burnId/requestId, persistência e undo,
+prova de inclusão sob checkpoint Ethereum finalizado, renovação da reserva de
+saque e marcação terminal paidBurns/paidRequests no contrato.
+
+Achado corrigido
+================
+O guest já permite provar uma queima histórica irreversível contra finalidade
+Ethereum posterior. Porém, queueWithdrawal comparava na renovação o hash do
+statement inteiro com o primeiro hash aceito. Como finalityBeaconSlot pertence
+ao statement, uma prova renovada e fresca necessariamente tem hash diferente;
+assim, depois que o slot original envelhecesse, a dívida não poderia renovar a
+fila: o statement antigo falhava a janela de finalidade e o novo falhava a
+comparação de identidade.
+
+Correção
+========
+Foi acrescentado FinalizedBurnDebt, uma identidade permanente que inclui
+burnId, requestId, recipient, amount, domínio, altura, bloco, state root,
+validUntil, chain ID, reserve e activation schedule, excluindo somente o
+finalityBeaconSlot renovável. A primeira prova armazena essa identidade. Uma
+renovação exige igualdade exata dessa dívida, a associação request→burn,
+finality slot recente e uma nova prova válida do statement completo. O hash do
+primeiro statement permanece como trilha de admissão, e nenhum campo de DOM ou
+payout pode ser substituído.
+
+Garantias verificadas
+=====================
+- consenso rejeita nullifier, burnId e requestId já consumidos e os persiste;
+- checkpoint confirmado estabelece piso de reorg antes da prova de payout;
+- fila expirada libera somente collateral reservado, não a dívida;
+- paidBurns e paidRequests são efeitos terminais anteriores ao transfer, com
+  atomicidade EVM em qualquer falha;
+- statement público contém somente identidade/payout/inclusão/finalidade e não
+  publica nullifiers, notas, remetente, chaves ou histórico privado;
+- chain ID, endereço da reserve e activation schedule impedem replay cruzado.
+
+Validação leve
+==============
+- burn-payout-once-authority-stage998.test.mjs: 3/3;
+- proof-reserve.test.mjs: 5/5;
+- node --check sdk/proof-reserve.mjs: aprovado;
+- git diff --check nos arquivos da etapa: aprovado.
+
+Forge/Cargo não foram executados durante a prova longa. O teste Solidity foi
+atualizado para a renovação com slot posterior e deve integrar a próxima rodada
+Forge autorizada após a prova; os artefatos compilados devem ser regenerados
+nessa rodada antes de qualquer release.

@@ -1,0 +1,76 @@
+USDOM — AUDITORIA DE REPLAY ENTRE DOMÍNIOS E VERSÕES (ETAPA 570)
+Data: 2026-10-23
+
+Escopo
+=====
+
+Foi auditada a cadeia completa de identidade entre depósito Ethereum, emissão
+nativa, gasto/queima privada, checkpoint DOM, prova de queima finalizada e
+pagamento pela reserva. O objetivo foi verificar se um artefato válido poderia
+ser reutilizado em outra cadeia, contrato, implantação ou geração do protocolo.
+
+Resultado
+=========
+
+Nenhuma omissão explorável foi encontrada. Cada autoridade monetária termina
+vinculada simultaneamente às duas redes e às implantações concretas relevantes:
+
+* `depositId = keccak256(abi.encode(chainid, reserve, funder, salt))` impede que
+  o mesmo sal gere a mesma identidade em outra cadeia ou reserva.
+* A prova do evento de depósito fixa o `genesis_validators_root` Ethereum, o
+  endereço e o hash do runtime da reserva, além da política de depósito. O
+  estado DOM consome cada `deposit_id` uma única vez.
+* `domDomain` deriva de network magic, chain ID DOM, chain ID Ethereum,
+  endereço da reserva e endereço do registry. Uma reimplantação altera o
+  domínio, mesmo que parâmetros econômicos permaneçam iguais.
+* Notas e nullifiers incluem o escalar da cadeia nativa. `PrivateBurnId` inclui
+  domínio DOM, política de privacidade, configuração do verificador, cadeia
+  Ethereum, reserva, destinatário, valor, prazo e nullifiers autenticados.
+* O compromisso de intenção de queima inclui domínio DOM, cadeia Ethereum e
+  endereço da reserva. O statement final acrescenta bloco/estado DOM, slot de
+  finalidade e compromisso exato do cronograma de ativação.
+* O statement V4 de checkpoint inclui versões de estado/batch, domínio da
+  ponte, identidade DOM, chain ID Ethereum, registry, cronograma de ativação e
+  `checkpointConfigHash`. A prova finalizada volta a confrontar esses campos
+  com o estado nativo e com a política Ethereum autenticada.
+* Os adaptadores RISC Zero fixam chain ID da implantação, verificador upstream,
+  code hash, selector, ImageID, schema do journal e magic de aceitação. Reserva
+  e registry fixam também o endereço do respectivo adaptador e seu config hash.
+* O protótipo de quórum usa EIP-712 versão 3 com `chainId` e
+  `verifyingContract`; permanece recusado em Ethereum mainnet e não integra o
+  caminho de produção baseado em prova.
+* Autorizações operacionais EIP-712 usam domínio, versão, chain ID e Safe de
+  governança, enquanto a mensagem inclui release/source/config hashes. Uma
+  assinatura de outra release, Safe ou cadeia não autentica esta release.
+
+Fortalecimento preventivo
+=========================
+
+Foi adicionado `sdk/cross-domain-replay-bindings.mjs`, um gate leve que cobre
+os consumidores das identidades, complementando os vetores comportamentais já
+existentes. O gate falha se futuras alterações removerem chain/reserve do ID de
+depósito, versões/configuração do checkpoint, identidade Ethereum da prova de
+depósito, replay set de emissão, schema do burn ID ou as conferências finais de
+cadeia/registry/reserva.
+
+Validação executada
+===================
+
+Executados apenas testes Node leves para não competir com a prova RISC Zero:
+
+    node --test \
+      test/node/cross-domain-replay-bindings.test.mjs \
+      test/node/proof-reserve.test.mjs \
+      test/node/preactivation-policy.test.mjs \
+      test/node/native-private-burn-identifiers.test.mjs
+
+Resultado: 13/13 passaram. O teste de mutação remove individualmente seis
+fronteiras críticas e confirma que o novo gate acusa cada regressão.
+
+Limite da conclusão
+===================
+
+Esta etapa demonstra completude estrutural e vetores de hash no código atual;
+ela não substitui a prova RISC Zero real em andamento nem a futura repetição da
+suíte integrada após liberação de memória. Nenhum push, deploy, assinatura,
+transação ou uso de fundos foi realizado.

@@ -1,0 +1,39 @@
+ETAPA 702 — native signing checker child boundary
+Date: 2026-10-23
+
+Finding
+=======
+The checker immediately preceding native release-attestation signing invoked Cargo through
+an environment-selectable/PATH command and trusted a permissively trimmed UTF-8 line protocol
+from the native manifest checker. It did not reject child stderr. A substituted executable,
+invalid UTF-8, surplus blank lines or diagnostics could cross the signing authority boundary.
+
+Correction
+==========
+The signing checker now resolves Cargo through snapshotExecutable, which requires an executable
+from an absolute PATH entry with safe ownership, link count, containing-directory ownership and
+non-writable modes. It executes the resolved absolute path and re-hashes/re-stats the executable
+and directory after completion. The environment command override was removed.
+
+Child stdout is returned as a bounded Buffer, decoded with fatal UTF-8, and requires exactly one
+terminal newline, no blank terminal record and no carriage returns. Duplicate/malformed fields
+remain rejected. Any stderr byte fails the check. The manifest remains hash-pinned, passed to the
+native checker with --locked/mainnet arguments and re-read unchanged after validation.
+
+Other subprocess audit
+======================
+The deployment transaction derivation child was hardened in ETAPA700. Reproducible artifact
+builders already snapshot and recheck the Forge executable and parse artifact files byte-strict;
+build stdout is not semantic authority. Mainnet readiness uses native line output but is an
+aggregate evidence check rather than the immediate signing gate; its equivalent boundary remains
+a candidate for the next independent hardening stage.
+
+Validation
+==========
+Focused native attestation boundary tests: 3/3 pass. Invalid/duplicate JSON attacks terminate
+before Cargo resolution. Structural regression requires executable snapshot/recheck, absolute
+resolved execution, bounded Buffer stdout, fatal UTF-8, exact newline framing and empty stderr.
+Node syntax and git diff checks pass. No native checker or build was executed.
+
+No heavy build, Cargo invocation, Rust, Solidity, RISC0 proof, RPC, signing, transmission,
+deployment, fund movement, staging, commit or push was performed.

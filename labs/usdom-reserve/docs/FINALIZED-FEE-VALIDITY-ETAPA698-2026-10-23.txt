@@ -1,0 +1,48 @@
+ETAPA698 — validade temporal por bloco da cotação de deployment e Safe
+Data: 2026-10-23
+
+Achado
+
+As cerimônias repetiam fee, gas, nonce e saldo depois da interação humana, mas
+não declaravam uma idade máxima em blocos para o snapshot usado na assinatura.
+No Safe, o recheck pré-publicação comparava somente nonce e poderia aceitar um
+envelope assinado contra uma âncora finalizada anterior. No deployment, número
+e hash finalizados não eram persistidos junto da transação raw.
+
+Correção
+
+- A validade entre snapshot, assinatura e publicação é de zero avanço do bloco
+  finalizado. É conservadora e independente do relógio local: se o finalized
+  head avançar, toda a observação deve ser recolhida e a transação reassinada.
+- O Safe recompõe o envelope completo imediatamente antes da publicação e exige
+  identidade byte a byte com o envelope assinado. Mudança de número/hash,
+  nonce, estimateGas, base fee, saldo ou fonte falha fechada. A raw já assinada
+  nunca é alterada.
+- O deployment persiste, create-once e com modo 0600, o número/hash finalizados
+  usados para fee/gas. Todas as fontes devem concordar nessa âncora; os passes
+  pré-assinatura e pós-autorização de transmissão exigem exatamente o mesmo
+  número e hash, além dos rechecks de gas, fee, saldo, nonce e endereço CREATE.
+- O hash é consultado de novo em cada passe. Portanto até uma resposta que
+  reutilize a altura com hash diferente é rejeitada. Não se presume que a
+  palavra `finalized` dispense o recheck de canonicidade.
+
+Consequência operacional
+
+Uma interação Ledger longa que atravesse a atualização do finalized head exige
+descartar a tentativa e produzir uma nova assinatura a partir de nova coleta.
+O software não estende validade por timestamp, não modifica o raw e não cria
+replacement automático.
+
+Regressões e validação
+
+- Testes existentes exercitam mudança de hash durante a coleta e divergência de
+  snapshot entre RPCs.
+- Nova regressão estrutural exige comparação integral do envelope Safe e proíbe
+  o antigo recheck somente por nonce.
+- A regressão do deployment exige manifesto create-once da âncora e comparação
+  do hash no passe final.
+- Node focado: 21/21 testes aprovados.
+- `bash -n` dos dois executores e `git diff --check`: aprovados.
+
+Nenhum RPC real, assinatura, transmissão, deploy, materialização ou fundo foi
+usado.

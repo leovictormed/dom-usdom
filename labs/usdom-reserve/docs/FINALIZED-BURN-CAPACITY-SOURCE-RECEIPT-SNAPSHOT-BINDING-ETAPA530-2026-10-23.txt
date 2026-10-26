@@ -1,0 +1,29 @@
+USD0M stage 530 — finalized-burn capacity source-receipt snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The finalized-burn capacity runner selected a successful proof run early but
+reopened its succinct receipt and receipt index only after regenerating the
+capacity vector and plan. Replacement could combine receipt bytes, index and
+source-run status from different generations.
+
+Correction
+==========
+
+Immediately after fixing the source run, both bounded private files are copied
+into an owner-only capacity-run replica. Each installed file is reread and
+checked for exact byte and SHA-256 equality. The downstream proof layout is
+populated only from captured buffers. After isolated EVM execution and before
+report validation/publication, both origins are reread and must still match the
+captured bytes and hashes.
+
+Evidence and scope
+==================
+
+A direct adversarial test mutates the receipt index after capture and proves
+the final origin check rejects it. Readiness requires
+`production_finalized_burn_capacity_source_receipts_snapshotted_and_origins_rechecked=true`.
+No Cargo, Foundry, proof, network, signing, deployment, funds operation, commit
+or push was run. Full readiness remains deferred while RandomX proving is active.

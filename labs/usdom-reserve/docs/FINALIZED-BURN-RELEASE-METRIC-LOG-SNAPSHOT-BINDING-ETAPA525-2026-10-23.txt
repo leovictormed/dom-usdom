@@ -1,0 +1,30 @@
+USD0M stage 525 — finalized-burn release metric-log snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The release-specific finalized-burn E2E runner reopened prover and compression
+resource logs after artifact collection, then retained their parsed values
+across runtime observation and isolated EVM execution without a common immutable
+generation or final origin recheck.
+
+Correction
+==========
+
+Before observation or Anvil, both logs are durably captured in an owner-only
+replica. Every installed snapshot is reread for exact byte and SHA-256 equality,
+and metrics are parsed only from captured buffers. After isolated EVM execution
+and before report validation/publication, both original logs are reread and must
+still match the captured bytes and hashes. The validated report remains durable
+before the succeeded run-status completion marker.
+
+Evidence and scope
+==================
+
+Focused structural tests enforce ordering and complete catalog coverage. A
+direct concurrency test snapshots both logs, replaces one origin, and proves
+the final recheck rejects it. Readiness requires
+`production_finalized_burn_release_metric_logs_snapshotted_and_origins_rechecked=true`.
+No proof, Anvil, network, signing, deployment, funds operation, commit or push
+was run.

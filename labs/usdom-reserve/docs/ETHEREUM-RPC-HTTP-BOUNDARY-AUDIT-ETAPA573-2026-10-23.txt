@@ -1,0 +1,65 @@
+USDOM Ethereum RPC / Beacon HTTP boundary audit — stage 573
+Date: 2026-10-23
+Scope: production deposit collection, finalized/preflight observations, Safe/release
+operations, RISC Zero capacity/release observations, and the local candidate monitor.
+
+Result
+======
+
+One concrete transport defect was found and corrected in each of the three
+capacity/release runners. Their direct fetch-based JSON-RPC adapter followed
+HTTP redirects by default. A catalogued HTTPS source could therefore move an
+observation to another origin (including a downgrade target accepted by the
+redirect implementation), while the resulting evidence continued to identify
+the original endpoint. The adapters now use redirect:"error" and request JSON
+explicitly. They also decode response bytes with a fatal UTF-8 decoder, rather
+than allowing replacement characters before strict JSON parsing.
+
+The shared BoundedMainnetPreflightProvider already refused redirects, required
+HTTPS without userinfo/fragments, used the platform TLS validator, disabled
+batching and caching, imposed a 20-second whole-request abort, bounded the
+post-decompression response stream, rejected duplicate JSON keys/nesting and
+validated JSON-RPC version, ID and result/error exclusivity. This stage makes
+its configurable timeout and byte ceiling strict finite safe integers with
+hard maxima (120 seconds and 64 MiB). Content-Length is compared as a BigInt,
+so arbitrarily long decimal declarations cannot pass through Number coercion.
+
+The finalized-deposit execution and Beacon clients already require HTTPS,
+refuse redirects, apply a 60-second abort, bound both declared and streamed
+post-decompression bytes, use fatal UTF-8 and strict JSON parsing, validate
+JSON-RPC envelopes, require chain ID 1, reconcile two to five catalogued
+operators, and bind Beacon-finalized execution identity to the header chain.
+Their larger 32/64 MiB bounds are required for bounded receipt/header/light-
+client proof material; downstream limits cap 256 ancestry blocks, 128 sync-
+committee periods and 4,096 receipts.
+
+The local candidate monitor accepts only a bare loopback HTTP origin, refuses
+redirects, bounds the snapshot to 16 MiB and the verifier output to 2 MiB, and
+uses a 30-second timeout. It is not an Ethereum trust source. DOM loopback RPC
+clients separately cap responses at 64 KiB and 10 seconds.
+
+Endpoint identity and confusion
+===============================
+
+Production preflight/Safe/release clients match two to five runtime HTTPS
+origins against a create-once catalog and require consensus at one finalized
+block. Finalized-deposit collection separately binds execution and Beacon
+origins, then validates the resulting Ethereum light-client/account/receipt
+witness. Capacity runners intentionally use two fixed credential-free public
+endpoints only to measure the already pinned RISC Zero verifier runtime; they
+require chain ID 1, a common finalized block/hash and identical code whose hash
+matches the reviewed pin. No endpoint result alone authorizes issuance,
+redemption, signing or broadcast.
+
+Validation
+==========
+
+- node --test test/node/mainnet-preflight-rpc.test.mjs: 5/5 pass.
+- The focused regression asserts redirect refusal, fatal UTF-8 decoding,
+  timeout/body ceilings, oversized Content-Length rejection and strict option
+  bounds across the shared provider and all three direct capacity/release
+  adapters.
+- Heavy Cargo/Foundry/readiness suites remain queued while the active real
+  RISC Zero proof owns the limited machine resources.
+
+No push, deploy, signing, broadcast or funds action occurred.

@@ -1,0 +1,49 @@
+Stage 607 — RISC Zero recursion artifact Node preflight (2026-10-23)
+
+Problem
+
+The RISC Zero 4.0.5 recursion build script attempted to download its ZKR
+artifact during a long local proof build. The remote request returned HTTP 400
+after roughly 90 minutes, so proof execution never started. Shell proof entry
+points now have a local pinned-artifact preflight, but the three Node capacity
+and release launchers could still reach Cargo without the same boundary.
+
+Implementation
+
+- Added the common `sdk/risc0-recursion-artifact.mjs` preflight.
+- It selects an explicit `RECURSION_SRC_PATH`, or the fixed default under
+  `${XDG_DATA_HOME:-$HOME/.local/share}/dom-usdom/toolchain/risc0-4.0.5/`.
+- The path must be canonical and absolute. The production inspector uses the
+  existing descriptor-based direct-file reader, which rejects symbolic links,
+  multi-linked files, non-regular files, identity changes and unsafe reads.
+- Before returning, it requires exactly 59,768,781 bytes and SHA-256
+  `744b999f0a35b3c86753311c7efb2a0054be21727095cf105af6ee7d3f4d8849`.
+- It returns a fresh frozen environment containing the authenticated absolute
+  `RECURSION_SRC_PATH`; it does not mutate `process.env`.
+
+Launcher coverage
+
+The preflight now runs before the first Cargo spawn in:
+
+- `run-checkpoint-capacity-e2e.mjs`;
+- `run-finalized-burn-capacity-e2e.mjs`; and
+- `run-finalized-burn-release-e2e.mjs`.
+
+The returned environment is propagated to build, planner, prover and/or
+compression Cargo invocations in each launcher. Remote prover variables remain
+removed and the existing local/non-dev/single-worker controls are preserved.
+Already-completed immutable reports can still return without a proof build.
+
+Validation
+
+- Tests inject only the artifact inspector, so they exercise missing, unsafe,
+  wrong-size and wrong-hash failures plus the exact successful environment
+  binding without requiring or fabricating the real 59 MB artifact.
+- A structural binding test covers all three launchers and proves their
+  preflight precedes a Cargo spawn.
+- Focused helper and existing launcher suites pass 18/18.
+- Node syntax passes for the helper and all launchers; `git diff --check`
+  passes.
+
+No shell proof script was modified. No proof, commit, push, deployment,
+signature or funds operation was performed.

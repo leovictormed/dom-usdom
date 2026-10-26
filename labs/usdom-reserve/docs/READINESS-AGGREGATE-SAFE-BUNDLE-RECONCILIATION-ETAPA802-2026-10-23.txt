@@ -1,0 +1,36 @@
+ETAPA 802 — aggregate readiness reconciliation after Safe bundle
+Date: 2026-10-23
+
+Finding
+
+After the new mandatory Safe final bundle was integrated, the configured
+readiness fixture correctly passed its control-plane checks but both complete
+release modes failed their embedded preflight with `release_plan_invalid`.
+Preflight required `realFundsAuthorized === false`, conflating a mutable release
+authorization decision with the immutable Ethereum CREATE deployment identity.
+The real-funds aggregate necessarily carries explicit `true`, even though all
+deployment addresses, hashes and getters remain identical.
+
+Correction
+
+- Preflight now requires `realFundsAuthorized` to be an explicit boolean. It
+  accepts both false and true release phases while rejecting null, strings,
+  numbers and omitted/unconfigured state.
+- This does not grant authorization: closed-mainnet/real-funds readiness still
+  independently checks the requested mode, signed release authorization,
+  residual-risk approval and all evidence requirements.
+- Reconciled the exact release-evidence template/schema and configured fixture
+  with mandatory `safeRecoveryFinalEvidenceBundle`; the unconfigured template
+  retains null and therefore remains blocked until real evidence is supplied.
+- Safe bundle semantic validation still rejects absence, shape drift or any
+  package/recovery/role transaction mismatch.
+
+Validation
+
+- Focused configured/unconfigured/preflight/control-plane/schema tests: 4/4
+  pass. Coverage includes both boolean authorization states, null/string/number
+  rejection, configured closed-mainnet and real-funds readiness, Safe bundle
+  mutations and shared exact release schema.
+- Diff check passes.
+
+No RPC, deployment, signature, commit, push or fund action was performed.

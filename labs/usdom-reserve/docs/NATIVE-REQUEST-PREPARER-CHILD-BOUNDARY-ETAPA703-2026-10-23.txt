@@ -1,0 +1,30 @@
+ETAPA 703 — native request preparer child boundary
+Date: 2026-10-23
+
+Finding
+=======
+The preparer that creates the native release-attestation signing digests invoked Cargo through
+an environment-selectable/PATH command, accepted permissively trimmed checker output and did
+not reject child stderr. Its fixed and private JSON inputs also used tolerant Buffer-to-string
+conversion. These boundaries precede the construction of typed signing requests.
+
+Correction
+==========
+The preparer now snapshots a safely owned Cargo executable, invokes its resolved absolute path,
+and rechecks executable bytes/metadata and containing directory after completion. The command
+override is removed. Child stdout is bounded bytes, fatal UTF-8, exactly one newline, no CR or
+blank terminal record, duplicate/malformed fields rejected, with mandatory empty stderr.
+
+All fixed release/config/catalog inputs plus wallet identity, TPM custody and recovery evidence
+now enter strict JSON validation directly as bytes. Existing hash binding and complete exact
+re-reads of fixed inputs, manifest and wallet evidence remain after anchor collection and request
+construction, preserving the input TOCTOU barrier.
+
+Validation
+==========
+Focused native boundary tests: 4/4 pass. Structural regression covers the checker and preparer,
+including strict bytes, executable snapshot/recheck, absolute execution, bounded child output,
+framing and stderr rejection. Node syntax and git diff checks pass. No child/Cargo/RPC ran.
+
+No heavy build, Cargo execution, Rust, Solidity, RISC0 proof, RPC, signing, transmission,
+deployment, fund movement, staging, commit or push was performed.

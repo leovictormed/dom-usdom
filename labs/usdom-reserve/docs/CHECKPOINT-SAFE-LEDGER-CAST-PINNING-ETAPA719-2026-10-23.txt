@@ -1,0 +1,32 @@
+ETAPA 719 — checkpoint and Safe-recovery Ledger Cast pinning
+Date: 2026-10-23
+
+Finding
+=======
+Checkpoint-bootstrap ratification and recoverable-Safe recovery checked Cast availability, but
+resolved it through PATH after the operator's TTY phrase for Ledger address/sign/verify actions.
+A replacement after consent could redirect the signing executable.
+
+Correction
+==========
+Both ceremonies now resolve Cast once to a canonical absolute path and require a regular
+executable, one hard link, safe root/current ownership, non-group/world-writable file and parent
+directory. Device/inode/size/mtime/ctime and SHA-256 are snapshotted.
+
+All Ledger operations use the captured path. Cast resolution, metadata and content hash are
+rechecked immediately after each ceremony's exact TTY phrase, before each Ledger address query,
+before every signature, and before ratification verification. Existing private input snapshots,
+network re-observation, signer ordering, digest/typed-data checks, create-new outputs and explicit
+no-transmission behavior remain.
+
+Node and JQ still supply local parsing/checker boundaries and were not mutated in this stage;
+the highest-risk common path was Cast because it directly controls Ledger interaction.
+
+Validation
+==========
+Combined signing pinning tests pass 3/3 across release/native, checkpoint and Safe recovery.
+`bash -n` passes for both newly changed ceremonies and git diff check passes. No ceremony, child,
+Cast, Ledger or RPC operation was executed.
+
+No build, Cargo, Rust, Solidity, RISC0 proof, RPC, signing, transmission, deployment, funds,
+staging, commit, tag, publication or push was performed.

@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+const registry=readFileSync(new URL("../../contracts/DOMCheckpointRegistry.sol",import.meta.url),"utf8");
+const tests=readFileSync(new URL("../solidity/DOMCheckpointRegistry.t.sol",import.meta.url),"utf8");
+assert.match(registry,/expectedHeight = uint256\(latestHeight\) \+ checkpointInterval/);
+assert.match(registry,/expectedConfirmationHeight = expectedHeight \+ confirmationDepth/);
+assert.match(registry,/confirmationTotalDifficulty <= checkpoint\.totalDifficulty/);
+assert.match(registry,/function _candidateIsBetter/);
+assert.match(registry,/confirmationTotalDifficulty > current\.confirmationTotalDifficulty/);
+assert.match(registry,/uint256\(checkpoint\.confirmationBlock\) < uint256\(current\.confirmationBlock\)/);
+assert.match(registry,/uint256\(statementHash\) < uint256\(current\.statementHash\)/);
+assert.match(registry,/current\.statementHash != bytes32\(0\) && block\.timestamp >= current\.readyAt/);
+assert.match(registry,/current\.statementHash == bytes32\(0\)[\s\S]*_timestampAfter\(challengePeriod\)[\s\S]*current\.readyAt/);
+assert.match(registry,/function finalizeCheckpoint[\s\S]*if \(halted\)[\s\S]*_requireGuardianUnchanged[\s\S]*block\.timestamp < current\.readyAt[\s\S]*_requireVerifierUnchanged/);
+assert.match(tests,/testExactRankTieUsesStatementHashNotArrivalOrder/);
+assert.match(tests,/assertEq\(unchangedReadyAt, readyAt\)/);
+console.log("checkpoint candidate selection: ok");

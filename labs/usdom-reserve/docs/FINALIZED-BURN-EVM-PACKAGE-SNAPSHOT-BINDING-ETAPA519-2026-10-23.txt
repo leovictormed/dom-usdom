@@ -1,0 +1,30 @@
+USDOM stage 519 — finalized-burn EVM package snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The Groth16 compression command checked only the succinct receipt paths before
+compilation. The host later reopened the finalized-burn job input and index,
+guest program and ImageID, receipt and receipt index, and resumable Groth16
+receipt across an expensive compression interval.
+
+Correction
+==========
+
+The fixed command captures the complete job, guest and succinct-receipt graph
+plus any resumable Groth16 receipt into one owner-only replica. It independently
+binds canonical paths, job/input/program/receipt hashes, receipt verification
+flags and explicit byte bounds before compression. Cargo runs only from the
+replica. The old completion index is invalidated before compression; after
+success, the verified Groth16 receipt and exact selector-prefixed EVM seal are
+durably installed before the package index completion marker.
+
+Evidence and scope
+==================
+
+The operator-runbook regression checks complete capture, exact hash binding,
+replica-only compression and output-last publication. Readiness requires
+production_finalized_burn_evm_package_inputs_and_outputs_snapshotted=true. No
+compression, proof, Anvil, network, signature, deployment or funds operation is
+performed.

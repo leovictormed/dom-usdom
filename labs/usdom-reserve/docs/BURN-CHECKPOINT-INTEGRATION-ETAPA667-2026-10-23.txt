@@ -1,0 +1,40 @@
+ETAPA667 — FINALIZED-BURN AND CHECKPOINT INTEGRATION RECONCILIATION
+Date: 2026-10-23
+
+Scope
+- Audited preparation, deployment, readiness and submission paths after the
+  checkpoint guardian owner binding and the ETAPA661 reserve bytecode change.
+- No production materialization or external operation was performed.
+
+Findings and corrections
+1. The full production release-core producer still discarded both adapter
+   initcode hashes after deriving them from source-verified artifact bindings.
+   Its pure reconciliation boundary now requires runtimeCodeHash, initcodeHash
+   and configHash as one exact identity and materializes verifierInitcodeHash
+   and checkpointVerifierInitcodeHash. The fixed wrapper requires and reports
+   both values, so a runtime/config-compatible but different creation artifact
+   cannot enter the release.
+2. The deployed checkpoint registry preflight did not call or reconcile the new
+   guardianOwnersCommitment getter. The collector ABI and exact observation
+   schema now include it, and assessment compares it with the commitment
+   recomputed from the release's canonical ordered owner trio. Missing, stale,
+   malformed, reordered or substituted owner identity fails closed.
+3. The release/preactivation, deployment plan, reproducible-build reports and
+   readiness paths were traced end-to-end. Adapter initcode hashes are now
+   present at both root materializers, deployment transaction input hashes,
+   reproducible-build evidence and compiled readiness comparisons. Submission
+   configurations independently recompute the current reserve/registry config
+   hashes; the registry config includes checkpoint guardian owners.
+4. Global active-code/test search found no surviving ETAPA648/intermediate
+   reserve or registry vectors. Current differential vectors remain those
+   recorded by ETAPA652 after ETAPA651/661.
+
+Validation
+- Focused preparation/submission/build/preflight Node suites: 35/35 passed.
+- Release/preactivation and preflight regression suites: 12/12 passed.
+- Mainnet-readiness positive regressions after schema update: 2/2 passed; the
+  prior full run passed 59 unaffected tests and identified only the two updated
+  cold-start fixtures.
+- Solidity registry constructor and Safe-owner drift tests: 2/2 passed.
+- SDK/source-derived runtime/deployed-EVM differential: 1/1 passed.
+- Node/shell syntax and repository whitespace checks passed.

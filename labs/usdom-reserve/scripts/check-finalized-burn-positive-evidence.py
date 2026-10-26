@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind stage-233 positive finalized-burn claims to exact local evidence."""
+"""Bind stage-273 positive finalized-burn claims to exact local evidence."""
 
 from __future__ import annotations
 
@@ -15,12 +15,12 @@ TEST = REPO / "crates/dom-usdom-finalized-burn-program/tests/raw_checkpoint_posi
 PROGRAM = REPO / "crates/dom-usdom-finalized-burn-program/src/lib.rs"
 FINALITY = REPO / "labs/usdom-ethereum-finality/src/lib.rs"
 GUEST = REPO / "crates/dom-usdom-finalized-burn-risc0-guest"
-RESULTS = RESERVE / "results-stage233-2026-10-20"
+RESULTS = RESERVE / "results-stage273-2026-10-20"
 
-INPUT_SHA = "975383b1ad8dbf8e7ec471673314e6b26250ca6e325456f8380cbaef3529ff4e"
-JOURNAL = "881ebff15b6a4ee9939138160651119b4107713397d362b550355aae22fafaf8"
-PROGRAM_SHA = "438adf4a9a50832da0dfbb77c0b8588d9ba1fbb41d216875e874dfa1db5dfcb0"
-IMAGE_ID = "3975a5f01dc85b6e89925913c5555ade4aefb951c65261142384fd829a70f88a"
+INPUT_SHA = "bdcd115207f47fd31e6e7b211ad2e2812ea7c5fa22fa4310ffae9b4cce949f5e"
+JOURNAL = "c0461e1c2bcff62d1dfd8e8fed0b094b5d19c2744cf9bad34c8ae3722e7eaef4"
+PROGRAM_SHA = "883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21"
+IMAGE_ID = "2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea"
 
 
 def fail(message: str) -> None:
@@ -42,10 +42,10 @@ def main() -> None:
         "production_finalized_burn_canonical_replay_slot_enforced": True,
         "production_finalized_burn_positive_evidence_checker_implemented": True,
         "production_finalized_burn_positive_vector_sha256": INPUT_SHA,
-        "production_finalized_burn_positive_vector_bytes": 64070,
+        "production_finalized_burn_positive_vector_bytes": 64782,
         "production_finalized_burn_positive_vector_public_output": JOURNAL,
-        "production_finalized_burn_guest_execution_cycles": 562418750,
-        "production_finalized_burn_guest_execution_segments": 570,
+        "production_finalized_burn_guest_execution_cycles": 571308757,
+        "production_finalized_burn_guest_execution_segments": 580,
         "production_finalized_burn_guest_execution_segment_po2": 20,
     }
     for key, value in expected.items():
@@ -56,7 +56,7 @@ def main() -> None:
     require_text(
         test,
         [
-            "raw_ethereum_checkpoint_executes_udfinl02_end_to_end",
+            "raw_ethereum_checkpoint_executes_udfinl04_end_to_end",
             "checkpoint_witness_replay_slot",
             INPUT_SHA,
             JOURNAL,
@@ -77,9 +77,18 @@ def main() -> None:
         "finality replay boundary",
     )
     program = PROGRAM.read_text()
-    require_text(program, ["checkpoint_witness_replay_slot"], "UDFINL02 program")
+    require_text(
+        program,
+        [
+            "checkpoint_witness_replay_slot",
+            "CheckpointStatementV6",
+            "execute_with_checkpoint_assumption",
+            "CHECKPOINT_OUTER_IMAGE_ID",
+        ],
+        "UDFINL04 program",
+    )
     if "checkpoint_witness_finalized_slot" in program:
-        fail("UDFINL02 still equates replay ceiling with finalized slot")
+        fail("UDFINL04 still equates replay ceiling with finalized slot")
 
     artifact = GUEST / "elfs/usdom-finalized-burn.elf"
     if hashlib.sha256(artifact.read_bytes()).hexdigest() != PROGRAM_SHA:
@@ -92,12 +101,12 @@ def main() -> None:
         execution,
         [
             "mode=execute",
-            "segments=570",
-            "user_cycles=562418750",
-            "input_bytes=64070",
+            "segments=580",
+            "user_cycles=571308757",
+            "input_bytes=64782",
             f"input_sha256={INPUT_SHA}",
             f"journal={JOURNAL}",
-            "segments_po2_20=570",
+            "segments_po2_20=579",
             "Exit status: 0",
         ],
         "guest execution evidence",
@@ -109,7 +118,7 @@ def main() -> None:
 
     print(
         "PASS: canonical raw checkpoint vector, byte-identical guest build and "
-        "positive 562418750-cycle RISC Zero execution evidence are bound"
+        "positive 571308757-cycle RISC Zero execution evidence are bound"
     )
 
 

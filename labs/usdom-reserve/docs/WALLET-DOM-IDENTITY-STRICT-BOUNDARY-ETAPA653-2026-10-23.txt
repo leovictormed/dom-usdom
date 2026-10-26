@@ -1,0 +1,24 @@
+ETAPA 653 — IDENTIDADE DOM ESTRITA NO REGISTRO/OBSERVAÇÃO DA CARTEIRA
+Data: 2026-10-23
+
+Foram auditados o registro da carteira contra um witness de depósito finalizado
+e o observador posterior da emissão. Ambos consultam `/chain/identity` duas
+vezes e entregam essa identidade, junto a material cifrado/TPM e bearer RPC, a
+binários que criam diretórios de estado persistente.
+
+As respostas eram limitadas, armazenadas em tmpfs e comparadas byte a byte, mas
+o wrapper não validava UTF-8, chaves duplicadas nem a semântica mainnet. Duas
+respostas malformadas idênticas podiam atravessar essa fronteira.
+
+Foi criado `check-dom-mainnet-identity-file.mjs`: ele exige caminho absoluto,
+arquivo direto 0600, limite de 64 KiB, UTF-8 fatal, JSON sem duplicatas e todos
+os campos canônicos de identidade DOM mainnet. Registro e observador validam
+as duas respostas separadamente e repetem `cmp` depois da validação, antes de
+ler a senha ou executar o binário, fechando substituição nesse intervalo.
+
+Validação: ataques diretos com chave `network` duplicada por escape e byte 0xff;
+testes focados passaram 2/2; `node --check`, `bash -n` nos dois wrappers e `git
+diff --check` passaram. Permanecem tmpfs 0700, inputs/estado owner-only,
+compromissos e hashes de binários, criação no-clobber e cleanup em trap. Nenhum
+RPC real, registro, observação, emissão, assinatura, deploy, commit, push ou
+fundos foram usados.

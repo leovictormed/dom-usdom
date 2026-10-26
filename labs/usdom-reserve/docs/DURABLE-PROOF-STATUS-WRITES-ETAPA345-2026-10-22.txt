@@ -1,0 +1,44 @@
+USD + DOM — persistência durável dos estados de prova
+Etapa 345 — 2026-10-22
+
+Problema corrigido
+
+Os executores JavaScript de capacidade e release gravavam `run-status.json` e o
+relatório final por arquivo temporário seguido de rename, mas não sincronizavam o
+arquivo nem o diretório. A operação era atômica durante execução normal, porém
+não sustentava a alegação de durabilidade diante de queda de energia ou falha do
+sistema operacional imediatamente depois do anúncio de sucesso.
+
+Correção
+
+Foi criada a fronteira única `sdk/durable-private-file.mjs`. Ela:
+
+- exige diretório direto e pertencente ao usuário atual;
+- rejeita destino simbólico, hard-linked ou de outro proprietário;
+- cria temporário 0600 com O_EXCL, O_NOFOLLOW e sufixo aleatório;
+- faz fsync do conteúdo antes do rename;
+- faz fsync do diretório depois do rename;
+- reabre pelo leitor direto, exige modo 0600 e confere os bytes persistidos;
+- remove qualquer temporário residual no caminho de erro.
+
+Os seguintes fluxos usam essa fronteira para status e relatórios:
+
+- capacidade de queima finalizada;
+- release específica da prova de queima finalizada;
+- capacidade das seis camadas de checkpoint;
+- materialização do catálogo de fontes de saúde do RISC Zero.
+
+O catálogo RISC Zero também deixou de ler configuração por pathname indireto e
+passou a usar o descritor direto protegido contra TOCTOU.
+
+Validação
+
+- testes de substituição simbólica, diretório indireto, limites, conteúdo e modo
+  privado: aprovados;
+- testes focados dos três executores e do catálogo: 8/8 aprovados;
+- regressão Node completa: 288/288 aprovada;
+- lint dos contratos de produção e build Solidity forçado: aprovados;
+- `git diff --check`: aprovado.
+
+Nenhuma chave, assinatura, publicação, implantação, mineração, transmissão ou
+movimentação de fundos foi realizada.

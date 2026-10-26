@@ -1,0 +1,30 @@
+USD0M stage 506 — authenticated RandomX statement private-input snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The authenticated RandomX statement wrapper invoked `cargo run` from the live
+laboratory root. The exporter consequently opened four owner-only source files
+only after Cargo had finished building. A replacement during that unbounded
+build interval could select different transition, private input, policy input
+or native-state-opening bytes than the operator started the command with.
+
+Correction
+==========
+
+The wrapper now captures all four inputs through the descriptor-backed private
+reader into a fresh owner-only snapshot tree. Cargo and the exporter run with
+that tree as their working directory, so the exporter can open only the fixed
+copies. Generated statement and report bytes are captured from the snapshot
+tree and atomically installed at their canonical laboratory paths. The private
+tree is removed on every exit.
+
+Evidence and scope
+==================
+
+The operator-runbook test asserts the snapshot reader, private temporary root,
+snapshot working directory and durable output installer. The production gate
+requires `production_randomx_statement_private_inputs_snapshotted=true`.
+This is structural evidence only; it performs no proof generation, signing,
+network access, deployment or handling of funds.

@@ -1,0 +1,21 @@
+ETAPA 848 — invalidacao da observacao de checkpoint
+Data: 2026-10-23
+
+Achado
+
+O observador autenticado reconstruia integralmente a submissao e revalidava seus inputs, mas o relatorio privado era create-once e somente detectava conflito no fim, depois das chamadas RPC. Uma observacao antiga permanecia visivel durante uma nova tentativa e, se a tentativa falhasse, podia ser confundida com evidencia da geracao atual.
+
+Correcao
+
+- O diretorio privado 0700 agora e validado no inicio.
+- A observacao anterior e removida pelo helper duravel da ETAPA845 antes da primeira leitura autenticada e antes de criar providers ou emitir RPC.
+- A publicacao nova continua create-once e ocorre apenas depois do rebuild byte a byte da submissao, consenso entre RPCs catalogados e releitura estavel de release, verifier, statement, proof index, seal, submission e catalogo.
+- O finalized-burn nao possui observador RPC equivalente neste estado; seus consumidores reconstruem e validam o pacote no SDK antes de produzir calldata.
+
+Validacao
+
+- suites focadas do observador e boundary duravel: 12/12 aprovadas;
+- teste de ordem exige invalidacao antes de autenticacao/provider/RPC e possui mutacao negativa;
+- sintaxe Node e `git diff --check`: aprovados.
+
+Nenhum RPC real, deploy, prova, assinatura, broadcast, commit ou push foi executado.

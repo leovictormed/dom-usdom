@@ -1,0 +1,63 @@
+Stage 631 — reserve lifecycle and hostile-token audit (2026-10-23)
+
+Scope
+
+Audited the remaining Solidity lifecycle invariants across the proof reserve
+and quorum prototype: deposit and burn identifier consumption, replay/collision
+domains, token callbacks and nonstandard USDT returns, fee/blacklist policy,
+pause/rotation/recovery, and conservation of credited collateral. Temporal and
+arithmetic boundaries already covered in stage 628 were not repeated.
+
+Result
+
+No additional contract defect was confirmed.
+
+- Deposit identifiers bind chain, reserve, funder and salt. Any transfer
+  failure, callback failure or exact-delta mismatch reverts the complete
+  transaction and leaves the identifier reusable.
+- Burn/request identifiers are consumed only after an accepted proof/quorum.
+  Failed proof, callback, token policy or transfer paths cannot mark them paid,
+  create a permanent proof binding or consume rate capacity.
+- All value paths are nonreentrant. A token callback cannot enter deposit,
+  queue, execute or discard while an outer transfer is active. Effects-first
+  payout state rolls back atomically when transfer/postconditions fail.
+- No-return USDT semantics are supported by `SafeERC20`, but success still
+  requires exact sender, reserve and recipient balance deltas. Fee-on-top,
+  fee-on-receive, lying, false or malformed behavior cannot mint deposit credit
+  or finalize a payout.
+- Blacklist, pause, deprecation or configured fee policy fails before value
+  movement. If policy changes after queueing, the exact claim and bucket remain
+  retryable after recovery rather than being silently paid or erased.
+- Donations never increase credited outstanding supply. Confiscation below
+  outstanding credit blocks admissions and payments until collateral returns.
+- Emergency pause invalidates the current proof queue in O(1). In the quorum
+  prototype, emergency recovery revokes active keys and requires a fresh epoch
+  plus delayed, configuration-bound resume; ordinary rotation invalidates old
+  certificates without granting a fund-moving admin path.
+
+Material regressions added
+
+1. `testProofReserveReentrancyCannotConsumeDepositOrBurnIdentifiers` makes the
+   collateral token call back into deposit during `transferFrom`, then into a
+   proved queue admission during payout. Both nested operations fail while the
+   outer exact transfer succeeds; no callback deposit, pending request or
+   permanent proof binding is created, and the valid burn queues normally once
+   the callback is removed.
+2. `testProofReserveFeeModesRollbackAndNoReturnUSDTStyleRemainsExact` exercises
+   fee-on-top and fee-on-receive deposits and payouts, checking rollback of
+   balances, credit, reservations, paid flags and bucket capacity. It then
+   proves exact no-return deposits and payouts remain usable.
+
+Validation
+
+- new adversarial regressions: 2/2 passed;
+- lifecycle/rotation/recovery focus: 104/104 passed across six suites,
+  including three 256-run/16,384-call invariant campaigns;
+- complete Solidity campaign: 156/156 passed across 14 suites;
+- proof-reserve production contract lint with warnings denied: passed;
+- quorum-prototype lint completed with its existing diagnostics; no lint-driven
+  source change was made because this stage changed no production contract;
+- changed-test formatting and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero code was touched or executed. No commit,
+push, deployment, signature, transmission or funds operation was performed.

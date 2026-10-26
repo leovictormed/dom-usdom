@@ -1,0 +1,27 @@
+ETAPA 914 — inventário e hardening Beacon REST
+Data: 2026-10-23
+
+Inventário exato
+- 2 consumers de Beacon REST: checkpoint consensus e finalized-deposit source collector.
+- Checkpoint consensus exige 3..5 fontes; finalized deposit exige 2..5 fontes catalogadas.
+- Ambos usam HTTPS, redirect=error, deadline, byte bound, UTF-8 fatal e strict JSON.
+- Checkpoint liga genesis mainnet, finalized epoch/root, header SSZ/root, bootstrap proof, não-optimistic/canonical, double-read e igualdade entre fontes.
+- Finalized deposit liga slot/root ao execution block finalizado, ancestry até o depósito, receipt e state/code no bloco, e compara duas observações por fonte antes do consenso.
+
+Gaps corrigidos
+- Os dois transports Beacon não recusavam proxy/custom CA/TLS-off env como o JSON-RPC compartilhado.
+- Erros de fetch podiam propagar URL/path de API.
+- O helper Beacon exportado não revalidava HTTPS quando chamado diretamente.
+- Parsing tinha byte/depth, mas não node/width/string bounds independentes.
+
+Estado após correção
+- 2/2 aplicam a política HTTPS fail-closed e redigem falha de transporte.
+- 2/2 mantêm redirects proibidos, timeout e leitura streaming limitada.
+- 2/2 usam strict JSON com nodes/strings/object/array bounds; finalized deposit reduz depth de 256 para 32.
+- O helper checkpoint valida sua própria URL, independentemente do caller.
+
+Limites externos
+- DNS/IP e independência administrativa permanecem evidência operacional; catálogos fixos, TLS, double-read e quórum mitigam, mas não provam propriedade externa.
+
+Validação
+- Testes checkpoint consensus: 10/10; syntax checks nos dois módulos.

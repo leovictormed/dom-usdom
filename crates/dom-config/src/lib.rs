@@ -141,6 +141,13 @@ pub struct NodeConfig {
     pub seed_peers: Vec<String>,
     /// Enable mining.
     pub mine: bool,
+    /// Arm the authenticated, single-block mining RPC used only by the
+    /// operator's isolated Mainnet ceremony. The node-side handler also
+    /// requires a loopback-only, peerless configuration and continuous mining
+    /// to be disabled. Default `false` keeps ordinary Mainnet nodes unable to
+    /// expose this test capability.
+    #[serde(default)]
+    pub closed_mainnet_test: bool,
     /// Local miner CPU throttling. This only affects the node process' CPU
     /// usage and is not serialized into blocks, headers, PoW preimages, or
     /// network messages.
@@ -172,7 +179,7 @@ pub struct NodeConfig {
     /// Explicit RPC bearer token for embedded callers.
     ///
     /// If unset, `dom-rpc` falls back to its standalone-node behavior: read
-    /// `DOM_RPC_TOKEN`, then `~/.dom/rpc_token`, then generate a token file.
+    /// `~/.dom/rpc_token`, then generate a token file.
     #[serde(default, skip_serializing)]
     pub rpc_bearer_token: Option<String>,
     /// Prometheus metrics listen address (for example `127.0.0.1:3371`).
@@ -224,6 +231,7 @@ impl std::fmt::Debug for NodeConfig {
             .field("disable_dns_seeds", &self.disable_dns_seeds)
             .field("seed_peers", &self.seed_peers)
             .field("mine", &self.mine)
+            .field("closed_mainnet_test", &self.closed_mainnet_test)
             .field("miner_throttle", &self.miner_throttle)
             .field("miner_threads", &self.miner_threads)
             .field("miner_address", &self.miner_address)
@@ -268,6 +276,7 @@ impl NodeConfig {
             disable_dns_seeds: false,
             seed_peers: vec![],
             mine: false,
+            closed_mainnet_test: false,
             miner_throttle: MinerThrottleConfig::default(),
             miner_threads: 1,
             miner_address: None,
@@ -291,6 +300,7 @@ impl NodeConfig {
             disable_dns_seeds: false,
             seed_peers: vec![],
             mine: true,
+            closed_mainnet_test: false,
             miner_throttle: MinerThrottleConfig::default(),
             miner_threads: 1,
             miner_address: None,
@@ -317,6 +327,7 @@ impl NodeConfig {
             disable_dns_seeds: false,
             seed_peers: vec![],
             mine: false,
+            closed_mainnet_test: false,
             miner_throttle: MinerThrottleConfig::default(),
             miner_threads: 1,
             miner_address: None,

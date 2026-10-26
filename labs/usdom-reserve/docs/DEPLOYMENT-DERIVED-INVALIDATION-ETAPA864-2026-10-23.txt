@@ -1,0 +1,6 @@
+ETAPA 864 — invalidacao dos derivados de deployment
+Data: 2026-10-23
+
+Sob o lock de evidencias, o executor agora invalida duravelmente apenas receipt e evidence do indice corrente antes do proxy/RPC. Raw transaction, raw validation, submission hash e finalized anchor permanecem imutaveis como bindings anti-replay; receipts de indices anteriores tambem permanecem para validar a sequencia CREATE. Novos derivados continuam output-last.
+
+Validacao: teste 1/1, sintaxe Bash e diff-check aprovados. Sem deploy/RPC.

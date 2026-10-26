@@ -1,0 +1,61 @@
+Fresh reproducible local deployment-gas evidence — Stage 1129 — 2026-10-26
+
+Scope and authority
+===================
+
+The four current production contract artifacts were deployed twice on two fresh
+chain-ID-31337 Anvil processes. The runner authenticates exactly
+`/home/leonardov/.foundry/bin/anvil` with SHA-256
+`00f97668e1ae0fcca118fd7d2d1b6d25c0496447a523ca6bc2dfd10958c99604`.
+It accepts no RPC URL, private key, raw transaction or network input.
+
+Fresh result
+============
+
+Contract                    runtime B   gas used   ceiling   planned limit
+finalizedBurnVerifier            1,814    458,445    750,000       1,008,618
+checkpointVerifier               1,814    458,445    750,000       1,008,618
+checkpointRegistry              10,163  2,545,275  2,600,000       3,555,578
+reserve                         20,100  4,707,900  4,800,000       6,521,713
+
+Both complete runs reproduced the same artifact SHA-256, complete initcode
+SHA-256 and length, deployed runtime hash and length, receipt gas and policy
+limit. Aggregate measured gas is 8,170,065.
+
+Defect found and corrected
+==========================
+
+The exact current planner limits total 12,094,527 gas. The old aggregate policy
+cap was 12,000,000, so the deployment package would reject the four current
+artifacts despite every individual deployment remaining inside its audited
+ceiling. This contradicted the prior stale 11,230,032 estimate.
+
+The sequence cap is now 12,500,000. This leaves a bounded 405,473-gas aggregate
+policy margin while retaining the independent per-transaction 20,000,000 cap,
+the exact individual ceilings, 25-percent planner margin, half-block limit,
+EIP-1559 fee caps and total ETH cost caps. The four deployments are sequential;
+this aggregate cap is a ceremony budget and does not require one block.
+
+Evidence and limitations
+========================
+
+Machine-readable evidence is
+`LOCAL-DEPLOYMENT-GAS-MEASUREMENT-2026-10-26.json`. A dedicated runner rebuilds
+the evidence from the current artifacts and fails if either fresh run differs,
+an individual ceiling is exceeded or the aggregate policy is exceeded.
+
+The current artifacts contain unmaterialized mainnet production pins and cannot
+successfully execute their chain-ID-1 production branches. This measurement
+therefore proves the current artifact/local constructor path and policy
+arithmetic. The eventual configured release artifacts must reproduce fresh gas
+evidence before signing; this report does not substitute for that release-time
+measurement.
+
+Validation
+==========
+
+Focused deployment measurement, package, raw-transaction and execution-policy
+tests pass 19/19. The evidence independently reproduced during the test. No
+mainnet/testnet RPC, external deployment, signature, funds, Cargo, Forge, commit
+or push was used.
+

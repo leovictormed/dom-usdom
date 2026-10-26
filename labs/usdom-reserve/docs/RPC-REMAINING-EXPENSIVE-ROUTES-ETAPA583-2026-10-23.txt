@@ -1,0 +1,68 @@
+Remaining RPC expensive-route admission audit — stage 583
+Date: 2026-10-23
+Scope: crates/dom-rpc/src/{lib.rs,middleware.rs}
+
+Findings corrected
+==================
+Four remaining classes performed materially expensive work with only a burst
+rate limit and no aggregate in-flight bound:
+
+1. Public `/tx/submit` decodes and performs transaction/chain/cryptographic
+   admission. A default burst could occupy multiple runtime workers at once.
+2. `/wallet/spend` and the three Slate mutation routes share reservation,
+   cryptographic and durable wallet state, but previously had four independent
+   buckets and no shared exclusion. Alternating route names multiplied the
+   admitted burst and allowed overlapping state work.
+3. `/regtest/mine/v1` can request up to 1,000 real blocks and had neither a
+   mining concurrency gate nor fail-fast overload response.
+4. Public `/chain/ancestry` can walk up to 256 canonical heights but shared the
+   same unconstrained in-flight class as constant/point public reads.
+
+Corrections
+===========
+* Public transaction submission now has two fail-fast admission slots.
+* All four wallet mutation routes share one fail-fast slot and one submit
+  bucket. A second mutation receives 503 rather than waiting on wallet locks or
+  multiplying capacity by changing route names.
+* Regtest mining has one fail-fast slot and retains its independent submit
+  bucket and ordinary HTTP timeout.
+* Ancestry has two fail-fast slots and its own read bucket. It retains public
+  GET CORS behavior; status, identity, block, UTXO and kernel point reads remain
+  outside the added capacity gate.
+* In every class the per-source governor is the outer layer, so over-quota work
+  receives 429 before attempting a capacity slot. The existing middleware owns
+  permits across handler execution and releases them on every return, timeout
+  or cancellation.
+
+Remaining surface audit
+=======================
+* Ordinary bodies remain capped at 1,024,000 bytes before handler JSON/hex
+  processing. Specialized candidate, issuance and closed-Mainnet limits remain
+  narrower or protocol-derived as documented in stages 572/578.
+* Regtest count is bounded to 1..=1,000 and therefore its response hash list is
+  bounded. Wallet/Slate responses derive from bounded request and consensus
+  transaction structures. Transaction-submit responses are fixed shape.
+* `/peers` is bounded by configured inbound (hard ceiling 1,024) plus bounded
+  outbound policy and already rate limited. Mempool and large scans have their
+  dedicated fail-fast classes from stages 579/580.
+* `/health` remains deliberately ungated: it is a fixed constant response on a
+  loopback-only transport and must remain usable for liveness. Other public
+  point reads share the kernel-peer read governor.
+* Shutdown, balance, build-info and point transaction lookup are fixed/small
+  authenticated operations. No additional client-controlled unbounded payload,
+  response, or expensive route without rate/capacity policy was established.
+
+Light validation
+================
+* rustfmt and git diff integrity: PASS
+* Structural route/layer assertions: transaction, ancestry, wallet and regtest
+  rate-before-capacity ordering 4/4; wallet shared gate and ancestry isolation
+  2/2.
+* The reusable middleware regression from stage 579 covers held capacity,
+  immediate 503 rejection and cancellation-safe permit recovery. Existing
+  endpoint tests continue to cover auth and valid request/response behavior;
+  their Cargo execution is queued until the active RandomX proof releases
+  shared compiler/memory resources.
+
+No readiness fact, commit, push, deploy, signature, transaction, mining or
+funds action occurred.

@@ -1,0 +1,29 @@
+ETAPA 878 — TPM AND RECEIVING-WALLET CHILD LIFECYCLE
+Date: 2026-10-23
+
+Finding
+-------
+The four scoped wallet/TPM ceremonies had no background children and three had
+status-preserving cleanup, but Cargo builds and credential-bearing binaries had
+no outer deadline. The keystore provisioner also used one non-terminal trap for
+EXIT/HUP/INT/TERM, so a caught signal could resume after deleting secrets.
+
+Correction
+----------
+- Cargo builds now run in timeout-created process groups with a one-hour bound
+  and 30-second TERM-to-KILL escalation.
+- Wallet recovery create/verify, TPM keystore unlock/provision, recovery drill
+  and TPM authority bootstrap now have five-minute bounds with five-second kill
+  escalation.
+- Keystore provisioning cleanup now clears traps, preserves the incoming status
+  and exits 129/130/143 after deleting its secret directory.
+- Existing executable/TPM tool pinning and the other three cleanup routines were
+  preserved.
+
+Validation
+----------
+- Bash syntax passed for all four scoped scripts.
+- Lifecycle, TPM tool boundary, wallet recovery pinning and temporary cleanup
+  tests passed 6/6 after reconciliation.
+- Diff whitespace validation passed.
+- No Cargo build, TPM access, password entry, RPC, signing or fund operation ran.

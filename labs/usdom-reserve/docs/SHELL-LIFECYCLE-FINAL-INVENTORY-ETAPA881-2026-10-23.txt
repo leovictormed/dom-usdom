@@ -1,0 +1,20 @@
+ETAPA 881 — inventário final de lifecycle em scripts shell
+Data: 2026-10-23
+
+Escopo e método
+- `rg --files labs/usdom-reserve/scripts -g '*.sh'`: 91 arquivos shell exatos.
+- Busca restrita a essa lista por cargo/node/cast/curl/python/git/jq/openssl/ledger/proxy: 357 linhas candidatas antes da classificação semântica.
+- Nenhuma varredura externa a `scripts` foi usada no inventário.
+
+Achado corrigido
+- `run-closed-mainnet-node.sh` executava dois filhos finitos sem deadline: a preparação privada do token via Python e o build release via Cargo.
+- Python agora recebe TERM em 30 s e KILL 2 s depois; Cargo recebe TERM em 3600 s e KILL 30 s depois.
+- O `exec` final de `dom-node` permanece deliberadamente sem timeout: ele é o serviço supervisionado pelo launcher, não uma etapa finita.
+
+Contagem do boundary corrigido
+- 3 execuções potencialmente longas no launcher: 2 filhos finitos agora limitados; 1 serviço final intencionalmente contínuo.
+- Nenhum processo em background é criado pelo launcher.
+
+Validação
+- `bash -n` no launcher.
+- Teste estrutural dedicado confirma os dois deadlines, a ausência de background e o `exec` final.

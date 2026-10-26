@@ -1,0 +1,28 @@
+Stage 481 — checkpoint bootstrap ratification signing ceremony
+Date: 2026-10-23
+
+The checkpoint bootstrap collector previously accepted an EIP-1271 signature
+through a manually supplied environment value. There was no canonical request,
+hardware-wallet handoff or durable commitment to the signature bytes.
+
+The replacement ceremony builds a canonical signing request bound to the exact
+release evidence, release configuration, Ethereum checkpoint consensus, native
+activation facts, finalized governance runtime and domain-separated RPC source
+catalog. Both the request and its SHA-256 are installed create-once with mode
+0600. Two ordered owners of the reviewed 2-of-3 governance Safe sign the exact
+ratification digest with Ledger devices. Before each signature the ceremony
+reobserves finalized governance across all cataloged RPCs, revalidates the
+canonical request and rereads its immutable inputs. The combined signature and
+its SHA-256 are installed create-once with mode 0600.
+
+The collector no longer accepts `USDOM_CHECKPOINT_RATIFICATION_SIGNATURE`. It
+reads only the fixed request, request SHA-256, signature and signature SHA-256,
+recomputes every input commitment and digest, then verifies EIP-1271 from a
+stable finalized snapshot before producing an observation.
+
+`production_checkpoint_bootstrap_ratification_signing_ceremony_implemented` is
+a structural fact. No signature, network access, deployment, funds, mining,
+commit or push occurred while producing this evidence.
+
+Validation: checkpoint bootstrap collector/request 5/5; operator runbook 71/71;
+readiness 60/60.

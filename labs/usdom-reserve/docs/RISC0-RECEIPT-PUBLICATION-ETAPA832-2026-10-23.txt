@@ -1,0 +1,19 @@
+ETAPA 832 — persistência e publicação dos receipts RISC Zero
+Data: 2026-10-23
+
+ACHADO CORRIGIDO
+O caminho RandomX invalidava o índice final com `Path::exists` seguido de `remove_file`, sem fsync do diretório pai. O índice é o marcador de geração completa. Em queda de energia entre essa remoção e a publicação da nova geração, a remoção podia não ser durável e o marcador antigo reaparecer, apresentando um conjunto anterior como completo. `exists` também criava uma janela de inspeção menos rigorosa que os outros hosts.
+
+CORREÇÃO
+RandomX agora usa `symlink_metadata` com tratamento explícito de ENOENT e chama o mesmo `remove_invalid_receipt` usado para artefatos. Esse helper rejeita symlink/não-regular, remove o nome e executa `sync_all` no diretório pai antes de qualquer receipt ser reutilizado ou criado. Receipts válidos antigos continuam reutilizáveis somente após verificação criptográfica contra ImageID+journal atuais; o novo índice continua publicado por último via escrita privada atômica e durável.
+
+AUDITORIA RESTANTE
+Aggregate, economic, segment, outer e finalized-burn já invalidam seus completion markers por helpers com fsync. Todos publicam artifacts antes do índice final. Leituras e escritas compartilhadas rejeitam symlink/hardlink, vinculam owner/mode/inode e revalidam bytes. Índices incluem hashes/bytes/journals e job generation, impedindo conjuntos mistos de serem aceitos.
+
+VALIDAÇÃO
+- `risc0-receipt-publication.test.mjs`: 2/2.
+- Mutação que restaura `remove_file` direto sem o helper durável é rejeitada.
+- `rustfmt --check` focado: passou.
+- `git diff --check`: passou.
+
+Nenhuma prova pesada ou operação externa foi executada.

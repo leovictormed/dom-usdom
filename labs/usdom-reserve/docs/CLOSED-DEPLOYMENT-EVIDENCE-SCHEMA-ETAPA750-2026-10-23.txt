@@ -1,0 +1,31 @@
+ETAPA750 — closed deployment completion-manifest schema
+Date: 2026-10-23
+
+Finding and correction
+======================
+
+The completion manifest was duplicate-key-safe, but recovery checked only
+required fields. Unknown or nested additions survived, allowing future readers
+to assign different meaning to the same evidence bytes.
+
+A shared validator now defines the exact flat v1 schema used by current writer
+and recovery reader. It requires exactly twenty named keys, fixed version and
+chain, role matching index, checksummed nonzero addresses, canonical uint64
+nonce/block quantities, nonzero lowercase bytes32 identities, canonical SHA-256
+commitments and receipt height not above the recorded finalized height. No
+nested object is valid in this deliberately flat schema.
+
+Both the newly generated manifest and every recovery snapshot pass the same
+validator after fatal-UTF-8 and duplicate-key-safe parsing from bounded private
+files. Extra/missing fields, objects, type drift and unknown versions fail.
+
+Verification
+============
+
+- Positive writer-shaped fixture passes.
+- Top-level extra, nested replacement/addition, missing key, wrong version,
+  role/index drift, numeric type/encoding drift and nonchecksummed address fail.
+- Focused Node tests: 17/17 passed.
+- Bash/Node syntax and `git diff --check`: passed.
+
+No real RPC, signature, deployment, funds action, commit or push occurred.

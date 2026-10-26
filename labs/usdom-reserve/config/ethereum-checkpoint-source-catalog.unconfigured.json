@@ -1,0 +1,8 @@
+{
+  "schema": "usdom-ethereum-checkpoint-source-catalog-v1",
+  "sources": [
+    {"operatorId": null, "originKeccak256": null},
+    {"operatorId": null, "originKeccak256": null},
+    {"operatorId": null, "originKeccak256": null}
+  ]
+}

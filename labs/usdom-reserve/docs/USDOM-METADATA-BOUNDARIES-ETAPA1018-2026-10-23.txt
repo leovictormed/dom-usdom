@@ -1,0 +1,69 @@
+ETAPA1018 — USDOM metadata boundaries (2026-10-23)
+
+Scope
+-----
+Reviewed native USDOM transfer/burn submission, authenticated history and exact
+inclusion scans; wallet RPC transport; P2P transaction relay; node logs and the
+Prometheus projection. This is a source audit and lightweight structural gate;
+the live RISC Zero proof precluded a competing Cargo/Forge build.
+
+Concrete finding and correction
+-------------------------------
+The Dandelion++ stem receiver's lag warning had already been redacted, but a
+failed stem write still passed through annotate_send_err("stem", peer_addr, e).
+That error string encoded both the selected peer and the fact that it was the
+stem hop. If surfaced now or by later session diagnostics, its timestamp would
+reveal the private relay edge. The stem branch now uses redact_stem_send_err:
+write-timeout classification remains intact for peer scoring; every other
+transport failure becomes a generic error containing neither peer nor stem.
+A focused Rust regression and the structural gate enforce this property.
+
+Verified boundaries
+-------------------
+* Transfer/burn submission and authenticated history/scan routes are under the
+  bearer-token router. The wallet client accepts only a literal loopback HTTP
+  authority and sends the bearer token. Public CORS is confined to already
+  public confirmed-chain GET routes.
+* Transfer/burn submission responses contain transition_id and candidate_id.
+  They do not echo the proof payload, recipient, nullifiers, memo or burn ID.
+  Parser errors describe framing/length failures without formatting raw bytes.
+* Authenticated history returns public transition projections and the exact
+  encrypted canonical payload required for owner scanning. Its schema accepts
+  or returns no viewing key, spending key, note secret or memo plaintext.
+* Normal transaction relay uses Dandelion++ stem/fluff. Routine accepted,
+  rejected, timeout and lag telemetry omits transaction hashes, ingress peer,
+  selected stem peer and exact missed-envelope counts.
+* The unauthenticated loopback Prometheus projection excludes mempool size,
+  receive/relay counters, and pending native-USD0M mining candidate count/bytes.
+  Internal atomics remain available for policy. Aggregate reject/stale counters
+  do not identify a transaction. Future/orphan package metrics describe block
+  packages already visible on the P2P block path, not a local wallet queue.
+
+Unavoidable public metadata and residual correlation
+----------------------------------------------------
+Ethereum deposits expose account/contract addresses, USDT amount, transaction
+and block timing, plus the receiving commitment carried by the deposit call.
+Ethereum redemptions expose payout address, amount, burn/request identifiers and
+execution timing. DOM consensus exposes note commitments, spent nullifiers,
+encrypted payload length, block inclusion and timing. These values are needed
+for consensus, double-spend prevention, owner scanning or public payment.
+
+Dandelion++ reduces source-linkability; it cannot provide anonymity against a
+global passive observer, a malicious first hop, the local RPC/node operator, or
+timing/amount correlation across Ethereum and DOM. A unique transition ID lets
+its authenticated submitter track inclusion and therefore must be treated as
+sensitive pre-confirmation metadata. No claim of Ethereum anonymity or Monero
+equivalence is justified by these controls.
+
+Evidence
+--------
+Run:
+  python3 labs/usdom-reserve/scripts/check-usdom-metadata-boundaries.py
+  python3 -m py_compile labs/usdom-reserve/scripts/check-usdom-metadata-boundaries.py
+  rustfmt --check crates/dom-node/src/node.rs
+  git diff --check
+
+The gate checks bearer confinement, loopback authenticated wallet transport,
+minimal submit receipts, absence of wallet secrets in RPC schemas, encrypted
+history payload semantics, redacted stem errors/logs and suppressed
+privacy-sensitive metric exports.

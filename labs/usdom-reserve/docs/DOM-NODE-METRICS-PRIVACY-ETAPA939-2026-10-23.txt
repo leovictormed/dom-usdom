@@ -1,0 +1,28 @@
+ETAPA 939 — privacidade das superfícies metrics/health do dom-node
+Data: 2026-10-23
+
+Fronteira do listener
+- Metrics é desabilitado por padrão e só aceita SocketAddr explicitamente loopback; bind público falha antes de listen.
+- O servidor lê no máximo 1 KiB, aplica deadline de I/O, fecha a conexão, limita concorrência por try-acquire e não mantém fila de sockets.
+- Somente `GET /metrics` retorna 200; outros GET recebem 404 e métodos não GET recebem 405.
+- A saída tem tamanho estrutural fixo: atomics escalares e quatro labels `method` constantes. Não existem labels derivados de peer, IP, tx, commitment, carteira ou payload.
+
+Leak corrigido
+- Apesar de loopback, o endpoint não possui Bearer e pode ser lido por outra conta/processo local. Ele exportava `dom_mempool_size`, tx received/relayed e count/bytes exatos da fila de envelopes USDOM privados.
+- Essas séries permitiam reconstruir timing de Dandelion++ e atividade local de transfer/burn/issuance, contradizendo a fronteira autenticada do RPC.
+- As cinco séries foram retiradas apenas do Prometheus. Os atomics continuam internos para política/diagnóstico autenticado; nenhum identificador ou valor privado é adicionado.
+- Respostas agora incluem `Cache-Control: no-store` e `X-Content-Type-Options: nosniff`.
+
+Health/status/tracing
+- Health HTTP público do RPC contém somente `ok`; status público perdeu mempool cardinality na ETAPA935.
+- Peers, build info, mempool/tx residency, wallet e USDOM permanecem no RPC autenticado.
+- Bearer/config secrets têm Debug/serde redigidos e não são emitidos por metrics. O export não lê wallet state nem carrega payloads para formatar métricas.
+
+Validação leve
+- Regressão exige ausência das cinco séries privadas e presença dos dois headers defensivos.
+- Checker estrutural/política: 11/11.
+- rustfmt e git diff --check: aprovados.
+- Cargo/servidor/rede reservados para aggregate pós-prova; nenhum listener foi iniciado.
+
+Limite deliberado
+- Metrics continua sem Bearer por ser um scraper loopback opcional. Séries operacionais agregadas de chain, peer counts, mineração e filas P2P continuam visíveis localmente; nenhuma carrega label controlado externamente ou identidade de usuário.

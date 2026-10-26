@@ -1,0 +1,30 @@
+USDOM stage 521 — finalized-burn submission input snapshot binding
+Date: 2026-10-23
+
+Finding
+=======
+
+The unsigned finalized-burn submission command captured its seven authenticated
+inputs in memory and compared their origins before publication, but it did not
+materialize one owner-only input generation or directly rehash the installed
+package at the command boundary.
+
+Correction
+==========
+
+Release configuration, verifier configuration, source index and input, receipt
+index, EVM package index and selector-prefixed seal are now copied through the
+direct descriptor reader into one private temporary replica. Package derivation
+uses only direct owner-only reads from that replica. The command still compares
+every origin byte-for-byte before publication, durably creates the unsigned
+package without replacement, directly rereads it as a private file, compares
+the exact installed bytes and reports their SHA-256.
+
+Evidence and scope
+==================
+
+Focused writer and runbook tests assert replica use, origin comparison,
+durable publication and exact installed-package hashing. Readiness requires
+production_finalized_burn_submission_inputs_snapshotted_and_package_reread=true.
+No Anvil, network, signature, broadcast, deployment or funds operation is
+performed.

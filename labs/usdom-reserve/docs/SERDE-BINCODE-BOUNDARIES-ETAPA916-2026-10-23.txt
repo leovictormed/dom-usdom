@@ -1,0 +1,11 @@
+ETAPA 916 — fronteiras serde/bincode de produção
+
+Universo nominal da ETAPA907: 30 fronteiras de produção, divididas em 8 decoders bincode de receipts RISC Zero e 22 decoders JSON de índices/respostas RPC. Há mais um `from_slice` apenas em fixture de teste, fora do denominador.
+
+Resultado dos 8 receipts: 8/8 verificam byte length antes do decode, usam fixint, `reject_trailing_bytes` e `with_limit`, reserializam e exigem igualdade byte-a-byte, restringem a variante esperada (Succinct/Composite/Groth16), conferem journal e ImageID, executam `Receipt::verify`; Groth16 também confere verifier parameters/control identity.
+
+Resultado dos 22 JSON: 22/22 partem de arquivo/body com limite; todas as structs `Deserialize` envolvidas usam `deny_unknown_fields` (serde também rejeita campo conhecido duplicado); schemas/versions/domínios, counts e cross-hashes são validados antes do uso. Job/receipt indexes autoritativos reconstruíveis comparam o struct e/ou bytes canônicos esperados; índices externos vinculados por hash preservam os bytes exatos e não dependem de equivalência de whitespace. RPC limita resposta normal a 256 KiB e history a 3 MiB antes do serde, valida schema e identidade, e mantém o limite de profundidade padrão.
+
+Nenhum gap real foi confirmado nesta família; nenhuma lógica de produção foi alterada. Foi acrescentado um checker estrutural que fixa os 8 decoders bincode, confirma as propriedades criptográficas/canônicas, exige `deny_unknown_fields` em todas as structs e conserva a contagem JSON (22 produção + 1 fixture).
+
+Estado final: 30/30 conformes, 0 pendentes. Testes estruturais 3/3 e `git diff --check` aprovados. Nenhum Cargo build ou prova foi executado.

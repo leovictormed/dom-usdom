@@ -1,0 +1,180 @@
+USDOM stage 452: build and deployment identity hardening
+
+The four reproducible-build materializers resolve Forge only from an absolute
+PATH entry and bind the resolved real path, inode metadata and executable
+SHA-256 before use. Forge must be a regular single-link file owned by the
+current user or root, and neither it nor its immediate directory may be group
+or world writable. Both isolated builds use that absolute executable; its file
+and directory identity is rechecked afterward. Ambient Foundry, Dapp, Solidity,
+preload, dynamic-library, wrapper, Cargo/Rust and RISC Zero developer overrides
+are rejected before a build can begin.
+
+Mainnet deployment identity observation uses 2..5 public-catalogued RPC source
+identities while keeping URLs runtime-only. A strict bounded transport observes
+a finalized block and then fully rechecks its hash, finalized and pending EOA
+nonces, absence of EOA code, and absence of code at all four derived CREATE
+addresses. Every source must agree exactly, and persisted evidence uses the
+private immutable writer.
+
+Focused mutation, operational, syntax and shell checks passed. No live RPC,
+build ceremony, deployment, transaction, signature, funds, mining, push or
+commit was performed by this stage.
+
+The checkpoint-finalized-event report preparer also rereads the release
+evidence, release configuration and finalized observation before emission,
+rejecting input replacement during report generation.
+
+All Solidity sources named by canonical artifact metadata are snapshotted and
+checked against their metadata keccak256. Every source is reread byte for byte
+after both isolated builds. Final release authorization now observes 2..5
+catalogued bounded RPC sources, repeats the complete EIP-1271 collection twice
+per source, rechecks the finalized anchor and governance code, and requires
+exact cross-source agreement.
+
+Operations-review materialization now opens all nine canonical evidence
+documents, recomputes each release-bound SHA-256, preserves the bytes and
+rereads them before output. Declared pointers alone can no longer satisfy it.
+
+The shared trusted-setup decision also hashes the real finalized-burn and
+checkpoint verifier configuration manifests before parsing and rereads them
+later. All four native release attestations now use the catalogued bounded
+multi-RPC anchor and two complete EIP-1271 confirmation passes per source,
+with finalized snapshot, governance code and exact consensus checks.
+
+Checkpoint-capacity materialization preserves and rereads the selected private
+run status and capacity-report bytes before report installation and again
+before release-evidence replacement, rejecting a run changed mid-ceremony.
+
+Finalized-burn capacity evidence applies the same two-boundary reread to its
+private run status and capacity report, so its release evidence cannot be
+assembled from a run that changes during materialization.
+
+Release-authorization and native-attestation materializers include the public
+RPC source catalog in their fixed input snapshots and reread it after live
+collection, before any output can be installed.
+
+Finalized-deposit source collection already reconciles two to five catalogued
+execution/Beacon pairs through two full observations per source. It now also
+rereads the source catalog with the release, native manifest, pin and deposit
+transaction hash before immutable evidence output.
+
+Authenticated-checkpoint observation preserves and rereads release, verifier,
+statement, proof index, EVM seal, published submission and RPC catalog bytes
+after live collection and before its private create-once evidence write.
+
+Deployment-identity, release-authorization-request and native-attestation-
+request paths now snapshot and reread their RPC catalog after observation.
+Both RISC Zero health collection paths reread their reference and catalog; the
+mainnet preflight rereads release config, RISC Zero reference and catalog.
+Deployment-identity materialization also reconfirms the Ledger and repeats its
+multi-RPC derivation before both observation persistence and draft replacement,
+requiring the derived configuration to remain byte-identical.
+
+The effective closed-mainnet gate now requires the authenticated issuance RPC,
+wallet preregistration, controlled-node and exact-block ceremonies, submission
+ceremony and authenticated wallet observation. Issuance preserves and rereads
+all six inputs after its DOM request and before receipt persistence.
+
+Bootstrap-ratification and checkpoint-finalized-event collectors preserve and
+reread every file input after Ethereum collection and before observation output.
+
+Recoverable Safe control collection now uses 2..5 catalogued bounded sources,
+two complete snapshots per source and exact consensus. Control collection,
+recovery-target checking, recovery collection and execution observation reread
+their package, baseline or plan inputs after RPC and before output.
+
+Safe recovery planning, target checking, transition collection and execution
+observation all use the same catalogued bounded 2..5-source model, repeat each
+complete observation per source and require canonical cross-source consensus.
+
+The mainnet deployment executor resolves 2..5 catalogued sources, reconciles
+nonce, gas, receipts, finalized canonical ancestry and runtime, journals before
+publish, redacts URLs, and rechecks catalog, package, transaction, raw,
+validation and hash immediately before immutable receipt persistence.
+Each source also rereads the complete normalized receipt, finalized head and
+canonical receipt-block hash before persistence, rejecting mid-window drift.
+Those checks run again after the potentially 30-minute finalized-code wait,
+along with a second code/hash read, closing the reorganization window.
+
+Recoverable Safe deployment preparation now uses bounded providers and repeats
+reconstruction per catalogued source. Its sole signing/publishing endpoint must
+exactly equal one full runtime URL already authenticated by the public catalog,
+with catalog reread and endpoint redaction before Ledger or publish access.
+
+Safe recovery execution resolves its publishing source from that catalog,
+revalidates all journals around external boundaries, and records per-role and
+final recovery evidence create-once (or accepts only identical existing bytes).
+
+Closed-mainnet genesis initialization rereads its private node token after the
+node action; exact issuance-block production rereads both the token and prior
+submission receipt. Neither writes a receipt from inputs changed during RPC.
+
+The exact issuance-block writer uses strict JSON and fatal UTF-8, samples the
+canonical node identity twice before and after mutation, refuses preexisting
+receipts before mining and writes its historical receipt create-once.
+It first persists an exact private intent binding candidate/deposit, DOM
+identity, parent and request, then rereads token and submission before POST.
+
+Genesis initialization applies the same strict parsing, double identity sample
+and create-once receipt boundary. Finalized-deposit issuance writes a canonical
+intent binding witness, manifest, release binding and DOM identity before POST,
+uses bounded strict responses, and rereads all six inputs before and after it.
+Genesis also persists its exact private request intent before `/mine-one` and
+rereads the private node token immediately before the mutation.
+
+RandomX production-measurement planning parses authenticated exports with a
+strict bound and retains binary snapshots of every accepted input. It reopens
+them with no-follow and exact length at the end; mutation emits a blocker and
+prevents authorized execution.
+
+Safe recovery signing rereads plan, package and baseline immediately before
+every Ledger access and signature. Signature and assembled-transaction outputs
+use create-once installation, so a concurrent preexisting output fails closed.
+
+Release/native authorization signing likewise rereads its Safe bundle, request,
+release configuration and evidence immediately before each Ledger action, then
+installs final signature bundles create-once.
+
+Candidate monitoring parses both Rust verifier output and its locked mutable
+checkpoint with strict byte/depth bounds. Duplicate keys or trailing content
+fail closed; invalid checkpoint state retains the operational-pause behavior.
+
+Checkpoint and finalized-burn authenticated submission packages now require a
+direct private 0700 directory, install create-once, and reread all five or seven
+authenticated inputs before writing. Closed-mainnet deposit preparation also
+rereads release config and private wallet identity immediately before output.
+
+Private-burn preparation and submission reject linked state, pin complete
+input/state commitments and both compiled binaries, and recheck them around
+Ledger, TPM, builder and submit boundaries. Submission journals an immutable
+intent first; output uses a second no-clobber boundary. Checkpoint-capacity
+historical reports are create-once with identical-only retry.
+Finalized-burn E2E/capacity historical reports now use the same immutable,
+identical-only retry rule before aggregate release evidence can advance.
+
+Finalized-deposit wallet registration binds manifest, witness, index and
+credentials, pins/rechecks its binaries, obtains two bounded byte-identical
+loopback identity reads, enforces state no-clobber and validates final ownership,
+mode and direct-directory identity.
+
+RISC Zero health source catalogs are immutable historical evidence with
+identical-only retries. Source catalog and metadata are reread before the
+immutable write and again before aggregate release-evidence replacement.
+
+Finalized-deposit wallet observation pins inputs/binaries and its registered
+state tree, double checks bounded loopback identity, enforces observed-state
+no-clobber and validates final owner/mode/direct-directory identity. Mainnet
+preflight materialization rereads its private report at three boundaries and
+rechecks release, requirements and RISC Zero identity between aggregate writes.
+
+Closed-mainnet wallet recovery binds manifest, witness, checkpoint, credentials
+and token, pins/rechecks binaries, enforces output no-clobber immediately before
+recovery and validates the final direct directory owner and mode.
+
+Release-provenance materialization snapshots both release-evidence and operator
+intent under lock, rechecks them around preparation and each write, verifies the
+first prepared output before the second update, and rereads both final files.
+
+Release-authorization materialization rechecks inputs between both immutable
+publishes, verifies the first installed output before the second, rereads both
+outputs afterward and revalidates inputs before advancing operator intent.

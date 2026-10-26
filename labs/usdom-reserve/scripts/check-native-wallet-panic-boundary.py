@@ -13,8 +13,16 @@ REPO = Path(__file__).resolve().parents[3]
 CRATE = REPO / "crates/dom-usdom-wallet"
 SOURCE_ROOT = CRATE / "src"
 MANIFEST = CRATE / "MANIFEST.sha256"
-EXPECTED_SOURCES = {"builder.rs", "burn_builder.rs", "lib.rs", "rpc_client.rs", "snapshot.rs"}
-EXPECTED_MANIFEST_PATHS = {"Cargo.toml", "src/builder.rs", "src/burn_builder.rs", "src/lib.rs", "src/rpc_client.rs", "src/snapshot.rs"}
+EXPECTED_SOURCES = {
+    "builder.rs",
+    "burn_builder.rs",
+    "lib.rs",
+    "rpc_client.rs",
+    "snapshot.rs",
+    "tpm2_authority.rs",
+    "tpm2_keystore.rs",
+}
+EXPECTED_MANIFEST_PATHS = {"Cargo.toml", *(f"src/{name}" for name in EXPECTED_SOURCES)}
 PANIC_PRIMITIVES = re.compile(
     r"\.(?:unwrap|expect)\s*\(|\b(?:panic|unreachable|todo|unimplemented)!\s*\("
 )
@@ -103,7 +111,10 @@ def main(arguments: list[str]) -> None:
         self_test()
     elif not arguments:
         check_sources()
-        print("PASS: all 5 native-wallet production sources are panic-primitive free; 6-file manifest verified")
+        print(
+            f"PASS: all {len(EXPECTED_SOURCES)} native-wallet production sources are "
+            f"panic-primitive free; {len(EXPECTED_MANIFEST_PATHS)}-file manifest verified"
+        )
     else:
         raise SystemExit("Usage: check-native-wallet-panic-boundary.py [--self-test]")
 

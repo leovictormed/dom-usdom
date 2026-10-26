@@ -20,6 +20,7 @@ rpc-client = [
     "dep:usdom-ethereum-finality-experiment",
 ]
 recovery-cli = ["dep:anyhow", "dep:hex", "dep:rand", "dep:rustix"]
+tpm2-seal-authority = ["dep:hex", "dep:rand", "dep:rustix"]
 
 [[bin]]
 name = "dom-usdom-wallet-recovery"
@@ -48,7 +49,7 @@ anyhow = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 rand = { version = "0.8.6", optional = true }
 reqwest = { workspace = true, optional = true }
-rustix = { version = "=1.1.4", default-features = false, features = ["process"], optional = true }
+rustix = { version = "=1.1.4", default-features = false, features = ["fs", "process", "std"], optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", optional = true }

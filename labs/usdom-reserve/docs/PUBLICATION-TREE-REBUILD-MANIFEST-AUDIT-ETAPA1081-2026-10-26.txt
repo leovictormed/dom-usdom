@@ -1,0 +1,61 @@
+USDOM — AUDITORIA DA ÁRVORE DE PUBLICAÇÃO E MANIFESTO — ETAPA 1081
+Data: 2026-10-26
+
+Escopo
+======
+
+Revisão leve, sem staging ou commit, do pathspec do primeiro commit de fonte e
+do conjunto que alimentará o manifesto/rebuild. Foram verificados exclusões,
+nomes e conteúdo sensíveis, symlinks, hardlinks, tipos de arquivo, ownership,
+permissões, executáveis, caches/outputs/evidence e arquivos grandes.
+
+Achados corrigidos
+==================
+
+1. O checker recusava symlinks, mas não hardlinks. Agora todo arquivo publicável
+   deve ter exatamente um link, impedindo aliases locais de inode.
+2. Qualquer arquivo podia conservar bit executável. Agora executáveis precisam
+   começar por shebang ou cabeçalho ELF; bits setuid/setgid/sticky são recusados.
+3. Arquivos já rejeitados por exceder 95 MiB ainda eram lidos integralmente. A
+   inspeção agora encerra o processamento desse arquivo após registrar tamanho.
+4. Nomes de segredo passaram a incluir `.netrc`, `.npmrc`, `.der`, `.kdbx` e
+   `.ovpn`.
+5. A regra genérica para um componente chamado `cache` recusava código-fonte
+   legítimo do Helios. Cache/out continuam proibidos na raiz e no laboratório
+   USDOM, mas um módulo-fonte vendorizado chamado cache não é confundido com
+   output gerado.
+6. O extrator de URL absorvia escapes de string e produzia falsos positivos;
+   agora delimita barra invertida/backtick e só classifica URL malformada quando
+   a autoridade contém formato de credencial.
+7. Seis Markdown/Rust e dois módulos `.mjs` tinham bit executável acidental; os
+   modos foram normalizados. O `run.sh` vendorizado, que era executável sem
+   interpretador, recebeu `#!/bin/sh`. O ELF RISC Zero permanece executável e é
+   aceito pelo cabeçalho binário explícito.
+
+Resultado do conjunto candidato
+===============================
+
+O conjunto foi derivado sem alterar o índice por `git ls-files -co
+--exclude-standard`, removendo exatamente a camada `labs/usdom-reserve/evidence`
+e os dois documentos privados de continuação. A auditoria de metadados encontrou
+5.092 arquivos, 86.289.914 bytes, nenhum link/tipo/tamanho/modo irregular; o
+maior arquivo tinha 3.050.604 bytes. Durante a validação final surgiu um novo
+arquivo concorrente, e o snapshot descartável completo passou com 5.093 arquivos
+e 86.293.603 bytes. Isso demonstra que o checker cobre o conjunto no instante
+da cópia; a cerimônia continua obrigada a verificar imutabilidade antes do commit.
+
+Outputs `target`, `out`, `cache`, `results`, `results-stage*`, `node_modules`,
+artefatos de fuzz e continuações permanecem excluídos. Evidence continua fora do
+primeiro commit e reservada ao commit-filho de evidência.
+
+Validação
+=========
+
+- `python3 -m unittest scripts.tests.test_publication_snapshot`: 7/7 PASS.
+- Snapshot descartável exato: 5.093 arquivos, checker PASS.
+- `source-manifest.py --self-test`: PASS.
+- `py_compile` e `git diff --check`: PASS.
+
+Não houve `git add`, commit, push, Cargo, Forge, deploy, assinatura ou fundos.
+O MANIFEST.sha256 final deve ser regenerado somente depois que as mudanças
+concorrentes cessarem, imediatamente antes da cerimônia autorizada.

@@ -1,0 +1,28 @@
+ETAPA 800 — RISC Zero ProgramBinary prover binding audit
+Date: 2026-10-23
+
+Audit result
+Inspected every `prove_with_opts` call in the repository proof hosts. There are exactly seven:
+- RandomX block;
+- RandomX aggregate;
+- economic chunk;
+- economic block;
+- checkpoint segment;
+- checkpoint outer;
+- finalized burn.
+
+The concurrent correction is sound. RandomX, both economic hosts and both checkpoint hosts now load their packaged `.bin` (user ELF plus pinned zkVM kernel), validate the dedicated ProgramBinary SHA-256, and pass that local byte vector to `prove_with_opts`. They do not pass their separately validated raw `.elf` bytes. RandomX aggregate already used its packaged program. Finalized burn also already uses a packaged ProgramBinary under its retained legacy `.elf` filename and pins its distinct SHA-256.
+
+Regression
+Added a count-pinned structural checker that:
+- enumerates all seven call operands and fails when a new call is unreviewed;
+- requires the correct local program variable at every call;
+- requires `.bin` logical paths and ProgramBinary hash checks for RandomX/economic/checkpoint;
+- rejects an ELF operand;
+- binds each of the seven on-disk packaged artifacts to its exact audited SHA-256.
+
+Validation
+- structural and on-disk hash tests: 2/2 passed;
+- `rustfmt --edition 2021 --check` on all five affected proof-host source files: passed;
+- repository `git diff --check`: passed.
+No proof, Cargo build, RPC, signing, broadcast or funds operation ran.

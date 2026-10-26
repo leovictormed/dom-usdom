@@ -1,0 +1,62 @@
+Stage 628 — proof-reserve time and accounting boundaries (2026-10-23)
+
+Scope
+
+Audited only Solidity arithmetic and temporal boundaries in
+`USDOMProofReserve`: uint64 timestamp/amount conversions, finality-slot age,
+queue readiness/expiry, token-bucket refill, maximum exposure, outstanding and
+unreserved collateral, donations, insolvency and hostile USDT policy changes.
+
+Result
+
+No additional contract defect was confirmed.
+
+- Constructor and scheduled timestamps use checked uint64 narrowing. Queue and
+  resume scheduling revert before mutation if `block.timestamp + delay` cannot
+  fit. Execution also checks the narrowed bucket timestamp before value moves.
+- Amounts entering deposits and burns are uint64, while cumulative deposited,
+  released and pending values are uint256. `outstanding` is capped by the
+  uint64 `maxOutstanding`; pending admission cannot exceed unreserved credited
+  collateral. Releasing a pending amount decrements the reservation in the
+  same reverting transaction that increments released credit.
+- Donations increase token balance without increasing credited collateral.
+  Confiscation below outstanding credit causes both admission and execution to
+  fail insolvent. Exact token balance deltas reject fee/rebase behavior.
+- Paused, deprecated, fee-enabled or blacklisted token states fail before
+  consuming a new proof; changes after queue leave the reservation and bucket
+  intact so the exact debt can retry after policy recovery.
+- Finality admission explicitly rejects timestamps before Ethereum genesis,
+  future slots and ages greater than seven days. The maximum allowed age is
+  inclusive. Slot zero remains an invalid sentinel; slot one is accepted at
+  the first corresponding post-genesis timestamp.
+- Queue readiness and expiry are inclusive at their exact timestamp:
+  execution is allowed when `timestamp == readyAt == expiresAt` as applicable,
+  while discard/prune begins only after expiry. This matches the paired `>` and
+  `<=` predicates and leaves no gap or double-valid cleanup instant.
+- Bucket refill uses uint256 arithmetic, returns capacity directly after one
+  day, and caps the fractional path. Since stored balance and capacity are
+  uint64 and elapsed is below one day on that path, multiplication cannot
+  approach uint256 overflow. An execution stores only `available - amount`.
+
+Material regressions added
+
+1. `testFinalityExpiryAndBucketBoundaryEqualitiesRemainExecutable` admits a
+   burn at the exact maximum finality age, executes it at the exact queue
+   expiry, checks fractional refill at `24h - 1`, checks full capacity at
+   exactly `24h`, executes again and reconciles released/outstanding credit.
+2. `testBeaconGenesisAndExactFirstNonzeroSlotFailClosedWithoutUnderflow`
+   verifies a pre-genesis timestamp rejects with the contract error rather than
+   arithmetic underflow, then admits slot one at exactly genesis plus 12
+   seconds without consuming state during the failed attempt.
+
+Validation
+
+- new boundary regressions: 2/2 passed;
+- `USDOMProofReserveTest`: 45/45 passed, including three 1,024-run fuzz tests;
+- complete Solidity campaign: 154/154 passed across 14 suites, including three
+  256-run/16,384-call invariant campaigns;
+- production-contract lint with warnings denied: passed;
+- changed-test formatting and `git diff --check`: passed.
+
+No Rust, Cargo, Node or RISC Zero script was touched or executed. No commit,
+push, deployment, signature or funds operation was performed.

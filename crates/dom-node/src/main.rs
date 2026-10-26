@@ -107,6 +107,18 @@ async fn main() -> anyhow::Result<()> {
     // (§1.4, R-A6.1).
     config.apply_peer_topology_env();
 
+    // Closed or air-gapped operation must be able to suppress compiled DNS
+    // seeds without changing the network's consensus identity. Invalid values
+    // fail before storage or listeners start instead of silently enabling
+    // outbound discovery.
+    if let Some(value) = std::env::var_os("DOM_DISABLE_DNS_SEEDS") {
+        let value = value
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("DOM_DISABLE_DNS_SEEDS is not valid UTF-8"))?;
+        config.disable_dns_seeds = parse_explicit_bool("DOM_DISABLE_DNS_SEEDS", &value)?;
+        info!("DNS seed discovery disabled: {}", config.disable_dns_seeds);
+    }
+
     // Allow override of seed peers via DOM_SEED_PEERS env var (CSV of host:port).
     // Useful for private Testnet deployments where DNS seeds do not exist.
     if let Ok(seeds_csv) = std::env::var("DOM_SEED_PEERS") {
@@ -116,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
             .filter(|s| !s.is_empty())
             .collect();
         if !seeds.is_empty() {
-            info!("Using seed peers from DOM_SEED_PEERS: {seeds:?}");
+            info!(count = seeds.len(), "Configured explicit seed peers");
             config.seed_peers = seeds;
         }
     }
@@ -159,34 +171,38 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Allow disabling mining via DOM_MINE=false (validator/relay-only node).
-    // Accepts "false"/"0"/"no" (case-insensitive) to disable; anything else leaves the default.
-    if let Ok(v) = std::env::var("DOM_MINE") {
-        let on = !matches!(
-            v.trim().to_ascii_lowercase().as_str(),
-            "false" | "0" | "no" | "off"
-        );
-        info!("Mining set via DOM_MINE={v} -> mine={on}");
-        config.mine = on;
+    // Mining changes node resource use and, on a live network, consensus
+    // behavior. Require the same exact fail-closed boolean grammar as other
+    // capability switches; a typo must never turn a non-mining node into a
+    // miner.
+    if let Some(value) = std::env::var_os("DOM_MINE") {
+        apply_mining_override(&mut config, &value)?;
+        info!("Mining explicitly configured: {}", config.mine);
     }
 
-    // Allow override of miner worker count via DOM_MINER_THREADS (resource
-    // control only, never consensus data). Clamped to 1..=256; invalid values
-    // keep the default.
-    if let Ok(v) = std::env::var("DOM_MINER_THREADS") {
-        match v.trim().parse::<usize>() {
-            Ok(n) if n >= 1 => {
-                let n = n.min(256);
-                info!("Miner threads set via DOM_MINER_THREADS={v} -> {n}");
-                config.miner_threads = n;
-            }
-            _ => {
-                info!(
-                    "Invalid DOM_MINER_THREADS={v}, keeping {}",
-                    config.miner_threads
-                );
-            }
-        }
+    // This switch only arms the separately authenticated, exactly-one-block
+    // closed-Mainnet RPC. The RPC rechecks every isolation invariant on each
+    // request; setting the switch never starts a miner by itself.
+    if let Some(value) = std::env::var_os("DOM_CLOSED_MAINNET_TEST") {
+        let value = value
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("DOM_CLOSED_MAINNET_TEST is not valid UTF-8"))?;
+        config.closed_mainnet_test = parse_explicit_bool("DOM_CLOSED_MAINNET_TEST", &value)?;
+        info!(
+            "Closed Mainnet bounded-block capability armed: {}",
+            config.closed_mainnet_test
+        );
+    }
+
+    // A typo in this resource control must not silently turn one worker into
+    // hundreds. Parse canonically and fail before node initialization rather
+    // than clamping an oversized value to the maximum.
+    if let Some(value) = std::env::var_os("DOM_MINER_THREADS") {
+        config.miner_threads = parse_miner_threads(&value)?;
+        info!(
+            "Miner threads explicitly configured: {}",
+            config.miner_threads
+        );
     }
 
     // Allow override of data dir via DOM_DATA_DIR.
@@ -197,27 +213,22 @@ async fn main() -> anyhow::Result<()> {
 
     // Allow override of wallet path via DOM_WALLET_PATH.
     if let Ok(path) = std::env::var("DOM_WALLET_PATH") {
-        info!("Overriding wallet path: {path}");
+        info!("Configured wallet path override");
         config.wallet_path = Some(path);
     }
 
-    // Standalone deployments should load the wallet password from the same
-    // owner-only, bounded file boundary as the RPC token. The legacy direct
-    // environment value remains source-compatible but is mutually exclusive
-    // so a stale environment cannot silently override the file authority.
+    // Standalone deployments load the wallet password from the same
+    // owner-only, bounded file boundary as the RPC token.  Never accept the
+    // reusable password itself through the process environment.
     let wallet_password_file = std::env::var_os("DOM_WALLET_PASSWORD_FILE");
-    let legacy_wallet_password = std::env::var("DOM_WALLET_PASSWORD").ok();
-    if wallet_password_file.is_some() && legacy_wallet_password.is_some() {
+    if std::env::var_os("DOM_WALLET_PASSWORD").is_some() {
         anyhow::bail!(
-            "DOM_WALLET_PASSWORD_FILE and legacy DOM_WALLET_PASSWORD are mutually exclusive"
+            "DOM_WALLET_PASSWORD is forbidden; use an owner-only DOM_WALLET_PASSWORD_FILE"
         );
     }
     if let Some(path) = wallet_password_file {
         config.wallet_password = Some(load_wallet_password_file(Path::new(&path))?);
         info!("Loaded wallet password from owner-only file: [REDACTED]");
-    } else if let Some(password) = legacy_wallet_password {
-        info!("Overriding wallet password from legacy environment: [REDACTED]");
-        config.wallet_password = Some(password);
     }
 
     // Initialize either the ordinary node or the explicitly hash-pinned native
@@ -266,15 +277,43 @@ fn init_node_from_native_manifest(
                     config.network.magic(),
                 )?;
                 match bundle.candidate_v2_first_height {
+                    Some(first_height) if bundle.restart_checkpoint.is_some() => {
+                        DomNode::init_native_usdom_candidate_with_restart_checkpoint(
+                            config,
+                            bundle.bridge,
+                            bundle.checkpoint_policy,
+                            bundle.deposit_policy,
+                            bundle.issuance_closure_policy,
+                            &bundle.spend_verifying_key,
+                            bundle.schedule,
+                            first_height,
+                            bundle.restart_checkpoint.as_ref().expect("matched Some"),
+                        )
+                        .map_err(Into::into)
+                    }
                     Some(first_height) => {
                         DomNode::init_native_usdom_candidate_for_schedule_with_spend_verifier(
                             config,
                             bundle.bridge,
                             bundle.checkpoint_policy,
                             bundle.deposit_policy,
+                            bundle.issuance_closure_policy,
                             &bundle.spend_verifying_key,
                             bundle.schedule,
                             first_height,
+                        )
+                        .map_err(Into::into)
+                    }
+                    None if bundle.restart_checkpoint.is_some() => {
+                        DomNode::init_native_usdom_v4_with_restart_checkpoint(
+                            config,
+                            bundle.bridge,
+                            bundle.checkpoint_policy,
+                            bundle.deposit_policy,
+                            bundle.issuance_closure_policy,
+                            &bundle.spend_verifying_key,
+                            bundle.schedule,
+                            bundle.restart_checkpoint.as_ref().expect("matched Some"),
                         )
                         .map_err(Into::into)
                     }
@@ -283,6 +322,7 @@ fn init_node_from_native_manifest(
                         bundle.bridge,
                         bundle.checkpoint_policy,
                         bundle.deposit_policy,
+                        bundle.issuance_closure_policy,
                         &bundle.spend_verifying_key,
                         bundle.schedule,
                     )
@@ -329,6 +369,44 @@ fn configure_standalone_rpc(
     Ok(())
 }
 
+fn parse_explicit_bool(name: &str, value: &str) -> anyhow::Result<bool> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => anyhow::bail!("{name} must be exactly true or false"),
+    }
+}
+
+fn apply_mining_override(config: &mut NodeConfig, value: &OsStr) -> anyhow::Result<()> {
+    let value = value
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("DOM_MINE is not valid UTF-8"))?;
+    let mine = parse_explicit_bool("DOM_MINE", value)?;
+    config.mine = mine;
+    Ok(())
+}
+
+fn parse_miner_threads(value: &OsStr) -> anyhow::Result<usize> {
+    const MAX_MINER_THREADS: usize = 256;
+
+    let text = value
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("DOM_MINER_THREADS is not valid UTF-8"))?;
+    if text.is_empty()
+        || !text.bytes().all(|byte| byte.is_ascii_digit())
+        || (text.len() > 1 && text.starts_with('0'))
+    {
+        anyhow::bail!("DOM_MINER_THREADS must be canonical unsigned decimal text");
+    }
+    let threads = text
+        .parse::<usize>()
+        .map_err(|_| anyhow::anyhow!("DOM_MINER_THREADS is outside the supported integer range"))?;
+    if !(1..=MAX_MINER_THREADS).contains(&threads) {
+        anyhow::bail!("DOM_MINER_THREADS must be between 1 and {MAX_MINER_THREADS}");
+    }
+    Ok(threads)
+}
+
 fn print_help() {
     println!(
         "DOM node {}\n\nUsage:\n  DOM_NETWORK=<mainnet|testnet|regtest> dom-node\n\nThe network must be selected explicitly before the node initializes storage, listeners, mining, or peer discovery. Standalone RPC additionally requires a loopback DOM_RPC_LISTEN_ADDR and an owner-only DOM_RPC_BEARER_TOKEN_FILE. An existing WalletDir should be opened with DOM_WALLET_PATH plus owner-only DOM_WALLET_PASSWORD_FILE. Native USDOM v4 startup requires both DOM_USDOM_V4_MANIFEST_FILE and the exact lowercase DOM_USDOM_V4_MANIFEST_SHA256; supplying only one fails before storage initialization.\n\nOptions:\n  -h, --help       Print help\n  -V, --version    Print version",
@@ -340,9 +418,12 @@ fn print_help() {
 mod tests {
     use std::ffi::OsStr;
 
+    use super::{
+        apply_mining_override, init_node_from_native_manifest, parse_explicit_bool,
+        parse_miner_threads, parse_startup_action, StartupAction,
+    };
     #[cfg(unix)]
     use super::{configure_standalone_rpc, load_rpc_bearer_token_file, load_wallet_password_file};
-    use super::{init_node_from_native_manifest, parse_startup_action, StartupAction};
     #[cfg(unix)]
     use dom_config::NodeConfig;
 
@@ -361,6 +442,62 @@ mod tests {
     #[test]
     fn unknown_startup_argument_fails_closed() {
         assert!(parse_startup_action(["dom-node".into(), "--unknown".into()]).is_err());
+    }
+
+    #[test]
+    fn explicit_boolean_parser_never_silently_enables_discovery() {
+        assert_eq!(
+            parse_explicit_bool("DOM_DISABLE_DNS_SEEDS", "true").unwrap(),
+            true
+        );
+        assert_eq!(
+            parse_explicit_bool("DOM_DISABLE_DNS_SEEDS", "false").unwrap(),
+            false
+        );
+        for invalid in ["1", "yes", "TRUE", " true", ""] {
+            assert!(parse_explicit_bool("DOM_DISABLE_DNS_SEEDS", invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn mining_override_never_silently_enables_mining() {
+        let mut config = dom_config::NodeConfig::regtest();
+        assert!(!config.mine);
+
+        for invalid in ["1", "yes", "TRUE", " true", "false ", "off", ""] {
+            assert!(apply_mining_override(&mut config, OsStr::new(invalid)).is_err());
+            assert!(!config.mine, "{invalid:?} must not mutate the default");
+        }
+
+        apply_mining_override(&mut config, OsStr::new("true")).unwrap();
+        assert!(config.mine);
+        apply_mining_override(&mut config, OsStr::new("false")).unwrap();
+        assert!(!config.mine);
+    }
+
+    #[test]
+    fn miner_thread_override_rejects_accidental_resource_amplification() {
+        assert_eq!(parse_miner_threads(OsStr::new("1")).unwrap(), 1);
+        assert_eq!(parse_miner_threads(OsStr::new("256")).unwrap(), 256);
+
+        for invalid in [
+            "",
+            "0",
+            "00",
+            "01",
+            "+1",
+            "-1",
+            " 1",
+            "1 ",
+            "257",
+            "999999",
+            "184467440737095516160",
+        ] {
+            assert!(
+                parse_miner_threads(OsStr::new(invalid)).is_err(),
+                "{invalid:?} must fail closed"
+            );
+        }
     }
 
     #[test]
