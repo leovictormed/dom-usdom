@@ -1,0 +1,4 @@
+Stage 1461 — witness and deployment-identity bounded cleanup
+Date: 2026-10-26
+
+The witness snapshot deletion was unbounded. Deployment-identity deletion already had TERM/KILL deadlines and was therefore not an unbounded false positive, but its cleanup did not reattest tools after execution or suppress child output. Both paths now implement the complete authenticated foreground deadline, retest, silence, absence and fail-closed contract. Focused suites pass 12/12. No operational workload, network, signing, deployment, funds, commit or push occurred.

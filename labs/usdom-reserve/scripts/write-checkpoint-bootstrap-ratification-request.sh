@@ -19,7 +19,22 @@ if [[ -e "$SHA" || -L "$SHA" ]]; then
   [[ -f "$SHA" && ! -L "$SHA" && "$(stat -c '%u:%a' "$SHA")" == "$(id -u):600" ]] || exit 1
 fi
 TEMPORARY=$(mktemp -d -p /dev/shm usdom-checkpoint-ratification-request.XXXXXXXX)
-chmod 0700 "$TEMPORARY"; trap 'rm -rf -- "$TEMPORARY"' EXIT HUP INT TERM
+chmod 0700 "$TEMPORARY"
+TEMPORARY_IDENTITY=$(/usr/bin/stat -c '%u:%d:%i:%a' -- "$TEMPORARY")
+cleanup() {
+  local status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' -- "$TEMPORARY" 2>/dev/null) == "$TEMPORARY_IDENTITY" ]]; then
+    /usr/bin/rm -rf -- "$TEMPORARY" || { (( status != 0 )) || status=1; }
+  else
+    (( status != 0 )) || status=1
+  fi
+  exit "$status"
+}
+trap 'cleanup $?' EXIT
+trap 'cleanup 129' HUP
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
 node "$ROOT/scripts/prepare-checkpoint-bootstrap-ratification-request.mjs" > "$TEMPORARY/request.json"
 chmod 0600 "$TEMPORARY/request.json"
 sha256sum "$TEMPORARY/request.json" | awk '{print $1}' > "$TEMPORARY/request.sha256"

@@ -12,6 +12,9 @@ import {safeOwnersCommitment} from '../../sdk/configuration.mjs';
 import {FINALIZED_BURN_PROOF_ACCEPTED_HASH} from '../../sdk/verifier-config.mjs';
 import {CHECKPOINT_PROOF_ACCEPTED_HASH} from '../../sdk/checkpoint-verifier-config.mjs';
 
+const releaseEvidenceTemplate=JSON.parse(readFileSync(new URL(
+  '../../config/mainnet-release-evidence.unconfigured.json',import.meta.url),'utf8'));
+
 const assessMainnetPreflight=args=>assessPreflight({
   ...args,riscZeroReference:{...PINNED_RISC0_MAINNET_V3},
 });
@@ -21,7 +24,6 @@ test('cold-start collector uses one atomic queue snapshot and does not traverse 
   assert.ok(script.includes('reserve.pendingQueueSnapshot(callOptions)'));
   assert.ok(script.includes("const adapterNames=['riscZeroVerifier','riscZeroVerifierCodeHash'"));
   assert.ok(script.includes("'function availableOutflow() view returns (uint256)'"));
-  assert.ok(script.includes('function pendingBurnPage(uint64 expectedQueueEpoch'));
   for(const getter of ['pendingCount','totalPendingAmount','firstPendingBurn','lastPendingBurn']) {
     assert.ok(!script.includes(`'${getter}'`),getter);
   }
@@ -31,6 +33,9 @@ test('cold-start collector uses one atomic queue snapshot and does not traverse 
 test('pilot executor rechecks live multisource authorities before its first signature prompt',()=>{
   const source=readFileSync(new URL('../../scripts/execute-closed-mainnet-deposit.sh',import.meta.url),'utf8');
   assert.match(source,/check-mainnet-preflight\.mjs authority-recheck/);
+  assert.match(source,/timeout --foreground --signal=TERM --kill-after=5s 300s \\\n\s+node scripts\/check-mainnet-preflight\.mjs authority-recheck \| head -c 1048577 > "\$report"/);
+  assert.match(source,/test "\$\(stat_run -c '%s' "\$report"\)" -le 1048576/);
+  assert.match(source,/check-private-strict-json-file\.mjs "\$report"/);
   assert.match(source,/if \[\[ \$index == 0 \]\]; then recheck_live_authorities; fi[\s\S]*?AUTORIZO ASSINAR/);
   assert.match(source,/AUTORIZO ASSINAR[\s\S]*?test "\$answer"[\s\S]*?recheck_live_authorities[\s\S]*?cast mktx/);
   assert.match(source,/AUTORIZO TRANSMITIR[\s\S]*?test "\$answer"[\s\S]*?recheck_live_authorities[\s\S]*?publish-private-raw-transaction/);
@@ -43,20 +48,31 @@ const materializationInputs=(phase,observation)=>{
     {sourceId:'operator-a',originKeccak256:'0x'+'11'.repeat(32)},
     {sourceId:'operator-b',originKeccak256:'0x'+'22'.repeat(32)},
   ]);
-  return {phase,report:{...result,observation,rpcConsensus},releaseConfig,
+  const rpcCatalog={schema:'usdom-mainnet-preflight-rpc-catalog-v2',sources:[
+    {operatorId:'operator-a',providerId:'provider-a',infrastructureId:'infra-a',
+      originKeccak256:'0x'+'11'.repeat(32),tlsPolicy:'node-default-ca-hostname-expiry-origin-pinned-v1',
+      clockPolicy:'utc-wall-clock-sane-v1',clientPolicy:'ethereum-execution-client-stable-v1'},
+    {operatorId:'operator-b',providerId:'provider-b',infrastructureId:'infra-b',
+      originKeccak256:'0x'+'22'.repeat(32),tlsPolicy:'node-default-ca-hostname-expiry-origin-pinned-v1',
+      clockPolicy:'utc-wall-clock-sane-v1',clientPolicy:'ethereum-execution-client-stable-v1'},
+  ]};
+  const nowMs=Date.now();
+  return {phase,report:{...result,collectionStartedAtMs:nowMs-1000,
+    collectionCompletedAtMs:nowMs,observation,rpcConsensus},releaseConfig,
     riscZeroReference:{...PINNED_RISC0_MAINNET_V3},
-    evidence:{mainnetPredeploymentAttestationReport:null,mainnetColdStartAttestationReport:null},
+    evidence:{...structuredClone(releaseEvidenceTemplate),
+      mainnetPredeploymentAttestationReport:null,mainnetColdStartAttestationReport:null},
     requirements:{production_mainnet_predeployment_preflight_passed:false,
-      production_mainnet_cold_start_attestation_completed:false}};
+      production_mainnet_cold_start_attestation_completed:false},rpcCatalog};
 };
 
 const address=n=>'0x'+n.toString(16).padStart(40,'0');
 const hash=n=>'0x'+n.toString(16).padStart(64,'0');
 
 function release() {
-  const deployer=address(1),deployerNonce='7',checkpointRegistryDeployer=address(2),checkpointRegistryDeployerNonce='9';
-  const verifierDeployer=address(10),verifierDeployerNonce='3';
-  const checkpointVerifierDeployer=address(11),checkpointVerifierDeployerNonce='4';
+  const deployer=address(1),verifierDeployer=deployer,verifierDeployerNonce='7';
+  const checkpointVerifierDeployer=deployer,checkpointVerifierDeployerNonce='8';
+  const checkpointRegistryDeployer=deployer,checkpointRegistryDeployerNonce='9',deployerNonce='10';
   return {productionReady:true,realFundsAuthorized:false,
     ethereumChainId:'1',deploymentMethod:'CREATE',deployer,deployerNonce,
     reserve:getCreateAddress({from:deployer,nonce:BigInt(deployerNonce)}),
@@ -97,7 +113,7 @@ function release() {
 function baseObservation(config=release()) {
   return {chainId:'1',genesisBlockHash:ETHEREUM_MAINNET_GENESIS_BLOCK_HASH,
     finalizedBlockNumber:'22000000',finalizedBlockHash:hash(70),
-    snapshotBlockHashAfter:hash(70),deployerNonce:'7',
+    snapshotBlockHashAfter:hash(70),deployerNonce:config.checkpointRegistryDeployerNonce,
     checkpointRegistryDeployerNonce:'9',
     codeHashes:{reserve:EMPTY_CODE_HASH,token:config.tokenCodeHash,verifier:config.verifierCodeHash,
       governance:config.governanceCodeHash,guardian:config.guardianCodeHash,checkpointRegistry:EMPTY_CODE_HASH,
@@ -144,13 +160,13 @@ function baseObservation(config=release()) {
       eip1967Implementation:hash(0),eip1967Admin:hash(0),eip1967Beacon:hash(0)},
     finalizedBurnVerifierDeployment:{status:true,from:config.verifierDeployer,
       nonce:config.verifierDeployerNonce,creates:config.verifier,derivedCreateAddress:config.verifier,
-      blockNumber:'21999997',
+      blockNumber:'21999996',
       blockHash:hash(75),canonicalBlockHash:hash(75),transactionHash:hash(76),to:null,value:'0',
       inputHash:config.verifierInitcodeHash},
     checkpointVerifierDeployment:{status:true,from:config.checkpointVerifierDeployer,
       nonce:config.checkpointVerifierDeployerNonce,creates:config.checkpointVerifier,
       derivedCreateAddress:config.checkpointVerifier,
-      blockNumber:'21999996',blockHash:hash(77),canonicalBlockHash:hash(77),transactionHash:hash(78),
+      blockNumber:'21999997',blockHash:hash(77),canonicalBlockHash:hash(77),transactionHash:hash(78),
       to:null,value:'0',inputHash:config.checkpointVerifierInitcodeHash}};
 }
 
@@ -185,7 +201,10 @@ function postObservation(config=release()) {
     guardianOwnersCommitment:config.guardianOwnersCommitment,
     withdrawalDelay:config.withdrawalDelaySeconds,
     governanceDelay:config.governanceDelaySeconds,maxOutstanding:config.maxOutstandingBaseUnits,
-    outflowCapacity:config.outflowCapacityBaseUnitsPerDay,paused:true,depositsClosed:false,
+    outflowCapacity:config.outflowCapacityBaseUnitsPerDay,paused:true,pilotRestrictedDeployment:true,
+    permissionlessDeposits:false,pilotDepositConsumed:false,authorizedPilotDeposit:hash(0),
+    authorizedPilotSnapshot:hash(0),authorizedPilotValidUntil:'0',pilotAuthorizationGeneration:'0',
+    permissionlessDepositsReadyAt:'0',depositsClosed:false,
     gracefullyShutdown:false,resumeReadyAt:'0',
     totalDeposited:'0',totalReleased:'0',totalProvedDebtAmount:'0',
     pendingQueue:{epoch:'1',count:'0',amount:'0',firstBurnId:hash(0),lastBurnId:hash(0)},
@@ -224,7 +243,8 @@ test('preflight accepts three distinct owner trios across distinct role Safes',(
   assert.notEqual(config.governance.toLowerCase(),config.checkpointGuardian.toLowerCase());
   assert.notEqual(config.guardian.toLowerCase(),config.checkpointGuardian.toLowerCase());
   assert.equal(new Set(Object.values(observation.controlPlanePolicies).flatMap(value=>value.owners)).size,9);
-  assert.equal(assessMainnetPreflight({phase:'predeployment',releaseConfig:config,observation}).ready,true);
+  const report=assessMainnetPreflight({phase:'predeployment',releaseConfig:config,observation});
+  assert.equal(report.ready,true,JSON.stringify(report.blockers));
 });
 
 test('authority recheck binds current Safes and USDT immediately before the first signature',()=>{
@@ -259,6 +279,20 @@ test('preflight accepts either explicit fund-authorization state but rejects unc
       observation:baseObservation(config)});
     assert.equal(report.ready,false);
     assert(report.blockers.some(value=>value.code==='release_plan_invalid'));
+  }
+});
+
+test('preflight rejects a release whose CREATE topology has multiple EOAs or a nonce gap',()=>{
+  for(const change of [
+    config=>{config.checkpointVerifierDeployer=address(99);},
+    config=>{config.checkpointVerifierDeployerNonce='9';},
+  ]) {
+    const config=release(); change(config);
+    const report=assessMainnetPreflight({phase:'predeployment',releaseConfig:config,
+      observation:baseObservation(config)});
+    assert.equal(report.ready,false);
+    assert(report.blockers.some(blocker=>blocker.code==='release_deployment_topology_invalid'),
+      JSON.stringify(report.blockers));
   }
 });
 
@@ -378,6 +412,7 @@ test('postdeployment preflight binds transaction, runtime, immutables and empty 
     o=>{o.finalizedBurnVerifier.riscZeroVerifierCodeHash=hash(99);},
     o=>{o.finalizedBurnVerifier.verifierSelector='0x00000000';},
     o=>{o.finalizedBurnVerifier.imageId=hash(0);},
+    o=>{o.checkpointVerifier.imageId=o.finalizedBurnVerifier.imageId;},
     o=>{o.finalizedBurnVerifier.deploymentChainId='2';},
     o=>{o.checkpointVerifier.verifierConfigHash=hash(99);},
     o=>{o.checkpointVerifier.proofAccepted=hash(99);},
@@ -392,6 +427,11 @@ test('postdeployment preflight binds transaction, runtime, immutables and empty 
     o=>{o.reserve.activationScheduleCommitment=hash(99);},
     o=>{o.reserve.governance=address(9);},o=>{o.reserve.governanceCodeHash=hash(99);},
     o=>{o.reserve.withdrawalDelay='1';},o=>{o.reserve.paused=false;},o=>{o.reserve.depositsClosed=true;},
+    o=>{o.reserve.pilotRestrictedDeployment=false;},o=>{o.reserve.permissionlessDeposits=true;},
+    o=>{o.reserve.pilotDepositConsumed=true;},o=>{o.reserve.authorizedPilotDeposit=hash(99);},
+    o=>{o.reserve.authorizedPilotSnapshot=hash(99);},o=>{o.reserve.authorizedPilotValidUntil='1';},
+    o=>{o.reserve.pilotAuthorizationGeneration='1';},
+    o=>{o.reserve.permissionlessDepositsReadyAt='1';},
     o=>{o.reserve.gracefullyShutdown=true;},o=>{o.reserve.pendingQueue.epoch='2';},
     o=>{o.reserve.controlPlaneHealthy=false;},
     o=>{o.reserve.resumeReadyAt='1';},o=>{o.reserve.totalDeposited='1';},o=>{o.token.reserveBalance='1';},
@@ -451,6 +491,15 @@ test('postdeployment preflight binds transaction, runtime, immutables and empty 
   assert.throws(()=>assessMainnetPreflight({phase:'other',releaseConfig:config,observation:{}}),/phase/);
 });
 
+test('preflight rejects cryptographic capability reuse across both RISC Zero adapters',()=>{
+  const config=release();
+  const observation=postObservation(config);
+  observation.checkpointVerifier.imageId=observation.finalizedBurnVerifier.imageId;
+  const report=assessMainnetPreflight({phase:'postdeployment',releaseConfig:config,observation});
+  assert.equal(report.ready,false);
+  assert(report.blockers.some(blocker=>blocker.code==='risc0_adapter_image_capability_collision'));
+});
+
 test('observed uints must use canonical unsigned decimal strings',()=>{
   const config=release();
   for(const value of [null,false,'',' ','0x0','00',0,-0]) {
@@ -495,14 +544,18 @@ test('materializes only an independently recomputed zero-blocker predeployment r
   assert.deepEqual(JSON.parse(prepared.evidenceContent).mainnetPredeploymentAttestationReport,
     prepared.document);
   assert.equal(JSON.parse(prepared.requirementsContent)
-    .production_mainnet_predeployment_preflight_passed,true);
+    .production_mainnet_predeployment_preflight_passed,false);
   for(const change of [
     value=>{value.report.finalizedBlockHash=hash(99);},
     value=>{value.report.ready=false;},
     value=>{value.report.blockerCount=1;},
     value=>{value.report.extra=true;},
     value=>{value.report.observation.snapshotBlockHashAfter=hash(99);},
+    value=>{value.rpcCatalog.sources[1].originKeccak256=hash(99);},
+    value=>{value.report.collectionCompletedAtMs-=31*60*1000;},
     value=>{value.evidence.mainnetPredeploymentAttestationReport={path:'evidence/other.json',sha256:'0'.repeat(64)};},
+    value=>{value.evidence.operationsReviewReport={
+      path:'evidence/mainnet-predeployment-attestation.json',sha256:'a'.repeat(64)};},
   ]) {
     const candidate=structuredClone(inputs); change(candidate);
     assert.throws(()=>prepareMainnetPreflightMaterialization(candidate));
@@ -517,9 +570,28 @@ test('materializes the exact independently recomputed cold-start report idempote
   const repeated=prepareMainnetPreflightMaterialization({
     ...inputs,
     evidence:{...inputs.evidence,mainnetColdStartAttestationReport:first.document},
-    requirements:{...inputs.requirements,production_mainnet_cold_start_attestation_completed:true},
+    requirements:inputs.requirements,
   });
   assert.deepEqual(repeated,first);
   assert.equal(JSON.parse(first.requirementsContent)
-    .production_mainnet_cold_start_attestation_completed,true);
+    .production_mainnet_cold_start_attestation_completed,false);
+});
+
+test('materialization rejects stale, future and overlong preflight collection windows',()=>{
+  const config=release();
+  const inputs=materializationInputs('predeployment',baseObservation(config));
+  const nowMs=2_000_000_000_000;
+  for(const [started,completed] of [
+    [nowMs-31*60*1000,nowMs-31*60*1000],
+    [nowMs+16*1000,nowMs+16*1000],
+    [nowMs-11*60*1000,nowMs],
+  ]) {
+    const candidate=structuredClone(inputs);
+    candidate.report.collectionStartedAtMs=started;
+    candidate.report.collectionCompletedAtMs=completed;
+    assert.throws(()=>prepareMainnetPreflightMaterialization({...candidate,nowMs}),
+      /collection window is stale, future or invalid/);
+  }
+  assert.throws(()=>prepareMainnetPreflightMaterialization({...inputs,nowMs:0}),
+    /system clock is outside the TLS operational policy/);
 });

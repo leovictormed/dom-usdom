@@ -4,7 +4,11 @@ test = "test/solidity"
 out = "out"
 cache_path = "cache"
 libs = ["vendor"]
-fs_permissions = [{ access = "read", path = "test/fixtures/safe-1.4.1-mainnet.json" }]
+auto_detect_remappings = false
+fs_permissions = [
+  { access = "read", path = "test/fixtures/safe-1.4.1-mainnet.json" },
+  { access = "read", path = "test/fixtures/risc0-mainnet-v3-runtime.hex" },
+]
 remappings = ["@openzeppelin/contracts/=vendor/openzeppelin-contracts-5.6.1/"]
 solc_version = "0.8.37"
 evm_version = "cancun"
@@ -16,6 +20,7 @@ optimizer_runs = 1
 via_ir = true
 bytecode_hash = "none"
 ast = true
+extra_output = ["storageLayout"]
 fuzz = { runs = 1024 }
 invariant = { runs = 256, depth = 64, fail_on_revert = true }
 

@@ -3,6 +3,7 @@
   "releaseId": null,
   "sourceCommit": null,
   "sourceTag": null,
+  "releaseValidationReport": null,
   "reproducibleBuildReport": null,
   "verifierReproducibleBuildReport": null,
   "domConsensusAuditReports": [],
@@ -19,6 +20,7 @@
     "transcript": null
   },
   "checkpointProofCapacityReport": null,
+  "finalizedBurnCapacityReport": null,
   "realFinalizedEndToEndReport": null,
   "operationsReviewReport": null,
   "mainnetForkRehearsalReport": null,
@@ -35,7 +37,8 @@
   "controlPlane": {
     "governance": null,
     "guardian": null,
-    "checkpointGuardian": null
+    "checkpointGuardian": null,
+    "usdtCustody": null
   },
   "controlPlaneEvidenceBundle": null,
   "controlPlaneSeparationReport": null,

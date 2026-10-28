@@ -26,7 +26,8 @@ function sourceIdentity(value,index) {
 
 function block(value,label) {
   if(!value || typeof value!=='object' || Array.isArray(value)
-      || typeof value.number!=='string' || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(value.number)
+      || typeof value.number!=='string'||value.number.length>18
+      || !/^0x(?:0|[1-9a-f][0-9a-f]*)$/.test(value.number)
       || BigInt(value.number)===0n || typeof value.hash!=='string'
       || !/^0x[0-9a-fA-F]{64}$/.test(value.hash)
       || value.hash.toLowerCase()==='0x'+'00'.repeat(32)) {

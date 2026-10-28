@@ -50,6 +50,11 @@ test('security validation builder refuses incomplete provenance and fabricated r
   {results:results.slice(1)},
   {results:results.map((value,index)=>index?value:{...value,stdoutSha256:'bad'})},
   {results:results.map((value,index)=>index?value:{...value,toolSha256:'bad'})},
+  {results:results.map((value,index)=>index?value:{...value,stdoutSha256:'0'.repeat(64)})},
+  {results:results.map((value,index)=>index?value:{...value,stderrSha256:'0'.repeat(64)})},
+  {results:results.map((value,index)=>index?value:{...value,toolSha256:'0'.repeat(64)})},
+  {requirementsSha256:'0'.repeat(64)},
+  {sourceManifestSha256:'0'.repeat(64)},
   {results:results.map(value=>value.id==='deep-solidity-regression'
    ?{...value,toolSha256:sha('other-forge')}:value)},
  ]) assert.throws(()=>buildSecurityValidationReport({...context,results,...input}));

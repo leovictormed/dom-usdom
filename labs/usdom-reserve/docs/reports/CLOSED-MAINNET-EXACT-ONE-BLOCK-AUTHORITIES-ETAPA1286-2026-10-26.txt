@@ -1,0 +1,35 @@
+Stage 1286 — exact one-block issuance authorities
+Date: 2026-10-26
+
+Finding
+-------
+The response that authorizes one closed-mainnet block, the queued issuance
+submission and the durable issuance-block receipt were validated by consumed
+subsets. The block receipt also trusted an exactlyOneBlock flag without proving
+that blockHeight was exactly parentHeight plus one.
+
+Correction
+----------
+Mine response, queued submission and block receipt now require their exact
+five-, fourteen- and thirteen-field schemas. Queued identities are nonzero and
+its timestamp is canonical ISO-8601. Parent and block heights are canonical
+uint64 text and must differ by exactly one; the produced timestamp is canonical.
+Existing chain, genesis, tip, candidate and no-continuous-mining bindings remain.
+
+Adversarial regression
+----------------------
+Regressions reject injected fields in all three authorities, noncanonical
+submission/block timestamps and a substituted parent height that contradicts
+the claimed exactly-one-block transition.
+
+Validation
+----------
+- Closed-mainnet block SDK Node syntax check: pass.
+- Closed-block, issuance, conservation, deposit/payout evidence, pilot DAG,
+  finalized-source and broad operator suites: 109/109 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

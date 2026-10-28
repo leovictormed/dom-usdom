@@ -1,0 +1,37 @@
+USDOM mainnet readiness — Stage 1341
+Date: 2026-10-26
+
+Finding
+=======
+
+The 256-bit loopback capability was cryptographically random, but routing
+embedded its hexadecimal string directly in a regular expression. A local
+attacker able to make many requests could observe prefix-dependent regex
+mismatch timing. The immutable JavaScript string also remained live for the
+process lifetime.
+
+Correction
+==========
+
+The authority remains a 32-byte random Buffer. A dedicated SDK matcher first
+accepts only the exact lowercase 64-hex path grammar and canonical source index,
+then compares equal-length binary values with timingSafeEqual. The temporary
+presented Buffer is zeroed. Readiness URLs stringify the authority only during
+publication; that temporary object is cleared immediately, and common
+close/exit cleanup zeroes the binary authority after retiring readiness.
+
+Validation
+==========
+
+- Node syntax checks passed for the proxy and matcher.
+- Direct tests accept every authorized source index and reject wrong authority,
+  uppercase/noncanonical length, unavailable index and path-extension forms.
+- Capability, lifecycle, exact-envelope and readiness suite: 11/11 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No provider was contacted and no transaction was transmitted. No network,
+signing, deployment, funds, production facts, Rust, Solidity, Cargo, Forge,
+commit or push occurred.

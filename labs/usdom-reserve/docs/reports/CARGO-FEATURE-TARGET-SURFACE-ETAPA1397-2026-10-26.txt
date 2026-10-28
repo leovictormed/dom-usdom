@@ -1,0 +1,27 @@
+Stage 1397 — Cargo feature and target surface policy
+Date: 2026-10-26
+
+Finding
+An optional dependency can silently create an implicit feature, and malformed/default feature
+metadata can alter workspace feature unification. Explicit lib/bin/example/bench/test targets
+could also name an escaping or symlinked source path, or claim unbound required features.
+
+Correction
+- Feature tables now require canonical unique names and lists with bounded token syntax.
+- Dependency optional/default-features flags must be booleans and dependency feature lists must
+  be unique strings.
+- Every optional dependency must be explicitly namespaced through dep:name in a declared feature,
+  preventing Cargo's implicit feature from becoming an unreviewed activation surface.
+- Explicit lib/bin/example/bench/test inventories require typed objects, unique names, existing
+  required features and direct regular source files contained by the package directory.
+- Symlinked/escaping target paths fail closed; target auto-discovery flags must be booleans.
+- Adversarial regressions cover implicit optional features, duplicate feature members, type drift,
+  escaping targets, missing required features and duplicate target names.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No repository hash was frozen. No network, signing, deployment, funds, commit or push occurred.

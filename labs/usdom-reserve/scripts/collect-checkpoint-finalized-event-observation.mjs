@@ -7,6 +7,8 @@ import {fileURLToPath} from 'node:url';
 import {readDirectProjectFile} from '../sdk/direct-project-file.mjs';
 import {parseStrictJsonBytes} from '../sdk/strict-json.mjs';
 import {collectCheckpointFinalizedEventObservation} from '../sdk/checkpoint-finalized-event-collector.mjs';
+import {checkpointRegistryConfigurationFromRelease} from '../sdk/checkpoint-submission.mjs';
+import {checkpointStatementHash} from '../sdk/checkpoint-registry.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const inputPaths=['config/checkpoint-finalized-event-rpc-catalog.json',
   'config/mainnet-release-evidence.unconfigured.json','config/proof-reserve.unconfigured.json',
@@ -23,6 +25,8 @@ try {
   const [catalog,releaseEvidence,releaseConfig,submission,reference]=inputBytes.slice(0,5).map((bytes,index)=>
     parseStrictJsonBytes(bytes,{label:inputPaths[index],maxBytes:1024*1024,maxDepth:24}));
   const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
+  const registryConfiguration=checkpointRegistryConfigurationFromRelease(releaseConfig);
+  const expectedStatementHash=checkpointStatementHash(registryConfiguration,submission.checkpoint);
   const referenceSha=inputBytes[5].toString('ascii').trim();
   const expected={schema:'usdom-checkpoint-finalized-transaction-reference-v1',
     releaseId:releaseEvidence.releaseId,sourceCommit:releaseEvidence.sourceCommit,
@@ -32,13 +36,14 @@ try {
   if(!/^[0-9a-f]{64}$/.test(referenceSha)||referenceSha!==sha(inputBytes[4])
       ||JSON.stringify(reference)!==JSON.stringify(expected)
       ||submission.ethereumChainId!=='1'
-      ||String(submission.registry).toLowerCase()!==String(releaseConfig.checkpointRegistry).toLowerCase()
-      ||submission.checkpointConfigHash!==releaseConfig.checkpointRegistryConfigHash) {
+      ||String(submission.to).toLowerCase()!==String(releaseConfig.checkpointRegistry).toLowerCase()
+      ||submission.statementHash!==expectedStatementHash
+      ||submission.source?.releaseConfigSha256!==sha(inputBytes[2])) {
     throw new Error('checkpoint transaction reference differs from authenticated submission or release');
   }
   const transactionHash=reference.transactionHash;
   const observation=await collectCheckpointFinalizedEventObservation({catalog,rpcSources,
-    transactionHash,releaseEvidence,releaseConfig});
+    transactionHash,releaseEvidence,releaseConfig,submission});
   const currentInputBytes=await readInputs();
   if(currentInputBytes.some((bytes,index)=>!bytes.equals(inputBytes[index]))) {
     throw new Error('checkpoint finalized-event inputs changed during collection');

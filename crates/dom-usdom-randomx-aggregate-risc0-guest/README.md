@@ -12,7 +12,8 @@ outer ImageID. A complete outer guest must compose this component with those
 missing relations before it can authorize a checkpoint.
 
 The committed ProgramBinary and ImageID are candidate evidence only. The local
-RISC Zero 3.0.6 build is pinned in `PROVENANCE.json` and reproduced by
-`labs/usdom-reserve/scripts/build-randomx-aggregate-risc0-guest.sh`. Production
+RISC Zero 3.0.6 build is pinned in `PROVENANCE.json` and reproduced through the
+authenticated `labs/usdom-reserve/scripts/risc0-guest-build-launcher` with the
+`randomx-aggregate` selector. Production
 approval remains false until an independently reproduced, reviewed build and a
 complete positive receipt path exist.

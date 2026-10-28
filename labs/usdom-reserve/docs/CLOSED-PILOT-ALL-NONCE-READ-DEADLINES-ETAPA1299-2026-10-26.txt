@@ -1,0 +1,30 @@
+ETAPA 1299 — COBERTURA TOTAL DE PRAZO PARA LEITURAS DE NONCE
+Data: 2026-10-26
+
+Problema
+
+Depois de limitar aquisição e decisão de retomada, ainda restavam leituras de
+nonce sem prazo nas revalidações anteriores à assinatura e publicação e na
+reconciliação de recibos já persistidos.
+
+Correção
+
+Todas as consultas `cast nonce` restantes agora executam sob
+`timeout --foreground --signal=TERM --kill-after=5s 120s`. O inventário completo
+fica em 13 consultas limitadas no depósito e 11 no resgate, sem chamada direta.
+Timeout ou falha interrompe o fluxo no ponto da revalidação, antes de qualquer
+avanço dependente daquele estado.
+
+As comparações com o nonce exato, o nonce sucessor esperado e o snapshot
+finalizado permanecem inalteradas. A regressão fixa simultaneamente o número de
+consultas e o número de wrappers para impedir lacunas futuras.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 12/12 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 69/69 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

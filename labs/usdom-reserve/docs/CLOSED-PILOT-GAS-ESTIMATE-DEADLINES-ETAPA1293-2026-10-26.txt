@@ -1,0 +1,30 @@
+ETAPA 1293 — LIMITES PARA ESTIMATIVAS DE GÁS DO PILOTO FECHADO
+Data: 2026-10-26
+
+Problema
+
+Os executores consultavam `cast estimate` nos dois RPCs antes de cada assinatura,
+mas as quatro chamadas não tinham limite externo. Um provedor ou processo filho
+travado podia bloquear a cerimônia antes da confirmação no Ledger.
+
+Correção
+
+As duas estimativas do depósito e as duas do resgate agora executam sob
+`timeout --foreground --signal=TERM --kill-after=5s 120s`. Como as substituições
+de comando participam de scripts com `set -euo pipefail`, timeout ou falha de
+qualquer provedor interrompe o fluxo antes do cálculo da margem, da verificação
+do orçamento, da assinatura e da publicação.
+
+A comparação entre os dois provedores, as margens existentes e os tetos de gás
+e custo permanecem inalterados. A regressão exige exatamente duas estimativas
+limitadas em cada executor e impede o reaparecimento de chamadas diretas.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 12/12 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 68/68 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

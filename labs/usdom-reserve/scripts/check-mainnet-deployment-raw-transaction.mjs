@@ -46,8 +46,18 @@ try {
   if(expected.schema!=='usdom-mainnet-deployment-ledger-handoff-v1') {
     throw new Error('deployment Ledger handoff schema is invalid');
   }
-  const validated=validateMainnetDeploymentRawTransaction({raw,expected:expected.transaction,
-    index:process.argv[2]});
+  const packagePath=process.env.USDOM_MAINNET_DEPLOYMENT_PACKAGE;
+  const packageSha256=process.env.USDOM_PACKAGE_SHA256;
+  if(typeof packagePath!=='string'||!path.isAbsolute(packagePath)
+      ||typeof packageSha256!=='string'||!/^[0-9a-f]{64}$/.test(packageSha256)) {
+    throw new Error('reviewed deployment package authority is unavailable');
+  }
+  const packageBytes=await readDirectFile(packagePath,{minimum:2,maximum:8*1024*1024,
+    label:'reviewed deployment package'});
+  const packageValue=parseStrictJsonBytes(packageBytes,
+    {label:'reviewed deployment package',maxBytes:8*1024*1024,maxDepth:64});
+  const validated=validateMainnetDeploymentRawTransaction({raw,packageValue,packageBytes,
+    packageSha256,handoff:expected,index:process.argv[2]});
   const evidence={...validated,
     chainId:expected.chainId,releaseConfigSha256:expected.releaseConfigSha256,
     packageSha256:expected.packageSha256,

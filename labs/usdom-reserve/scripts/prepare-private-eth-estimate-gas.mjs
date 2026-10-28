@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+import {writeReleaseFailure} from '../sdk/pilot-safe-diagnostics.mjs';import {readDirectFile} from '../sdk/direct-project-file.mjs';import {parseStrictJsonBytes} from '../sdk/strict-json.mjs';
+try{if(process.argv.length!==4)throw new Error('private transaction input and payer required');const input=parseStrictJsonBytes(await readDirectFile(process.argv[2],{minimum:2,maximum:8*1024*1024,exactMode:0o600}),{label:'private transaction input'});if(typeof input.to!=='string'||typeof input.data!=='string')throw new Error('private transaction input invalid');process.stdout.write(JSON.stringify([{from:process.argv[3],to:input.to,data:input.data}])+'\n');}catch(error){writeReleaseFailure('prepare-private-eth-estimate-gas',error);process.exitCode=1;}

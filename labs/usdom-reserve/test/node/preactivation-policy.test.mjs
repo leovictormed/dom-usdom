@@ -61,6 +61,18 @@ test('trusted ceremony clock remains inside the shared uint64 timestamp domain',
     checkpointConsensus:checkpoint,nowUnix:'1790000100'}),/must be bigint/);
 });
 
+test('preactivation policy rejects oversized decimals before numeric conversion',()=>{
+  assert.throws(()=>deriveDomDomain({domNetworkMagic:'9'.repeat(100000),domChainId:anchor.chainId,
+    ethereumChainId:'1',reserve:release.reserve,checkpointRegistry:release.checkpointRegistry}),
+  /canonical decimal/);
+  assert.throws(()=>materializePreActivationPolicy({releaseConfig:release,anchor,
+    checkpointConsensus:{...checkpoint,checkpointEpoch:'9'.repeat(100000)},
+    nowUnix:1790000100n}),/canonical decimal/);
+  assert.throws(()=>deriveDomDomain({domNetworkMagic:anchor.networkMagic,domChainId:anchor.chainId,
+    ethereumChainId:(1n<<256n).toString(),reserve:release.reserve,
+    checkpointRegistry:release.checkpointRegistry}),/uint256/);
+});
+
 test('fixed policy materializer is atomic, source-derived and authorization-free',()=>{
   const wrapper=new URL('../../scripts/materialize-preactivation-policy.sh',import.meta.url);
   const preparer=new URL('../../scripts/prepare-preactivation-policy-materialization.mjs',import.meta.url);
@@ -68,11 +80,27 @@ test('fixed policy materializer is atomic, source-derived and authorization-free
   assert.equal(spawnSync(process.execPath,['--check',fileURLToPath(preparer)]).status,0);
   const shell=readFileSync(wrapper,'utf8'),source=readFileSync(preparer,'utf8');
   assert.match(shell,/flock -n 9/);
-  assert.match(shell,/install-release-config-stdin\.mjs/);
+  assert.match(shell,/replace-locked-source-stdin\.mjs/);
+  assert.match(shell,/"\$target_sha256" "\$parent_device" "\$parent_inode"/);
+  assert.match(shell,/pin_runtime_tool python3/);
+  assert.match(shell,/stat -Lc '%u:%a:%h' "\$target"/);
+  assert.equal((shell.match(/cmp -s "\$temporary" "\$target"/g)??[]).length,3);
   assert.match(source,/materializePreActivationPolicy/);
   assert.match(source,/ethereum-checkpoint-consensus\.json/);
   for(const forbidden of ['git push','cast send','eth_sendRawTransaction','--private-key','--mnemonic',
     'productionReady = true','realFundsAuthorized = true']) {
     assert.equal(shell.includes(forbidden)||source.includes(forbidden),false,forbidden);
   }
+});
+
+test('checkpoint source catalog confirms exact installed bytes and metadata',()=>{
+  const shell=readFileSync(new URL(
+    '../../scripts/materialize-ethereum-checkpoint-source-catalog.sh',import.meta.url),'utf8');
+  assert.match(shell,/stat -Lc '%u:%a:%h' "\$TARGET"/);
+  assert.match(shell,/cmp -s "\$TMP" "\$TARGET"/);
+  assert.ok(shell.lastIndexOf('cmp -s "$TMP" "$TARGET"')
+    >shell.lastIndexOf('sync -f "$TARGET"; sync -f "$ROOT/config"'));
+  assert.match(shell,/replace-locked-source-stdin\.mjs/);
+  assert.match(shell,/"\$target_sha256" "\$parent_device" "\$parent_inode"/);
+  assert.match(shell,/pin_tool python3/);
 });

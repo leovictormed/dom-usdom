@@ -53,7 +53,21 @@ done
 
 temporary=$(mktemp -d -p "$output" .build.XXXXXXXX)
 chmod 0700 "$temporary"
-trap 'rm -rf -- "$temporary"' EXIT
+temporary_identity=$(/usr/bin/stat -c '%u:%d:%i:%a' -- "$temporary")
+cleanup() {
+  local status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' -- "$temporary" 2>/dev/null) == "$temporary_identity" ]]; then
+    /usr/bin/rm -rf -- "$temporary" || { (( status != 0 )) || status=1; }
+  else
+    (( status != 0 )) || status=1
+  fi
+  exit "$status"
+}
+trap 'cleanup $?' EXIT
+trap 'cleanup 129' HUP
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
 snapshot_private() {
   node "$project/scripts/read-private-file-stdout.mjs" "$1" > "$2"
   chmod 0600 "$2"

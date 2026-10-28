@@ -1,0 +1,13 @@
+Etapa 1487 — separação generate/validate/execute
+
+- `generateCommand` apenas chama o gerador que imprime Bash; `validateCommand`
+  usa somente `bash -n`. O checker rejeita primitives de assinatura,
+  transmissão, mineração ou push nesses dois campos.
+- As quatro fases capazes de assinar/transmitir apontam para executores
+  específicos. Antes da primeira frase AUTORIZO, cada executor agora exibe
+  chainId=1, valor/quantidade aplicável, gasLimit, maxFeePerGas e custo máximo.
+- Depósito e resgate preservam confirmações separadas para assinatura, clear
+  signing e transmissão. Safe deployment e recovery preservam autorizações
+  mainnet literais e validações de estado antes do envio.
+- O checker exige estruturalmente que o resumo apareça antes da autorização.
+  Nenhuma fase operacional foi executada.

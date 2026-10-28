@@ -1,0 +1,35 @@
+Stage 1242 — bounded integer parsing in the candidate monitor
+Date: 2026-10-26
+
+Finding
+-------
+The candidate monitor required canonical decimal spelling for private-chain
+views and persisted monitor state, but converted arbitrary-length strings with
+`BigInt`. An authenticated yet malformed snapshot could therefore force an
+oversized conversion before the monitor reached its tighter height, amount or
+confirmation policy checks.
+
+Correction
+----------
+The monitor's common integer reader now rejects more than 78 decimal digits
+before conversion and independently enforces the uint256 ceiling afterwards.
+All view height, checkpoint height, burn amount/height/confirmations and durable
+state channels that use this reader inherit the bound. Their existing narrower
+semantic checks remain in force.
+
+Adversarial regression
+----------------------
+Regressions inject a 100,000-digit height and burn amount plus exact 2^256 in
+height and confirmations. Each fails at the bounded integer authority before
+array indexing or downstream state logic.
+
+Validation
+----------
+- Candidate monitor Node syntax check: pass.
+- Full candidate-monitor adversarial and operational suite: 29/29 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

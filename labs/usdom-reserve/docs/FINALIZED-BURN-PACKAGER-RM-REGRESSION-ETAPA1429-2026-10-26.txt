@@ -1,0 +1,27 @@
+Etapa 1429 — regressão de remoção no packager EVM de queima finalizada
+
+Conclusão
+
+O packager estava endurecido corretamente. A regressão ainda exigia `rm` direto,
+mas a implementação agora remove somente três destinos explicitamente permitidos
+por `remove_output_file`.
+
+Correção da cobertura
+
+O teste estrutural agora vincula a remoção às garantias do helper: allowlist
+fechada dos três artefatos, rejeição de outros caminhos, arquivo regular direto,
+identidades pinadas de rm e timeout, deadline TERM de 120 segundos com KILL após
+cinco segundos e pós-condição que exige ausência de arquivo e symlink. Também
+preserva a ordem: a prova local termina antes da invalidação do índice final.
+
+Validação
+
+- Foco operator-runbook para o packager de queima finalizada: 2/2 aprovado.
+- Boundaries de ferramentas EVM e temporários privados: 2/2 aprovados.
+- completion-publisher-inventory ainda possui expectativa concorrente obsoleta
+  para o helper bounded do outro packager (checkpoint outer); isso não envolve a
+  correção deste estágio.
+- git diff --check: aprovado.
+
+Nenhuma prova pesada, rede, Ledger, assinatura, deploy, fundos, commit ou push foi
+executado.

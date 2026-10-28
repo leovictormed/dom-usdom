@@ -1,0 +1,56 @@
+Stage 1361 — issuance-status backend evidence table
+Date: 2026-10-26
+
+Finding
+
+The HTTP handler trusted every field returned by the `NodeHandle` issuance-
+status implementation. Although the production handle builds a coherent
+`pair_state`, another implementation or a future regression could return a
+state label that contradicted `queued`, `consumed`, inclusion, commitment,
+scan range or chain identity. The authenticated RPC boundary would serialize
+that contradiction as operator evidence.
+
+Correction
+
+Before serialization the handler now validates the complete response table:
+
+- response schema, network magic and chain id match the exact request;
+- genesis and tip hashes are nonzero;
+- scan bounds are both absent or both present, end at the snapshotted tip and
+  cover at most 256 blocks;
+- `absent` and `queued` carry no canonical commitment, inclusion or scan;
+- `canonical` requires consumed state, a nonzero issuance commitment, a
+  nonzero inclusion inside the scanned interval and an equal transition
+  commitment;
+- `candidate_mismatch` requires consumed state, a commitment, a complete
+  nontruncated scan and no inclusion;
+- `history_truncated` requires consumed state, no inclusion and an exact
+  256-block truncated window;
+- truncation on a canonical result is accepted only with the full bounded
+  window because the exact inclusion itself resolves the pair;
+- every mixed or contradictory row fails closed as `RpcError::Internal` and is
+  logged server-side without exposing backend details.
+
+Scenario audit
+
+- Wrong candidate for a recently consumed deposit becomes
+  `candidate_mismatch` after the complete search.
+- The correct or wrong candidate outside the retained window remains
+  `history_truncated`; neither is falsely confirmed without an archival index.
+- Multiple candidates can be `queued` before consumption; once one inclusion
+  becomes canonical, the winner becomes `canonical` and competitors become
+  `candidate_mismatch` or `history_truncated`, never queued+consumed.
+- Reorg/disconnect is observed under the joint chain/runtime snapshot. Removal
+  of the introducing issuance removes canonical consumption before status can
+  publish a new row; any surviving eligible pool entry is then independently
+  reported as queued.
+
+Evidence
+
+- Exact backend state-table regression: 1 passed, 0 failed. It covers all five
+  valid rows and ten malformed identity/state/range/commitment combinations.
+- Authenticated HTTP endpoint regression: 1 passed, 0 failed.
+- dom-rpc compiled successfully; no integration mining was executed.
+- Targeted rustfmt and git diff --check pass.
+- No network, wallet, signature, deployment, funds, commit or push occurred.
+

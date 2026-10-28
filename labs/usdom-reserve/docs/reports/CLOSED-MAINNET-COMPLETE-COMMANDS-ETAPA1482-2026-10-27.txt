@@ -1,0 +1,33 @@
+CLOSED MAINNET COMPLETE COMMANDS — ETAPA 1482
+Date: 2026-10-27
+
+The command generator and Linux runbook were audited for manual placeholders,
+secret-bearing environment variables and steps that required an operator to
+invent or paste a value.  Existing generated phases already use fixed paths,
+interactive hidden password prompts and hardware-wallet public-address reads;
+they do not print private keys, seeds or passwords.
+
+One real coverage gap remained: native receiving-wallet generation was a
+complete runbook block but was absent from the phase generator, despite the
+runbook promising one named generated command per operational block.  The pilot
+deposit phase could therefore be generated without a generated prerequisite for
+the wallet public identity.
+
+The new `prepare-native-wallet-secret` phase runs the fixed wallet generator,
+keeps its temporary public candidate in `/dev/shm`, installs only the immutable
+public identity and prints only the validated public schema, receiving
+commitment and recipient address.  The encrypted recovery material and password
+remain local.  The deposit phase now requires this public identity before it
+can proceed.  The runbook invokes the named generated phase instead of spelling
+out a separate manual sequence.
+
+The generator regression now covers the new phase, validates every emitted
+program with `bash -n`, rejects broader placeholder forms in every generated
+program and in the runbook, and proves the wallet phase neither reads nor
+prints `recovery.usdom`.
+
+Validation: generator Bash syntax passed; command-generator test passed 1/1;
+git diff --check passed.
+
+No wallet or secret was created.  No network, signing, deployment, funds,
+manifest modification, commit or push occurred.

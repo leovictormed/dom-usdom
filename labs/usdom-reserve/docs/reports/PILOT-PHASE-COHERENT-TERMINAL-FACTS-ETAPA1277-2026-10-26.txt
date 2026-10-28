@@ -1,0 +1,36 @@
+Stage 1277 — phase-coherent pilot terminal facts
+Date: 2026-10-26
+
+Finding
+-------
+Terminal financial fields were not uniformly constrained before terminal phase
+completion. A prepared or partial deposit could carry residual allowance, and
+a prepared redemption or one awaiting receipt finality could claim that burn
+and request had already been paid. These contradictory snapshots weakened
+crash-recovery classification.
+
+Correction
+----------
+Deposit allowance must be exactly zero in every phase. Redemption paidBurn and
+paidRequest must both remain false unless exactly two sequential receipts are
+canonical and finalized by two sources. Existing terminal reconciliation still
+requires both paid facts to be true after both receipts finalize.
+
+Adversarial regression
+----------------------
+Regressions reject residual allowance before any deposit receipt, paid facts
+before any redemption receipt, and paid facts while the execute receipt awaits
+finality. The equivalent pending-finality state with both paid facts false
+remains classified as finality-recheck-required.
+
+Validation
+----------
+- Pilot DAG SDK Node syntax check: pass.
+- Pilot DAG, evidence, command generation, finality restart, receipt-cost,
+  deposit/redemption executors and terminal financial suites: 18/18 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

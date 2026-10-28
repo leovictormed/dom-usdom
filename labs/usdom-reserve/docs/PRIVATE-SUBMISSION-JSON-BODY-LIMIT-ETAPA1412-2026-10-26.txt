@@ -1,0 +1,35 @@
+Stage 1412 — private submission JSON body ceiling
+Date: 2026-10-26
+
+Finding
+
+Private transfer and burn submissions use JSON with a hexadecimal payload. The
+largest canonical binary burn payload is about 33 KiB, yet both routes inherited
+the generic 1,024,000-byte request ceiling. An authenticated caller could make
+Axum/Serde retain a near-1-MiB JSON string and then allocate decoded hex bytes
+which the node's much smaller class limit would inevitably reject. The shared
+one-request verifier admission bounded concurrency but did not remove this
+per-request memory and hex-decoding amplification.
+
+Correction
+
+The two private submission routes now share a 68-KiB request-body ceiling. This
+fits the maximum canonical burn payload encoded as two hexadecimal characters
+per byte plus the fixed schema and bounded formatting overhead. Bodies above
+the ceiling receive HTTP 413 in transport middleware before JSON
+deserialization, hex decoding or node/verifier entry. Node-side exact transfer
+and burn class limits remain authoritative after decoding.
+
+The limit is scoped only to private transfer/burn routes. Binary issuance and
+candidate-v2 routes retain their separate proof/witness ceilings, while small
+ordinary JSON routes remain under the generic ceiling.
+
+Evidence
+
+- `cargo test -p dom-rpc private_submission --lib`: 1 passed, 0 failed.
+- The regression checks both transfer and burn with a declared body one byte
+  above the route ceiling and receives HTTP 413 before handler extraction.
+- Code was formatted with `cargo fmt --all`; `git diff --check` passes.
+- No RandomX mining, external network, wallet, signature, deployment, funds,
+  commit or push occurred.
+

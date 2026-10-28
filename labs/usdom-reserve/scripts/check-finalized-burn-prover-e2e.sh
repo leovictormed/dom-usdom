@@ -4,6 +4,12 @@ umask 077
 
 LAB_ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)"
 REPOSITORY_ROOT="$(CDPATH='' cd -- "$LAB_ROOT/../.." && pwd -P)"
+for tool_boundary_command in stat realpath id dirname sha256sum cut; do command -v "$tool_boundary_command" >/dev/null; done
+source "$LAB_ROOT/scripts/pinned-shell-tool-functions.sh"
+pin_runtime_tool cargo
+cargo() { assert_runtime_tool cargo; "$cargo_bin" "$@"; }
+pin_runtime_tool jq
+jq() { assert_runtime_tool jq; "$jq_bin" "$@"; }
 source "$LAB_ROOT/scripts/require-risc0-recursion-artifact.sh"
 
 if (($# != 0)); then
@@ -297,8 +303,8 @@ jq -e --arg receipt_sha "$(sha256sum -- "$RECEIPT_FILE" | cut -d ' ' -f 1)" \
   and .proof_job_index_sha256 == $job_sha
   and .input_sha256 == "bdcd115207f47fd31e6e7b211ad2e2812ea7c5fa22fa4310ffae9b4cce949f5e"
   and .statement_hash == "c0461e1c2bcff62d1dfd8e8fed0b094b5d19c2744cf9bad34c8ae3722e7eaef4"
-  and .program_sha256 == "883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21"
-  and .image_id == "2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea"
+  and .program_sha256 == "bf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511"
+  and .image_id == "f0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae"
   and .risc0_zkvm_version == "3.0.6"
   and .receipt_kind == "succinct"
   and .segment_limit_po2 == 18

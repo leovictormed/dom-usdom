@@ -8,6 +8,7 @@ export const CLOSED_REDEMPTION_PRIORITY_FEE_PER_GAS=2_000_000_000n;
 export const CLOSED_REDEMPTION_MAX_TRANSACTION_COST=100_000_000_000_000_000n;
 const tuple='(bytes32 burnId,bytes32 requestId,address recipient,uint64 amount,bytes32 domDomain,uint64 height,bytes32 blockHash,bytes32 stateRoot,uint64 finalityBeaconSlot,uint64 validUntil)';
 const reserveInterface=new Interface([`function executeWithdrawal(${tuple} burn)`]);
+const MAINNET_USDT=getAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7');
 
 export function buildClosedMainnetRedemptionPackage(submission) {
   const {burn}=validateAuthenticatedFinalizedBurnSubmission(submission);
@@ -16,8 +17,8 @@ export function buildClosedMainnetRedemptionPackage(submission) {
   }
   const executeData=reserveInterface.encodeFunctionData('executeWithdrawal',[burn]);
   return Object.freeze({
-    schema:'usdom-closed-mainnet-redemption-v1',ethereumChainId:'1',reserve:submission.to,
-    recipient:burn.recipient,amountBaseUnits:CLOSED_REDEMPTION_AMOUNT.toString(),
+    schema:'usdom-closed-mainnet-redemption-v2',ethereumChainId:'1',reserve:submission.to,
+    token:MAINNET_USDT,recipient:burn.recipient,amountBaseUnits:CLOSED_REDEMPTION_AMOUNT.toString(),
     burnId:burn.burnId,requestId:burn.requestId,statementHash:submission.statementHash,
     submissionDataKeccak256:submission.dataKeccak256,broadcastAuthorized:false,
     transactions:[
@@ -35,16 +36,22 @@ export function validateClosedMainnetRedemptionPackage(value,submission) {
   return value;
 }
 
-export function validateClosedMainnetRedemptionRawTransaction({raw,packageValue,index,nonce}) {
+export function validateClosedMainnetRedemptionRawTransaction({raw,packageValue,submission,index,nonce}) {
+  // The signed transaction must never choose its own plan by supplying a
+  // self-consistent detached package. Rebuild the complete package from the
+  // authenticated finalized-burn submission before reading any transaction
+  // field from it.
+  validateClosedMainnetRedemptionPackage(packageValue,submission);
   if(index!==0&&index!==1) throw new Error('closed redemption transaction index is invalid');
-  if(typeof nonce!=='string'||!/^(0|[1-9][0-9]*)$/.test(nonce)||BigInt(nonce)>2n**64n-1n) {
+  if(typeof nonce!=='string'||nonce.length>20||!/^(0|[1-9][0-9]*)$/.test(nonce)
+      ||BigInt(nonce)>2n**64n-1n) {
     throw new Error('closed redemption nonce is invalid');
   }
   let transaction;
   try { transaction=Transaction.from(raw); } catch { throw new Error('closed redemption raw transaction cannot be decoded'); }
   const expected=packageValue.transactions[index],fee=transaction.maxFeePerGas;
   const priority=transaction.maxPriorityFeePerGas,gas=transaction.gasLimit;
-  if(packageValue.schema!=='usdom-closed-mainnet-redemption-v1'||packageValue.broadcastAuthorized!==false
+  if(packageValue.schema!=='usdom-closed-mainnet-redemption-v2'||packageValue.broadcastAuthorized!==false
       ||packageValue.ethereumChainId!=='1'||packageValue.amountBaseUnits!=='1000000'
       ||transaction.serialized!==raw||transaction.signature===null||transaction.hash===null
       ||transaction.from===null||getAddress(transaction.from)!==getAddress(packageValue.recipient)

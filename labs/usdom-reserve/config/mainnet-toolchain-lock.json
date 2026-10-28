@@ -2,6 +2,13 @@
   "schema": "usdom-mainnet-toolchain-lock/v1",
   "executables": [
     {
+      "name": "bash",
+      "path": "/usr/bin/bash",
+      "sha256": "bc5945feb8bd26203ebfafea5ce1878bb2e32cb8fb50ab7ae395cfb1e1aaaef1",
+      "versionContains": "5.2.21",
+      "realpath": "/usr/bin/bash"
+    },
+    {
       "name": "node",
       "path": "/home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node",
       "sha256": "bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12",
@@ -45,7 +52,7 @@
     },
     {
       "name": "python3",
-      "path": "/usr/bin/python3",
+      "path": "/usr/bin/python3.12",
       "sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
       "versionContains": "3.12.3",
       "realpath": "/usr/bin/python3.12"
@@ -61,15 +68,23 @@
   "files": [
     {
       "path": "package-lock.json",
-      "sha256": "61311e2e1f536853fa4e5b07f9c8a97b32e1e1891fe7aee32e730fa6cffd58e1"
+      "sha256": "4218471f13cc0c193cecaff5fb976fd44b634d95031c7ad70e75e3724f75ebeb"
+    },
+    {
+      "path": "containers/risc0-snarkjs/package-lock.json",
+      "sha256": "b7b4c81bd62c2e106b57f352831c1877479bea295c32f42645d0acc6eceb577a"
     },
     {
       "path": "../../Cargo.lock",
-      "sha256": "a8cf3916a0e823e81bf0378721530fb07d5e82b7bd7bb7d821bc08c02bf4dfc2"
+      "sha256": "66bce82983b22b50203ae6b8a49054121fe9f15312173695b9b84f65d316e120"
     },
     {
       "path": "foundry.toml",
-      "sha256": "20029b980175ac1237c4a1f77071b42d78b6737f9bc2f3a337cbbfed6f40ef97"
+      "sha256": "49495322f30a76efb91dd7d8d43e3306d5aa2483e221887f71b163889d6e9e64"
+    },
+    {
+      "path": "scripts/mainnet-tool-dispatcher",
+      "sha256": "6317cc20a70a4958556ecb7374d29976459d5f64c9af5d3c1263b2029a597c0f"
     }
   ],
   "solcVersion": "0.8.37",

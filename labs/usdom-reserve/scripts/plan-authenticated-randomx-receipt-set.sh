@@ -9,8 +9,22 @@ STATEMENT_INDEX="$STATEMENT_DIR/randomx-statement-set-index.json"
 OUTPUT_DIR="$LAB_ROOT/evidence/randomx-proof-jobs"
 SNAPSHOT_ROOT="$(mktemp -d "/dev/shm/usdom-randomx-plan.XXXXXX")"
 chmod 0700 "$SNAPSHOT_ROOT"
+SNAPSHOT_ROOT_IDENTITY=$(/usr/bin/stat -c '%u:%d:%i:%a' "$SNAPSHOT_ROOT")
 SNAPSHOT_LAB="$SNAPSHOT_ROOT/repository/labs/usdom-reserve"
-trap 'rm -rf -- "$SNAPSHOT_ROOT"' EXIT HUP INT TERM
+cleanup_snapshot() {
+  local status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' "$SNAPSHOT_ROOT" 2>/dev/null) == "$SNAPSHOT_ROOT_IDENTITY" ]]; then
+    /usr/bin/rm -rf -- "$SNAPSHOT_ROOT" || status=1
+  else
+    status=1
+  fi
+  exit "$status"
+}
+trap 'cleanup_snapshot $?' EXIT
+trap 'cleanup_snapshot 129' HUP
+trap 'cleanup_snapshot 130' INT
+trap 'cleanup_snapshot 143' TERM
 
 if (($# != 0)); then
   printf '%s\n' 'Usage: npm run --silent plan:authenticated-randomx-receipt-set' >&2
@@ -19,7 +33,9 @@ fi
 for command in cargo cp jq mktemp node; do command -v "$command" >/dev/null; done
 for tool_boundary_command in timeout stat realpath id dirname sha256sum cut; do command -v "$tool_boundary_command" >/dev/null; done
 source "$LAB_ROOT/scripts/pinned-shell-tool-functions.sh"
-pin_runtime_tool node; pin_runtime_tool timeout
+pin_runtime_tool node; pin_runtime_tool timeout; pin_runtime_tool cargo; pin_runtime_tool jq
+cargo() { assert_runtime_tool cargo; "$cargo_bin" "$@"; }
+jq() { assert_runtime_tool jq; "$jq_bin" "$@"; }
 run_pinned_node_timed() { assert_runtime_tool node; assert_runtime_tool timeout; "$timeout_bin" --signal=TERM --kill-after=2s 120s "$node_bin" "$@"; }
 run_pinned_timeout() { assert_runtime_tool timeout; "$timeout_bin" "$@"; }
 if [[ ! -d "$STATEMENT_DIR" || -L "$STATEMENT_DIR" ]]; then

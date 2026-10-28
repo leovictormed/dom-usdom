@@ -1,0 +1,19 @@
+Stage 1204 — bounded mainnet-deployment planner inputs
+Date: 2026-10-26
+
+Change
+- String gas estimates must now be canonical decimals of at most eight digits before BigInt conversion; native bigint estimates remain supported for internal callers.
+- Planned deployment nonces are lexically limited to the uint64 decimal ceiling before address derivation and BigInt conversion.
+- Existing exact gas-policy and uint64 checks remain unchanged.
+
+Security result
+- Untrusted RPC/planning artifacts cannot force arbitrary-size integer conversion through gas estimates or nonces before the deployment ceremony.
+- Regressions reject 100,000-digit values in both paths while retaining exact policy behavior.
+- No deployment authorization or production evidence was changed.
+
+Validation
+- /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/mainnet-deployment-execution.test.mjs
+- Result: 12/12 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

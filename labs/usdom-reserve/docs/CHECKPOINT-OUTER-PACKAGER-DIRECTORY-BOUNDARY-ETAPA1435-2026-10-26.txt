@@ -1,0 +1,25 @@
+Etapa 1435 — fronteira de criação de diretórios no packager checkpoint-outer
+
+Problema
+
+O packager criava o diretório persistente e a árvore privada com mkdir resolvido
+pelo PATH e sem deadline. Depois, o diretório persistente era verificado somente
+contra symlink, aceitando proprietário ou permissões inadequados.
+
+Correção
+
+mkdir agora integra o inventário de ferramentas pinadas. A criação usa o caminho
+autenticado sob timeout pinado, com TERM em 120 segundos e KILL após cinco, e a
+identidade de mkdir é reatestada antes e depois. O diretório persistente e os
+quatro diretórios privados devem ser diretórios reais, pertencer ao usuário atual
+e ter modo exato 0700 antes de qualquer captura.
+
+Validação
+
+- Sintaxe shell: aprovada.
+- Boundary estrutural dos packagers EVM: 1/1 aprovado.
+- Foco operator-runbook checkpoint-outer: 1/1 aprovado.
+- Inventário de publicação: 1/1 aprovado.
+- Nenhuma prova foi iniciada.
+
+Nenhuma rede, Ledger, assinatura, deploy, fundos, commit ou push foi executado.

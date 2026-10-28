@@ -4,13 +4,17 @@ import {readFileSync} from 'node:fs';
 
 const source=readFileSync(new URL('../../scripts/execute-mainnet-deployment.sh',import.meta.url),'utf8');
 test('deployment signing and publication revalidate mutable CREATE state after prompts',()=>{
-  const sign=source.indexOf('AUTORIZO ASSINAR DEPLOY MAINNET INDICE');
-  const create=source.indexOf('rpc mktx --chain 1',sign);
+  const sign=source.indexOf('AUTORIZO ASSINAR DEPLOY INDICE');
+  const create=source.indexOf('prepare-private-mainnet-create.mjs prepare',sign);
   const presign=source.indexOf('test "$(rpc nonce "$from" --block pending',sign);
   const empty=source.indexOf('test "$(rpc code "$expected" --block finalized',sign);
   assert.ok(sign>=0&&presign>sign&&empty>sign&&create>presign&&create>empty);
-  const transmit=source.indexOf('AUTORIZO TRANSMITIR DEPLOY MAINNET INDICE');
-  const publish=source.indexOf('rpc publish "$raw"',transmit);
+  const finalPackage=source.indexOf('transaction.final-presign.json',sign);
+  const finalLedger=source.indexOf('wallet address --ledger',finalPackage);
+  assert.ok(finalPackage>empty&&finalLedger>finalPackage&&finalLedger<create);
+  assert.match(source.slice(finalPackage,create),/cmp_bin" -s "\$transaction_initial"[\s\S]*test "\$observed_ledger_deployer" = "\$from"/);
+  const transmit=source.indexOf('AUTORIZO TRANSMITIR DEPLOY INDICE');
+  const publish=source.indexOf('publish-private-raw-transaction.mjs "$raw_snapshot"',transmit);
   const renonce=source.indexOf('test "$(rpc nonce "$from" --block pending',transmit);
   const recode=source.indexOf('test "$(rpc code "$expected" --block finalized',transmit);
   const unseen=source.indexOf("'. == null'",transmit);

@@ -1,0 +1,43 @@
+Stage 1314 — issuance-status absent-deposit fast path
+Date: 2026-10-26
+
+Finding
+
+The authenticated POST /usdom/v4/issuance/status/v1 implementation retained
+the canonical-chain and native-runtime locks while loading and reauthenticating
+up to 256 persisted history blocks even when the requested deposit identifier
+was absent from canonical native state. An authenticated caller could repeat
+queries for arbitrary nonzero deposit identifiers and amplify a small request
+into avoidable database, parsing and hashing work on the consensus lock path.
+
+Correction
+
+Canonical consumed-deposit records are append-only and are removed only when
+the block that introduced them is disconnected. Therefore absence from the
+state observed under the same chain/runtime snapshot proves there is no
+canonical issuance inclusion. The endpoint now skips history entirely in this
+case. It reports scanned_from and scanned_to as null, so the response does not
+claim that a block was examined when no history read occurred. Existing
+consumed deposits retain the bounded 256-block authenticated scan and all
+candidate/deposit, transition-commitment and canonical-state consistency
+checks.
+
+Evidence
+
+- dom-node focal unit test: 1 passed, 0 failed; the absent case returns no scan
+  window and consumed cases retain the exact bounded range.
+- dom-rpc authenticated endpoint test: 1 passed, 0 failed.
+- native_usdom_v4_runtime integration target compiles successfully with
+  `--no-run`; the corrected absent-status assertion is type-checked without
+  starting RandomX mining.
+- rustfmt and git diff --check pass for the affected Rust sources.
+- No RandomX mining, network, wallet, signing, deployment, funds, commit or push
+  occurred in this stage.
+
+Residual boundary
+
+The endpoint deliberately searches only the latest 256 canonical v4 blocks.
+For an older consumed deposit it can prove consumption and its state commitment
+but may return no recent inclusion location. Extending archival lookup requires
+an authenticated persistent index or proof archive; an unbounded consensus-lock
+scan is not acceptable.

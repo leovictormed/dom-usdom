@@ -32,6 +32,12 @@ fi
 
 LAB_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 REPOSITORY_ROOT=$(CDPATH='' cd -- "$LAB_ROOT/../.." && pwd -P)
+for tool_boundary_command in stat realpath id dirname sha256sum cut timeout; do command -v "$tool_boundary_command" >/dev/null; done
+source "$LAB_ROOT/scripts/pinned-shell-tool-functions.sh"
+pin_runtime_tool timeout
+run_pinned_timeout() { assert_runtime_tool timeout; "$timeout_bin" "$@"; }
+pin_runtime_tool cargo
+cargo() { assert_runtime_tool cargo; "$cargo_bin" "$@"; }
 RUNTIME_ROOT="$LAB_ROOT/evidence/native-runtime"
 MANIFEST="$RUNTIME_ROOT/native-usdom-v2.json"
 MANIFEST_PIN="$RUNTIME_ROOT/native-usdom-v2.manifest.sha256"
@@ -77,8 +83,15 @@ cleanup() {
   trap - EXIT HUP INT TERM
   if [[ "$SNAPSHOT_DIRECTORY" == /dev/shm/usdom-deposit-witness.* \
     && -d "$SNAPSHOT_DIRECTORY" && ! -L "$SNAPSHOT_DIRECTORY" ]]; then
-    assert_node_unchanged &&
-      "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$SNAPSHOT_DIRECTORY" || status=1
+    if assert_node_unchanged &&
+      run_pinned_timeout --foreground --signal=TERM --kill-after=5s 30s \
+        "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+        "$SNAPSHOT_DIRECTORY" > /dev/null 2> /dev/null &&
+      assert_node_unchanged && assert_runtime_tool timeout && test ! -e "$SNAPSHOT_DIRECTORY"; then
+      :
+    else
+      status=1
+    fi
   fi
   exit "$status"
 }

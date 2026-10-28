@@ -1,0 +1,18 @@
+Stage 1208 — bounded checkpoint-artifact metrics
+Date: 2026-10-26
+
+Change
+- Checkpoint capacity artifact collection now requires wall-clock milliseconds and peak resident KiB metrics to be string-valued canonical positive uint64 decimals.
+- Both metrics are rejected above 20 digits before BigInt conversion and then checked against exact 2^64.
+
+Security result
+- A malformed local measurement cannot place an arbitrary-size resource value into the capacity evidence graph or force unbounded integer conversion.
+- Regressions reject a 100,000-digit duration and exact 2^64.
+- This validates evidence shape only and does not infer a production-capacity fact.
+
+Validation
+- /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/checkpoint-capacity-artifact-collector.test.mjs
+- Result: 7/7 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

@@ -17,6 +17,11 @@ if (($# != 0)); then
   printf '%s\n' 'Usage: npm run --silent run:closed-mainnet-node' >&2
   exit 2
 fi
+BUILD_ONLY=${USDOM_CLOSED_MAINNET_BUILD_ONLY:-NO}
+SUPERVISED=${USDOM_CLOSED_MAINNET_SUPERVISED:-NO}
+[[ "$BUILD_ONLY" == NO || "$BUILD_ONLY" == YES ]] || exit 64
+[[ "$SUPERVISED" == NO || "$SUPERVISED" == YES ]] || exit 64
+[[ "$BUILD_ONLY" != YES || "$SUPERVISED" != YES ]] || exit 64
 
 LAB_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 REPOSITORY_ROOT=$(CDPATH='' cd -- "$LAB_ROOT/../.." && pwd -P)
@@ -26,6 +31,16 @@ pin_runtime_tool timeout
 pin_runtime_tool cargo
 run_pinned_timeout() { assert_runtime_tool timeout; "$timeout_bin" "$@"; }
 RUNTIME_ROOT="$LAB_ROOT/evidence/native-runtime"
+if [[ -n "${USDOM_CHECKPOINT_RESTART_RUNTIME_ROOT:-}" ]]; then
+  if [[ "${USDOM_RUN_CHECKPOINT_RESTART_WITNESS:-}" != YES \
+      || ! "$USDOM_CHECKPOINT_RESTART_RUNTIME_ROOT" =~ ^/[^[:space:]]+$ \
+      || -L "$USDOM_CHECKPOINT_RESTART_RUNTIME_ROOT" \
+      || ! -d "$USDOM_CHECKPOINT_RESTART_RUNTIME_ROOT" ]]; then
+    printf '%s\n' 'Unsafe checkpoint restart runtime snapshot.' >&2
+    exit 1
+  fi
+  RUNTIME_ROOT=$(CDPATH='' cd -- "$USDOM_CHECKPOINT_RESTART_RUNTIME_ROOT" && pwd -P)
+fi
 MANIFEST="$RUNTIME_ROOT/native-usdom-v2.json"
 MANIFEST_PIN="$RUNTIME_ROOT/native-usdom-v2.manifest.sha256"
 NODE_ROOT="$HOME/.local/share/dom-usdom/mainnet-node"
@@ -177,14 +192,22 @@ while :; do
   [[ "$config_search" == / ]] && break
   config_search=${config_search%/*}; [[ -n "$config_search" ]] || config_search=/
 done
-assert_runtime_tool cargo
-run_pinned_timeout --signal=TERM --kill-after=30s 3600s \
-  env -i HOME="$HOME" USER="${USER:-}" LOGNAME="${LOGNAME:-}" \
-  PATH=/usr/bin:/bin LANG=C LC_ALL=C CARGO_HOME="$CARGO_HOME_FIXED" \
-  CARGO_TARGET_DIR="$REPOSITORY_ROOT/target" CARGO_INCREMENTAL=0 \
-  RUST_BACKTRACE=0 RUST_LIB_BACKTRACE=0 \
-  "$cargo_bin" build --quiet --release --frozen --no-default-features -p dom-node \
-  --features native-usdom-v4-poc --bin dom-node
+NODE_BINARY="$REPOSITORY_ROOT/target/release/dom-node"
+if [[ "$SUPERVISED" == YES ]]; then
+  expected=${USDOM_CLOSED_MAINNET_EXPECTED_BINARY_SHA256:-}
+  [[ "$expected" =~ ^[0-9a-f]{64}$ && -f "$NODE_BINARY" && ! -L "$NODE_BINARY" ]] || exit 1
+  [[ $(sha256sum -- "$NODE_BINARY" | cut -d ' ' -f 1) == "$expected" ]] || exit 1
+else
+  assert_runtime_tool cargo
+  run_pinned_timeout --signal=TERM --kill-after=30s 3600s \
+    env -i HOME="$HOME" USER="${USER:-}" LOGNAME="${LOGNAME:-}" \
+    PATH=/usr/bin:/bin LANG=C LC_ALL=C CARGO_HOME="$CARGO_HOME_FIXED" \
+    CARGO_TARGET_DIR="$REPOSITORY_ROOT/target" CARGO_INCREMENTAL=0 \
+    RUST_BACKTRACE=0 RUST_LIB_BACKTRACE=0 \
+    "$cargo_bin" build --quiet --release --frozen --no-default-features -p dom-node \
+    --features native-usdom-v4-poc --bin dom-node
+fi
+[[ "$BUILD_ONLY" == YES ]] && exit 0
 
 export DOM_LOG=info
 export DOM_NETWORK=mainnet
@@ -199,4 +222,4 @@ export DOM_RPC_LISTEN_ADDR=default
 export DOM_RPC_BEARER_TOKEN_FILE="$TOKEN_FILE"
 export DOM_USDOM_V4_MANIFEST_FILE="$MANIFEST"
 export DOM_USDOM_V4_MANIFEST_SHA256="$manifest_sha256"
-exec "$REPOSITORY_ROOT/target/release/dom-node"
+exec "$NODE_BINARY"

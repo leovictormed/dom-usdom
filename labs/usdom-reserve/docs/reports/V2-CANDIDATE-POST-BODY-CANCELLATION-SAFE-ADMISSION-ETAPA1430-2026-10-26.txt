@@ -1,0 +1,13 @@
+USDⓄM — ETAPA 1430
+V2 candidate post-body, cancellation-safe admission
+
+The authenticated V2 candidate route previously acquired its sole concurrency slot before delivery/decoding of a consensus-sized body and tied it to the HTTP future. A slow body could starve validation; cancellation could admit overlap while detached node work continued.
+
+The route now bounds body delivery separately at two requests, acquires one consensus-worker permit only after canonical decoding, and moves that permit into the spawned node task. Contention fails immediately with retryable 503. Existing body cap, authentication and rate limiting remain.
+
+Evidence:
+- usdom_v2_candidate_admission_is_fail_fast_and_survives_cancellation: PASS 1/1, 0.03s.
+- slow_v2_candidate_body_does_not_hold_consensus_worker_admission: PASS 1/1, 0.02s.
+- dom-rpc compiled; rustfmt and diff checks pass.
+
+No network, mining, signing, deployment, funds, commit or push.

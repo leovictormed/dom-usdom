@@ -5,7 +5,7 @@ import {readFile} from 'node:fs/promises';
 const directory=new URL('../../scripts/',import.meta.url);
 const cases=new Map([
  ['materialize-release-provenance.sh',5],
- ['materialize-mainnet-deployment-identity.sh',8],
+ ['materialize-mainnet-deployment-identity.sh',10],
  ['materialize-preactivation-policy.sh',1],
 ]);
 

@@ -1,0 +1,30 @@
+SAFE RECOVERY FINAL JQ REATTESTATION — STAGE 1171
+Date: 2026-10-26
+
+Finding
+=======
+
+Safe recovery completed its final source, installed-artifact and RPC-proxy
+barriers and then invoked the saved jq pathname to produce the only operator
+output. That last invocation was not immediately preceded by the existing full
+jq identity predicate. A changed runtime could therefore control the success
+projection after every other completion check.
+
+Correction
+==========
+
+The executor now calls `assert_jq_unchanged` immediately before the final jq
+projection. The predicate rechecks command resolution, executable identity,
+parent directory and SHA-256. The final output remains derived only from the
+authenticated consensus report.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused recovery/environment/process selection: 9/9 pass.
+- Complete operator-runbook suite: 84/84 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

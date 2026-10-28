@@ -1,0 +1,34 @@
+ETAPA 1262 — AUTORIDADE JQ LIMITADA NAS DECISÕES DA RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema
+
+A auditoria completa das invocações do executor encontrou três processos jq ainda
+fora das autoridades limitadas. Eles decidiam se o owner conectado constava no
+plano e, para cada endpoint, se uma transação observada era a esperada e se já
+existia. Embora os JSON de entrada já fossem validados, esses processos podiam
+travar ou consumir CPU sem prazo e tomavam decisões críticas sem reatestar jq.
+
+Correção
+
+As três decisões agora passam por `run_jq_line_authority`. Cada execução reatesta jq
+e timeout, usa prazo de 30 segundos em foreground com TERM e KILL, limita stdout e
+stderr a 64 KiB, exige UTF-8 estrito, status zero, stdout não vazio, stderr vazio e
+exatamente uma linha. As decisões também exigem explicitamente o valor canônico
+`true` ou, na consulta de presença, um dos booleanos canônicos `true`/`false`.
+
+O executor não possui mais chamada operacional direta a jq: as duas ocorrências de
+`"$jq_bin" "$@"` restantes pertencem somente às autoridades limitadas de JSON e
+linha. A regressão fixa essa contagem e rejeita o retorno de `"$jq_bin" -e`.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais de pinning, evidência derivada e paridade: 6/6 aprovados;
+- focais mais `operator-runbook`: 90/90 aprovados;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

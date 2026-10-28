@@ -38,6 +38,86 @@ function decimalUint64(value,label) {
   if(parsed>2n**64n-1n) throw new Error(`${label} exceeds uint64`);
   return parsed;
 }
+function canonicalBlock(value,label) {
+  if(typeof value==='string'&&/^0x(?:0|[1-9a-f][0-9a-f]*)$/.test(value)) return BigInt(value);
+  return decimalUint64(value,label);
+}
+
+export function validateOrderedDeploymentChronology(deployments,{requireReceiptOrder=false}={}) {
+  if(!Array.isArray(deployments)||deployments.length===0||deployments.length>roles.length) {
+    throw new Error('deployment chronology is incomplete');
+  }
+  for(let index=0;index<deployments.length;index++) {
+    const current=deployments[index];
+    if(!current||current.name!==roles[index].name) {
+      throw new Error('deployment chronology role order is invalid');
+    }
+    for(const [numberField,hashField] of [
+      ['receiptBlockNumber','receiptBlockHash'],['finalizedBlockNumber','finalizedBlockHash'],
+    ]) {
+      if(current[numberField]===undefined) continue;
+      const number=canonicalBlock(current[numberField],`${current.name} ${numberField}`);
+      const hash=current[hashField];
+      if(typeof hash!=='string'||!/^0x[0-9a-fA-F]{64}$/.test(hash)) {
+        throw new Error('deployment chronology block hash is invalid');
+      }
+      if(index===0||deployments[index-1][numberField]===undefined) continue;
+      const previous=deployments[index-1];
+      const previousNumber=canonicalBlock(previous[numberField],`${previous.name} ${numberField}`);
+      if(number<previousNumber||(number===previousNumber
+          &&hash.toLowerCase()!==previous[hashField].toLowerCase())) {
+        throw new Error('deployment chronology is inconsistent with ordered nonces');
+      }
+    }
+  }
+  if(requireReceiptOrder) {
+    for(let index=0;index<deployments.length;index++) {
+      const current=deployments[index];
+      const block=canonicalBlock(current.receiptBlockNumber,`${current.name} receipt block`);
+      const transactionIndex=canonicalBlock(current.receiptTransactionIndex,
+        `${current.name} receipt transaction index`);
+      if(index===0) continue;
+      const previous=deployments[index-1];
+      const previousBlock=canonicalBlock(previous.receiptBlockNumber,
+        `${previous.name} receipt block`);
+      const previousTransactionIndex=canonicalBlock(previous.receiptTransactionIndex,
+        `${previous.name} receipt transaction index`);
+      if(block<previousBlock||(block===previousBlock&&transactionIndex<=previousTransactionIndex)) {
+        throw new Error('deployment receipt chronology is inconsistent with ordered nonces');
+      }
+    }
+  }
+  return deployments;
+}
+
+export function validateMainnetDeploymentTopology(releaseConfig,{deployments}={}) {
+  const plans=roles.map((role,index)=>{
+    const from=getAddress(releaseConfig?.[role.deployerField]);
+    if(BigInt(from)===0n) throw new Error('deployment account must not be zero');
+    const nonce=decimalUint64(releaseConfig?.[role.nonceField],`${role.name} nonce`);
+    const expectedContract=getAddress(releaseConfig?.[role.addressField]);
+    if(BigInt(expectedContract)===0n
+        ||getCreateAddress({from,nonce})!==expectedContract) {
+      throw new Error(`${role.name} CREATE address differs from deployment topology`);
+    }
+    return {name:role.name,from,nonce,expectedContract,index};
+  });
+  const base=plans[0];
+  for(const plan of plans) {
+    if(plan.from!==base.from||plan.nonce!==base.nonce+BigInt(plan.index)) {
+      throw new Error('deployment topology requires one deployer and four consecutive ordered nonces');
+    }
+  }
+  if(deployments!==undefined) {
+    const normalized=deployments.map((deployment,index)=>({name:roles[index].name,
+      receiptBlockNumber:deployment?.receiptBlockNumber??deployment?.blockNumber,
+      receiptBlockHash:deployment?.receiptBlockHash??deployment?.blockHash,
+      finalizedBlockNumber:deployment?.finalizedBlockNumber,
+      finalizedBlockHash:deployment?.finalizedBlockHash}));
+    validateOrderedDeploymentChronology(normalized);
+  }
+  return plans;
+}
 
 export function deriveMainnetDeploymentIdentity({releaseConfig,deployer,baseNonce}) {
   if(!releaseConfig||typeof releaseConfig!=='object'||Array.isArray(releaseConfig)
@@ -47,8 +127,10 @@ export function deriveMainnetDeploymentIdentity({releaseConfig,deployer,baseNonc
   }
   const address=getAddress(deployer);
   if(BigInt(address)===0n) throw new Error('deployment account must not be zero');
-  const nonce=BigInt(baseNonce);
-  if(nonce<0n||nonce>2n**64n-4n) throw new Error('deployment base nonce is outside uint64 bounds');
+  let nonce;
+  try { nonce=decimalUint64(baseNonce,'deployment base nonce'); }
+  catch { throw new Error('deployment base nonce is outside uint64 bounds'); }
+  if(nonce>2n**64n-4n) throw new Error('deployment base nonce is outside uint64 bounds');
   const result={...releaseConfig};
   const plans=roles.map((role,index)=>{
     const roleNonce=nonce+BigInt(index);
@@ -58,8 +140,11 @@ export function deriveMainnetDeploymentIdentity({releaseConfig,deployer,baseNonc
     setNullOrExact(result,role.addressField,expectedContract);
     return {name:role.name,from:address,nonce:roleNonce.toString(),expectedContract};
   });
+  const configuredOwners=['governanceOwners','guardianOwners','checkpointGuardianOwners']
+    .flatMap(field=>Array.isArray(releaseConfig[field])?releaseConfig[field]:[]);
   const identities=[address,...plans.map(plan=>plan.expectedContract),releaseConfig.token,
-    releaseConfig.governance,releaseConfig.guardian,releaseConfig.checkpointGuardian]
+    releaseConfig.governance,releaseConfig.guardian,releaseConfig.checkpointGuardian,
+    ...configuredOwners]
     .filter(value=>typeof value==='string').map(getAddress);
   if(new Set(identities).size!==identities.length) {
     throw new Error('deployment identity collides with a configured role or contract');

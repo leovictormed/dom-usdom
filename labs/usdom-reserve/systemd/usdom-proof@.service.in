@@ -20,6 +20,7 @@ CPUWeight=10
 IOWeight=100
 MemoryHigh=5500M
 MemoryMax=6500M
+LimitCORE=0
 TasksMax=256
 UMask=0077
 NoNewPrivileges=yes

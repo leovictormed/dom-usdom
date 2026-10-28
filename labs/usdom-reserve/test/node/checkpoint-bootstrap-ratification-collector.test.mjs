@@ -8,12 +8,15 @@ import {buildCheckpointBootstrapRatificationSigningRequest,
   validateCheckpointBootstrapRatificationSigningRequest}
   from '../../sdk/checkpoint-bootstrap-ratification-request.mjs';
 import {rpcConsensusEvidence} from '../../sdk/rpc-consensus-evidence.mjs';
+import {createHash} from 'node:crypto';
 
 const h=byte=>'0x'+byte.repeat(64);
 const releaseEvidence={schema:1,releaseId:'release-1',sourceCommit:'a'.repeat(40),sourceTag:'usdom-v1'};
 const runtime='0x6001600055';
+const implementation='0x1000000000000000000000000000000000000002';
 const releaseConfig={ethereumChainId:'1',governance:'0x1000000000000000000000000000000000000001',
- governanceCodeHash:keccak256(runtime),reserveConfigHash:h('2'),checkpointRegistryConfigHash:h('3'),
+ governanceCodeHash:keccak256(runtime),governanceImplementation:implementation,
+ governanceImplementationCodeHash:keccak256(runtime),reserveConfigHash:h('2'),checkpointRegistryConfigHash:h('3'),
  activationScheduleCommitment:h('4'),nativeEthereumTrustedCheckpoint:h('5'),domDomain:h('6'),
  checkpointDomNetworkMagic:'1146047821',checkpointDomChainId:h('7'),checkpointFirstV4Height:'1001',
  checkpointIntervalBlocks:'360',checkpointConfirmationDepthBlocks:'30',
@@ -41,6 +44,7 @@ function rpcFetch({secondHash=h('b')}={}) {
   let result;
   if(request.method==='eth_chainId') result='0x1';
   else if(request.method==='eth_getCode') result=runtime;
+  else if(request.method==='eth_getStorageAt') result='0x'+'00'.repeat(12)+implementation.slice(2);
   else if(request.method==='eth_call') result=magic;
   else if(request.method==='eth_getBlockByNumber') {
    if(request.params[0]==='0x0') result={number:'0x0',
@@ -100,6 +104,24 @@ test('bootstrap catalog rejects credential-bearing, routed and local endpoints',
    {operatorId:'operator-a',url},{operatorId:'operator-b',url:'https://rpc-b.example/'},
   ]),/canonical public root HTTPS origin/);
  }
+ assert.throws(()=>buildCheckpointBootstrapRpcCatalog([
+  {operatorId:'operator-a',url:'https://shared.example:443/'},
+  {operatorId:'operator-b',url:'https://shared.example:444/'},
+ ]),/hostnames must be pairwise distinct/);
+});
+
+test('bounded JSON-RPC provider rejects disabled bounds and request-count exhaustion',async()=>{
+ for(const options of [{maxBytes:Infinity},{maxBytes:0},{timeoutMs:Infinity},{timeoutMs:0},
+  {maxRequests:Infinity},{maxRequests:0}]) {
+  assert.throws(()=>createBoundedJsonRpcProvider('https://rpc-a.example/',options),/transport bounds/);
+ }
+ const provider=createBoundedJsonRpcProvider('https://rpc-a.example/',{maxRequests:1,
+  fetchImpl:async(_url,request)=>{
+   const body=JSON.parse(request.body);
+   return new Response(JSON.stringify({jsonrpc:'2.0',id:body.id,result:'0x1'}),{status:200});
+  }});
+ assert.equal(await provider.send('eth_chainId',[]),'0x1');
+ await assert.rejects(()=>provider.send('eth_chainId',[]),/request count limit/);
 });
 
 test('launchers keep RPC URLs behind owner-only file paths and require hash-addressed create-once signatures',async()=>{
@@ -111,13 +133,18 @@ test('launchers keep RPC URLs behind owner-only file paths and require hash-addr
   '../../scripts/sign-checkpoint-bootstrap-ratification.sh'].map(file=>
    readFile(new URL(file,import.meta.url),'utf8')));
  const all=files.join('\n');
+ assert.match(files[1],/TEMPORARY_IDENTITY=\$\(\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$TEMPORARY"\)/);
+ assert.match(files[1],/\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$TEMPORARY" 2>\/dev\/null\) == "\$TEMPORARY_IDENTITY"/);
  assert.match(files[0],/checkpoint bootstrap ratification inputs changed during collection/);
  assert.match(all,/USDOM_CHECKPOINT_RATIFICATION_RPC_SOURCES/);
  assert.doesNotMatch(all,/USDOM_CHECKPOINT_RATIFICATION_SIGNATURE/);
  assert.match(files[0],/ratification-signature\.sha256/);
- assert.match(all,/ASSINO CHECKPOINT BOOTSTRAP USDOM SEM TRANSMITIR/);
+ assert.match(all,/ASSINO CHECKPOINT BOOTSTRAP USDOM SEM TRANSMITIR AUTH \$AUTHORIZATION_HASH/);
+ assert.match(all,/usdom-checkpoint-bootstrap-ratification-offline-sign-v1\|action=signCheckpointBootstrapRatification\|phase=offline-sign-only\|chainId=1\|ratificationDigest=\$\{DIGEST,,\}\|requestSha256=\$EXPECTED_REQUEST_SHA\|safeBundleSha256=\$SAFE_BUNDLE_SHA256\|releaseConfigSha256=\$RELEASE_CONFIG_SHA256\|governanceOwners=\$OWNER_SET\|threshold=2/);
  assert.match(all,/check-release-signing-network\.mjs/);
- assert.match(all,/"\$cast_bin" wallet sign --no-hash "\$DIGEST" --ledger/);
+ assert.match(all,/sign-onekey-mainnet-typed-data\.mjs/);
+ assert.match(all,/assemble-checkpoint-bootstrap-ratification-signatures\.mjs/);
+ assert.doesNotMatch(all,/--ledger|wallet sign --no-hash|onekey-usb/i);
  assert.doesNotMatch(all,/(?:^|\n)\s*cast wallet sign/m);
  assert.match(files[4],/sort_by\(ascii_downcase\)/);
  assert.match(files[4],/Existing ratification-signature hash differs from rebuilt signature/);
@@ -134,6 +161,10 @@ test('launchers keep RPC URLs behind owner-only file paths and require hash-addr
  assert.match(files[3],/Existing ratification-request hash differs from rebuilt output/);
  assert.match(files[3],/cmp -s "\$TEMPORARY\/request\.sha256" "\$SHA"/);
  assert.match(files[3],/cmp -s "\$TEMPORARY\/request\.json" "\$REQUEST"/);
+ assert.match(files[3],/TEMPORARY_IDENTITY=\$\(\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$TEMPORARY"\)/);
+ assert.match(files[3],/\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$TEMPORARY" 2>\/dev\/null\) == "\$TEMPORARY_IDENTITY"/);
+ for(const [signal,status] of [['HUP',129],['INT',130],['TERM',143]])
+  assert.match(files[3],new RegExp(`trap 'cleanup ${status}' ${signal}`));
  assert.ok(files[3].indexOf('install-private-file-immutable-stdin.mjs" "$SHA"')
    <files[3].indexOf('install-private-file-immutable-stdin.mjs" --json "$REQUEST"'));
  assert.doesNotMatch(all,/https:\/\/rpc-[ab]\.example|curl|wget|git push|cast send/);
@@ -146,15 +177,34 @@ test('canonical signing request binds exact inputs, finalized governance and RPC
    {sourceId:'operator-a',originKeccak256:h('d')},
    {sourceId:'operator-b',originKeccak256:h('e')},
   ])};
- const inputDocuments={releaseEvidenceSha256:'1'.repeat(64),releaseConfigSha256:'2'.repeat(64),
-  checkpointConsensusSha256:'3'.repeat(64),nativeFactsSha256:'4'.repeat(64)};
- const args={releaseEvidence,releaseConfig,checkpointConsensus,nativeFacts,finalizedAnchor,inputDocuments};
+ const fixed=value=>Buffer.from(`${JSON.stringify(value,null,2)}\n`);
+ const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
+ const releaseEvidenceBytes=fixed(releaseEvidence),releaseConfigBytes=fixed(releaseConfig);
+ const checkpointConsensusBytes=fixed(checkpointConsensus),nativeFactsBytes=fixed(nativeFacts);
+ const inputDocuments={releaseEvidenceSha256:sha256(releaseEvidenceBytes),
+  releaseConfigSha256:sha256(releaseConfigBytes),checkpointConsensusSha256:sha256(checkpointConsensusBytes),
+  nativeFactsSha256:sha256(nativeFactsBytes)};
+ const args={releaseEvidence,releaseEvidenceBytes,releaseConfig,releaseConfigBytes,
+  checkpointConsensus,checkpointConsensusBytes,nativeFacts,nativeFactsBytes,finalizedAnchor,inputDocuments};
  const request=buildCheckpointBootstrapRatificationSigningRequest(args);
  assert.equal(validateCheckpointBootstrapRatificationSigningRequest({...args,request}).digest,
   checkpointBootstrapRatificationDigest(args));
  for(const changed of [
   {...request,ratificationDigest:h('f')},
+  {...request,typedData:{...request.typedData,message:{...request.typedData.message,
+    ratificationCommitment:h('f')}}},
   {...request,inputDocuments:{...request.inputDocuments,nativeFactsSha256:'5'.repeat(64)}},
   {...request,finalizedAnchor:{...request.finalizedAnchor,governanceCodeHash:h('f')}},
+  {...request,finalizedAnchor:{...request.finalizedAnchor,blockHash:h('0')}},
+  {...request,finalizedAnchor:{...request.finalizedAnchor,blockNumber:'020000000'}},
+  {...request,finalizedAnchor:{...request.finalizedAnchor,blockTimestamp:'0'}},
+  {...request,finalizedAnchor:{...request.finalizedAnchor,blockTimestamp:'999'}},
  ]) assert.throws(()=>validateCheckpointBootstrapRatificationSigningRequest({...args,request:changed}));
+ const substituted=Buffer.from(releaseEvidenceBytes);
+ substituted[substituted.indexOf('release-1')]='X'.charCodeAt(0);
+ assert.throws(()=>validateCheckpointBootstrapRatificationSigningRequest({...args,
+  releaseEvidenceBytes:substituted,request}),/release evidence object differs from fixed bytes/);
+ assert.throws(()=>validateCheckpointBootstrapRatificationSigningRequest({...args,
+  releaseEvidence:{...releaseEvidence,releaseId:'release-2'},request}),
+ /release evidence object differs from fixed bytes/);
 });

@@ -1,0 +1,26 @@
+Stage 1391 — Cargo execution-surface closure
+Date: 2026-10-26
+
+Finding
+Pinned dependencies do not by themselves close compile-time code execution. Cargo implicitly
+executes build.rs, native links declarations affect linker selection, and local proc-macro crates
+execute inside rustc. The policy did not inventory these surfaces, and workspace members were
+not required to resolve to direct manifests.
+
+Correction
+- Closed the build-script inventory to the six reviewed repository build.rs paths. A new implicit
+  build.rs now fails even without a manifest build key.
+- Package build declarations may only be absent, false, or build.rs and must agree with the
+  reviewed inventory; arbitrary script paths fail closed.
+- Closed native links to the two reviewed secp adapter link names.
+- Reject local proc-macro crates unless a future explicit review adds one.
+- Every one of the 172 root workspace members must resolve to a direct nonsymlink Cargo.toml.
+- Added adversarial coverage for arbitrary build scripts, native links and proc-macro activation.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No repository hash was frozen. No network, signing, deployment, funds, commit or push occurred.

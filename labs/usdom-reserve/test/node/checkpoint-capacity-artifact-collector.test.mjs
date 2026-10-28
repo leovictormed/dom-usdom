@@ -50,62 +50,82 @@ async function fixture() {
 
   const randomxReceipt=await receipt(root,'evidence/randomx-receipt-set',
     'randomx-receipt-0000.bin','randomx-receipt');
+  const randomxReceipt2=await receipt(root,'evidence/randomx-receipt-set',
+    'randomx-receipt-0001.bin','randomx-receipt-2');
   await indexFile(root,'evidence/randomx-receipt-set/randomx-receipt-set-index.json',{
     schema:'usdom-randomx-receipt-set-v1',
     proof_job_index_path:'evidence/randomx-proof-jobs/randomx-proof-job-index.json',
     proof_job_index_sha256:jobs.randomx.sha256,manifest_sha256:raw('11'),
     randomx_receipt_image_id:CHECKPOINT_RANDOMX_IMAGE_ID,randomx_user_elf_sha256:raw('12'),
     risc0_zkvm_version:'3.0.6',receipt_kind:'succinct',previous_height:100000,
-    target_height:100360,confirmation_height:100390,segment_count:1,receipt_count:1,
+    target_height:100001,confirmation_height:100002,segment_count:2,receipt_count:2,
     randomx_relations_executed:true,receipts_verified:true,dev_mode:false,
     generates_proofs:true,mines:false,receipts:[{index:0,segment_index:0,block_index:0,
-      block_height:100001,statement_sha256:raw('13'),expected_journal:raw('14'),...randomxReceipt}],
+      block_height:100001,statement_sha256:raw('13'),expected_journal:raw('14'),...randomxReceipt},
+    {index:1,segment_index:1,block_index:0,block_height:100002,
+      statement_sha256:raw('1c'),expected_journal:raw('1d'),...randomxReceipt2}],
   });
 
   const aggregateReceipt=await receipt(root,'evidence/randomx-aggregate-receipt-set',
     'randomx-aggregate-receipt-0000.bin','aggregate-receipt');
+  const aggregateReceipt2=await receipt(root,'evidence/randomx-aggregate-receipt-set',
+    'randomx-aggregate-receipt-0001.bin','aggregate-receipt-2');
   await indexFile(root,
     'evidence/randomx-aggregate-receipt-set/randomx-aggregate-receipt-set-index.json',{
       schema:'usdom-randomx-aggregate-receipt-set-v1',
       aggregate_job_index_path:'evidence/randomx-aggregate-jobs/randomx-aggregate-job-index.json',
       aggregate_job_index_sha256:jobs.aggregate.sha256,
       aggregate_image_id:CHECKPOINT_RANDOMX_AGGREGATE_IMAGE_ID,risc0_zkvm_version:'3.0.6',
-      receipt_kind:'succinct',receipt_count:1,inner_receipts_verified:true,
+      receipt_kind:'succinct',receipt_count:2,inner_receipts_verified:true,
       aggregate_receipts_verified:true,dev_mode:false,generates_proofs:true,mines:false,
-      receipts:[{index:0,previous_height:100000,next_height:100360,block_count:360,
-        expected_journal:raw('15'),...aggregateReceipt}],
+      receipts:[{index:0,previous_height:100000,next_height:100001,block_count:1,
+        expected_journal:raw('15'),...aggregateReceipt},
+      {index:1,previous_height:100001,next_height:100002,block_count:1,
+        expected_journal:raw('1e'),...aggregateReceipt2}],
     });
 
   const chunkReceipt=await receipt(root,'evidence/economic-receipt-set',
     'economic-chunk-receipt-0000.bin','chunk-receipt');
   const blockReceipt=await receipt(root,'evidence/economic-receipt-set',
     'economic-block-receipt-0000.bin','block-receipt');
+  const chunkReceipt2=await receipt(root,'evidence/economic-receipt-set',
+    'economic-chunk-receipt-0001.bin','chunk-receipt-2');
+  const blockReceipt2=await receipt(root,'evidence/economic-receipt-set',
+    'economic-block-receipt-0001.bin','block-receipt-2');
   await indexFile(root,'evidence/economic-receipt-set/economic-receipt-set-index.json',{
     schema:'usdom-economic-receipt-set-v1',
     proof_job_index_path:'evidence/economic-proof-jobs/economic-proof-job-index.json',
     proof_job_index_sha256:jobs.economic.sha256,chunk_image_id:CHECKPOINT_ECONOMIC_CHUNK_IMAGE_ID,
     block_image_id:CHECKPOINT_ECONOMIC_BLOCK_IMAGE_ID,risc0_zkvm_version:'3.0.6',
-    receipt_kind:'succinct',chunk_receipt_count:1,block_receipt_count:1,
+    receipt_kind:'succinct',chunk_receipt_count:2,block_receipt_count:2,
     chunk_proving_wall_milliseconds:1000,chunk_peak_resident_kib:100000,
     block_proving_wall_milliseconds:1000,block_peak_resident_kib:100000,
     chunk_receipts_verified:true,block_receipts_verified:true,dev_mode:false,
     generates_proofs:true,mines:false,chunk_receipts:[{index:0,segment_index:0,block_index:0,
-      chunk_index:0,block_height:100001,expected_journal:raw('16'),...chunkReceipt}],
+      chunk_index:0,block_height:100001,expected_journal:raw('16'),...chunkReceipt},
+    {index:1,segment_index:1,block_index:0,chunk_index:0,block_height:100002,
+      expected_journal:raw('1f'),...chunkReceipt2}],
     block_receipts:[{index:0,segment_index:0,block_index:0,block_height:100001,
-      expected_journal:raw('17'),...blockReceipt}],
+      expected_journal:raw('17'),...blockReceipt},
+    {index:1,segment_index:1,block_index:0,block_height:100002,
+      expected_journal:raw('20'),...blockReceipt2}],
   });
 
   const segmentReceipt=await receipt(root,'evidence/checkpoint-segment-receipt-set',
     'checkpoint-segment-receipt-0000.bin','segment-receipt');
+  const segmentReceipt2=await receipt(root,'evidence/checkpoint-segment-receipt-set',
+    'checkpoint-segment-receipt-0001.bin','segment-receipt-2');
   await indexFile(root,
     'evidence/checkpoint-segment-receipt-set/checkpoint-segment-receipt-set-index.json',{
       schema:'usdom-checkpoint-segment-receipt-set-v1',
       proof_job_index_path:'evidence/checkpoint-segment-proof-jobs/checkpoint-segment-proof-job-index.json',
       proof_job_index_sha256:jobs.segment.sha256,segment_image_id:CHECKPOINT_SEGMENT_IMAGE_ID,
-      risc0_zkvm_version:'3.0.6',receipt_kind:'succinct',receipt_count:1,
+      risc0_zkvm_version:'3.0.6',receipt_kind:'succinct',receipt_count:2,
       inner_receipts_verified:true,segment_receipts_verified:true,dev_mode:false,
       generates_proofs:true,mines:false,receipts:[{index:0,previous_height:100000,
-        next_height:100390,block_count:390,expected_journal:raw('18'),...segmentReceipt}],
+        next_height:100001,block_count:1,expected_journal:raw('18'),...segmentReceipt},
+      {index:1,previous_height:100001,next_height:100002,block_count:1,
+        expected_journal:raw('21'),...segmentReceipt2}],
     });
 
   const outerReceipt=await receipt(root,'evidence/checkpoint-outer-receipt-set',
@@ -116,7 +136,7 @@ async function fixture() {
       schema:'usdom-checkpoint-outer-receipt-set-v1',
       proof_job_index_path:'evidence/checkpoint-outer-proof-job/checkpoint-outer-proof-job-index.json',
       proof_job_index_sha256:jobs.outer.sha256,outer_image_id:outerImage,statement_hash:statementHash,
-      risc0_zkvm_version:'3.0.6',receipt_kind:'succinct',segment_receipt_count:1,
+      risc0_zkvm_version:'3.0.6',receipt_kind:'succinct',segment_receipt_count:2,
       segment_receipts_verified:true,outer_receipt_verified:true,dev_mode:false,
       generates_proofs:true,mines:false,...outerReceipt,
     });
@@ -163,12 +183,18 @@ test('collector verifies private on-disk receipt graph and returns six measured 
   assert.equal(collected.statementHash,'0x'+value.statementHash);
   assert.equal(collected.measuredLayers[2].provingWallMilliseconds,'1000');
   assert.equal(collected.measuredLayers[0].inputs.length,2);
-  assert.equal(collected.randomxVerifiedGraph.receiptCount,1);
+  assert.equal(collected.randomxVerifiedGraph.receiptCount,2);
   assert.match(collected.randomxVerifiedGraph.jobIndexSha256,/^[0-9a-f]{64}$/);
   assert.match(collected.randomxVerifiedGraph.receiptIndexSha256,/^[0-9a-f]{64}$/);
   assert.equal(collected.compressionMetrics.provingWallMilliseconds,'1000');
   assert.equal(collected.evmArtifacts.statement.length,551);
   assert.equal(collected.evmArtifacts.seal.subarray(0,4).toString('hex'),'73c457ba');
+  for(const invalid of ['9'.repeat(100000),(1n<<64n).toString()]) {
+    const changed=metrics(); changed.randomx.provingWallMilliseconds=invalid;
+    await assert.rejects(()=>collectCheckpointCapacityArtifacts(value.root,{
+      metrics:changed,checkpointVerifierConfig:value.checkpointVerifierConfig,
+    }),/canonical positive decimal/);
+  }
 });
 
 test('collector rejects a legacy 550-byte V5 statement at the current artifact path',async t=>{
@@ -239,6 +265,55 @@ test('collector rejects noncanonical receipt metadata before artifact loops',asy
   }
 });
 
+test('collector rejects broken economic chunk, block, segment and outer adjacency',async t=>{
+  const mutations=[
+    ['evidence/economic-receipt-set/economic-receipt-set-index.json',
+      value=>{ value.chunk_receipts[0].segment_index=1; }],
+    ['evidence/economic-receipt-set/economic-receipt-set-index.json',
+      value=>{ value.block_receipts[0].block_height=100002; }],
+    ['evidence/economic-receipt-set/economic-receipt-set-index.json',
+      value=>{ value.block_receipts[0].block_index=1; value.block_receipts[0].block_height=100002; }],
+    ['evidence/checkpoint-outer-receipt-set/checkpoint-outer-receipt-set-index.json',
+      value=>{ value.segment_receipt_count=1; }],
+  ];
+  for(const [relative,mutate] of mutations) {
+    const value=await fixture(); t.after(()=>rm(value.root,{recursive:true,force:true}));
+    const target=path.join(value.root,relative),index=JSON.parse(await readFile(target,'utf8'));
+    mutate(index); await writeFile(target,JSON.stringify(index,null,2)+'\n',{mode:0o600});
+    await assert.rejects(()=>collectCheckpointCapacityArtifacts(value.root,{
+      metrics:metrics(),checkpointVerifierConfig:value.checkpointVerifierConfig,
+    }),/economic chunk|economic block|outer receipt segment count/);
+  }
+});
+
+test('collector rejects incomplete or replayed cross-layer checkpoint coverage',async t=>{
+  const mutations=[
+    ['evidence/randomx-receipt-set/randomx-receipt-set-index.json',
+      value=>{ value.receipt_count=1; value.receipts.pop(); }],
+    ['evidence/randomx-receipt-set/randomx-receipt-set-index.json',
+      value=>{ value.receipts[1].segment_index=0; value.receipts[1].block_index=1; }],
+    ['evidence/randomx-aggregate-receipt-set/randomx-aggregate-receipt-set-index.json',
+      value=>{ value.receipts[1].previous_height=100000; value.receipts[1].block_count=2; }],
+    ['evidence/checkpoint-segment-receipt-set/checkpoint-segment-receipt-set-index.json',
+      value=>{ value.receipts[1].previous_height=100000; value.receipts[1].block_count=2; }],
+    ['evidence/checkpoint-segment-receipt-set/checkpoint-segment-receipt-set-index.json',
+      value=>{ value.receipts[0].next_height=100002; value.receipts[0].block_count=2;
+        value.receipts[1].previous_height=100002; value.receipts[1].next_height=100003; }],
+    ['evidence/economic-receipt-set/economic-receipt-set-index.json',value=>{
+      value.chunk_receipt_count=1; value.chunk_receipts.pop();
+      value.block_receipt_count=1; value.block_receipts.pop();
+    }],
+  ];
+  for(const [relative,mutate] of mutations) {
+    const value=await fixture(); t.after(()=>rm(value.root,{recursive:true,force:true}));
+    const target=path.join(value.root,relative),index=JSON.parse(await readFile(target,'utf8'));
+    mutate(index); await writeFile(target,JSON.stringify(index,null,2)+'\n',{mode:0o600});
+    await assert.rejects(()=>collectCheckpointCapacityArtifacts(value.root,{
+      metrics:metrics(),checkpointVerifierConfig:value.checkpointVerifierConfig,
+    }),/checkpoint window|every checkpoint block|confirmation phase|spans must be ordered|receipt spans|segment boundary|coverage|cover every RandomX/);
+  }
+});
+
 test('collector rejects ambiguous checkpoint index bytes before graph authority',async t=>{
   const relative='evidence/randomx-receipt-set/randomx-receipt-set-index.json';
   for(const bytes of [
@@ -251,6 +326,20 @@ test('collector rejects ambiguous checkpoint index bytes before graph authority'
       metrics:metrics(),checkpointVerifierConfig:value.checkpointVerifierConfig,
     }),/duplicate (?:object )?key|invalid UTF-8/);
   }
+});
+
+test('collector rejects a complete origin graph changed during collection',async t=>{
+  const value=await fixture(); t.after(()=>rm(value.root,{recursive:true,force:true}));
+  const target=path.join(value.root,
+    'evidence/randomx-proof-jobs/randomx-proof-job-index.json');
+  await assert.rejects(()=>collectCheckpointCapacityArtifacts(value.root,{
+    metrics:metrics(),checkpointVerifierConfig:value.checkpointVerifierConfig,
+    beforeOriginRecheck:async()=>writeFile(target,'changed-after-validation',{mode:0o600}),
+  }),/checkpoint capacity artifact changed during collection/);
+  await assert.rejects(()=>collectCheckpointCapacityArtifacts(value.root,{
+    metrics:metrics(),checkpointVerifierConfig:value.checkpointVerifierConfig,
+    beforeOriginRecheck:true,
+  }),/beforeOriginRecheck must be a function/);
 });
 
 test('checkpoint index authority uses the byte-strict JSON boundary',async()=>{

@@ -4,7 +4,7 @@ set -euo pipefail
 # process memory out of tracing, panic backtraces and core artifacts.
 set +x
 unset BASH_XTRACEFD 2>/dev/null || true
-# Do not carry caller-owned evidence, lock or logging descriptors into Ledger
+# Do not carry caller-owned evidence, lock or logging descriptors into signing
 # or validation children. Bash's script descriptor 255 is internal and CLOEXEC.
 for fd_path in /proc/$$/fd/*; do
   inherited_fd=${fd_path##*/}
@@ -14,7 +14,7 @@ for fd_path in /proc/$$/fd/*; do
   exec {inherited_fd}>&-
 done
 # Do not let the operator's ambient toolchain, loader, proxy or debug settings
-# alter credential-bearing Node/Cast/Ledger children. USDOM inputs are exported
+# alter credential-bearing Node/Cast/WalletConnect children. USDOM inputs are exported
 # explicitly below; HOME is retained for hardware-wallet integration.
 unset LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH \
   NODE_OPTIONS NODE_PATH NODE_DEBUG NODE_DEBUG_NATIVE SSLKEYLOGFILE \
@@ -41,6 +41,8 @@ fi
 : "${USDOM_SAFE_PACKAGE:?USDOM_SAFE_PACKAGE is required}"
 : "${USDOM_SAFE_BASELINE:?USDOM_SAFE_BASELINE is required}"
 : "${USDOM_MAINNET_PREFLIGHT_RPC_SOURCES_FILE:?USDOM_MAINNET_PREFLIGHT_RPC_SOURCES_FILE is required}"
+: "${USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG:?USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG is required}"
+: "${USDOM_ONEKEY_IOS_PHYSICAL_EVIDENCE_DIRECTORY:?USDOM_ONEKEY_IOS_PHYSICAL_EVIDENCE_DIRECTORY is required}"
 
 for command in cast jq node stat realpath mktemp cmp chmod dirname sha256sum id timeout; do
   command -v "$command" >/dev/null
@@ -212,6 +214,8 @@ plan_source=$(realpath -ms "$USDOM_SAFE_RECOVERY_PLAN")
 replacement_proofs_source=$(realpath -ms "$USDOM_SAFE_RECOVERY_REPLACEMENT_PROOFS")
 package_source=$(realpath -ms "$USDOM_SAFE_PACKAGE")
 baseline_source=$(realpath -ms "$USDOM_SAFE_BASELINE")
+walletconnect_config=$(realpath -ms "$USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG")
+physical_evidence_directory=$(realpath -ms "$USDOM_ONEKEY_IOS_PHYSICAL_EVIDENCE_DIRECTORY")
 signatures_output=$(realpath -ms "$USDOM_SAFE_RECOVERY_SIGNATURES")
 transactions_output=$(realpath -ms "$USDOM_SAFE_RECOVERY_TRANSACTIONS")
 test ! -e "$signatures_output"; test ! -L "$signatures_output"
@@ -222,22 +226,44 @@ test -d "$output_directory"
 test ! -L "$output_directory"
 test "$(stat -c '%u' "$output_directory")" = "$(id -u)"
 test "$(stat -c '%a' "$output_directory")" = '700'
+test -f "$walletconnect_config"; test ! -L "$walletconnect_config"
+test "$(stat -c '%u' "$walletconnect_config")" = "$(id -u)"
+test "$(stat -c '%a' "$walletconnect_config")" = '600'
+test -d "$physical_evidence_directory"; test ! -L "$physical_evidence_directory"
+test "$(stat -c '%u' "$physical_evidence_directory")" = "$(id -u)"
+test "$(stat -c '%a' "$physical_evidence_directory")" = '700'
 
 temporary=$(mktemp -d -p /dev/shm usdom-safe-recovery-sign.XXXXXXXX)
 chmod 0700 "$temporary"
+temporary_identity=$(stat -c '%u:%d:%i:%a' "$temporary")
+signing_state=clean
 cleanup() {
   local status=${1:-$?}
   trap - EXIT HUP INT TERM
-  assert_node_unchanged &&
-    "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$temporary" || status=1
+  if [[ "$signing_state" == signed-unresolved && "$status" -ne 0 ]]; then status=80; fi
+  if [[ $(stat -c '%u:%d:%i:%a' "$temporary" 2>/dev/null) == "$temporary_identity" ]] &&
+    assert_node_unchanged && assert_timeout_unchanged &&
+    "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+      "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+      "$temporary" > /dev/null 2> /dev/null &&
+    assert_node_unchanged && assert_timeout_unchanged && test ! -e "$temporary"; then
+    :
+  else
+    status=1
+  fi
   exit "$status"
 }
 trap 'cleanup $?' EXIT
 trap 'cleanup 129' HUP
 trap 'cleanup 130' INT
 trap 'cleanup 143' TERM
+run_bounded_node() {
+  assert_node_unchanged; assert_timeout_unchanged
+  "$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s "$node_bin" "$@"
+  assert_node_unchanged
+}
 snapshot_private() {
-  "$node_bin" "$project/scripts/read-private-file-stdout.mjs" "$1" > "$2"
+  run_bounded_node "$project/scripts/read-private-file-stdout.mjs" "$1" > "$2"
   chmod 0600 "$2"
 }
 plan_snapshot="$temporary/recovery-plan.json"
@@ -248,6 +274,8 @@ snapshot_private "$plan_source" "$plan_snapshot"
 snapshot_private "$replacement_proofs_source" "$replacement_proofs_snapshot"
 snapshot_private "$package_source" "$package_snapshot"
 snapshot_private "$baseline_source" "$baseline_snapshot"
+walletconnect_config_snapshot="$temporary/walletconnect-client.json"
+snapshot_private "$walletconnect_config" "$walletconnect_config_snapshot"
 assert_signing_inputs_unchanged() {
   snapshot_private "$plan_source" "$temporary/recovery-plan.current.json"
   snapshot_private "$replacement_proofs_source" "$temporary/replacement-proofs.current.json"
@@ -266,7 +294,7 @@ test "$("$jq_bin" -r '.schema' "$plan_snapshot")" = 'usdom-safe-recovery-plan/v2
 test "$("$jq_bin" -r '.ethereumChainId' "$plan_snapshot")" = '1'
 test "$("$jq_bin" -r '[.roles[].requiredSigners|length] == [2,2,2]' "$plan_snapshot")" = 'true'
 test "$("$jq_bin" -r '.roles | length' "$plan_snapshot")" = '3'
-"$node_bin" scripts/check-safe-recovery-replacement-proofs.mjs >/dev/null
+run_bounded_node scripts/check-safe-recovery-replacement-proofs.mjs >/dev/null
 transitions_snapshot="$temporary/recovery-transitions.json"
 "$jq_bin" -e '.transitionsByRole' "$plan_snapshot" > "$transitions_snapshot"
 chmod 0600 "$transitions_snapshot"
@@ -276,8 +304,24 @@ export USDOM_SAFE_RECOVERY_TRANSITIONS_FILE=$transitions_snapshot
   printf '%s\n' 'Safe recovery signing requires an interactive terminal.' >&2
   exit 2
 }
-read -r -p 'Digite ASSINO RECUPERACAO SAFE SEM TRANSMITIR para continuar: ' authorization
-test "$authorization" = 'ASSINO RECUPERACAO SAFE SEM TRANSMITIR'
+plan_hash=$("$jq_bin" -er '.planHash' "$plan_snapshot")
+transaction_package_hash=$("$jq_bin" -er '.transactionPackageHash' "$plan_snapshot")
+safe_transaction_hashes=$("$jq_bin" -er '.roles | map(.role + ":" + .safeTxHash) | join(",")' "$plan_snapshot")
+plan_sha256=$(sha256_file "$plan_snapshot")
+replacement_proofs_sha256=$(sha256_file "$replacement_proofs_snapshot")
+safe_package_sha256=$(sha256_file "$package_snapshot")
+safe_baseline_sha256=$(sha256_file "$baseline_snapshot")
+authorization_preimage="usdom-safe-recovery-offline-sign-v1|action=signRecoverableSafeRecovery|phase=offline-sign-only|chainId=1|planHash=$plan_hash|transactionPackageHash=$transaction_package_hash|safeTxHashes=$safe_transaction_hashes|planSha256=$plan_sha256|replacementProofsSha256=$replacement_proofs_sha256|safePackageSha256=$safe_package_sha256|safeBaselineSha256=$safe_baseline_sha256"
+authorization_preimage_file="$temporary/offline-sign-authorization.txt"
+printf '%s' "$authorization_preimage" > "$authorization_preimage_file"
+chmod 0600 "$authorization_preimage_file"
+authorization_hash=$(sha256_file "$authorization_preimage_file")
+printf 'SAFE RECOVERY OFFLINE SIGN REVIEW action=signRecoverableSafeRecovery phase=offline-sign-only chainId=1 planHash=%s transactionPackageHash=%s safeTxHashes=%s planSha256=%s replacementProofsSha256=%s safePackageSha256=%s safeBaselineSha256=%s authorizationHash=%s\n' \
+  "$plan_hash" "$transaction_package_hash" "$safe_transaction_hashes" "$plan_sha256" \
+  "$replacement_proofs_sha256" "$safe_package_sha256" "$safe_baseline_sha256" "$authorization_hash" >&2
+read -r -p "Digite ASSINO RECUPERACAO SAFE SEM TRANSMITIR AUTH $authorization_hash: " authorization
+test "$authorization" = "ASSINO RECUPERACAO SAFE SEM TRANSMITIR AUTH $authorization_hash"
+assert_signing_inputs_unchanged
 assert_cast_unchanged
 assert_node_unchanged
 assert_jq_unchanged
@@ -289,8 +333,8 @@ normalized_plan="$temporary/$(basename "$plan_snapshot").normalized"
   "$plan_snapshot" > "$normalized_plan"
 reobserve_safe_recovery_network() {
   assert_signing_inputs_unchanged
-  "$node_bin" scripts/check-recoverable-safe-recovery-plan.mjs >/dev/null
-  "$node_bin" scripts/prepare-recoverable-safe-recovery.mjs > "$rebuilt_consensus"
+  run_bounded_node scripts/check-recoverable-safe-recovery-plan.mjs >/dev/null
+  run_bounded_node scripts/prepare-recoverable-safe-recovery.mjs > "$rebuilt_consensus"
   normalized_rebuilt="$temporary/$(basename "$rebuilt_consensus").normalized"
   "$jq_bin" -S 'del(.finalizedBlockNumber,.finalizedBlockHash,.planningSnapshotHash,.planHash)' \
     "$rebuilt_consensus" > "$normalized_rebuilt"
@@ -308,27 +352,61 @@ for role in governance reserveGuardian checkpointGuardian; do
   for signer_index in 0 1; do
     expected=$("$jq_bin" -er --arg role "$role" --argjson index "$signer_index" \
       '.roles[]|select(.role==$role)|.requiredSigners[$index]' "$plan_snapshot")
-    read -r -p "Conecte somente o dispositivo do signer $expected de $role e pressione Enter: " _
+    printf 'Confirme no OneKey conectado ao iPhone a conta %s para %s; somente EIP-712 sera solicitado.\n' "$expected" "$role" >&2
     assert_signing_inputs_unchanged
     assert_cast_unchanged
     assert_node_unchanged
     assert_jq_unchanged
     assert_cmp_unchanged
     assert_timeout_unchanged
-    observed=$("$timeout_bin" --foreground --signal=TERM --kill-after=5s 300s \
-      "$cast_bin" wallet address --ledger)
-    assert_cast_unchanged
-    assert_timeout_unchanged
-    test "$observed" = "$expected"
     reobserve_safe_recovery_network
     typed_data="$temporary/$role-$signer_index-typed-data.json"
     "$jq_bin" -e --arg role "$role" '.roles[]|select(.role==$role)|.typedData' \
       "$plan_snapshot" > "$typed_data"
     chmod 0600 "$typed_data"
-    signature=$("$timeout_bin" --foreground --signal=TERM --kill-after=5s 300s \
-      "$cast_bin" wallet sign --data --from-file "$typed_data" --ledger)
-    assert_cast_unchanged
-    assert_timeout_unchanged
+    typed_digest=$(run_bounded_node -e 'const fs=require("fs"),{TypedDataEncoder}=require("ethers"),v=JSON.parse(fs.readFileSync(process.argv[1],"utf8")),t={...v.types};delete t.EIP712Domain;process.stdout.write(TypedDataEncoder.hash(v.domain,t,v.message))' "$typed_data")
+    signing_envelope="$temporary/$role-$signer_index-signing-envelope.json"
+    "$jq_bin" -n --arg digest "$typed_digest" --slurpfile typed "$typed_data" \
+      '{schema:"usdom-onekey-eip712-signing/v1",digest:$digest,typedData:$typed[0]}' > "$signing_envelope"
+    chmod 0600 "$signing_envelope"
+    expected_lower=${expected,,}
+    physical_evidence_source="$physical_evidence_directory/$expected_lower.json"
+    physical_evidence="$temporary/$role-$signer_index-physical-evidence.json"
+    test -f "$physical_evidence_source"; test ! -L "$physical_evidence_source"
+    test "$(stat -c '%u' "$physical_evidence_source")" = "$(id -u)"
+    test "$(stat -c '%a' "$physical_evidence_source")" = '600'
+    snapshot_private "$physical_evidence_source" "$physical_evidence"
+    test -f "$physical_evidence"; test ! -L "$physical_evidence"
+    test "$(stat -c '%u' "$physical_evidence")" = "$(id -u)"
+    test "$(stat -c '%a' "$physical_evidence")" = '600'
+    artifact_prefix="$signatures_output.onekey-$role-$signer_index"
+    request="$artifact_prefix.request.json"
+    response="$artifact_prefix.response.json"
+    if [[ ! -e "$request" ]]; then
+      run_bounded_node scripts/prepare-onekey-ios-walletconnect-request.mjs \
+        "$walletconnect_config_snapshot" "$signing_envelope" "$physical_evidence" "$expected" "$request" >/dev/null
+    fi
+    if [[ ! -e "$response" ]]; then
+      assert_signing_inputs_unchanged
+      reobserve_safe_recovery_network
+      snapshot_private "$walletconnect_config" "$temporary/walletconnect-client.current.json"
+      snapshot_private "$physical_evidence_source" "$temporary/$role-$signer_index-physical-evidence.current.json"
+      "$cmp_bin" -s "$walletconnect_config_snapshot" "$temporary/walletconnect-client.current.json"
+      "$cmp_bin" -s "$physical_evidence" "$temporary/$role-$signer_index-physical-evidence.current.json"
+      set +e
+      "$timeout_bin" --foreground --signal=TERM --kill-after=10s 330s "$node_bin" \
+        scripts/sign-onekey-ios-walletconnect-typed-data.mjs "$walletconnect_config_snapshot" "$request" \
+        "$physical_evidence" "$response"
+      signing_status=$?
+      set -e
+      if (( signing_status == 80 )); then exit 80; fi
+      (( signing_status == 0 )) || exit "$signing_status"
+    fi
+    # Once a response exists, any later uncertainty must never trigger a blind re-sign.
+    test -f "$response" || exit 80
+    signing_state=signed-unresolved
+    signature=$(run_bounded_node scripts/read-onekey-ios-walletconnect-signature.mjs \
+      "$request" "$response" "$expected" "$typed_data") || exit 80
     [[ "$signature" != *$'\r'* && "$signature" != *$'\n'* ]]
     [[ "$signature" =~ ^0x[0-9a-fA-F]{130}$ ]]
     updated="$temporary/signatures-$role-$signer_index.json"
@@ -336,12 +414,13 @@ for role in governance reserveGuardian checkpointGuardian; do
       '.[$role] += [{signer:$signer,signature:$signature}]' "$signature_draft" > "$updated"
     chmod 0600 "$updated"
     signature_draft=$updated
+    printf 'A sessao WalletConnect de %s foi encerrada; selecione a proxima conta fisica somente quando solicitado.\n' "$expected" >&2
   done
 done
 exec </dev/null
 
 USDOM_SAFE_RECOVERY_SIGNATURES="$signature_draft" \
-  "$node_bin" scripts/assemble-recoverable-safe-recovery.mjs > "$transaction_draft"
+  run_bounded_node scripts/assemble-recoverable-safe-recovery.mjs > "$transaction_draft"
 chmod 0600 "$transaction_draft"
 snapshot_private "$plan_source" "$temporary/recovery-plan.final.json"
 snapshot_private "$replacement_proofs_source" "$temporary/replacement-proofs.final.json"
@@ -356,7 +435,7 @@ assert_node_unchanged
 assert_jq_unchanged
 assert_cmp_unchanged
 assert_signing_inputs_unchanged
-"$node_bin" "$project/scripts/install-private-file-new-stdin.mjs" "$signatures_output" < "$signature_draft"
+run_bounded_node "$project/scripts/install-private-file-new-stdin.mjs" "$signatures_output" < "$signature_draft"
 snapshot_private "$signatures_output" "$temporary/signatures.installed.json"
 "$cmp_bin" -s "$signature_draft" "$temporary/signatures.installed.json"
 assert_signing_inputs_unchanged
@@ -364,9 +443,10 @@ assert_cast_unchanged
 assert_node_unchanged
 assert_jq_unchanged
 assert_cmp_unchanged
-"$node_bin" "$project/scripts/install-private-file-new-stdin.mjs" "$transactions_output" < "$transaction_draft"
+run_bounded_node "$project/scripts/install-private-file-new-stdin.mjs" "$transactions_output" < "$transaction_draft"
 snapshot_private "$transactions_output" "$temporary/transactions.installed.json"
 "$cmp_bin" -s "$transaction_draft" "$temporary/transactions.installed.json"
+signing_state=resolved
 
 "$jq_bin" '{schema,ethereumChainId,planHash,transactionPackageHash,
   transactions:[.transactions[]|{role,to,value,dataHash,safeTxHash,signers}]}' \

@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 
 const sha256=/^[0-9a-f]{64}$/;
+const nonzeroSha256=value=>sha256.test(value)&&value!=='0'.repeat(64);
 const commit=/^[0-9a-f]{40}$/;
 const tag=/^usdom-v[0-9]+\.[0-9]+\.[0-9]+$/;
 
@@ -47,8 +48,8 @@ export function validateSecurityValidationReleaseEvidence(releaseEvidence) {
 export function buildSecurityValidationReport({releaseEvidence,requirementsSha256,
   sourceManifestSha256,results}={}) {
   validateSecurityValidationReleaseEvidence(releaseEvidence);
-  if(!sha256.test(requirementsSha256??'')) fail('requirements SHA-256 is invalid');
-  if(!sha256.test(sourceManifestSha256??'')) fail('source manifest SHA-256 is invalid');
+  if(!nonzeroSha256(requirementsSha256??'')) fail('requirements SHA-256 is invalid');
+  if(!nonzeroSha256(sourceManifestSha256??'')) fail('source manifest SHA-256 is invalid');
   if(!Array.isArray(results)||results.length!==SECURITY_VALIDATION_CHECKS.length) {
     fail('security validation result set is incomplete');
   }
@@ -56,8 +57,8 @@ export function buildSecurityValidationReport({releaseEvidence,requirementsSha25
     const result=results[index];
     if(!exact(result,['command','exitCode','id','stderrSha256','stdoutSha256','toolSha256'])
         || result.id!==expected.id||result.command!==expected.command
-        || result.exitCode!==0||!sha256.test(result.stdoutSha256??'')
-        || !sha256.test(result.stderrSha256??'')||!sha256.test(result.toolSha256??'')) {
+        || result.exitCode!==0||!nonzeroSha256(result.stdoutSha256??'')
+        || !nonzeroSha256(result.stderrSha256??'')||!nonzeroSha256(result.toolSha256??'')) {
       fail(`security validation check ${expected.id} did not pass exactly`);
     }
     return {...result};

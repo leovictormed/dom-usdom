@@ -1,4 +1,5 @@
 import {AbiCoder,TypedDataEncoder,getAddress,keccak256,toUtf8Bytes} from 'ethers';
+import {createHash} from 'node:crypto';
 import {
   collectFinalizedEip1271Approvals,validEip1271Signature,
 } from './finalized-eip1271-approval.mjs';
@@ -6,14 +7,23 @@ import {validateRecoverableSafeControlReleaseEvidence} from './safe-control-rele
 import {validateRpcConsensusEvidence} from './rpc-consensus-evidence.mjs';
 import {isCanonicalReleaseEvidenceDocumentPath as canonicalEvidencePath}
   from './release-evidence-document-paths.mjs';
+import {parseStrictJsonBytes} from './strict-json.mjs';
 
 export const RELEASE_AUTHORIZATION_DOMAIN_NAME='USDOM Production Release Authorization';
 export const RELEASE_AUTHORIZATION_DOMAIN_VERSION='4';
+// Governance approval must be re-created after this window. EIP-1271 is also
+// re-evaluated at the current finalized state, so owner rotation/revocation
+// takes effect without trusting the persisted observation.
+export const MAX_RELEASE_AUTHORIZATION_AGE_SECONDS=24n*60n*60n;
 
 const bytes32Pattern=/^0x[0-9a-fA-F]{64}$/;
 const commitPattern=/^[0-9a-f]{40}$/;
 const sha256Pattern=/^[0-9a-f]{64}$/;
-const canonicalUintPattern=/^[1-9][0-9]*$/;
+const canonicalUint256Pattern=/^[1-9][0-9]{0,77}$/;
+const nonzeroUint64Pattern=/^[1-9][0-9]{0,19}$/;
+function nonzeroUint64(value) {
+  return typeof value==='string'&&nonzeroUint64Pattern.test(value)&&BigInt(value)<(1n<<64n);
+}
 const types={ReleaseAuthorization:[
   {name:'releaseId',type:'string'},
   {name:'sourceCommit',type:'string'},
@@ -34,13 +44,23 @@ const types={ReleaseAuthorization:[
 
 function fail(message) { throw new Error(message); }
 function canonicalChainId(value) {
-  if(typeof value!=='string'||!canonicalUintPattern.test(value)) {
+  if(typeof value!=='string'||!canonicalUint256Pattern.test(value)) {
     fail('ethereumChainId must be a nonzero canonical integer string');
   }
-  return BigInt(value);
+  const parsed=BigInt(value);
+  if(parsed>=(1n<<256n)) fail('ethereumChainId must fit uint256');
+  return parsed;
 }
 function bytes32(value,name) {
-  if(typeof value!=='string'||!bytes32Pattern.test(value)) fail(`${name} must be bytes32`);
+  if(typeof value!=='string'||!bytes32Pattern.test(value)||BigInt(value)===0n) {
+    fail(`${name} must be nonzero bytes32`);
+  }
+  return value;
+}
+function nonzeroSha256(value,name) {
+  if(typeof value!=='string'||!sha256Pattern.test(value)||BigInt(`0x${value}`)===0n) {
+    fail(`${name} must be nonzero SHA-256`);
+  }
   return value;
 }
 
@@ -82,9 +102,10 @@ function canonicalJson(value,{stack=new WeakSet(),depth=0,budget={nodes:0}}={}) 
     const keys=Object.keys(value).sort();
     if(keys.includes('path')||keys.includes('sha256')) {
       if(JSON.stringify(keys)!==JSON.stringify(['path','sha256'])
-          ||!canonicalEvidencePath(value.path)||!sha256Pattern.test(value.sha256??'')) {
+          ||!canonicalEvidencePath(value.path)) {
         fail('release evidence contains an invalid hash-addressed document');
       }
+      nonzeroSha256(value.sha256,'release evidence document sha256');
     }
     encoded=`{${keys.map(key=>`${JSON.stringify(key)}:${canonicalJson(value[key],{
       stack,depth:depth+1,budget})}`).join(',')}}`;
@@ -110,7 +131,7 @@ export function releaseEvidenceCommitment(releaseEvidence) {
 }
 
 export function validateReleaseAuthorizationSigningRequest({
-  request,bundle,bundleSha256,releaseConfig,releaseEvidence,
+  request,bundle,bundleBytes,bundleSha256,releaseConfig,releaseEvidence,
 }={}) {
   const keys=value=>value&&typeof value==='object'&&!Array.isArray(value)
     ?JSON.stringify(Object.keys(value).sort()):'';
@@ -122,13 +143,17 @@ export function validateReleaseAuthorizationSigningRequest({
     'blockHash','blockNumber','blockTimestamp','governance','governanceCodeHash','rpcConsensus',
   ])) fail('release authorization finalized anchor schema is invalid');
   validateRpcConsensusEvidence(request.finalizedAnchor.rpcConsensus);
-  if(typeof request.finalizedAnchor.blockNumber!=='string'
-      || !canonicalUintPattern.test(request.finalizedAnchor.blockNumber)
+  if(!nonzeroUint64(request.finalizedAnchor.blockNumber)
       || !bytes32Pattern.test(request.finalizedAnchor.blockHash??'')
-      || typeof request.finalizedAnchor.blockTimestamp!=='string'
-      || !canonicalUintPattern.test(request.finalizedAnchor.blockTimestamp)
+      || !nonzeroUint64(request.finalizedAnchor.blockTimestamp)
       || !bytes32Pattern.test(request.finalizedAnchor.governanceCodeHash??'')) {
     fail('release authorization finalized anchor is invalid');
+  }
+  if(!Buffer.isBuffer(bundleBytes)
+      ||JSON.stringify(parseStrictJsonBytes(bundleBytes,{label:'Safe evidence bundle',
+        maxBytes:4*1024*1024,maxDepth:64}))!==JSON.stringify(bundle)
+      ||createHash('sha256').update(bundleBytes).digest('hex')!==bundleSha256) {
+    fail('Safe evidence bundle bytes differ from parsed authority');
   }
   validateRecoverableSafeControlReleaseEvidence(bundle);
   const bundleDocument=releaseEvidence?.controlPlaneEvidenceBundle;
@@ -136,6 +161,7 @@ export function validateReleaseAuthorizationSigningRequest({
       || bundleDocument.path
         !=='evidence/control-plane/safe-control-release-evidence-bundle.json'
       || typeof bundleSha256!=='string'||!sha256Pattern.test(bundleSha256)
+      || BigInt(`0x${bundleSha256}`)===0n
       || bundleDocument.sha256!==bundleSha256) {
     fail('Safe evidence bundle bytes differ from the release evidence');
   }
@@ -191,12 +217,12 @@ export function releaseAuthorizationTypedData(authorization,releaseConfig) {
   if(typeof authorization.releaseId!=='string'||authorization.releaseId.length===0) {
     fail('releaseId must be nonempty');
   }
-  if(!commitPattern.test(authorization.sourceCommit??'')) fail('sourceCommit is invalid');
+  if(!commitPattern.test(authorization.sourceCommit??'')
+      ||BigInt(`0x${authorization.sourceCommit}`)===0n) fail('sourceCommit is invalid');
   if(!/^usdom-v[0-9]+\.[0-9]+\.[0-9]+$/.test(authorization.sourceTag??'')) fail('sourceTag is invalid');
   bytes32(authorization.releaseEvidenceCommitment,'releaseEvidenceCommitment');
-  if(!sha256Pattern.test(authorization.reportSha256??'')) fail('reportSha256 is invalid');
-  if(typeof authorization.acceptedAt!=='string'||!canonicalUintPattern.test(authorization.acceptedAt)
-      || BigInt(authorization.acceptedAt)>0xffffffffffffffffn) {
+  nonzeroSha256(authorization.reportSha256,'reportSha256');
+  if(!nonzeroUint64(authorization.acceptedAt)) {
     fail('acceptedAt must be a nonzero canonical uint64 string');
   }
   const governance=getAddress(releaseConfig?.governance);
@@ -233,7 +259,8 @@ export function buildReleaseAuthorization({releaseEvidence,releaseConfig,operato
   if(!releaseEvidence||releaseEvidence.schema!==1) fail('release evidence is invalid');
   if(!operatorIntent||operatorIntent.schema!==1) fail('operator intent is invalid');
   if(!releaseEvidence.residualRiskAcceptanceReport
-      || !sha256Pattern.test(releaseEvidence.residualRiskAcceptanceReport.sha256??'')) {
+      || !sha256Pattern.test(releaseEvidence.residualRiskAcceptanceReport.sha256??'')
+      || BigInt(`0x${releaseEvidence.residualRiskAcceptanceReport.sha256??'0'}`)===0n) {
     fail('hash-addressed residual-risk report is required');
   }
   if(!Array.isArray(operatorIntent.undefined)||operatorIntent.undefined.length!==0) {
@@ -260,8 +287,25 @@ export async function collectReleaseAuthorizationApproval({provider,releaseConfi
     fail('release authorization signature is malformed or oversized');
   }
   return collectFinalizedEip1271Approvals({provider,chainId:releaseConfig?.ethereumChainId,
-    governance:releaseConfig?.governance,requests:{releaseAuthorization:{
+    governance:releaseConfig?.governance,
+    governanceImplementation:releaseConfig?.governanceImplementation,
+    governanceImplementationCodeHash:releaseConfig?.governanceImplementationCodeHash,
+    requests:{releaseAuthorization:{
       digest:releaseAuthorizationDigest(authorization,releaseConfig),
       signature:authorization.signature,
     }}});
+}
+
+export function validateReleaseAuthorizationFreshness({authorization,observation}={}) {
+  if(!nonzeroUint64(authorization?.acceptedAt)
+      || !nonzeroUint64(observation?.finalizedBlockTimestamp)) {
+    fail('release authorization freshness timestamps are invalid');
+  }
+  const accepted=BigInt(authorization.acceptedAt);
+  const finalized=BigInt(observation.finalizedBlockTimestamp);
+  if(accepted>finalized) fail('release authorization is later than finalized state');
+  if(finalized-accepted>MAX_RELEASE_AUTHORIZATION_AGE_SECONDS) {
+    fail('release authorization is stale and must be renewed');
+  }
+  return {acceptedAt:accepted.toString(),finalizedBlockTimestamp:finalized.toString()};
 }

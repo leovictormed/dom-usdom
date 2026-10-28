@@ -1,0 +1,42 @@
+EXTERNAL ASSURANCE NONBLOCKING POLICY — ETAPA 1479
+Date: 2026-10-27
+
+Scope
+
+The closed-mainnet list, the additional real-funds list and every focused test
+subgroup were audited for requirements whose names indicate external audit,
+independent review or an absolute zero-risk guarantee.
+
+Result
+
+No such claim remains release-blocking.  In particular these descriptive
+claims are absent from both readiness lists and all subgroups:
+
+- production_checkpoint_registry_independently_audited
+- issuance_commitment_relation_independently_reviewed
+- native_privacy_circuit_independently_audited
+- production_control_plane_configuration_independently_reviewed
+- absolute_zero_risk_guaranteed
+
+Technical internal checks were preserved.  This includes reproducible-build
+validation, automated security-validation reports, semantic operations-review
+recomputation and independent hardware-key separation.  These are executable
+technical controls rather than third-party assurance or a risk-free promise.
+
+Permanent regression
+
+`readinessRequirementKeys(mode)` exposes immutable snapshots of the actual
+closed-mainnet and real-funds blocking lists for policy tests.  A regression
+checks those two snapshots, the complete ready-fixture list and every focused
+subgroup.  It rejects the five known external-assurance keys and any future key
+containing audit, audited, independently_reviewed or zero_risk.  Unsupported
+modes are rejected.
+
+Validation
+
+- external audits and zero-risk remain nonrequirements: passed in both modes.
+- structural nonreintroduction regression: passed.
+- git diff --check: passed.
+
+No manifest modification, network use, signing, deployment, funds, commit or
+push occurred.

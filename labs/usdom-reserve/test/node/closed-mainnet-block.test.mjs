@@ -25,7 +25,7 @@ test('closed Mainnet response rejects count, height, hash and mode substitutions
   const valid={schema_version:1,height:1,block_hash:'33'.repeat(32),initialized_genesis:false,count:1};
   for(const mutation of [
     {...valid,count:2},{...valid,height:0},{...valid,block_hash:'0'.repeat(64)},
-    {...valid,block_hash:'AA'.repeat(32)},{...valid,initialized_genesis:true}
+    {...valid,block_hash:'AA'.repeat(32)},{...valid,initialized_genesis:true},{...valid,extra:true}
   ]) assert.throws(()=>validateClosedMainnetMineResponse(mutation,request));
   assert.throws(()=>closedMainnetMineRequest({...identity,network:'regtest'}));
 });
@@ -35,12 +35,13 @@ test('queued issuance must bind the same chain and exact pre-mining tip',()=>{
     mined:false,candidateId:`0x${'44'.repeat(32)}`,domChainId:`0x${identity.chain_id}`,
     domGenesisHash:`0x${identity.genesis_hash}`,depositId:`0x${'77'.repeat(32)}`,
     witnessSha256:'88'.repeat(32),amountBaseUnits:'1000000',noteCommitment:`0x${'99'.repeat(32)}`,
-    broadcastsEthereum:false,
+    broadcastsEthereum:false,submittedAt:'2026-10-26T12:00:00.000Z',
     observedTipHeight:'0',observedTipHash:`0x${identity.tip_hash}`};
   assert.equal(validateQueuedIssuanceReceipt(receipt,identity),receipt);
   for(const mutation of [
     {...receipt,state:'mined'},{...receipt,mined:true},{...receipt,observedTipHeight:'1'},
-    {...receipt,observedTipHash:`0x${'55'.repeat(32)}`},{...receipt,domChainId:`0x${'66'.repeat(32)}`}
+    {...receipt,observedTipHash:`0x${'55'.repeat(32)}`},{...receipt,domChainId:`0x${'66'.repeat(32)}`},
+    {...receipt,extra:true},{...receipt,submittedAt:'2026-10-26 12:00:00Z'}
   ]) assert.throws(()=>validateQueuedIssuanceReceipt(mutation,identity));
 });
 
@@ -56,4 +57,8 @@ test('durable issuance block remains bound to the exact canonical tip',()=>{
     issuanceObserved:false,producedAt:'2026-10-26T12:00:00.000Z'};
   assert.equal(validatePersistedIssuanceBlock(receipt,submission,tip),receipt);
   assert.throws(()=>validatePersistedIssuanceBlock(receipt,submission,{...tip,tip_hash:'bb'.repeat(32)}));
+  for(const changed of [{...receipt,extra:true},{...receipt,parentHeight:'1'},
+    {...receipt,producedAt:'2026-10-26 12:00:00Z'}]) {
+    assert.throws(()=>validatePersistedIssuanceBlock(changed,submission,tip));
+  }
 });

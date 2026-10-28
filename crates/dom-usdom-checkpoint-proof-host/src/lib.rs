@@ -45,13 +45,13 @@ mod verified {
     const SEGMENT_IMAGE_ID_LOGICAL_PATH: &str =
         "../../crates/dom-usdom-checkpoint-segment-risc0-guest/elfs/usdom-checkpoint-segment.iid";
     const SEGMENT_ELF_SHA256: &str =
-        "5c1a4d730459d44e995a8842d1ce89136af546616464362a8136988ab7751272";
+        "5f4d087842d61a463a93242c88efa6ff3c54b52a4e176b1b9a225cc2a8ee7092";
     const SEGMENT_PROGRAM_SHA256: &str =
-        "c4cc41b0b53d787c46b9293d1515c2d0c4ded982c3ae7b98d33877dd142d2b38";
+        "426cc782490b8d680e5bd2266cc4a03b3e731194d92eda44875ea5d552cb5f74";
     const SEGMENT_IMAGE_ID_FILE_SHA256: &str =
-        "46671ec812dd20ef224dc7c3a85bac3e6a1e2cefaff6fa696b5ba5de74056885";
+        "49e779070bbbc97ac88b39c4dfee8250b08864cf10be1d8c35d9598271e1f173";
     const SEGMENT_IMAGE_ID: &str =
-        "4e711490f3ab7dde97636687972456da58da4287ce5017e38d4acaa7263a02d6";
+        "371e408b360a0e4a0aae2cb994bddb2d66afcc5891a7ed574fa83119734bfbf7";
     const ECONOMIC_BLOCK_IMAGE_ID: &str =
         "03dc111fee3c42a772f142c80d4a921a19bde10f932f86c888606503a28c22a7";
     const RISC0_VERSION: &str = "3.0.6";
@@ -70,12 +70,12 @@ mod verified {
     const OUTER_IMAGE_ID_LOGICAL_PATH: &str =
         "../../crates/dom-usdom-checkpoint-outer-risc0-guest/elfs/usdom-checkpoint-outer.iid";
     const OUTER_ELF_SHA256: &str =
-        "37c6c0b315fc301a0587708a1589da0a2cb6d3e1a30b0941431251c1b43224a4";
+        "9dff25635234da9d769fb1ac43896d15e799c3b2b1b4589cab94eb7a5ad4f69b";
     const OUTER_PROGRAM_SHA256: &str =
-        "8f9d0f1753172a9c1d3be22d105d08ea890cd566f18a81fb54c557f620f59b09";
+        "ee707b6a1d2a135656ef9ee93a13487b6e1c24bafba8c66e9215708e184b9a90";
     const OUTER_IMAGE_ID_FILE_SHA256: &str =
-        "95efe3cc38424b6b2f3d22a21464f7707de989ec01f39b5d7edb815b40abe2bb";
-    const OUTER_IMAGE_ID: &str = "e59d68487386939b2ac379f04528acb6b3138697e17adfda3ad23ebe195af3df";
+        "1c16479dbea87ff3dd6e452f68a54761c85bd03684f7566aca61c45135787218";
+    const OUTER_IMAGE_ID: &str = "311d58dadcb97cac783e3ec0efe3c4570f42b944cbda1e48aeb56b055682257b";
     const OUTER_JOB_INDEX_NAME: &str = "checkpoint-outer-proof-job-index.json";
     #[cfg(feature = "prove")]
     const OUTER_JOB_INDEX_LOGICAL_PATH: &str =
@@ -665,8 +665,12 @@ mod verified {
     }
 
     fn decode_hash(value: &str) -> Result<[u8; 32], String> {
-        if !canonical_hash(value) {
-            return Err("invalid canonical hash".into());
+        // Every caller uses this value as cryptographic authority (ImageID or
+        // journal/statement commitment).  An all-zero value is syntactically
+        // valid hex but can only represent an uninitialized/default binding,
+        // never an authorized checkpoint artifact.
+        if !nonzero_hash(value) {
+            return Err("invalid canonical nonzero hash".into());
         }
         let mut output = [0u8; 32];
         for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
@@ -717,6 +721,19 @@ mod verified {
             return Err(format!("pinned artifact hash mismatch: {}", path.display()));
         }
         Ok(())
+    }
+
+    fn read_unchanged(
+        path: &Path,
+        maximum: usize,
+        expected_hash: &str,
+        label: &str,
+    ) -> Result<Vec<u8>, String> {
+        let bytes = read_direct(path, maximum)?;
+        if sha256(&bytes) != expected_hash {
+            return Err(format!("{label} changed after plan rebuild"));
+        }
+        Ok(bytes)
     }
 
     fn decode_verified_receipt(
@@ -1405,7 +1422,16 @@ mod verified {
             return Err("outer checkpoint chain exceeds its bound".into());
         }
         let statement_hash = hex(&executed.statement_hash());
-        let source_index_bytes = read_direct(paths.segment_plan.source_index, MAX_INDEX_BYTES)?;
+        // `build_plan` authenticated one exact source-index generation.  Do
+        // not let a concurrent replacement become the provenance hash of the
+        // outer job after the statement and chain were derived from the old
+        // bytes.
+        let source_index_bytes = read_unchanged(
+            paths.segment_plan.source_index,
+            MAX_INDEX_BYTES,
+            &segment_plan.source_index_sha256,
+            "checkpoint source-set index",
+        )?;
         let index = OuterJobIndex {
             schema: OUTER_JOB_SCHEMA.into(),
             source_index_path: SOURCE_INDEX_LOGICAL_PATH.into(),
@@ -2108,7 +2134,11 @@ mod verified {
 
     #[cfg(test)]
     mod tests {
-        use super::{canonical_hash, decode_hash, nonzero_hash};
+        use std::fs;
+
+        use tempfile::TempDir;
+
+        use super::{canonical_hash, decode_hash, nonzero_hash, read_unchanged, sha256};
 
         #[test]
         fn canonical_hash_decoder_rejects_ambiguous_values() {
@@ -2116,9 +2146,32 @@ mod verified {
             assert!(canonical_hash(&valid));
             assert!(nonzero_hash(&valid));
             assert_eq!(decode_hash(&valid), Ok([0xab; 32]));
+            assert!(decode_hash(&"0".repeat(64)).is_err());
             assert!(!canonical_hash(&format!("0x{valid}")));
             assert!(!canonical_hash(&valid.to_uppercase()));
             assert!(!nonzero_hash(&"00".repeat(32)));
+        }
+
+        #[test]
+        fn outer_provenance_rejects_source_index_replacement() {
+            let directory = TempDir::new().expect("temporary directory");
+            let path = directory.path().join("checkpoint-source-set-index.json");
+            let original = br#"{"schema":"generation-a"}"#;
+            fs::write(&path, original).expect("write original source index");
+            let expected = sha256(original);
+            assert_eq!(
+                read_unchanged(&path, 1024, &expected, "checkpoint source-set index")
+                    .expect("unchanged source index"),
+                original
+            );
+
+            fs::write(&path, br#"{"schema":"generation-b"}"#).expect("replace source index");
+            let error = read_unchanged(&path, 1024, &expected, "checkpoint source-set index")
+                .expect_err("replacement must fail closed");
+            assert_eq!(
+                error,
+                "checkpoint source-set index changed after plan rebuild"
+            );
         }
     }
 }

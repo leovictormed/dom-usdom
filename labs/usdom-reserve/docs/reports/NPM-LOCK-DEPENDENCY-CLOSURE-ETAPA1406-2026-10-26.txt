@@ -1,0 +1,27 @@
+Stage 1406 — npm lock dependency closure
+Date: 2026-10-26
+
+Finding
+Package archives were identity-bound, but dependency declarations inside each locked package
+were not causally linked to another package entry. A lock could therefore retain valid archives
+and checksums while declaring a missing, malformed or traversal-shaped dependency edge.
+
+Correction
+- Validate dependencies, devDependencies and optionalDependencies as typed objects for every
+  root and resolved package entry.
+- Dependency names must use canonical scoped/unscoped npm syntax and requirements must be
+  non-empty strings.
+- Each edge must resolve through npm's nearest ancestor node_modules lookup to an actual package
+  entry in the same authenticated lock snapshot.
+- The one reviewed extraneous Helios parent record remains excluded from closure requirements;
+  it is already a closed local-entry allowlist and is not part of the example install graph.
+- Adversarial coverage rejects missing targets, traversal-shaped names, non-string requirements
+  and non-object dependency sections while accepting root and ancestor resolution.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No repository hash was frozen. No network, signing, deployment, funds, commit or push occurred.

@@ -2,35 +2,50 @@ CLOSED PILOT EMERGENCY ABORT — ETAPA 1122
 Date: 2026-10-26
 
 ORDER OF ACTIONS
-1. Guardian Safe executes pause() or the observed-generation-bound
+1. If authorizedPilotDeposit is nonzero and pilotDepositConsumed is false,
+   governance or guardian Safe executes
+   cancelPilotDepositAuthorization(authorizedPilotSnapshot). A stale snapshot
+   must revert. Confirm authorizedPilotDeposit, authorizedPilotSnapshot and
+   authorizedPilotValidUntil are zero on every catalog RPC. Expiry prevents a
+   deposit but does not replace this state cleanup before a new generation.
+2. Guardian Safe executes pause() or the observed-generation-bound
    pauseQueueEpoch(queueEpoch). Confirm paused=true and the new empty queue epoch
    on every catalog RPC.
-2. Guardian Safe executes closeDeposits(). This closure is irreversible. Confirm
+3. Guardian Safe executes closeDeposits(). This closure is irreversible. Confirm
    depositsClosed=true on every RPC before handling allowances.
-3. If interruption occurred after approve(1 USDT) but before deposit, the funder
+4. If interruption occurred after approve(1 USDT) but before deposit, the funder
    Ledger sends approve(reserve,0). The Safe cannot revoke another account's
    allowance. Confirm allowance=0 on every RPC.
-4. Do not issue USDOM unless a finalized reserve deposit and its authenticated
+5. Do not issue USDOM unless a finalized reserve deposit and its authenticated
    source already exist. Stop native issuance/burn workflows at their durable
    phase boundary.
-5. Inventory paid flags, proved debt and queue epoch before recovery.
+6. Inventory paid flags, proved debt and queue epoch before recovery.
 
 PHASE MATRIX
+- after EIP-1271 but before gate: archive an expired generation automatically;
+  never delete request/signature/state manually.
+- after gate but before approve: cancel the exact snapshot on-chain, then pause
+  + close; preserve gate plan/signatures/package/raw/receipt/completion.
 - before approve: pause + close; verify zero allowance and no debt.
 - after approve: pause + close; funder revokes allowance to zero; no issuance.
 - after deposit: pause + close; collateral remains reserved; no refund/sweep.
-- after issuance: pause + close; preserve backing and stop new activity.
-- after burn: pause + close; permanent proved debt is retained. After controlled
-  governance resume, renew only that existing debt lease and pay it.
+- after issuance: pause + close; preserve backing and stop new issuance. After
+  controlled recovery, already-issued supply may still transfer or burn under
+  DOM consensus so every holder retains a path to redemption.
+- after burn: pause + close; after controlled governance resume, submit the
+  first finalized-burn proof if it was not yet accepted, or renew its exact
+  existing debt lease, then pay it.
 - after queue: pause invalidates the lease but not the debt. Resume after delay,
   renew exact existing debt, wait the withdrawal delay and pay it.
 - after payout: pause + close; verify paidBurns/paidRequests and conservation.
 
 IMPLEMENTED BOUNDARY
-Permanent closure now rejects a first proof that would create a new debt while
-allowing renewal of an already proved debt. Thus closeDeposits stops both new
-collateral and new first-proof queue admission, while existing unpaid burn debt
-remains renewable/payable after a controlled resume.
+Permanent closure rejects new collateral deposits and provides the authenticated
+issuance ceiling. It does not reject the first proof of a finalized burn: doing
+so would strand USDOM issued before closure and make the required supply-zero
+shutdown unreachable. First proofs remain limited to unreserved credited
+collateral and must pass the immutable finalized-burn verifier; existing unpaid
+burn debt remains renewable and payable after a controlled resume.
 
 No collateral sweep or deposit refund exists. Neither is part of recovery.
 Pausing temporarily blocks payout as well as queue/deposit; therefore permanent
@@ -39,3 +54,9 @@ closure plus delayed controlled resume is required to finish existing debts.
 VALIDATION
 - Emergency/debt invariant Node suites: 14/14 passed.
 - Solidity compilation/Forge was intentionally not run in this stage.
+
+Authenticated live pilot-gate cancellation (ETAPA1610B)
+- If the exact pilot authorization is still live, run `npm run --silent execute:pilot-deposit-gate-cancel` from the controlled terminal before any manual state cleanup.
+- The command uses the guardian 2-of-3 Safe and binds the exact snapshot, on-chain pilot authorization generation and Safe nonce. Two distinct hardware owners review the same SafeTx; a separate payer reviews the outer transaction.
+- Completion requires identical receipt/transaction evidence, `ExecutionSuccess`, the exact cancellation event, canonical inclusion, finalized agreement and zero authorization with generation advanced on two RPCs.
+- A completed emergency cancel never prepares, signs, rotates or rearms a replacement authorization. Restart only revalidates the same completion. A later pilot attempt requires the normal authorization phase and a fresh generation.

@@ -7,6 +7,7 @@ const bytes32Pattern=/^0x[0-9a-fA-F]{64}$/;
 const runIdPattern=/^[0-9]{8}T[0-9]{6}Z-[1-9][0-9]*$/;
 const sourceIdPattern=/^[a-z][a-z0-9-]{0,31}$/;
 const fields=Object.freeze([
+  'artifactManifestPath','artifactManifestSha256',
   'adapterCallAccepted','adapterRuntimeCodeHash','adapterVerificationGas','adapterVerifierConfigHash',
   'broadcastAuthorized','completedAt','devMode','ethereumChainId','evmSealBytes',
   'evmSealSha256','finalizedObservationBlockHash','finalizedObservationBlockNumber',
@@ -28,9 +29,9 @@ export const FINALIZED_BURN_CAPACITY_INPUT_BYTES=64264;
 export const FINALIZED_BURN_CAPACITY_STATEMENT_HASH=
   'c0461e1c2bcff62d1dfd8e8fed0b094b5d19c2744cf9bad34c8ae3722e7eaef4';
 export const FINALIZED_BURN_CAPACITY_PROGRAM_SHA256=
-  '883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21';
+  'bf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511';
 export const FINALIZED_BURN_CAPACITY_IMAGE_ID=
-  '2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea';
+  'f0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae';
 const adapterTypeHash=keccak256(toUtf8Bytes(
   'DOMFinalizedBurnRiscZeroVerifier(uint256 chainId,address riscZeroVerifier,bytes32 riscZeroVerifierCodeHash,bytes4 verifierSelector,bytes32 imageId,bytes32 journalSchemaHash,bytes32 proofAccepted)',
 ));
@@ -68,7 +69,9 @@ function bytes32(value,label) {
 }
 
 function canonicalUint(value,bits,label,{maximum=null,nonzero=false}={}) {
-  if(typeof value!=='string' || !/^(0|[1-9][0-9]*)$/.test(value)) {
+  const maxDigits={8:3,16:5,32:10,64:20,128:39,256:78}[bits];
+  if(maxDigits===undefined || typeof value!=='string' || value.length>maxDigits
+      || !/^(0|[1-9][0-9]*)$/.test(value)) {
     throw new Error(`${label} must be a canonical unsigned decimal string`);
   }
   const parsed=uint(value,bits);
@@ -133,6 +136,8 @@ export function validateFinalizedBurnCapacityReport(report,{riscZeroReference}) 
   if(typeof report.runId!=='string' || !runIdPattern.test(report.runId)) {
     throw new Error('capacity run ID is not canonical');
   }
+  if(report.artifactManifestPath!=='artifact-manifest.json') throw new Error('capacity artifact manifest path is invalid');
+  rawHash(report.artifactManifestSha256,'artifactManifestSha256');
   if(report.inputSha256!==FINALIZED_BURN_CAPACITY_INPUT_SHA256
       || report.inputBytes!==FINALIZED_BURN_CAPACITY_INPUT_BYTES
       || report.statementHash!==FINALIZED_BURN_CAPACITY_STATEMENT_HASH

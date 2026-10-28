@@ -1,0 +1,43 @@
+USDOM mainnet readiness — Stage 1355
+Date: 2026-10-26
+
+Finding
+=======
+
+The critical inventory was first parsed through Path.read_text to decide which
+sources controlled publication. The inventory file was then reopened through
+the hardened descriptor reader as one member of that source set. A pathname
+replacement between reads could therefore make the authenticated bytes differ
+from the bytes that selected the graph. Native json.loads also accepted repeated
+keys, creating ambiguous schema authority.
+
+The final MANIFEST.sha256 check likewise used Path.read_text after the hardened
+source captures. Its dictionary construction silently let a later duplicate
+pathname replace the first hash.
+
+Correction
+==========
+
+The inventory now has one bounded descriptor snapshot with no symlink, hardlink,
+unsafe ownership/mode or inode replacement. Strict UTF-8 JSON parsing rejects
+every duplicate key. The exact captured bytes both select the critical source
+set and serve as the self-included inventory payload; there is no second read.
+
+MANIFEST.sha256 now uses the same authenticated descriptor capture. Its parser
+rejects malformed UTF-8, malformed lines and duplicate paths before comparing
+any critical source digest.
+
+Validation
+==========
+
+- Adversarial self-test covers duplicate inventory keys and duplicate manifest
+  paths in addition to indirect paths, secrets, binaries and incomplete closure.
+- Publication boundary focal suite: 2/2 passed.
+- Artifact/runtime/release related suite: 27/27 passed.
+- Python bytecode compilation and git diff --check passed.
+
+Scope
+=====
+
+No source manifest was published or regenerated. No network, deployment,
+signing, funds, production fact, commit or push occurred.

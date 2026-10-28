@@ -1,0 +1,18 @@
+Stage 1227 — bounded mainnet-preflight RPC quantities
+Date: 2026-10-26
+
+Changes
+- Declared HTTP content lengths are rejected above the configured limit's decimal digit width before BigInt conversion.
+- Finalized snapshot pins accept only bounded nonnegative integer, canonical decimal or lowercase uint64 Ethereum quantities and enforce exact 2^64.
+- Finalized RPC block numbers and timestamps now require canonical uint64 quantities; general Ethereum quantity syntax is capped at uint256.
+
+Security result
+- RPC headers, snapshot arguments and finalized block responses cannot force arbitrary-size integer conversion.
+- Snapshot pinning and finalized identity validation share the same uint64 domain, preventing an oversized head from entering later state requests.
+- Regressions reject 100,000-digit decimal/hex inputs and exact 2^64 block quantities.
+
+Validation
+- Broad artifact-independent preflight RPC, preflight and common quantity suites: 29/29 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Rust, Solidity, Cargo, Forge, real network, signing, deployment, funds, commit or push ran.

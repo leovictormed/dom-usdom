@@ -2,7 +2,9 @@
 """Materialize a V3 manifest only from an authenticated complete local recipe."""
 import argparse, hashlib, json, os, stat, sys
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
 from rebuild_v3_build_policy import load_policy,strict_json,verify_attestation
+from durable_create_once import install_create_once
 H64=__import__('re').compile(r'[0-9a-f]{64}')
 MAX=4*1024*1024
 def fail(x): raise ValueError(x)
@@ -62,11 +64,8 @@ def main():
  if not isinstance(tools,list): fail('manifest tools are invalid')
  tools[:]=[x for x in tools if x.get('path') not in (verifier,aggregator)]+[{'path':verifier,'sha256':verifier_sha},{'path':aggregator,'sha256':aggregator_sha}]
  encoded=(json.dumps(manifest,sort_keys=True,separators=(',',':'))+'\n').encode()
- fd=os.open(a.output,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
- with os.fdopen(fd,'wb') as out: out.write(encoded); out.flush(); os.fsync(out.fileno())
- parent=os.open(a.output.parent or Path('.'),os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
- try: os.fsync(parent)
- finally: os.close(parent)
+ install_create_once(Path(os.path.abspath(a.output)),encoded,mode=0o600,maximum=MAX,
+                     private_parent=True,allow_equal=True)
  print(hashlib.sha256(encoded).hexdigest()); return 0
 if __name__=='__main__':
  try: raise SystemExit(main())

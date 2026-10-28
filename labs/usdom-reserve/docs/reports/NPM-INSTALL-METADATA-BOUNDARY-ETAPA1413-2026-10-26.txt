@@ -1,0 +1,27 @@
+Stage 1413 — npm install metadata boundary
+Date: 2026-10-26
+
+Finding
+The lock checker treated installation metadata by truthiness. A string-valued install-script or
+platform flag could pass an allowlisted package name, and a bin target could traverse outside its
+package when npm materialized command shims.
+
+Correction
+- hasInstallScript, dev, optional, devOptional, inBundle and extraneous require booleans.
+- os/cpu/libc selectors require unique non-empty string arrays.
+- engines and peer dependency metadata require typed objects; peer metadata accepts only the exact
+  optional=true record used by npm lock v3.
+- bin inventories require canonical command names and relative forward-slash target paths without
+  empty, dot, parent or absolute components. String-form and traversal bin targets fail closed.
+- The existing install-script name allowlist is now evaluated only after flag type validation.
+- Adversarial coverage rejects truthy string flags, duplicate platform selectors, altered peer
+  metadata, traversal bin paths and unstructured bin inventories.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No global inventory or proof manifest was rematerialized. No network, signing, deployment, funds,
+commit or push occurred.

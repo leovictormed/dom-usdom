@@ -10,6 +10,15 @@ if [[ ! -t 0 || ! -t 2 ]]; then
   printf '%s\n' 'Release source signing requires an interactive terminal.' >&2
   exit 1
 fi
+for forbidden_git_environment in GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE \
+  GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_REPLACE_REF_BASE \
+  GIT_CONFIG_COUNT GIT_CONFIG_SYSTEM GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM \
+  GIT_SHALLOW_FILE GIT_QUARANTINE_PATH; do
+  if [[ -v $forbidden_git_environment ]]; then
+    printf 'Forbidden inherited Git environment variable: %s\n' "$forbidden_git_environment" >&2
+    exit 1
+  fi
+done
 for command in git jq npm node ssh-keygen stat realpath flock grep basename sha256sum awk python3 id; do
   command -v "$command" >/dev/null
 done
@@ -26,19 +35,38 @@ test "$git_directory_owner" = 0 || test "$git_directory_owner" = "$(id -u)"
 (( (8#$git_directory_mode & 8#022) == 0 ))
 git_identity=$(stat -Lc '%d:%i:%s:%Y:%Z' "$git_bin")
 git_sha256=$(sha256sum "$git_bin" | awk '{print $1}')
+ssh_keygen_bin=$(realpath "$(command -v ssh-keygen)")
+test -x "$ssh_keygen_bin"; test -f "$ssh_keygen_bin"; test ! -L "$ssh_keygen_bin"
+ssh_keygen_owner=$(stat -Lc '%u' "$ssh_keygen_bin")
+test "$ssh_keygen_owner" = 0 || test "$ssh_keygen_owner" = "$(id -u)"
+test "$(stat -Lc '%h' "$ssh_keygen_bin")" = 1
+ssh_keygen_mode=$(stat -Lc '%a' "$ssh_keygen_bin")
+(( (8#$ssh_keygen_mode & 8#022) == 0 ))
+ssh_keygen_identity=$(stat -Lc '%d:%i:%s:%Y:%Z' "$ssh_keygen_bin")
+ssh_keygen_sha256=$(sha256sum "$ssh_keygen_bin" | awk '{print $1}')
 assert_git_unchanged() {
   test "$(realpath "$(command -v git)")" = "$git_bin"
   test "$(stat -Lc '%d:%i:%s:%Y:%Z' "$git_bin")" = "$git_identity"
   test "$(sha256sum "$git_bin" | awk '{print $1}')" = "$git_sha256"
 }
+assert_ssh_keygen_unchanged() {
+  test "$(stat -Lc '%d:%i:%s:%Y:%Z' "$ssh_keygen_bin")" = "$ssh_keygen_identity"
+  test "$(sha256sum "$ssh_keygen_bin" | awk '{print $1}')" = "$ssh_keygen_sha256"
+}
 project=$(realpath "$(dirname "$0")/..")
 test "$PWD" = "$project"
 for tool_boundary_command in stat realpath id dirname sha256sum cut; do command -v "$tool_boundary_command" >/dev/null; done
 source "$project/scripts/pinned-shell-tool-functions.sh"
+source "$project/scripts/git-release-ceremony-boundary.sh"
 pin_runtime_tool jq
 jq() { assert_runtime_tool jq; "$jq_bin" "$@"; }
 pin_runtime_tool node
 node() { assert_runtime_tool node; "$node_bin" "$@"; }
+pin_runtime_tool npm
+npm() { assert_runtime_tool npm; node "$npm_bin" "$@"; }
+pin_runtime_tool python3
+python3() { assert_runtime_tool python3; "$python3_bin" "$@"; }
+ssh-keygen() { assert_ssh_keygen_unchanged; "$ssh_keygen_bin" "$@"; }
 repository=$("$git_bin" -C "$project" rev-parse --show-toplevel)
 project_relative=$(realpath --relative-to="$repository" "$project")
 git_directory=$(realpath -- "$("$git_bin" -C "$repository" rev-parse --path-format=absolute --git-common-dir)")
@@ -53,6 +81,12 @@ if ! flock -n 9; then
   printf '%s\n' 'Another USDOM release ceremony holds the Git lock' >&2
   exit 75
 fi
+assert_release_git_environment
+# Release semantics must not inherit process-launching filters, fsmonitor or
+# ignore/attribute authorities from the operator's global/system Git config.
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL=/dev/null
+assert_canonical_git_repository
 
 account_home=$(python3 -c 'import os,pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')
 case "$account_home" in /*) ;; *) exit 1 ;; esac
@@ -65,11 +99,11 @@ test -f "$public_key"; test ! -L "$public_key"
 test "$(stat -c '%u:%a:%h' "$private_key")" = "$(id -u):600:1"
 test "$(stat -c '%u:%a:%h' "$public_key")" = "$(id -u):600:1"
 fingerprint=$(ssh-keygen -lf "$public_key" -E sha256 | awk 'NR == 1 {print $2}')
-test "$("$git_bin" -C "$repository" config --get user.name)" = 'Soren Planck'
-test "$("$git_bin" -C "$repository" config --get user.email)" = 'sorenplanck@tutamail.com'
-test "$("$git_bin" -C "$repository" config --get gpg.format)" = ssh
-test "$(realpath "$("$git_bin" -C "$repository" config --get user.signingkey)")" = "$(realpath "$private_key")"
-test "$("$git_bin" -C "$repository" config --get commit.gpgsign)" = true
+assert_exact_git_config user.name 'Soren Planck'
+assert_exact_git_config user.email 'sorenplanck@tutamail.com'
+assert_exact_git_config gpg.format ssh
+assert_exact_git_config user.signingkey "$private_key"
+assert_exact_git_config commit.gpgsign true
 "$git_bin" -C "$repository" diff --cached --quiet HEAD --
 "$git_bin" -C "$repository" check-ignore -q "$project_relative/docs/CONTINUATION-STATE.md"
 "$git_bin" -C "$repository" check-ignore -q "docs/CONTINUATION-STATE.md"
@@ -109,11 +143,13 @@ authorization_state=$("$git_bin" -C "$repository" rev-parse --verify HEAD; \
 read -r -p "Digite ASSINO COMMIT DE FONTE USDOM $source_tag para continuar: " authorization
 test "$authorization" = "ASSINO COMMIT DE FONTE USDOM $source_tag"
 assert_git_unchanged
+assert_canonical_git_repository
 test "$authorization_state" = "$("$git_bin" -C "$repository" rev-parse --verify HEAD; \
   "$git_bin" -C "$repository" status --porcelain=v1 --untracked-files=all)"
 ! "$git_bin" -C "$repository" rev-parse --verify "refs/tags/$source_tag" >/dev/null 2>&1
 
 before=$("$git_bin" -C "$repository" rev-parse --verify HEAD)
+assert_canonical_git_oid "$before"
 staged=false
 committed=false
 created=''
@@ -122,9 +158,9 @@ rollback() {
   if ((status != 0)); then
     if test "$committed" = true && test -n "$created" \
         && test "$("$git_bin" -C "$repository" rev-parse --verify HEAD)" = "$created"; then
-      "$git_bin" -C "$repository" reset --mixed --quiet "$before"
+      rollback_release_index_and_head "$created" "$before"
     elif test "$staged" = true; then
-      "$git_bin" -C "$repository" reset --mixed --quiet "$before"
+      "$git_bin" -C "$repository" read-tree --reset "$before"
     fi
   fi
   exit "$status"
@@ -134,7 +170,25 @@ trap rollback EXIT
 "$git_bin" -C "$repository" add -A -- . \
   ":(top,exclude)$project_relative/evidence/**"
 staged=true
-if "$git_bin" -C "$repository" diff --cached --quiet "$before" --; then
+staged_tree=$("$git_bin" -C "$repository" write-tree)
+assert_canonical_git_oid "$staged_tree"
+assert_release_tree_has_no_transform_attributes "$staged_tree"
+pin_release_tree_tool "$staged_tree" \
+  "$project_relative/scripts/check-release-tree-source-manifest.py" 6
+pin_release_tree_tool "$staged_tree" \
+  "$project_relative/scripts/check-staged-sensitive-content.mjs" 7
+release_tool_fd_root="/proc/$$/fd"
+test -r "$release_tool_fd_root/6"
+test -r "$release_tool_fd_root/7"
+release_sensitive_scanner=
+if IFS= read -r -d '' release_sensitive_scanner <&7; then
+  printf '%s\n' 'Release scanner contains a forbidden NUL byte' >&2
+  exit 1
+fi
+test -n "$release_sensitive_scanner"
+python3 "$release_tool_fd_root/6" --git "$git_bin" \
+  --repository "$repository" --tree "$staged_tree" --project-relative "$project_relative"
+if "$git_bin" -C "$repository" diff-tree --quiet "$before" "$staged_tree" --; then
   printf '%s\n' 'No source change is staged for the immutable release commit' >&2
   exit 1
 fi
@@ -145,37 +199,42 @@ while IFS= read -r -d '' changed_path; do
       exit 1
       ;;
   esac
-  case "$(basename "$changed_path")" in
+  case "${changed_path##*/}" in
     .env|.env.*|*.pem|*.p12|*.pfx|*.jks|*.seed|*.mnemonic|*.secret|*.key|*.raw|*.witness|*.tmp|id_rsa|id_ed25519|*private-input*|*private-witness*|*credential*|*owner-auth*|*password*)
       printf 'Sensitive-looking path entered the source index: %s\n' "$changed_path" >&2
       exit 1
       ;;
   esac
-  "$git_bin" -C "$repository" show ":$changed_path" | node scripts/check-staged-sensitive-content.mjs --path "$changed_path"
-  index_entry=$("$git_bin" -C "$repository" ls-files --stage -- "$changed_path")
-  if test -n "$index_entry"; then
-    mode=${index_entry%% *}
-    case "$mode" in 100644|100755) ;; *)
-      printf 'Unsupported source index mode %s: %s\n' "$mode" "$changed_path" >&2
-      exit 1
-      ;;
-    esac
-  fi
-done < <("$git_bin" -C "$repository" diff --cached --name-only --no-renames -z "$before" --)
+  assert_tree_path_is_raw_file "$staged_tree" "$changed_path"
+  "$git_bin" -C "$repository" show "$staged_tree:$changed_path" | \
+    node --input-type=module --eval "$release_sensitive_scanner" -- --path "$changed_path"
+done < <("$git_bin" -C "$repository" ls-tree -r --name-only -z "$staged_tree")
+exec 6<&- 7<&-
 
 export GIT_AUTHOR_NAME='Soren Planck'
 export GIT_AUTHOR_EMAIL='sorenplanck@tutamail.com'
 export GIT_COMMITTER_NAME='Soren Planck'
 export GIT_COMMITTER_EMAIL='sorenplanck@tutamail.com'
 assert_git_unchanged
-"$git_bin" -C "$repository" commit -S -m "USDOM $source_tag immutable source"
-created=$("$git_bin" -C "$repository" rev-parse --verify HEAD)
+assert_ssh_keygen_unchanged
+assert_canonical_git_repository
+created=$("$git_bin" -c "gpg.ssh.program=$ssh_keygen_bin" -C "$repository" \
+  commit-tree -S -p "$before" -m "USDOM $source_tag immutable source" "$staged_tree")
+assert_canonical_git_oid "$created"
+"$git_bin" -C "$repository" update-ref HEAD "$created" "$before"
 committed=true
-test "$("$git_bin" -C "$repository" rev-parse --verify HEAD^)" = "$before"
+"$git_bin" -C "$repository" read-tree --reset "$created"
+assert_commit_shape "$created" "$before" "$staged_tree"
+assert_canonical_git_repository
 identities=$("$git_bin" -C "$repository" show -s --format='%an <%ae>%n%cn <%ce>' HEAD)
 test "$identities" = $'Soren Planck <sorenplanck@tutamail.com>\nSoren Planck <sorenplanck@tutamail.com>'
-verification=$("$git_bin" -C "$repository" verify-commit --raw HEAD 2>&1)
-grep -F -- "key $fingerprint" <<<"$verification" >/dev/null
+assert_ssh_keygen_unchanged
+verification=$("$git_bin" -c "gpg.ssh.program=$ssh_keygen_bin" -C "$repository" \
+  verify-commit --raw HEAD 2>&1)
+test "$(printf '%s\n' "$verification" | parse_verified_git_fingerprint)" = "$fingerprint"
+npm test
+npm run check:provenance
+"$git_bin" -C "$repository" diff --check HEAD^ HEAD
 while IFS= read -r status_line; do
   changed_path=${status_line:3}
   case "$changed_path" in "$project_relative/evidence/"*) ;; *)

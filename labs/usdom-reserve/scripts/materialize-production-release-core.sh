@@ -2,10 +2,11 @@
 set -euo pipefail
 umask 077
 
-if (($# != 0)); then
-  printf '%s\n' 'Usage: npm run --silent materialize:production-release-core' >&2
+if (($# > 1)) || { (($# == 1)) && [[ $1 != registry-pins && $1 != reserve-pins && $1 != final ]]; }; then
+  printf '%s\n' 'Usage: npm run --silent materialize:production-release-core -- [registry-pins|reserve-pins|final]' >&2
   exit 64
 fi
+stage=${1:-final}
 for command in node jq stat realpath mktemp flock sync cmp sha256sum awk; do command -v "$command" >/dev/null; done
 pin_tool() {
  local name=$1 path parent owner mode size parent_owner parent_mode identity_name parent_identity_name
@@ -19,10 +20,10 @@ pin_tool() {
 }
 assert_tool_unchanged() {
  local name=$1 bin_name="${1}_bin" identity_name="${1}_identity" parent_identity_name="${1}_parent_identity" sha_name="${1}_sha256" path parent; path=${!bin_name}; parent=$(dirname "$path")
- [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]]
- [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
+ [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]] || return 1
+ [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]] || return 1
 }
-pin_tool node; pin_tool jq
+pin_tool node; pin_tool jq; pin_tool timeout; pin_tool python3
 project=$(realpath "$(dirname "$0")/..")
 test "$PWD" = "$project"
 config_directory="$project/config"
@@ -34,17 +35,46 @@ target_sha256=$(sha256sum "$target" | awk '{print $1}')
 exec 9<"$config_directory"
 flock -n 9 || { printf '%s\n' 'Another release materializer holds the config lock' >&2; exit 75; }
 temporary=$(mktemp -p "$config_directory" .production-release-core.XXXXXXXX)
-cleanup() { local status=${1:-$?}; trap - EXIT; assert_tool_unchanged node && "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$temporary" || status=1; exit "$status"; }
+cleanup() {
+  local status=${1:-$?}
+  trap - EXIT
+  if assert_tool_unchanged node && assert_tool_unchanged timeout &&
+    "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+      "$node_bin" -e 'const fs=require("fs");fs.rmSync(process.argv[1],{recursive:true,force:true});fs.rmSync(process.argv[2],{recursive:true,force:true})' \
+      "$temporary" "$temporary.rechecked" > /dev/null 2> /dev/null &&
+    assert_tool_unchanged node && assert_tool_unchanged timeout && test ! -e "$temporary" &&
+      test ! -e "$temporary.rechecked"; then
+    :
+  else
+    status=1
+  fi
+  exit "$status"
+}
 trap 'cleanup $?' EXIT
 assert_tool_unchanged node
-"$node_bin" scripts/prepare-production-release-core-materialization.mjs > "$temporary"
+"$node_bin" scripts/prepare-production-release-core-materialization.mjs "$stage" > "$temporary"
 assert_tool_unchanged jq
-"$jq_bin" -e '.productionReady == false and .realFundsAuthorized == false
-  and .reserveConfigHash != null and .checkpointRegistryConfigHash != null
-  and .reserveRuntimeCodeHash != null and .reserveInitcodeHash != null
-  and .checkpointRegistryRuntimeCodeHash != null and .checkpointRegistryInitcodeHash != null
-  and .verifierCodeHash != null and .verifierInitcodeHash != null
-  and .checkpointVerifierCodeHash != null and .checkpointVerifierInitcodeHash != null' "$temporary" >/dev/null
+case "$stage" in
+  registry-pins)
+    "$jq_bin" -e '.productionReady == false and .realFundsAuthorized == false
+      and .checkpointRegistryConfigHash != null
+      and .reserveRuntimeCodeHash == null and .reserveInitcodeHash == null
+      and .checkpointRegistryRuntimeCodeHash == null and .checkpointRegistryInitcodeHash == null
+      and .verifierCodeHash != null and .verifierInitcodeHash != null
+      and .checkpointVerifierCodeHash != null and .checkpointVerifierInitcodeHash != null' "$temporary" >/dev/null ;;
+  reserve-pins)
+    "$jq_bin" -e '.productionReady == false and .realFundsAuthorized == false
+      and .reserveConfigHash != null and .checkpointRegistryConfigHash != null
+      and .reserveRuntimeCodeHash == null and .reserveInitcodeHash == null
+      and .checkpointRegistryRuntimeCodeHash != null and .checkpointRegistryInitcodeHash != null' "$temporary" >/dev/null ;;
+  final)
+    "$jq_bin" -e '.productionReady == true and .realFundsAuthorized == false
+      and .reserveConfigHash != null and .checkpointRegistryConfigHash != null
+      and .reserveRuntimeCodeHash != null and .reserveInitcodeHash != null
+      and .checkpointRegistryRuntimeCodeHash != null and .checkpointRegistryInitcodeHash != null
+      and .verifierCodeHash != null and .verifierInitcodeHash != null
+      and .checkpointVerifierCodeHash != null and .checkpointVerifierInitcodeHash != null' "$temporary" >/dev/null ;;
+esac
 chmod 0600 "$temporary"
 sync -f "$temporary"
 # The preparer rechecked every source before emitting output. Recheck the
@@ -56,12 +86,38 @@ test "$(sha256sum "$target" | awk '{print $1}')" = "$target_sha256" || {
 }
 if ! cmp -s "$temporary" "$target"; then
   assert_tool_unchanged node
-  "$node_bin" scripts/install-release-config-stdin.mjs "$target" < "$temporary"
+  assert_tool_unchanged python3
+  candidate_sha256=$(sha256sum "$temporary" | awk '{print $1}')
+  parent_device=$(stat -Lc '%d' "$config_directory")
+  parent_inode=$(stat -Lc '%i' "$config_directory")
+  "$node_bin" scripts/replace-locked-source-stdin.mjs "$target" "$candidate_sha256" \
+    "$target_sha256" "$parent_device" "$parent_inode" "$python3_bin" "$python3_sha256" \
+    < "$temporary"
 fi
+# Success is granted only for the exact inode policy and bytes prepared above.
+# The installer performs an atomic rename, but a concurrent non-cooperating
+# writer must still be detected before this stage is reported complete.
+test -f "$target"; test ! -L "$target"
+test "$(stat -Lc '%u:%a:%h' "$target")" = "$(id -u):644:1"
+cmp -s "$temporary" "$target"
 sync -f "$target"
 sync -f "$config_directory"
+cmp -s "$temporary" "$target"
+# Recompute the complete candidate from the now-installed release and every
+# source/artifact input.  A non-cooperating writer that changes an origin after
+# the preparer's first snapshot must not let this stage report success.
+assert_tool_unchanged node
+"$node_bin" scripts/prepare-production-release-core-materialization.mjs "$stage" > "$temporary.rechecked"
+cmp -s "$temporary" "$temporary.rechecked"
+cmp -s "$temporary" "$target"
+"$node_bin" scripts/prepare-production-release-core-materialization.mjs "$stage" > "$temporary.rechecked"
+cmp -s "$temporary" "$temporary.rechecked"
+cmp -s "$temporary" "$target"
+"$node_bin" scripts/prepare-production-release-core-materialization.mjs "$stage" > "$temporary.rechecked"
+cmp -s "$temporary" "$temporary.rechecked"
 assert_tool_unchanged jq
-"$jq_bin" '{productionReady,realFundsAuthorized,domDomain,activationScheduleCommitment,
+assert_tool_unchanged python3
+"$jq_bin" --arg stage "$stage" '{stage:$stage,productionReady,realFundsAuthorized,domDomain,activationScheduleCommitment,
   reserveRuntimeCodeHash,reserveInitcodeHash,
   verifierCodeHash,verifierInitcodeHash,verifierConfigHash,reserveConfigHash,checkpointVerifierCodeHash,
   checkpointVerifierInitcodeHash,checkpointVerifierConfigHash,checkpointRegistryConfigHash,checkpointInitialHeight,

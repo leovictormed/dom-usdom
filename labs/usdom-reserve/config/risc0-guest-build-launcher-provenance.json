@@ -1,0 +1,23 @@
+{
+  "schema": "dom-usdom-risc0-guest-build-launcher-v2",
+  "compiler": "/usr/bin/x86_64-linux-gnu-gcc-13",
+  "compilerSha256": "1b99826121ae6682a634e5efe09bd3e3df58ce58e0b28f849114ab5b89139c26",
+  "compilerVersion": "x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "source": "labs/usdom-reserve/scripts/risc0-guest-build-launcher.c",
+  "sourceSha256": "4570f2dfcd644feb1e058fa1d35b227089adb4587065562c206844087a2d6fea",
+  "artifact": "labs/usdom-reserve/scripts/risc0-guest-build-launcher",
+  "artifactSha256": "1d48db83212dc2344c7278e04fc4e4188750744f95112dd0b3865c44e20dc8b7",
+  "compileArguments": [
+    "-static",
+    "-std=c11",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-fno-ident",
+    "-fno-asynchronous-unwind-tables",
+    "-Wl,--build-id=none",
+    "-s"
+  ],
+  "reproduction": "Compile the source twice with the exact compiler and ordered arguments, require byte equality, SHA-256 equality and an ELF without PT_INTERP; runtime derives the repository from its own executable, authenticates the complete builder/helper closure, performs an internal SHA-256 known-answer test and verifies process-group/resource policy in preflight."
+}

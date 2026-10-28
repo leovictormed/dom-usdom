@@ -2,7 +2,9 @@
 """Install a reviewed Cargo binary as one exclusive, durable single-link executable."""
 import argparse,hashlib,os,secrets,stat,sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rebuild_v3_build_policy import load_policy,verify_attestation
+from durable_create_once import install_create_once
 H64=__import__('re').compile(r'[0-9a-f]{64}'); MAX=128*1024*1024
 def fail(x): raise ValueError(x)
 def control(path,expected,label):
@@ -32,26 +34,8 @@ def main():
   if identity(before)!=identity(after) or len(data)!=before.st_size or hashlib.sha256(data).hexdigest()!=a.expected_sha256: fail('Cargo executable changed or differs from reviewed hash')
  finally: os.close(source)
  verify_attestation(attestation,policy,a.expected_build_policy_sha256,a.expected_sha256,len(data))
- parent_path=a.destination.parent or Path('.'); parent=os.open(parent_path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
- temporary=f'.{a.destination.name}.{secrets.token_hex(16)}.tmp'
- try:
-  fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=parent)
-  try:
-   written=0
-   while written<len(data):
-    count=os.write(fd,data[written:])
-    if count<=0: fail('short write while installing verifier')
-    written+=count
-   os.fsync(fd);os.fchmod(fd,0o500);os.fsync(fd)
-  finally:os.close(fd)
-  os.link(temporary,a.destination.name,src_dir_fd=parent,dst_dir_fd=parent,follow_symlinks=False)
-  os.unlink(temporary,dir_fd=parent);os.fsync(parent)
-  installed=os.stat(a.destination.name,dir_fd=parent,follow_symlinks=False)
-  if not stat.S_ISREG(installed.st_mode) or installed.st_nlink!=1 or stat.S_IMODE(installed.st_mode)!=0o500: fail('installed verifier identity is invalid')
- finally:
-  try: os.unlink(temporary,dir_fd=parent)
-  except FileNotFoundError: pass
-  os.close(parent)
+ install_create_once(a.destination,data,mode=0o500,maximum=MAX,
+                     private_parent=False,allow_equal=False)
  print(a.expected_sha256)
 if __name__=='__main__':
  try: main()

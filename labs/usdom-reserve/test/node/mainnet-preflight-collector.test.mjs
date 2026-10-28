@@ -25,7 +25,12 @@ test('mainnet preflight requires two complete identical finalized RPC observatio
     "'config/proof-reserve.unconfigured.json','config/risc0-ethereum-mainnet-v3.json'",
     'readDirectProjectFile(root,relative',
     'finally {\n    await provider.destroy();',
+    'canonicalEthereumQuantity(chainIdRaw,{maximum:MAX_UINT256})',
+    'canonicalEthereumQuantity(finalized?.number)',
+    'canonicalEthereumQuantity(finalized?.timestamp)',
   ]) assert.match(source,new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+  assert.doesNotMatch(source,/provider\.send\('eth_chainId',\[\]\)\.then\(BigInt\)/);
+  assert.doesNotMatch(source,/BigInt\(finalized\.number\)/);
   assert.doesNotMatch(source,/eth\.drpc\.org|ethereum-rpc\.publicnode\.com/);
   assert.doesNotMatch(source,/Promise\.(?:any|race)/);
   assert.doesNotMatch(source,/from 'node:fs\/promises'/);

@@ -1,0 +1,172 @@
+{
+  "schema": 1,
+  "status": "offline-ble-renderer-and-minimal-noble-host-approved-runtime-unconfigured",
+  "hardwareSigningApproved": false,
+  "officialPackage": "@onekeyfe/hd-common-connect-sdk",
+  "officialVersion": "1.2.7",
+  "publishedGitHead": "6cf9b7d76b905f168169fd0442af8636afd2b469",
+  "runtimeTransport": "desktop-web-ble",
+  "allowedRuntimeTransports": [
+    "desktop-web-ble"
+  ],
+  "prohibitedRuntimeTransports": [
+    "emulator",
+    "http",
+    "node-usb",
+    "webusb",
+    "desktop-webusb",
+    "react-native",
+    "lowlevel"
+  ],
+  "deviceIdentity": {
+    "persistentBinding": "deviceId",
+    "ephemeralLocator": "connectId",
+    "requireSingleLiveBleDevice": true,
+    "requireProtocol": "V1",
+    "requireModel": "Classic 1S",
+    "firmwareAllowlist": [],
+    "electronHostApproved": true
+  },
+  "directDependencies": {
+    "@onekeyfe/hd-common-connect-sdk": "1.2.7",
+    "@onekeyfe/hd-core": "1.2.7",
+    "@onekeyfe/hd-shared": "1.2.7",
+    "@onekeyfe/hd-transport-web-device": "1.2.7",
+    "@stoprocent/noble": "2.3.16",
+    "lodash": "4.18.1"
+  },
+  "overrides": {
+    "axios": "1.21.0",
+    "protobufjs": "8.8.1"
+  },
+  "transitiveInstalledButRuntimeProhibited": [
+    "@onekeyfe/hd-transport-usb",
+    "usb"
+  ],
+  "packages": [
+    {
+      "name": "@onekeyfe/hd-common-connect-sdk",
+      "version": "1.2.7",
+      "integrity": "sha512-9rbnBSa7W+/jq3+XvrelDlVOh5DXVQTWE0Wm4xbDja48tVwdUXkccmI9z0hjiSBbwg2ACbbEXRnFN6arzlDYZw==",
+      "license": "ISC"
+    },
+    {
+      "name": "@onekeyfe/hd-core",
+      "version": "1.2.7",
+      "integrity": "sha512-1sitMLZh2hUJ01bQSRLtXxq9zM/65YbfGS6zGOcvYmGHGQMupMdBTXN7al7jMBV8XCXqtKsay4awkEpfi+d/Vw==",
+      "license": "ISC"
+    },
+    {
+      "name": "@onekeyfe/hd-shared",
+      "version": "1.2.7",
+      "integrity": "sha512-0g/410RumxNmThDkvc5D5zyLNIbVod4L7ykiBVfI09kV8nSYBctSz6IeJhPdk4UfG764lfehv9QvN89nhZkY8A==",
+      "license": "ISC"
+    },
+    {
+      "name": "@onekeyfe/hd-transport",
+      "version": "1.2.7",
+      "integrity": "sha512-11iFGz8l3tz/2PbuYE+UV8FpTFChjpU2j0Ubn6P4n+eSa6sBhSg1sI8vKwLJofyhTNeaW5I/xdQuky3s522Tkg==",
+      "license": "ISC"
+    },
+    {
+      "name": "@onekeyfe/hd-transport-web-device",
+      "version": "1.2.7",
+      "integrity": "sha512-F1tBZ2t98hZcWRGgT+f5ucLqAYxdSNJtV9Yi5AUZ9Kx9VqG2j2IC9PD/1rWPHRj1ti7l6ZXe7tG1SmfSjxT/0Q==",
+      "license": "MIT"
+    },
+    {
+      "name": "@onekeyfe/hd-transport-usb",
+      "version": "1.2.7",
+      "integrity": "sha512-MzBh9KuJHW44PfF3jAsfERVtaI4mHd/czsHTIe+k4/2YRJX7jdZsBUTfhrRf3kks+AzlyipGhv56sbRSW5fXOA==",
+      "license": "MIT"
+    },
+    {
+      "name": "@stoprocent/noble",
+      "version": "2.3.16",
+      "integrity": "sha512-7+xGRHzyGN1gnnDDx1epQr7AqIp/mNK/CpBWBWWCxubWt5cl8Zsa9QbVrXYlnW1R6kdqYPaNfwLefOgxHDSb7w==",
+      "license": "MIT"
+    },
+    {
+      "name": "axios",
+      "version": "1.21.0",
+      "integrity": "sha512-YCzXMB53Q9PZBsh7yN7wtapit4WepwcHS2fP8QhGsBxSz5YtgYobV7GGlWlAJi+RxfU77GQTQi2DSLUma42EYA==",
+      "license": "MIT"
+    },
+    {
+      "name": "protobufjs",
+      "version": "8.8.1",
+      "integrity": "sha512-d9e9179bjXSJdpJ3+R9fP8hzXsnKLyxTjHLG1dUzje8a27pPyXCe6PrcRtgx2rjoM3IZzHd2vAs+6J/BsO1k7Q==",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "lodash",
+      "version": "4.18.1",
+      "integrity": "sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==",
+      "license": "MIT"
+    },
+    {
+      "name": "usb",
+      "version": "2.19.1",
+      "integrity": "sha512-fjVddzu00GFc1Z5fd5+zuZrqylsfuBbmKKygx3rbIS9w5Nh3ddGVWDHkPBQ/BbB3PVEp6kdsZfX9WXhlsRdPDQ==",
+      "license": "MIT"
+    }
+  ],
+  "audit": {
+    "observedAt": "2026-10-28",
+    "command": "npm audit --omit=dev --json",
+    "productionDependencies": 77,
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    }
+  },
+  "offlineCompatibility": {
+    "sdkMethods": [
+      "init",
+      "searchDevices",
+      "getDeviceState",
+      "evmGetAddress",
+      "evmSignTransaction",
+      "evmSignTypedData",
+      "cancel",
+      "dispose"
+    ],
+    "protobufDescriptors": [
+      "Features",
+      "EthereumGetAddress",
+      "EthereumAddress",
+      "EthereumSignTxEIP1559",
+      "EthereumTxRequest",
+      "EthereumSignTypedData"
+    ],
+    "electronBleTransportImportVerified": true,
+    "nativeBleHardwareExercised": false
+  },
+  "electronBleHost": {
+    "officialAppRepository": "https://github.com/OneKeyHQ/app-monorepo",
+    "observedGitHead": "1632460b39c8eab0cf70adf146e6aa086c28bfdc",
+    "officialInterface": "window.desktopApi.nobleBle",
+    "officialMainInitializer": "initNobleBleSupport",
+    "officialHostPackage": "@onekeyfe/hd-transport-electron",
+    "observedHostVersion": "1.2.8-alpha.124",
+    "hostPackageAccepted": false,
+    "rejectionReason": "official host is alpha and pulls the alpha SDK family; a minimal pinned Noble adapter implements only the stable desktop-web-ble interface",
+    "minimalNobleAdapterAccepted": true,
+    "minimalNoblePackage": "@stoprocent/noble",
+    "minimalNobleVersion": "2.3.16",
+    "thirdPartyHwkAlphaAccepted": false,
+    "securityProfile": {
+      "nodeIntegration": false,
+      "contextIsolation": true,
+      "sandbox": true,
+      "remoteContent": false,
+      "rpcOrBroadcast": false,
+      "privateFileMode": "0600",
+      "privateDirectoryMode": "0700"
+    }
+  }
+}

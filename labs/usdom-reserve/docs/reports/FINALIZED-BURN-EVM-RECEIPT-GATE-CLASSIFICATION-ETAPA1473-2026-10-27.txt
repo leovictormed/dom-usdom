@@ -1,0 +1,34 @@
+Stage 1469 — finalized-burn EVM receipt gate classification
+Date: 2026-10-27
+
+Result
+
+`production_finalized_burn_risc0_evm_receipt_verifier_implemented=false` is
+not missing adapter code. The immutable adapter exists, binds the current guest
+ImageID f0d9c982..., requires the v3 selector 0x73c457ba, hashes exactly the
+32-byte journal, caps the verifier call, rejects nonempty returndata and pins
+Ethereum mainnet to the reviewed direct risc0-ethereum v3.0.1 verifier address
+and runtime code hash. The upstream v3.0.1 direct verifier consumes the complete
+260-byte selector-prefixed Groth16 seal, matching this adapter.
+
+The field is historically named but intentionally represents operational proof
+acceptance. It may become true only after a current unconditional finalized-burn
+Groth16 receipt is produced and accepted under the exact ImageID and journal by
+the pinned verifier. The exact required checkpoint-outer receipt,
+finalized-burn receipt, Groth16 receipt and EVM seal paths are currently absent.
+The positive execution-only evidence uses an unresolved assumption and cannot
+satisfy this cryptographic gate. No long proof was started or duplicated.
+
+Hardening and validation
+
+The Solidity suite now freezes the reviewed mainnet verifier address, runtime
+code hash, selector, 260-byte seal length and current finalized-burn ImageID in
+one explicit regression. The focused adapter and reserve-integration suites
+pass 12/12, including hostile returndata, gas consumption, code/selector drift,
+wrong proof shape and capability-domain separation.
+
+The gate remains false. Changing it now would misrepresent missing receipt
+acceptance evidence rather than implement code.
+
+No mainnet transaction, mining, signing, deployment, funds, commit, push or
+manifest change occurred.

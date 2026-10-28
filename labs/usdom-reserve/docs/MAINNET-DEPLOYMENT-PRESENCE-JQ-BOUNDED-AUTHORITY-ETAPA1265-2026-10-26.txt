@@ -1,0 +1,33 @@
+ETAPA 1265 — AUTORIDADE JQ LIMITADA PARA PRESENÇA DA TRANSAÇÃO DE DEPLOY
+Data: 2026-10-26
+
+Problema
+
+O executor de implantação consultava cada endpoint antes da autorização e novamente
+imediatamente antes da transmissão, mas três decisões sobre a presença da transação
+eram feitas por jq direto. Um processo travado podia reter a cerimônia sem prazo, e
+a decisão crítica anterior à publicação não reatestava o executável jq.
+
+Correção
+
+Foi adicionada `run_jq_line_authority` ao executor de implantação. Ela aceita apenas
+rótulos seguros, reatesta jq e timeout, limita cada processo a 30 segundos em
+foreground com TERM e KILL, captura os canais separadamente, limita cada um a
+64 KiB com UTF-8 estrito, exige status zero, stdout não vazio, stderr vazio e uma
+única linha canônica.
+
+A conferência de identidade da transação observada, a detecção de presença antes da
+autorização e a exigência de ausência imediatamente antes da transmissão usam agora
+essa autoridade. Cada resultado é restrito explicitamente aos booleanos canônicos.
+
+Validação local
+
+- `bash -n scripts/execute-mainnet-deployment.sh`: aprovado;
+- suíte focal de implantação: 19/19 aprovada;
+- suíte operacional e de implantação ampliada: 106/106 aprovada;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

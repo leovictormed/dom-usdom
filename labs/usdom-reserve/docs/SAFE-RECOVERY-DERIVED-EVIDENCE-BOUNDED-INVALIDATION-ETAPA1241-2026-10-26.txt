@@ -1,0 +1,38 @@
+ETAPA 1241 — INVALIDAÇÃO LIMITADA DE EVIDÊNCIA DERIVADA DA RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema
+
+Cada retomada da recuperação Safe remove observações e relatórios finalizados
+derivados para reconstruí-los em um head finalizado atual. A remoção já ocorria sob o
+lock exclusivo, mas chamava Node diretamente, antes da área temporária e dos traps,
+sem prazo, limite de canais ou confirmação explícita de ausência do destino.
+
+Correção
+
+A área temporária 0700 e os traps agora são estabelecidos imediatamente após adquirir
+o lock, antes da primeira mutação derivada. Foi criada `remove_derived_private`, que:
+
+- aceita somente nomes simples e seguros;
+- reatesta Node e timeout;
+- executa o removedor durável em foreground por até 30 segundos, com TERM e KILL
+  após cinco segundos;
+- captura stdout e stderr separadamente em arquivos privados;
+- limita cada canal a 64 KiB e aplica UTF-8 fatal;
+- exige status zero, canais vazios e ausência final do caminho.
+
+A lista permanece fixa aos três resultados por papel, ao relatório consolidado e ao
+bundle consolidado. Envelopes, transações brutas e hashes anti-replay continuam fora
+da invalidação.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais, incluindo cleanup privado: 9/9 aprovados;
+- focais mais `operator-runbook`: 93/93 aprovados;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

@@ -37,14 +37,20 @@ export async function captureRiscZeroHealthCatalogInputs(paths,{beforeOriginRech
         minimum:2,maximum:MAXIMUM,exactMode:0o600,label:`snapshot ${key}`,
       }),
     ])));
-    const assertOriginsUnchanged=async()=>{
+    const assertOriginsEqual=async expected=>{
+      if(!expected || typeof expected!=='object' || Array.isArray(expected)
+          || JSON.stringify(Object.keys(expected).sort())!==JSON.stringify([...KEYS].sort())
+          || KEYS.some(key=>!Buffer.isBuffer(expected[key]))) {
+        throw new Error('expected RISC Zero health origins must be exact buffers');
+      }
       if(beforeOriginRecheck) await beforeOriginRecheck();
       const current=await Promise.all(KEYS.map(key=>directRead(paths[key],`current ${key}`)));
-      if(current.some((bytes,index)=>!bytes.equals(captured[index]))) {
+      if(current.some((bytes,index)=>!bytes.equals(expected[KEYS[index]]))) {
         throw new Error('RISC Zero health catalog inputs changed during materialization');
       }
     };
-    return Object.freeze({...values,assertOriginsUnchanged,
+    const assertOriginsUnchanged=()=>assertOriginsEqual(values);
+    return Object.freeze({...values,assertOriginsEqual,assertOriginsUnchanged,
       cleanup:()=>rm(replica,{recursive:true,force:true})});
   } catch(error) { await rm(replica,{recursive:true,force:true}); throw error; }
 }

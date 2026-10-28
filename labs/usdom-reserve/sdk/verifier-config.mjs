@@ -5,6 +5,7 @@ import {
   BURN_STATEMENT_TYPEHASH,
   PRIVATE_BURN_ID_TYPEHASH,
 } from './proof-reserve.mjs';
+import {PINNED_RISC0_MAINNET_V3} from './risc0-verifier-reference.mjs';
 
 const zeroHash = '0x' + '00'.repeat(32);
 const fields = Object.freeze([
@@ -75,6 +76,7 @@ export function finalizedBurnAdapterConfigHash(input) {
     throw new Error('unsupported RISC Zero verifier selector');
   }
   c.riscZeroVerifierSelector=c.riscZeroVerifierSelector.toLowerCase();
+  requireReviewedMainnetVerifier(c);
   const verifierConfigHash=keccak256(abi.encode(
     ['bytes32','uint256','address','bytes32','bytes4','bytes32','bytes32','bytes32'],
     [FINALIZED_BURN_RISC0_ADAPTER_CONFIG_TYPEHASH,c.ethereumChainId,c.riscZeroVerifier,
@@ -94,6 +96,16 @@ function hash(value, name, {zero = false} = {}) {
     throw new Error(`${name} has invalid zero semantics`);
   }
   return normalized;
+}
+
+function requireReviewedMainnetVerifier(c) {
+  if(c.ethereumChainId!==1n) return;
+  if(c.riscZeroVerifier!==getAddress(PINNED_RISC0_MAINNET_V3.verifier_address)
+      ||c.riscZeroVerifierCodeHash
+        !==PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash
+      ||c.riscZeroVerifierSelector!==PINNED_RISC0_MAINNET_V3.verifier_selector) {
+    throw new Error('Ethereum mainnet requires the reviewed direct RISC Zero verifier pin');
+  }
 }
 
 /**
@@ -159,6 +171,7 @@ export function finalizedBurnVerifierConfigHash(input) {
     throw new Error('unsupported RISC Zero verifier or journal identity');
   }
   c.riscZeroVerifierSelector=c.riscZeroVerifierSelector.toLowerCase();
+  requireReviewedMainnetVerifier(c);
   if (c.trustedSetupRequired !== true) {
     throw new Error('risc0-groth16-v3 requires the RISC Zero trusted setup to be declared');
   }

@@ -39,7 +39,21 @@ test "$(stat -c '%a' "$output")" = 700
 exec 9<"$output"
 flock -n 9 || { printf '%s\n' 'Another release-authorization writer holds the lock' >&2; exit 75; }
 temporary=$(mktemp -p "$output" .request.XXXXXXXX)
-trap 'rm -f -- "$temporary"' EXIT
+temporary_identity=$(/usr/bin/stat -c '%u:%d:%i:%a' -- "$temporary")
+cleanup() {
+  local status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' -- "$temporary" 2>/dev/null) == "$temporary_identity" ]]; then
+    /usr/bin/rm -f -- "$temporary" || { (( status != 0 )) || status=1; }
+  else
+    (( status != 0 )) || status=1
+  fi
+  exit "$status"
+}
+trap 'cleanup $?' EXIT
+trap 'cleanup 129' HUP
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
 node scripts/prepare-release-authorization-request.mjs > "$temporary"
 jq -e '.schema == "usdom-release-authorization-request/v2"
   and .authorization.signature == null

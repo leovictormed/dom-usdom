@@ -1,0 +1,19 @@
+Stage 1439 — authenticated expensive-scan post-body admission
+
+Finding
+Two slow authenticated JSON bodies could consume the shared two-request scan
+capacity before parsing and deny complete chain, transfer, burn and history
+scans. Sharing a body semaphore with GET scans would also let slow POST bodies
+reject unrelated GET scans.
+
+Correction
+The two GET routes and three POST routes now share only the two-slot expensive
+worker pool. The POST group alone has four bounded body-delivery slots. Every
+handler acquires worker capacity fail-fast after Query/JSON extraction and
+holds it across the synchronous NodeHandle scan.
+
+Focused evidence
+- `cargo test -p dom-rpc slow_private_scan_bodies_do_not_hold_expensive_scan_workers -- --nocapture`: 1/1 passed with all four POST body slots held open.
+- `cargo test -p dom-rpc scan -- --nocapture`: 15/15 passed after the final GET/POST routing split.
+
+No network, mining, signing, deployment, funds, commit or push occurred.

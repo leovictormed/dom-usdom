@@ -134,7 +134,8 @@ export function inspectAuthenticatedRandomxExport(report,sources,statementValue)
       || report.reportPath!=='evidence/randomx-canonical-statement-export.json'
       || !Number.isSafeInteger(report.sourceBlockCount) || report.sourceBlockCount<1
       || report.sourceBlockCount>32 || report.selectedBlockIndex!==report.sourceBlockCount-1
-      || !/^[1-9][0-9]*$/.test(report.blockHeight)
+      || !/^[1-9][0-9]{0,19}$/.test(report.blockHeight)
+      || BigInt(report.blockHeight)>=(1n<<64n)
       || !canonicalHex(report.blockHash) || /^0x0{64}$/.test(report.blockHash)) {
     fail('authenticated export report values are invalid');
   }

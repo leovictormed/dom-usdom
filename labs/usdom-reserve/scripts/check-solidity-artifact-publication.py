@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import os
 import re
 import stat
 import sys
 import tempfile
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_SOLC = "0.8.37"
@@ -23,25 +25,36 @@ PRODUCTION = (
 )
 EXPECTED_SOURCES = {
     "USDOMProofReserve": {
-        "contracts/IUSDTPolicy.sol", "contracts/USDOMProofReserve.sol",
+        "contracts/IDOMFinalizedBurnVerifier.sol", "contracts/IUSDTPolicy.sol",
+        "contracts/USDOMProofReserve.sol",
         "vendor/openzeppelin-contracts-5.6.1/token/ERC20/IERC20.sol",
         "vendor/openzeppelin-contracts-5.6.1/token/ERC20/extensions/IERC20Metadata.sol",
         "vendor/openzeppelin-contracts-5.6.1/utils/ReentrancyGuard.sol",
         "vendor/openzeppelin-contracts-5.6.1/utils/StorageSlot.sol",
     },
-    "DOMCheckpointRegistry": {"contracts/DOMCheckpointRegistry.sol"},
+    "DOMCheckpointRegistry": {
+        "contracts/DOMCheckpointRegistry.sol", "contracts/IDOMCheckpointVerifier.sol",
+    },
     "DOMFinalizedBurnRiscZeroVerifier": {
-        "contracts/DOMFinalizedBurnRiscZeroVerifier.sol", "contracts/IRiscZeroVerifierV3.sol",
-        "contracts/IUSDTPolicy.sol", "contracts/USDOMProofReserve.sol",
-        "vendor/openzeppelin-contracts-5.6.1/token/ERC20/IERC20.sol",
-        "vendor/openzeppelin-contracts-5.6.1/token/ERC20/extensions/IERC20Metadata.sol",
-        "vendor/openzeppelin-contracts-5.6.1/utils/ReentrancyGuard.sol",
-        "vendor/openzeppelin-contracts-5.6.1/utils/StorageSlot.sol",
-    },
-    "DOMCheckpointRiscZeroVerifier": {
-        "contracts/DOMCheckpointRegistry.sol", "contracts/DOMCheckpointRiscZeroVerifier.sol",
+        "contracts/DOMFinalizedBurnRiscZeroVerifier.sol", "contracts/IDOMFinalizedBurnVerifier.sol",
         "contracts/IRiscZeroVerifierV3.sol",
     },
+    "DOMCheckpointRiscZeroVerifier": {
+        "contracts/DOMCheckpointRiscZeroVerifier.sol", "contracts/IDOMCheckpointVerifier.sol",
+        "contracts/IRiscZeroVerifierV3.sol",
+    },
+}
+IMPORT = re.compile(r'(?m)^\s*import\s+(?:[^;]*?\s+from\s+)?["\']([^"\']+)["\']\s*;')
+DECLARATION = re.compile(r'(?m)^\s*(?:abstract\s+)?(?:contract|interface|library)\s+([A-Za-z_][A-Za-z0-9_]*)\b')
+FORBIDDEN_GRAPH_EDGES = {
+    "USDOMProofReserve": {
+        "contracts/DOMCheckpointRegistry.sol", "contracts/DOMFinalizedBurnRiscZeroVerifier.sol",
+    },
+    "DOMCheckpointRegistry": {
+        "contracts/USDOMProofReserve.sol", "contracts/DOMCheckpointRiscZeroVerifier.sol",
+    },
+    "DOMFinalizedBurnRiscZeroVerifier": {"contracts/USDOMProofReserve.sol"},
+    "DOMCheckpointRiscZeroVerifier": {"contracts/DOMCheckpointRegistry.sol"},
 }
 KECCAK_ROUNDS = (
     0x0000000000000001, 0x0000000000008082, 0x800000000000808A, 0x8000000080008000,
@@ -65,6 +78,74 @@ MAX_CONSTRUCTOR_ARGUMENT_BYTES = 4_096
 
 def fail(message: str) -> None:
     raise SystemExit(message)
+
+
+def direct_bytes(root: Path, name: str, maximum: int) -> bytes:
+    relative = PurePosixPath(name)
+    if (not name or "\\" in name or relative.is_absolute() or relative.as_posix() != name
+            or any(part in {"", ".", ".."} for part in relative.parts)):
+        fail(f"invalid publication path: {name}")
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    cloexec = getattr(os, "O_CLOEXEC", 0)
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow | cloexec
+    opened: list[int] = []
+    descriptor = None
+    try:
+        parent = os.open(root, directory_flags)
+        opened.append(parent)
+        for component in relative.parts[:-1]:
+            parent = os.open(component, directory_flags, dir_fd=parent)
+            opened.append(parent)
+        descriptor = os.open(relative.parts[-1], os.O_RDONLY | nofollow | cloexec, dir_fd=parent)
+        before = os.fstat(descriptor)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_uid != os.geteuid() or before.st_size < 1 or before.st_size > maximum):
+            fail(f"publication file policy mismatch: {name}")
+        payload = bytearray()
+        while len(payload) <= maximum:
+            chunk = os.read(descriptor, min(65536, maximum + 1 - len(payload)))
+            if not chunk:
+                break
+            payload.extend(chunk)
+        after = os.fstat(descriptor)
+        path_after = os.stat(relative.parts[-1], dir_fd=parent, follow_symlinks=False)
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_size,
+                                  value.st_mtime_ns, value.st_ctime_ns)
+        if (len(payload) != before.st_size or identity(before) != identity(after)
+                or (path_after.st_dev, path_after.st_ino) != (before.st_dev, before.st_ino)):
+            fail(f"publication file changed while read: {name}")
+        return bytes(payload)
+    except OSError as error:
+        if error.errno in {errno.ELOOP, errno.EMLINK, errno.ENOTDIR}:
+            fail(f"publication path is indirect: {name}")
+        fail(f"publication file cannot be opened directly: {name}: {error}")
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        for item in reversed(opened):
+            os.close(item)
+
+
+def strict_json(payload: bytes, label: str) -> object:
+    try:
+        text = payload.decode("utf-8")
+        def pairs(items):
+            result = {}
+            for key, value in items:
+                if key in result:
+                    fail(f"{label} contains duplicate JSON key: {key}")
+                result[key] = value
+            return result
+        return json.loads(text, object_pairs_hook=pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail(f"{label} is not strict UTF-8 JSON: {error}")
+
+
+def direct_text(root: Path, name: str, maximum: int, label: str) -> str:
+    try:
+        return direct_bytes(root, name, maximum).decode("utf-8")
+    except UnicodeDecodeError as error:
+        fail(f"{label} is not UTF-8: {error}")
 
 
 def beneath_legacy(path: str) -> bool:
@@ -119,9 +200,99 @@ def immutable_ids(value: object) -> set[str]:
     return result
 
 
+def resolve_import(importer: str, imported: str) -> str:
+    """Resolve only the publication compiler's single reviewed remapping."""
+    if imported.startswith("@openzeppelin/contracts/"):
+        resolved = "vendor/openzeppelin-contracts-5.6.1/" + imported.removeprefix(
+            "@openzeppelin/contracts/")
+    elif imported.startswith("./") or imported.startswith("../"):
+        resolved = str(PurePosixPath(importer).parent.joinpath(imported))
+    else:
+        fail(f"unsupported publishable Solidity import: {importer} -> {imported}")
+    parts: list[str] = []
+    for part in PurePosixPath(resolved).parts:
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if not parts:
+                fail(f"publishable Solidity import escapes project: {importer} -> {imported}")
+            parts.pop()
+        else:
+            parts.append(part)
+    return "/".join(parts)
+
+
+def source_graph_policy(name: str, target: str, payloads: dict[str, bytes]) -> None:
+    """Prove the compiler metadata is the exact acyclic import closure.
+
+    This closes two distinct release hazards: an artifact cannot smuggle an
+    unreferenced source into its declared authority set, and a verifier adapter
+    cannot acquire a dependency on the downstream contract that embeds the
+    adapter's own runtime/configuration hashes.
+    """
+    graph: dict[str, set[str]] = {}
+    declarations: dict[str, str] = {}
+    for source_name, payload in payloads.items():
+        try:
+            source = payload.decode("utf-8")
+        except UnicodeDecodeError as error:
+            fail(f"publishable Solidity source is not UTF-8: {source_name}: {error}")
+        edges = {resolve_import(source_name, item) for item in IMPORT.findall(source)}
+        missing = edges - payloads.keys()
+        if missing:
+            fail(f"metadata omits imported source in {name}: {source_name} -> {sorted(missing)[0]}")
+        graph[source_name] = edges
+        for declaration in DECLARATION.findall(source):
+            previous = declarations.get(declaration)
+            if previous is not None:
+                fail(f"duplicate Solidity declaration in {name}: {declaration} ({previous}, {source_name})")
+            declarations[declaration] = source_name
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    reachable: set[str] = set()
+
+    def visit(source_name: str) -> None:
+        if source_name in visiting:
+            fail(f"circular Solidity import in {name}: {source_name}")
+        if source_name in visited:
+            reachable.add(source_name)
+            return
+        visiting.add(source_name)
+        reachable.add(source_name)
+        for dependency in sorted(graph[source_name]):
+            visit(dependency)
+        visiting.remove(source_name)
+        visited.add(source_name)
+
+    visit(target)
+    orphaned = payloads.keys() - reachable
+    if orphaned:
+        fail(f"unreachable metadata source in {name}: {sorted(orphaned)[0]}")
+    forbidden = reachable & FORBIDDEN_GRAPH_EDGES[name]
+    if forbidden:
+        fail(f"self-referential Solidity source dependency in {name}: {sorted(forbidden)[0]}")
+
+    target_source = payloads[target].decode("utf-8")
+    forbidden_own_pins = {
+        "USDOMProofReserve": ("PRODUCTION_RESERVE_RUNTIME_CODE_HASH", "PRODUCTION_RESERVE_INITCODE_HASH",
+                               "PRODUCTION_RESERVE_CONFIG_HASH"),
+        "DOMCheckpointRegistry": ("PRODUCTION_CHECKPOINT_RUNTIME_CODE_HASH",
+                                   "PRODUCTION_CHECKPOINT_INITCODE_HASH"),
+        "DOMFinalizedBurnRiscZeroVerifier": ("PRODUCTION_FINALIZED_BURN_RUNTIME_CODE_HASH",
+                                              "PRODUCTION_FINALIZED_BURN_INITCODE_HASH"),
+        "DOMCheckpointRiscZeroVerifier": ("PRODUCTION_CHECKPOINT_VERIFIER_RUNTIME_CODE_HASH",
+                                           "PRODUCTION_CHECKPOINT_VERIFIER_INITCODE_HASH"),
+    }[name]
+    for identifier in forbidden_own_pins:
+        if re.search(rf"\b{re.escape(identifier)}\b", target_source):
+            fail(f"{name} embeds its own derived bytecode/configuration identity: {identifier}")
+
+
 def artifact_policy(root: Path, path: Path, name: str) -> None:
     try:
-        artifact = json.loads(path.read_bytes())
+        relative = path.relative_to(root).as_posix()
+        artifact = strict_json(direct_bytes(root, relative, 8 * 1024 * 1024), f"publishable {name} artifact")
         metadata = artifact["metadata"]
         settings = metadata["settings"]
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as error:
@@ -159,17 +330,16 @@ def artifact_policy(root: Path, path: Path, name: str) -> None:
     sources = metadata.get("sources")
     if not isinstance(sources, dict) or set(sources) != EXPECTED_SOURCES[name]:
         fail(f"unexpected source set in publishable {name} artifact")
+    source_payloads: dict[str, bytes] = {}
     for source_name, source_metadata in sources.items():
-        source_path = root / source_name
         try:
-            mode = source_path.lstat().st_mode
-            payload = source_path.read_bytes()
-        except OSError as error:
+            payload = direct_bytes(root, source_name, 4 * 1024 * 1024)
+        except SystemExit as error:
             fail(f"publishable {name} source cannot be read: {error}")
-        if not stat.S_ISREG(mode) or source_path.is_symlink():
-            fail(f"publishable {name} source is not a direct regular file")
         if keccak256(payload) != source_metadata.get("keccak256"):
             fail(f"source hash mismatch in publishable {name} artifact: {source_name}")
+        source_payloads[source_name] = payload
+    source_graph_policy(name, f"contracts/{name}.sol", source_payloads)
 
     references = artifact.get("deployedBytecode", {}).get("immutableReferences")
     expected_ids = immutable_ids(artifact.get("ast"))
@@ -193,7 +363,7 @@ def artifact_policy(root: Path, path: Path, name: str) -> None:
 
 
 def check(root: Path = ROOT) -> None:
-    foundry = tomllib.loads((root / "foundry.toml").read_text())
+    foundry = tomllib.loads(direct_text(root, "foundry.toml", 1024 * 1024, "Foundry configuration"))
     profile = foundry.get("profile", {}).get("default", {})
     if profile.get("solc_version") != EXPECTED_SOLC or profile.get("evm_version") != EXPECTED_EVM:
         fail("Foundry compiler/EVM policy is stale")
@@ -202,7 +372,8 @@ def check(root: Path = ROOT) -> None:
         fail("Foundry optimizer/metadata policy is stale")
 
     for name in PRODUCTION:
-        source = (root / "contracts" / f"{name}.sol").read_text()
+        source = direct_text(root, f"contracts/{name}.sol", 4 * 1024 * 1024,
+                             f"{name} source")
         if not re.search(rf"(?m)^pragma solidity {re.escape(EXPECTED_SOLC)};$", source):
             fail(f"{name} does not use the exact production compiler pragma")
         artifact = root / "out" / f"{name}.sol" / f"{name}.json"
@@ -212,14 +383,16 @@ def check(root: Path = ROOT) -> None:
                 fail(f"shadow or duplicate publishable artifact for {name}")
             artifact_policy(root, artifact, name)
 
-    runtime = (root / "sdk" / "compiled-runtime.mjs").read_text()
+    runtime = direct_text(root, "sdk/compiled-runtime.mjs", 4 * 1024 * 1024,
+                          "compiled runtime policy")
     if f"const expectedCompiler='{EXPECTED_COMPILER}';" not in runtime or f"evmVersion:'{EXPECTED_EVM}'" not in runtime:
         fail("compiled-runtime artifact policy is stale")
 
-    ignored = (root / ".gitignore").read_text().splitlines()
+    ignored = direct_text(root, ".gitignore", 1024 * 1024, "publication ignore policy").splitlines()
     if "results/" not in ignored:
         fail("legacy results are not excluded from publication")
-    manifest_source = (root / "scripts" / "source-manifest.py").read_text()
+    manifest_source = direct_text(root, "scripts/source-manifest.py", 4 * 1024 * 1024,
+                                  "source manifest policy")
     if 'top == "results"' not in manifest_source or 'top.startswith("results-stage")' not in manifest_source:
         fail("source manifest does not exclude legacy result trees")
     for manifest_name in ("MANIFEST.sha256", "PROOF-PROGRAM-MANIFEST.sha256"):
@@ -229,7 +402,10 @@ def check(root: Path = ROOT) -> None:
             if len(fields) == 2 and beneath_legacy(fields[1]):
                 fail(f"{manifest_name} publishes legacy result path {fields[1]}")
 
-    evidence = json.loads((root / "config" / "mainnet-release-evidence.unconfigured.json").read_text())
+    evidence = strict_json(direct_bytes(root, "config/mainnet-release-evidence.unconfigured.json",
+                                        4 * 1024 * 1024), "mainnet release evidence")
+    if not isinstance(evidence, dict):
+        fail("mainnet release evidence must be an object")
     canonical_artifacts = {
         "reserveArtifact": "out/USDOMProofReserve.sol/USDOMProofReserve.json",
         "checkpointRegistryArtifact": "out/DOMCheckpointRegistry.sol/DOMCheckpointRegistry.json",
@@ -268,6 +444,31 @@ def self_test() -> None:
             if not source_path.exists():
                 source_path.write_text("// SPDX-License-Identifier: MIT\npragma solidity 0.8.37;\n")
             source_metadata[source_name] = {"keccak256": keccak256(source_path.read_bytes())}
+        target_source = root / "contracts" / "USDOMProofReserve.sol"
+        target_source.write_text("""// SPDX-License-Identifier: MIT
+pragma solidity 0.8.37;
+import {IDOMFinalizedBurnVerifier} from "./IDOMFinalizedBurnVerifier.sol";
+import {IUSDTPolicy} from "./IUSDTPolicy.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+contract USDOMProofReserve {}
+""")
+        # Model the reviewed transitive OpenZeppelin edge in the synthetic graph.
+        guard_source = root / "vendor/openzeppelin-contracts-5.6.1/utils/ReentrancyGuard.sol"
+        guard_source.write_text("""// SPDX-License-Identifier: MIT
+pragma solidity 0.8.37;
+import {StorageSlot} from "./StorageSlot.sol";
+abstract contract ReentrancyGuard {}
+""")
+        metadata_source = root / "vendor/openzeppelin-contracts-5.6.1/token/ERC20/extensions/IERC20Metadata.sol"
+        metadata_source.write_text("""// SPDX-License-Identifier: MIT
+pragma solidity 0.8.37;
+import {IERC20} from "../IERC20.sol";
+interface IERC20Metadata is IERC20 {}
+""")
+        for source_name in source_metadata:
+            source_metadata[source_name]["keccak256"] = keccak256((root / source_name).read_bytes())
         artifact_path = root / "out" / "USDOMProofReserve.sol" / "USDOMProofReserve.json"
         artifact_path.parent.mkdir()
         artifact = {
@@ -283,6 +484,66 @@ def self_test() -> None:
                                           "contracts/USDOMProofReserve.sol": "USDOMProofReserve"}}}}
         artifact_path.write_text(json.dumps(artifact))
         check(root)
+        canonical_artifact = artifact_path.read_text()
+        policy_path = root / "contracts" / "IUSDTPolicy.sol"
+        canonical_policy = policy_path.read_bytes()
+        policy_path.write_text('pragma solidity 0.8.37;\nimport "./USDOMProofReserve.sol";\n')
+        artifact["metadata"]["sources"]["contracts/IUSDTPolicy.sol"]["keccak256"] = keccak256(
+            policy_path.read_bytes())
+        artifact_path.write_text(json.dumps(artifact))
+        try:
+            check(root)
+        except SystemExit as error:
+            assert "circular Solidity import" in str(error)
+        else:
+            raise AssertionError("circular publishable source graph was accepted")
+        policy_path.write_text('pragma solidity 0.8.37;\ninterface USDOMProofReserve {}\n')
+        artifact["metadata"]["sources"]["contracts/IUSDTPolicy.sol"]["keccak256"] = keccak256(
+            policy_path.read_bytes())
+        artifact_path.write_text(json.dumps(artifact))
+        try:
+            check(root)
+        except SystemExit as error:
+            assert "duplicate Solidity declaration" in str(error)
+        else:
+            raise AssertionError("duplicate interface/contract declaration was accepted")
+        policy_path.write_bytes(canonical_policy)
+        artifact["metadata"]["sources"]["contracts/IUSDTPolicy.sol"]["keccak256"] = keccak256(canonical_policy)
+        target_canonical = target_source.read_text()
+        target_source.write_text(target_canonical.replace("contract USDOMProofReserve {}",
+            "bytes32 constant PRODUCTION_RESERVE_RUNTIME_CODE_HASH = bytes32(0);\n"
+            "contract USDOMProofReserve {}"))
+        artifact["metadata"]["sources"]["contracts/USDOMProofReserve.sol"]["keccak256"] = keccak256(
+            target_source.read_bytes())
+        artifact_path.write_text(json.dumps(artifact))
+        try:
+            check(root)
+        except SystemExit as error:
+            assert "embeds its own derived bytecode/configuration identity" in str(error)
+        else:
+            raise AssertionError("self-referential runtime identity was accepted")
+        target_source.write_text(target_canonical)
+        artifact["metadata"]["sources"]["contracts/USDOMProofReserve.sol"]["keccak256"] = keccak256(
+            target_source.read_bytes())
+        artifact_path.write_text(json.dumps(artifact))
+        canonical_artifact = artifact_path.read_text()
+        artifact_path.write_text(canonical_artifact.replace('"metadata":', '"metadata":null,"metadata":', 1))
+        try:
+            check(root)
+        except SystemExit as error:
+            assert "duplicate JSON key" in str(error)
+        else:
+            raise AssertionError("duplicate artifact authority was accepted")
+        artifact_path.write_text(canonical_artifact)
+        hardlink = root / "contracts" / "hardlinked-reserve.sol"
+        os.link(root / "contracts" / "USDOMProofReserve.sol", hardlink)
+        try:
+            check(root)
+        except SystemExit as error:
+            assert "file policy mismatch" in str(error)
+        else:
+            raise AssertionError("hard-linked artifact source was accepted")
+        hardlink.unlink()
         artifact["metadata"]["compiler"]["version"] = "0.8.24+commit.e11b9ed9"
         artifact_path.write_text(json.dumps(artifact))
         try:
@@ -364,6 +625,14 @@ def self_test() -> None:
         else:
             raise AssertionError("stale EVM was accepted")
         (root / "foundry.toml").write_text(original)
+        (root / "config" / "mainnet-release-evidence.unconfigured.json").write_text(
+            '{"reserveArtifact":null,"reserveArtifact":{"path":"out/USDOMProofReserve.sol/USDOMProofReserve.json"}}')
+        try:
+            check(root)
+        except SystemExit as error:
+            assert "duplicate JSON key" in str(error)
+        else:
+            raise AssertionError("duplicate release-evidence authority was accepted")
         (root / "config" / "mainnet-release-evidence.unconfigured.json").write_text(
             '{"reserveArtifact":{"path":"results/build-identity.json"}}')
         try:

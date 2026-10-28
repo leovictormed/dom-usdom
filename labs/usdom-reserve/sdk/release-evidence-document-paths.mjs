@@ -7,19 +7,21 @@ const canonicalFoundryArtifactPaths = new Set([
 ]);
 
 export function isCanonicalReleaseEvidenceDocumentPath(value) {
-  if(typeof value!=='string' || value.length===0 || value.length>4096
+  if(typeof value!=='string' || value.length===0 || value.length>4095
       || value.startsWith('/') || value.includes('\\') || value.includes('\0')) return false;
+  if(canonicalFoundryArtifactPaths.has(value)) return true;
   const parts=value.split('/');
-  if(!parts.every(part=>/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part))) return false;
-  return (parts[0]==='evidence' && parts.length>1)
-    || canonicalFoundryArtifactPaths.has(value);
+  if(!parts.every(part=>part.length<=255
+      && /^[a-z0-9][a-z0-9._-]*$/.test(part))) return false;
+  return parts[0]==='evidence' && parts.length>1;
 }
 
 function exactDocument(value) {
   return value && typeof value==='object' && !Array.isArray(value)
     && JSON.stringify(Object.keys(value).sort())===JSON.stringify(['path','sha256'])
     && isCanonicalReleaseEvidenceDocumentPath(value.path)
-    && typeof value.sha256==='string' && rawSha256Pattern.test(value.sha256);
+    && typeof value.sha256==='string' && rawSha256Pattern.test(value.sha256)
+    && value.sha256!=='0'.repeat(64);
 }
 
 /**
@@ -35,6 +37,7 @@ export function collectReleaseEvidenceDocumentPaths(value,{
     throw new Error('invalid release-evidence traversal bounds');
   }
   const paths=[];
+  const documents=[];
   let nodes=0;
   const visit=(current,depth,key=null)=>{
     nodes+=1;
@@ -47,6 +50,7 @@ export function collectReleaseEvidenceDocumentPaths(value,{
     if(hasPath || hasSha256) {
       if(!exactDocument(current)) throw new Error('release evidence contains a malformed document');
       paths.push(current.path);
+      documents.push(current);
       return;
     }
     if(Array.isArray(current)) {
@@ -87,6 +91,22 @@ export function collectReleaseEvidenceDocumentPaths(value,{
         || path===sharedVerifyingKeyPath) && count===2)) {
       throw new Error('release evidence contains duplicate document paths');
     }
+  }
+  const distinctDocuments=new Map();
+  for(const document of documents) {
+    const previous=distinctDocuments.get(document.path);
+    if(previous===undefined) distinctDocuments.set(document.path,document.sha256);
+    else if(previous!==document.sha256) {
+      throw new Error('release evidence contains one path with conflicting content hashes');
+    }
+  }
+  const contentOwners=new Map();
+  for(const [path,sha256] of distinctDocuments) {
+    const previous=contentOwners.get(sha256);
+    if(previous!==undefined && previous!==path) {
+      throw new Error('release evidence contains duplicate document content under different paths');
+    }
+    contentOwners.set(sha256,path);
   }
   return Object.freeze([...new Set(paths)]);
 }

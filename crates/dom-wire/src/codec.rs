@@ -121,6 +121,14 @@ impl NoiseCodec {
                 msg.payload.len()
             )));
         }
+        let command_limit = msg.command.max_payload_len();
+        if msg.payload.len() > command_limit {
+            return Err(DomError::Invalid(format!(
+                "outgoing {:?} payload {} bytes exceeds command limit {command_limit}",
+                msg.command,
+                msg.payload.len()
+            )));
+        }
         let plaintext = msg.to_bytes();
         if plaintext.len() > MAX_CODEC_LOGICAL_MSG_BYTES {
             return Err(DomError::Invalid(format!(
@@ -266,13 +274,19 @@ impl NoiseCodec {
                         self.reset_reassembly();
                         return Err(DomError::Invalid("wire magic mismatch".into()));
                     }
-                    if let Err(error) = crate::message::Command::from_byte(self.acc[8]) {
-                        self.reset_reassembly();
-                        return Err(error);
-                    }
+                    let command = match crate::message::Command::from_byte(self.acc[8]) {
+                        Ok(command) => command,
+                        Err(error) => {
+                            self.reset_reassembly();
+                            return Err(error);
+                        }
+                    };
                     let payload_len =
                         u32::from_le_bytes(self.acc[9..13].try_into().unwrap()) as usize;
-                    if payload_len > MAX_MESSAGE_PAYLOAD || total != 13 + payload_len {
+                    if payload_len > MAX_MESSAGE_PAYLOAD
+                        || payload_len > command.max_payload_len()
+                        || total != 13 + payload_len
+                    {
                         self.reset_reassembly();
                         return Err(DomError::Malformed(
                             "logical and wire message lengths disagree".into(),
@@ -537,6 +551,43 @@ mod tests {
         let error = cb.recv(&mut b).await.unwrap_err();
         assert!(matches!(error, DomError::Malformed(_)));
         assert!(cb.acc.is_empty());
+    }
+
+    /// A cheap command cannot consume the global block-sized allowance. The
+    /// receiver rejects it from the first canonical fragment, before waiting
+    /// for or accumulating the declared remainder.
+    #[tokio::test]
+    async fn recv_rejects_command_oversize_from_first_fragment() {
+        let (mut a, mut sender_t, mut b, rt) = connected_transports().await;
+        let mut cb = NoiseCodec::new(rt, TEST_MAGIC);
+        let total = CHUNK + 100;
+        let payload_len = total - 13;
+        assert!(payload_len > Command::Ping.max_payload_len());
+        assert!(payload_len < MAX_MESSAGE_PAYLOAD);
+        let mut fragment = vec![0u8; CHUNK];
+        fragment[..4].copy_from_slice(&(total as u32).to_le_bytes());
+        fragment[4..8].copy_from_slice(&TEST_MAGIC.to_le_bytes());
+        fragment[8] = Command::Ping as u8;
+        fragment[9..13].copy_from_slice(&(payload_len as u32).to_le_bytes());
+        let mut ciphertext = vec![0u8; fragment.len() + 16];
+        let n = sender_t.write_message(&fragment, &mut ciphertext).unwrap();
+        write_framed(&mut a, &ciphertext[..n]).await.unwrap();
+
+        let error = cb.recv(&mut b).await.unwrap_err();
+        assert!(matches!(error, DomError::Malformed(_)));
+        assert!(cb.acc.is_empty());
+    }
+
+    #[tokio::test]
+    async fn send_rejects_command_oversize_before_transport_write() {
+        let (mut a, mut ca, _b, _cb) = connected_codecs().await;
+        let message = WireMessage {
+            magic: TEST_MAGIC,
+            command: Command::Ping,
+            payload: vec![0; Command::Ping.max_payload_len() + 1],
+        };
+        let error = ca.send(&mut a, &message).await.unwrap_err();
+        assert!(matches!(error, DomError::Invalid(_)));
     }
 
     #[tokio::test]

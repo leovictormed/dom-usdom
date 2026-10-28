@@ -9,7 +9,8 @@ use std::{
 
 use dom_consensus::{bind_usdom_batch_commitment, BlockHeader};
 use dom_core::{
-    Hash256, BLOCK_VERSION_V4, NETWORK_MAGIC_MAINNET, NETWORK_MAGIC_REGTEST, NETWORK_MAGIC_TESTNET,
+    configured_genesis_hash_for_network_magic, Hash256, BLOCK_VERSION_V4, NETWORK_MAGIC_MAINNET,
+    NETWORK_MAGIC_REGTEST, NETWORK_MAGIC_TESTNET, PROTOCOL_VERSION,
 };
 use dom_serialization::{DomDeserialize, DomSerialize};
 use dom_usdom_privacy::Scalar;
@@ -693,6 +694,7 @@ struct ScanAnchorBody {
 #[serde(deny_unknown_fields)]
 struct ScanResponse {
     schema_version: u16,
+    transition_id: String,
     identity: ScanIdentityResponse,
     request_anchor: Option<ScanAnchorResponse>,
     scanned_from: u64,
@@ -709,6 +711,8 @@ struct ScanIdentityResponse {
     network_magic: u32,
     chain_id: String,
     genesis_hash: String,
+    protocol_version: u32,
+    range_proof_serialization_version: u8,
     tip_height: u64,
     tip_hash: String,
 }
@@ -1011,13 +1015,21 @@ fn parse_scan_response(
     let response: ScanResponse = serde_json::from_slice(body)
         .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?;
     let chain_id = parse_hash(&response.identity.chain_id, "chain_id")?;
-    let _genesis_hash = parse_hash(&response.identity.genesis_hash, "genesis_hash")?;
+    let transition_id = parse_hash(&response.transition_id, "transition_id")?;
+    let genesis_hash = parse_hash(&response.identity.genesis_hash, "genesis_hash")?;
+    let expected_genesis = configured_genesis_hash_for_network_magic(request.network_magic)
+        .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?;
     let tip_hash = parse_hash(&response.identity.tip_hash, "tip_hash")?;
     if response.schema_version != RPC_SCHEMA_VERSION
         || response.finality_claimed
         || response.identity.network_magic != request.network_magic
         || network_name(response.identity.network_magic) != Some(response.identity.network.as_str())
         || chain_id != request.chain_id
+        || genesis_hash != expected_genesis
+        || response.identity.protocol_version != PROTOCOL_VERSION
+        || response.identity.range_proof_serialization_version
+            != dom_crypto::RANGE_PROOF_SERIALIZATION_VERSION
+        || transition_id != request.transition_id
         || response.scanned_from != request.start_height
     {
         return Err(UsdomRpcClientError::Invalid(
@@ -1079,7 +1091,8 @@ fn parse_scan_response(
             if inclusion.is_some()
                 || response.scanned_to != Some(value.anchor.height)
                 || value.anchor.height.checked_add(1) != Some(value.next_height)
-                || value.next_height > response.identity.tip_height.saturating_add(1)
+                || value.anchor.height >= response.identity.tip_height
+                || value.next_height > response.identity.tip_height
                 || value.snapshot_tip.height != response.identity.tip_height
                 || snapshot_tip != tip_hash
             {
@@ -1242,7 +1255,9 @@ fn parse_history_response(
     let response: HistoryResponse = serde_json::from_slice(body)
         .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?;
     let response_chain_id = parse_hash(&response.identity.chain_id, "history chain_id")?;
-    let _genesis_hash = parse_hash(&response.identity.genesis_hash, "history genesis_hash")?;
+    let genesis_hash = parse_hash(&response.identity.genesis_hash, "history genesis_hash")?;
+    let expected_genesis = configured_genesis_hash_for_network_magic(request.network_magic)
+        .map_err(|error| UsdomRpcClientError::Invalid(error.to_string()))?;
     let identity_tip = parse_hash(&response.identity.tip_hash, "history identity tip")?;
     let response_domain = parse_hash(&response.dom_domain, "history domain")?;
     let response_trusted_tip = parse_hash(&response.trusted_tip.hash, "history trusted tip")?;
@@ -1251,6 +1266,10 @@ fn parse_history_response(
         || response.identity.network_magic != request.network_magic
         || network_name(response.identity.network_magic) != Some(response.identity.network.as_str())
         || response_chain_id != request.chain_id
+        || genesis_hash != expected_genesis
+        || response.identity.protocol_version != PROTOCOL_VERSION
+        || response.identity.range_proof_serialization_version
+            != dom_crypto::RANGE_PROOF_SERIALIZATION_VERSION
         || response_domain != request.dom_domain
         || response.identity.tip_height < request.trusted_tip.0
         || (response.identity.tip_height == request.trusted_tip.0
@@ -1563,7 +1582,13 @@ mod tests {
                 "network": "regtest",
                 "network_magic": NETWORK_MAGIC_REGTEST,
                 "chain_id": hex::encode(request.chain_id.as_bytes()),
-                "genesis_hash": "66".repeat(32),
+                "genesis_hash": hex::encode(
+                    configured_genesis_hash_for_network_magic(NETWORK_MAGIC_REGTEST)
+                        .unwrap()
+                        .as_bytes()
+                ),
+                "protocol_version": PROTOCOL_VERSION,
+                "range_proof_serialization_version": dom_crypto::RANGE_PROOF_SERIALIZATION_VERSION,
                 "tip_height": 1,
                 "tip_hash": hex::encode(block_hash.as_bytes()),
             },
@@ -1759,11 +1784,18 @@ mod tests {
         };
         let valid = serde_json::json!({
             "schema_version": 1,
+            "transition_id": "55".repeat(32),
             "identity": {
                 "network": "regtest",
                 "network_magic": request.network_magic,
                 "chain_id": "11".repeat(32),
-                "genesis_hash": "22".repeat(32),
+                "genesis_hash": hex::encode(
+                    configured_genesis_hash_for_network_magic(NETWORK_MAGIC_REGTEST)
+                        .unwrap()
+                        .as_bytes()
+                ),
+                "protocol_version": PROTOCOL_VERSION,
+                "range_proof_serialization_version": dom_crypto::RANGE_PROOF_SERIALIZATION_VERSION,
                 "tip_height": 15,
                 "tip_hash": "77".repeat(32)
             },
@@ -1776,6 +1808,10 @@ mod tests {
         });
         let page = parse_scan_response(valid.to_string().as_bytes(), request).unwrap();
         assert_eq!(page.inclusion.unwrap().block_hash, hash(0x33));
+
+        let mut wrong = valid.clone();
+        wrong["transition_id"] = serde_json::json!("56".repeat(32));
+        assert!(parse_scan_response(wrong.to_string().as_bytes(), request).is_err());
 
         let mut wrong = valid.clone();
         wrong["finality_claimed"] = serde_json::json!(true);
@@ -1792,6 +1828,19 @@ mod tests {
         let mut wrong = valid.clone();
         wrong["identity"]["genesis_hash"] = serde_json::json!("ab".repeat(32).to_uppercase());
         assert!(parse_scan_response(wrong.to_string().as_bytes(), request).is_err());
+
+        let mut wrong = valid.clone();
+        wrong["identity"]["genesis_hash"] = serde_json::json!("ab".repeat(32));
+        assert!(parse_scan_response(wrong.to_string().as_bytes(), request).is_err());
+
+        let mut wrong = valid.clone();
+        wrong["identity"]["protocol_version"] = serde_json::json!(PROTOCOL_VERSION + 1);
+        assert!(parse_scan_response(wrong.to_string().as_bytes(), request).is_err());
+
+        let mut wrong = valid;
+        wrong["identity"]["range_proof_serialization_version"] =
+            serde_json::json!(dom_crypto::RANGE_PROOF_SERIALIZATION_VERSION + 1);
+        assert!(parse_scan_response(wrong.to_string().as_bytes(), request).is_err());
     }
 
     #[test]
@@ -1806,11 +1855,18 @@ mod tests {
         };
         let page = serde_json::json!({
             "schema_version": 1,
+            "transition_id": "55".repeat(32),
             "identity": {
                 "network": "regtest",
                 "network_magic": request.network_magic,
                 "chain_id": "11".repeat(32),
-                "genesis_hash": "22".repeat(32),
+                "genesis_hash": hex::encode(
+                    configured_genesis_hash_for_network_magic(NETWORK_MAGIC_REGTEST)
+                        .unwrap()
+                        .as_bytes()
+                ),
+                "protocol_version": PROTOCOL_VERSION,
+                "range_proof_serialization_version": dom_crypto::RANGE_PROOF_SERIALIZATION_VERSION,
                 "tip_height": 20,
                 "tip_hash": "77".repeat(32)
             },
@@ -1827,6 +1883,13 @@ mod tests {
         });
         let parsed = parse_scan_response(page.to_string().as_bytes(), request).unwrap();
         assert_eq!(parsed.continuation, Some((14, 13, hash(0x33))));
+
+        let mut terminal_continuation = page.clone();
+        terminal_continuation["identity"]["tip_height"] = serde_json::json!(13);
+        terminal_continuation["continuation"]["snapshot_tip"]["height"] = serde_json::json!(13);
+        assert!(
+            parse_scan_response(terminal_continuation.to_string().as_bytes(), request).is_err()
+        );
 
         let mut missing = page.clone();
         missing["continuation"] = serde_json::Value::Null;
@@ -1864,6 +1927,19 @@ mod tests {
 
         let mut wrong = valid.clone();
         wrong["finality_claimed"] = serde_json::json!(true);
+        assert!(parse_history_response(wrong.to_string().as_bytes(), request, false).is_err());
+
+        let mut wrong = valid.clone();
+        wrong["identity"]["genesis_hash"] = serde_json::json!("ab".repeat(32));
+        assert!(parse_history_response(wrong.to_string().as_bytes(), request, false).is_err());
+
+        let mut wrong = valid.clone();
+        wrong["identity"]["protocol_version"] = serde_json::json!(PROTOCOL_VERSION + 1);
+        assert!(parse_history_response(wrong.to_string().as_bytes(), request, false).is_err());
+
+        let mut wrong = valid.clone();
+        wrong["identity"]["range_proof_serialization_version"] =
+            serde_json::json!(dom_crypto::RANGE_PROOF_SERIALIZATION_VERSION + 1);
         assert!(parse_history_response(wrong.to_string().as_bytes(), request, false).is_err());
 
         let mut historical = valid;

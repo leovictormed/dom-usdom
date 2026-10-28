@@ -8,6 +8,8 @@ import {buildCheckpointVerifierReproducibleBuildReport,
   from '../../sdk/checkpoint-verifier-reproducible-build-report.mjs';
 import {parseStrictJsonBytes} from '../../sdk/strict-json.mjs';
 import {checkpointVerifierConfigFixture} from './checkpoint-verifier-config.test.mjs';
+import {PRODUCTION_SOLC_LONG_VERSION,PRODUCTION_SOLC_SHA256}
+  from '../../sdk/reproducible-build-environment.mjs';
 
 const s=character=>character.repeat(64);
 const h=character=>`0x${character.repeat(64)}`;
@@ -23,7 +25,8 @@ function fixture() {
     checkpointVerifier:'0x0000000000000000000000000000000000000020',
     checkpointVerifierCodeHash:h('c'),checkpointVerifierInitcodeHash:h('d'),
     checkpointVerifierConfigHash:computed.verifierConfigHash};
-  const observed=buildId=>({buildId,compilerExecutableSha256:s('d'),compilerVersion:'0.8.37+commit.12345678',
+  const observed=buildId=>({buildId,compilerExecutableSha256:PRODUCTION_SOLC_SHA256,
+    compilerVersion:PRODUCTION_SOLC_LONG_VERSION,
     artifactSha256:s('b'),sourceSetSha256:s('e'),runtimeCodeHash:h('c'),initcodeHash:h('d')});
   return {releaseEvidence,releaseConfig,verifierConfig,
     observations:[observed('isolated-build-a'),observed('isolated-build-b')]};
@@ -66,12 +69,24 @@ test('rejects non-reproducible, failed-identity or non-isolated observations',()
     value=>{value.observations[1].runtimeCodeHash=h('f');},
     value=>{value.observations[1].initcodeHash=h('f');},
     value=>{value.observations[1].compilerVersion='0.8.36+commit.12345678';},
+    value=>{for(const observation of value.observations) observation.compilerExecutableSha256=s('f');},
     value=>{value.observations[1].buildId='isolated-build-a';},
     value=>{value.observations.pop();},
   ]) {
     const value=fixture(); mutate(value);
     assert.throws(()=>buildCheckpointVerifierReproducibleBuildReport(value));
   }
+});
+
+test('rejects zero checkpoint-verifier artifact and source-set SHA-256 placeholders',()=>{
+  const zero=s('0');
+  const zeroArtifact=fixture();
+  zeroArtifact.releaseEvidence.checkpointVerifierArtifact.sha256=zero;
+  for(const observation of zeroArtifact.observations) observation.artifactSha256=zero;
+  assert.throws(()=>buildCheckpointVerifierReproducibleBuildReport(zeroArtifact),/nonzero/);
+  const zeroSources=fixture();
+  for(const observation of zeroSources.observations) observation.sourceSetSha256=zero;
+  assert.throws(()=>buildCheckpointVerifierReproducibleBuildReport(zeroSources),/nonzero/);
 });
 
 test('rejects a forged report',()=>{

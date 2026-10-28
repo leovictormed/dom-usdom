@@ -1,0 +1,14 @@
+Etapa 1445 — realinhamento auditado dos inventários Rust
+Data: 2026-10-26
+
+Foram revalidados os 60 arquivos Rust de produção dom-usdom, em vez de apenas elevar contagens. As mudanças correspondem às fronteiras atuais de checkpoint V6, reconstrução de receipt, sincronização e verificação Groth16.
+
+- Inventário criptográfico: 60 arquivos; cinco Sha256::digest, 18 Keccak256::digest e 33 blake2b_256_tagged. Os novos usos cobrem o statement V6 e a verificação SHA-256 do predecessor na reconstrução de receipt. Os 48 domínios DOM permanecem únicos.
+- Verificação Groth16: a implementação atual usa deserialize_with_mode(..., Compress::Yes, Validate::Yes), exigindo validação de curva/subgrupo antes da recodificação canônica e verify_proof. A sentinela agora exige explicitamente essa sequência mais forte.
+- Aritmética: o 35º checked_sub protege o intervalo de recebimento na sync attestation e propaga underflow como erro.
+- Concorrência: o arquivo adicional não alterou as contagens fechadas de locks, candidate commits, publicações atômicas e snapshots.
+- Propagação de erros: a contagem global 295 foi substituída por inventário fechado por arquivo para 19 autoridades CLI/proof-host. Introduzir ou mover sinais entre boundaries passa a falhar mesmo se a soma global permanecer igual. Continuam proibidos erros internos em stdout, stderr, JSON e main retornando Result.
+
+Validação focal: 16/16 testes aprovados nas cinco suítes solicitadas.
+
+Não houve rede, build pesado, assinatura, deploy, fundos, commit ou push.

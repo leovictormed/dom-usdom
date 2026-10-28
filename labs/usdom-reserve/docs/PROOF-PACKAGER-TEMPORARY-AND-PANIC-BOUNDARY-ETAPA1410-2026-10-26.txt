@@ -1,0 +1,37 @@
+ETAPA 1410 — FRONTEIRAS TEMPORÁRIAS DOS EMPACOTADORES E PANIC-FREE
+
+Os empacotadores EVM do checkpoint externo e da queima finalizada criavam o
+snapshot e depois corrigiam permissões com chmod. Agora mktemp, stat e id são
+fixados, o diretório precisa nascer diretamente em /dev/shm como diretório
+0700 do UID atual com link count 2, e cada arquivo precisa nascer como arquivo
+regular 0600, do UID atual, sem symlink e com link count 1. Os chmods corretivos
+foram removidos.
+
+A revisão acionou o checker de panic dos programas de prova e encontrou dois
+problemas adicionais:
+
+1. O parser CheckpointSegmentPolicyInput usava unwrap para converter uma fatia
+   de versão. Mesmo com comprimento logicamente provado por get(8..10), o
+   caminho de produção agora compara os dois bytes diretamente e elimina a
+   primitiva de panic.
+2. Um teste de persistência de sync attestation dependia de dom-store e métodos
+   host-reference sem o cfg correspondente. O teste agora compila somente com
+   host-reference; a matriz padrão continua cobrindo o parser.
+
+O verificador externo de ProgramBinary também ganhou timeout literal de 30
+segundos e tratamento dedicado de TimeoutExpired. Os sete builders RISC Zero
+foram reconciliados com o Cargo.lock atual. O manifesto completo de programas
+de prova ainda possui hashes históricos de outras mudanças concorrentes e será
+rematerializado atomicamente apenas quando os agentes terminarem.
+
+Validação concluída:
+- sintaxe Bash dos dois empacotadores;
+- regressão de storage temporário 1/1;
+- regressões dos dois empacotadores 2/2;
+- parser padrão Rust 1/1;
+- persistência host-reference Rust 1/1;
+- self-test do checker panic/remote-prover aprovado;
+- diff-check aprovado antes das mudanças concorrentes seguintes.
+
+Nenhuma prova pesada, mineração, rede externa, assinatura, deploy, fundos,
+commit ou push ocorreu.

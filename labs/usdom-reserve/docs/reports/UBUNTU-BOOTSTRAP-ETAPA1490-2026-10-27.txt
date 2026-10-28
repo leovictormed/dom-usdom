@@ -1,0 +1,12 @@
+Etapa 1490 — bootstrap Ubuntu 24.04 fixado
+
+- A fase prerequisites agora começa com um verificador/instalador completo para
+  Ubuntu 24.04. `--verify-only` não instala nem acessa rede; `--install` exige
+  uid 0 explicitamente e nunca chama sudo.
+- Treze pacotes possuem versões exatas e catorze executáveis do sistema têm
+  SHA-256 fixado. Depois da instalação via APT autenticado, versões e hashes são
+  revalidados. curl/wget não são usados para dependências Ubuntu.
+- Solc continua em bootstrap separado: HTTPS obrigatório, origem e SHA-256
+  fixos e verificação de versão antes do link create-once.
+- O checker de toolchain valida Node/npm/Foundry/Rust/Python/jq e lockfiles logo
+  após o bootstrap Ubuntu. Nenhuma instalação ou rede foi executada nesta etapa.

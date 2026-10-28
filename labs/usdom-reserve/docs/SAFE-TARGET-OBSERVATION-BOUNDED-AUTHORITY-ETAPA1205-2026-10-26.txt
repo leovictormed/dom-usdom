@@ -1,0 +1,30 @@
+SAFE TARGET OBSERVATION BOUNDED AUTHORITY — STAGE 1205
+Date: 2026-10-26
+
+Finding
+=======
+
+The exact Safe-target observer performs multi-RPC finalized-state validation,
+but the deployment executor invoked it directly. Startup, pre-signing,
+pre-transmission, polling and final-success observations therefore lacked an
+outer process timeout and bounded private stdout/stderr channels.
+
+Correction
+==========
+
+All five target-observation call sites now use one authority helper. It
+reattests Node and timeout, applies a 120-second TERM/KILL boundary, captures
+channels in private tmpfs, requires fatal UTF-8 decoding, limits stdout to
+1 MiB and stderr to 64 KiB, exposes only a generic failure status, requires
+empty stderr, applies mode 0600 and validates strict JSON before semantic use.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/environment/process tests: 12/12 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

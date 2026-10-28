@@ -1,0 +1,30 @@
+ETAPA 1295 — LIMITES PARA LEITURAS DE NONCE DA RETOMADA
+Data: 2026-10-26
+
+Problema
+
+A decisão de publicar uma transação assinada, retomar seu recibo ou abortar usa
+o nonce finalizado e pendente observado em dois RPCs. As oito consultas desse
+snapshot decisório, quatro por executor, podiam esperar indefinidamente.
+
+Correção
+
+Cada leitura `cast nonce` que alimenta `check-pilot-nonce-recovery.mjs` agora
+executa sob `timeout --foreground --signal=TERM --kill-after=5s 120s`. Timeout
+ou falha em qualquer leitura encerra o script por `set -e` antes da classificação
+e antes do prompt de transmissão.
+
+As regras permanecem iguais: publicação somente com nonce exato e concordante;
+recuperação somente no sucessor exato com o hash conhecido; qualquer estado
+divergente é rejeitado. A regressão exige exatamente quatro leituras decisórias
+limitadas em cada executor.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 13/13 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 68/68 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

@@ -13,4 +13,6 @@ for(const [writer,collector,target] of [
  const install=source.indexOf('install-private-file-immutable-stdin.mjs" "$TARGET"',collect);
  assert.ok(targetAt>=0&&removal>targetAt&&collect>removal&&install>collect);
  assert.doesNotMatch(source,/observation already exists/);
+ assert.match(source,/TEMPORARY_IDENTITY=\$\(\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$TEMPORARY"\)/);
+ assert.match(source,/\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$TEMPORARY" 2>\/dev\/null\) == "\$TEMPORARY_IDENTITY"/);
 });

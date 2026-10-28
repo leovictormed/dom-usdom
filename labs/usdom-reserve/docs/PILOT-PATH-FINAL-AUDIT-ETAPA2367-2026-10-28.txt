@@ -1,0 +1,23 @@
+USDOM CLOSED MAINNET PILOT PATH — FINAL STATIC AUDIT (ETAPA2367)
+Date: 2026-10-28
+Scope: configured custody authority, Safe USDT deposit, pilot gate activate/cancel/expired-clear, status78 orchestration, publication journal/finality and open-claims routes.
+
+CODE BLOCKERS FOUND AND CORRECTED
+1. The Safe deposit publisher used two literal public RPC endpoints instead of the authenticated private source catalog. It now materializes bounded Foundry aliases from the private source file and public catalog, and publication selects the authenticated catalog entry without persisting credentials.
+2. A pre-existing 0600 broadcast journal was accepted by file metadata alone. It is now required to match the exact operation kind, signed-unresolved state and complete relayer validation object before any publication.
+3. A pre-existing deposit completion caused immediate success without reobserving Ethereum. Restart now checks the exact tx hash, receipt status, block number/hash and finalized height independently through both authenticated origins before returning success.
+
+REMAINING CODE BLOCKERS IN THIS AUDITED PATH
+None found by the directed static audit and the 67-test focused suite. This statement is limited to the listed path and is not a claim that the protocol has zero risk or that external evidence exists.
+
+EXTERNAL EVIDENCE STILL REQUIRED
+- Finalized deployment and byte/codehash identity of the four production Safes and deployed reserve components.
+- Twelve real OneKey/iPhone EIP-712 custody proofs and the finalized identity bundle.
+- Validated WalletConnect/Reown public client configuration and physical-account observations.
+- Five separately created encrypted gas-relayer keystores/identities, including the pilot-gate relayer, with role separation proven.
+- Two independent authenticated mainnet RPC origins and live dual-origin observations.
+- Final production release parameters and all required ceremony/capacity/finality evidence consumed by readiness.
+- Real USDT custody funding, explicit operator authorization, mainnet execution, receipts, events, finality and final accounting observations.
+- Independent security review and operational recovery rehearsal appropriate to real funds.
+
+No network, hardware, real signature, funds, deploy, broadcast or push was used to produce this report.

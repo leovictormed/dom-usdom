@@ -8,6 +8,9 @@ const script=name=>readFile(path.join(root,'scripts',name),'utf8');
 
 test('checkpoint consensus collection bounds local preparation and RPC collection',async()=>{
   const source=await script('collect-ethereum-checkpoint-consensus.sh');
+  for(const tool of ['timeout','node','python3']) assert.match(source,new RegExp(`pin_runtime_tool ${tool}`));
+  assert.match(source,/node\(\) \{ assert_runtime_tool node; "\$node_bin" "\$@"; \}/);
+  assert.match(source,/python3\(\) \{ assert_runtime_tool python3; "\$python3_bin" "\$@"; \}/);
   assert.match(source,/timeout --signal=TERM --kill-after=2s 30s[\s\\]+python3 /);
   assert.match(source,/timeout --signal=TERM --kill-after=5s 300s[\s\\]+node /);
   for(const [signal,status] of [['HUP','129'],['INT','130'],['TERM','143']]) {
@@ -16,12 +19,15 @@ test('checkpoint consensus collection bounds local preparation and RPC collectio
   assert.doesNotMatch(source,/(?:^|\s)&\s*(?:#.*)?$/m);
 });
 
-test('finalized deposit and closed-mainnet preparation bound every remote or Ledger child',async()=>{
+test('finalized deposit and closed-mainnet preparation bound every remote or custody child',async()=>{
   const [collector,deposit]=await Promise.all([
     script('collect-finalized-deposit-source.sh'),script('prepare-closed-mainnet-deposit.sh'),
   ]);
+  assert.match(collector,/pin_runtime_tool node/);
+  assert.match(collector,/node\(\) \{ assert_runtime_tool node; "\$node_bin" "\$@"; \}/);
   assert.match(collector,/timeout --signal=TERM --kill-after=5s 300s[\s\\]+node scripts\/collect-finalized-deposit-source\.mjs/);
-  assert.equal((deposit.match(/timeout --signal=TERM --kill-after=5s 300s cast wallet address --ledger/g)??[]).length,2);
+  assert.equal((deposit.match(/read-safe-usdt-custody-address\.mjs/g)??[]).length,2);
+  assert.doesNotMatch(deposit,/--ledger|Ledger/);
   assert.match(deposit,/exec timeout --signal=TERM --kill-after=2s 120s[\s\\]+node scripts\/prepare-closed-mainnet-deposit\.mjs/);
   assert.doesNotMatch(`${collector}\n${deposit}`,/(?:^|\s)&\s*(?:#.*)?$/m);
 });

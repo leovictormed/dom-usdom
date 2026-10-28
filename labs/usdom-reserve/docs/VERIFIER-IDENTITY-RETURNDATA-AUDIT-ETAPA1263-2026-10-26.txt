@@ -1,0 +1,72 @@
+ETAPA 1263 — verifier identity returndata audit
+Date: 2026-10-26
+
+Scope
+-----
+
+Adversarial review of verifier configuration and capability reads after
+deployment, including deposit admission, checkpoint candidate creation, pause/
+resume identity checks and exact restoration. Proof-result and RISC Zero adapter
+boundaries were rechecked alongside the prior Safe, token and registry evidence.
+No Rust, production script, network, signing, deployment, funds, commit or push
+operation was performed.
+
+Result
+------
+
+No new material production defect was found. Reserve and Registry bind verifier
+runtime code, nonzero configuration hash and an exact flow-specific acceptance
+capability at construction, then reread all three before relevant state
+transitions. The shared scalar decoder copies only 32 bytes under a fixed gas
+cap and accepts only an exact 32-byte return.
+
+A malformed reserve configuration getter reverts through the constructor-safe
+`InvalidConfiguration` path, while a malformed capability becomes a mismatch and
+reverts `VerifierChanged`. Registry normalizes either malformed identity getter
+to a verifier mismatch. These diagnostic differences do not permit state
+movement: no deposit identifier, collateral credit, candidate, proof debt or
+resume authorization is consumed.
+
+The actual proof-result boundary remains independently strict: Reserve and
+Registry require an exact one-word capability magic, while RISC Zero adapters
+require the underlying verifier's void call to return exactly zero bytes. Short,
+trailing, oversized, false, wrong-domain and return-bomb results are already
+covered and fail atomically.
+
+Regression expansion
+--------------------
+
+Both mutable verifier mocks now independently emit the following responses from
+their configuration and capability getters after successful deployment:
+
+- 31-byte short response;
+- 33-byte response with trailing data; and
+- one-megabyte return bomb.
+
+New Reserve and Registry regressions exercise all six modes. Reserve proves no
+deposit is consumed; Registry proves no candidate is created. Restoring exact
+responses permits the original deposit/candidate operation without changing its
+identifier or statement. Production contracts and ABI were unchanged.
+
+Verification
+------------
+
+- Complete Foundry suite: 207/207 tests passed in 14 suites, 0 failed, 0
+  skipped.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 reverts.
+- ProofReserve runtime: 20,003 bytes; EIP-170 margin 4,573 bytes; 477-byte
+  surplus over the mandatory project margin.
+- ProofReserve initcode: 25,671 bytes; margin 23,481 bytes.
+- Registry runtime: 10,605 bytes; margin 13,971 bytes.
+- Quorum prototype runtime: 14,609 bytes; margin 9,967 bytes.
+- Formatting, full Forge execution, size measurement and `git diff --check`
+  passed.
+
+Release impact
+--------------
+
+This stage adds executable negative evidence only. Production bytecode remains
+the stage-1244 result. This evidence does not authorize deployment or real funds
+and does not replace outstanding release, proof, identity or operator gates.

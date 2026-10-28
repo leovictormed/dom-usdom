@@ -9,6 +9,8 @@
   "deployment_manifest_sha256": "08718c12bc06afb0dc8f54978e28a787bcce4d919f1c5b0c1e090015fbbd01f6",
   "verifier_source_url": "https://raw.githubusercontent.com/risc0/risc0-ethereum/v3.0.1/contracts/src/groth16/RiscZeroGroth16Verifier.sol",
   "verifier_source_sha256": "f24784fb625b8a82232c79f21db28f759593e29a287a4f9865cc6e78d36eb283",
+  "trusted_setup_authority_path": "config/risc0-trusted-setup-authority-v1.json",
+  "trusted_setup_authority_sha256": "fa3155a36f20231c57a15d8d5a4a54cb21f920c05cce3d4e9f96debb06abaa3b",
   "verifier_name": "RiscZeroGroth16Verifier",
   "verifier_version": "3.0.0",
   "verifier_contract_kind": "direct-immutable-verifier",

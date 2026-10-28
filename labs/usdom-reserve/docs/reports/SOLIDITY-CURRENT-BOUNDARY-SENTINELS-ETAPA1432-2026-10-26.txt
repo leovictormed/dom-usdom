@@ -1,0 +1,11 @@
+USDⓄM — ETAPA 1432
+Current Solidity shutdown, authority and external-call sentinels
+
+Audit found no new implementation defect. Three source sentinels were stale after reviewed hardening refactors:
+- emergency authorization moved into `_requireEmergencyAuthority` and the shutdown regression was renamed to reflect first-proof payout support;
+- Safe owner validation was split into `_safeOwnersIdentity` plus `_safePolicyWithoutOwnersIntact`, avoiding a duplicate externally controlled call while retaining threshold/modules/guard/fallback checks;
+- production reserve centralized bounded static calls in `_staticcallWord`, while the prototype retains the equivalent inline bounded decoder.
+
+Tests now recognize these exact current structures without relaxing the required authority or gas/returndata properties. Focused suites: 8/8 passed, 0 failed, 92 ms.
+
+No contract implementation changed. No network, signing, deployment, funds, commit or push.

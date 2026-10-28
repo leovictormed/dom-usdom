@@ -7,6 +7,8 @@ import {deriveCheckpointVerifierArtifactBinding,deriveFinalizedBurnVerifierArtif
   from '../sdk/compiled-runtime.mjs';
 import {readDirectProjectFile} from '../sdk/direct-project-file.mjs';
 import {materializeProductionReleaseCore} from '../sdk/production-release-core.mjs';
+import {assertProductionReleaseStageTransition,classifyProductionReleaseArtifactStage}
+  from '../sdk/production-release-stages.mjs';
 import {parseStrictJson} from '../sdk/strict-json.mjs';
 import {finalizedBurnVerifierConfigHash} from '../sdk/verifier-config.mjs';
 
@@ -36,7 +38,10 @@ function equal(left,right,label) {
 }
 
 try {
-  if(process.argv.length!==2) throw new Error('this fixed release-core materializer accepts no arguments');
+  const stage=process.argv[2]??'final';
+  if(process.argv.length>3||!['registry-pins','reserve-pins','final'].includes(stage)) {
+    throw new Error('usage: prepare-production-release-core-materialization.mjs [registry-pins|reserve-pins|final]');
+  }
   const [releaseConfig,nativeFacts,finalizedConfig,checkpointConfig,finalizedBuild,checkpointBuild,
     reserveBuild,registryBuild]
     =await Promise.all([
@@ -74,17 +79,40 @@ try {
   const pinsUnset=releaseConfig.reserveRuntimeCodeHash===null&&releaseConfig.reserveInitcodeHash===null;
   const registryPinsUnset=releaseConfig.checkpointRegistryRuntimeCodeHash===null
     &&releaseConfig.checkpointRegistryInitcodeHash===null;
+  const inputStage=classifyProductionReleaseArtifactStage(releaseConfig);
   const core=pinsUnset&&registryPinsUnset
     ?materializeProductionReleaseCore({releaseConfig,nativeFacts,...verifierInputs,
       deferReserveArtifact:true,deferCheckpointRegistryArtifact:true})
     :releaseConfig;
-  const reserveBinding=deriveReserveArtifactBinding({...reserveBuild,releaseConfig:core});
-  const registryBinding=deriveCheckpointRegistryArtifactBinding({...registryBuild,releaseConfig:core});
-  const result=materializeProductionReleaseCore({releaseConfig:core,nativeFacts,...verifierInputs,
-    reserveArtifact:{runtimeCodeHash:reserveBinding.runtimeCodeHash,
-      initcodeHash:reserveBinding.initcodeHash,configHash:reserveBinding.reserveConfigHash},
-    checkpointRegistryArtifact:{runtimeCodeHash:registryBinding.runtimeCodeHash,
-      initcodeHash:registryBinding.initcodeHash,configHash:registryBinding.checkpointRegistryConfigHash}});
+  let result;
+  if(stage==='registry-pins') {
+    if(inputStage!=='bootstrap'||!pinsUnset||!registryPinsUnset) {
+      throw new Error('registry-pin stage requires bootstrap artifact state');
+    }
+    result=core;
+  } else {
+    const registryBinding=deriveCheckpointRegistryArtifactBinding({...registryBuild,releaseConfig:core});
+    if(stage==='reserve-pins') {
+    if(inputStage!=='bootstrap'||!pinsUnset||!registryPinsUnset) {
+      throw new Error('reserve-pin stage requires bootstrap artifact state');
+    }
+      result=materializeProductionReleaseCore({releaseConfig:core,nativeFacts,...verifierInputs,
+      deferReserveArtifact:true,checkpointRegistryArtifact:{runtimeCodeHash:registryBinding.runtimeCodeHash,
+        initcodeHash:registryBinding.initcodeHash,configHash:registryBinding.checkpointRegistryConfigHash}});
+    } else {
+      if(inputStage!=='registry'&&inputStage!=='final') {
+        throw new Error('final stage requires a verified checkpoint registry artifact state');
+      }
+      const reserveBinding=deriveReserveArtifactBinding({...reserveBuild,releaseConfig:core});
+      result=materializeProductionReleaseCore({releaseConfig:core,nativeFacts,...verifierInputs,
+        completeTechnicalProduction:true,
+        reserveArtifact:{runtimeCodeHash:reserveBinding.runtimeCodeHash,
+          initcodeHash:reserveBinding.initcodeHash,configHash:reserveBinding.reserveConfigHash},
+        checkpointRegistryArtifact:{runtimeCodeHash:registryBinding.runtimeCodeHash,
+          initcodeHash:registryBinding.initcodeHash,configHash:registryBinding.checkpointRegistryConfigHash}});
+    }
+  }
+  assertProductionReleaseStageTransition(releaseConfig,result);
   for(const [relative,previous] of snapshots) {
     const current=await readDirectProjectFile(root,relative,{minimum:previous.length,maximum:previous.length});
     if(!current.equals(previous)) throw new Error(`release-core input changed: ${relative}`);

@@ -10,7 +10,11 @@ test('private burn submission pins Node and erases secrets with explicit signal 
   assert.match(source,/NODE_BIN=\$\(realpath "\$\(command -v node\)"\)/);
   assert.match(source,/assert_node_unchanged\(\)[\s\S]*node_identity[\s\S]*node_sha256/);
   assert.match(source,/cleanup\(\) \{[\s\S]*local status=\$\{1:-\$\?\}[\s\S]*unset recovery_password/);
-  assert.match(source,/"\$NODE_BIN" -e 'require\("fs"\)\.rmSync[\s\S]*"\$SECRET_DIRECTORY" \|\| status=1/);
+  assert.match(source,/SECRET_DIRECTORY_IDENTITY=\$\(stat -c '%u:%d:%i:%a' "\$SECRET_DIRECTORY"\)/);
+  assert.match(source,/stat -c '%u:%d:%i:%a' "\$SECRET_DIRECTORY" 2>\/dev\/null\) == "\$SECRET_DIRECTORY_IDENTITY"/);
+  assert.match(source,/# Never erase a pathname that no longer names our private submission directory\.[\s\S]*status=1/);
+  assert.match(source,/assert_node_unchanged &&[\s\S]*run_pinned_timeout --foreground --signal=TERM --kill-after=5s 30s[\s\S]*"\$NODE_BIN" -e 'require\("fs"\)\.rmSync/);
+  assert.match(source,/assert_node_unchanged && assert_runtime_tool timeout && test ! -e "\$SECRET_DIRECTORY"[\s\S]*else\n      status=1/);
   for(const [signal,status] of [['HUP',129],['INT',130],['TERM',143]])
     assert.match(source,new RegExp(`trap 'cleanup ${status}' ${signal}`));
   assert.match(source,/trap 'cleanup \$\?' EXIT/);
@@ -48,10 +52,18 @@ test('private burn preparation isolates credentials and validates every output e
   assert.match(source,/trap 'cleanup 129' HUP/);
   assert.match(source,/trap 'cleanup 130' INT/);
   assert.match(source,/trap 'cleanup 143' TERM/);
+  assert.match(source,/SECRET_DIRECTORY_IDENTITY=\$\(stat -c '%u:%d:%i:%a' "\$SECRET_DIRECTORY"\)/);
+  assert.match(source,/stat -c '%u:%d:%i:%a' "\$SECRET_DIRECTORY" 2>\/dev\/null\) == "\$SECRET_DIRECTORY_IDENTITY"/);
+  assert.match(source,/# A replaced pathname is not the secret directory this process created\.[\s\S]*status=1/);
   assert.ok(source.indexOf('exec </dev/null')>source.indexOf('unset recovery_password'));
   assert.match(source,/find "\$OUTPUT_STATE" -mindepth 1 -print0/);
   assert.match(source,/stat -c '%u:%h' "\$output_entry"/);
   assert.match(source,/Prepared burn output contains an unsafe entry/);
+  assert.match(source,/"\$SECRET_DIRECTORY\/keystore\.stdout" 2>"\$SECRET_DIRECTORY\/keystore\.stderr"/);
+  assert.match(source,/"\$SECRET_DIRECTORY\/builder\.stdout" 2>"\$SECRET_DIRECTORY\/builder\.stderr"/);
+  assert.match(source,/private diagnostics were suppressed/);
+  assert.match(source,/rmSync\(process\.argv\[1\],\{recursive:true,force:true\}\)/);
+  assert.match(source,/test ! -e "\$SECRET_DIRECTORY"/);
 });
 
 test('private burn submission refuses special or group-readable prepared-state entries',async()=>{
@@ -63,4 +75,7 @@ test('private burn submission refuses special or group-readable prepared-state e
   assert.match(source,/\.accepted==true and \.state=="queued"/);
   assert.match(source,/private-burn-index\.json/);
   assert.match(source,/sha256sum "\$PREPARED_STATE\/private-burn-payload\.bin"/);
+  assert.match(source,/"\$SECRET_DIRECTORY\/keystore\.stdout" 2>"\$SECRET_DIRECTORY\/keystore\.stderr"/);
+  assert.match(source,/"\$SECRET_DIRECTORY\/submit\.stdout" 2>"\$SECRET_DIRECTORY\/submit\.stderr"/);
+  assert.match(source,/private diagnostics were suppressed/);
 });

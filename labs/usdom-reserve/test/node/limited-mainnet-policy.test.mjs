@@ -5,8 +5,10 @@ import {fileURLToPath} from 'node:url';
 import {LIMITED_MAINNET_POLICY,materializeLimitedMainnetPolicy}
   from '../../sdk/limited-mainnet-policy.mjs';
 
-const template=JSON.parse(readFileSync(fileURLToPath(new URL(
+const installed=JSON.parse(readFileSync(fileURLToPath(new URL(
   '../../config/proof-reserve.unconfigured.json',import.meta.url)),'utf8'));
+const template={...installed,...Object.fromEntries(Object.keys(LIMITED_MAINNET_POLICY).map(
+  field=>[field,null]))};
 
 test('limited mainnet pilot policy is exact, conservative and authorization-free',()=>{
   const result=materializeLimitedMainnetPolicy(template);
@@ -17,6 +19,7 @@ test('limited mainnet pilot policy is exact, conservative and authorization-free
   assert.equal(result.productionReady,false);
   assert.equal(result.realFundsAuthorized,false);
   assert.equal(template.withdrawalDelaySeconds,null);
+  assert.deepEqual(materializeLimitedMainnetPolicy(installed),installed);
 });
 
 test('limited policy refuses drift, other networks, tokens and prior authorization',()=>{
@@ -29,4 +32,15 @@ test('limited policy refuses drift, other networks, tokens and prior authorizati
   ]) assert.throws(()=>materializeLimitedMainnetPolicy(changed));
   const once=materializeLimitedMainnetPolicy(template);
   assert.deepEqual(materializeLimitedMainnetPolicy(once),once);
+});
+
+test('limited policy writer confirms exact durable bytes and metadata',()=>{
+  const source=readFileSync(fileURLToPath(new URL(
+    '../../scripts/materialize-limited-mainnet-policy.sh',import.meta.url)),'utf8');
+  assert.match(source,/stat -Lc '%u:%a:%h' "\$target"/);
+  assert.equal((source.match(/cmp -s "\$temporary" "\$target"/g)??[]).length,3);
+  assert.match(source,/sync -f "\$config_directory"\ncmp -s "\$temporary" "\$target"/);
+  assert.match(source,/replace-locked-source-stdin\.mjs/);
+  assert.match(source,/"\$target_sha256" "\$parent_device" "\$parent_inode"/);
+  assert.match(source,/pin_tool python3/);
 });

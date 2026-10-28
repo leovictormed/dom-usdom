@@ -1,0 +1,800 @@
+{
+  "mode": "real-funds",
+  "ready": false,
+  "blockerCount": 185,
+  "blockers": [
+    {
+      "code": "requirement_production_verified_checkpoint_restart_witness_live_exercised",
+      "detail": "production_verified_checkpoint_restart_witness_live_exercised must be true"
+    },
+    {
+      "code": "requirement_production_finalized_burn_recursive_checkpoint_artifacts_pinned",
+      "detail": "production_finalized_burn_recursive_checkpoint_artifacts_pinned must be true"
+    },
+    {
+      "code": "requirement_production_finalized_burn_recursive_checkpoint_receipt_verified",
+      "detail": "production_finalized_burn_recursive_checkpoint_receipt_verified must be true"
+    },
+    {
+      "code": "requirement_production_finalized_burn_risc0_evm_receipt_verifier_implemented",
+      "detail": "production_finalized_burn_risc0_evm_receipt_verifier_implemented must be true"
+    },
+    {
+      "code": "requirement_production_finalized_burn_proving_capacity_measured",
+      "detail": "production_finalized_burn_proving_capacity_measured must be true"
+    },
+    {
+      "code": "requirement_production_finalized_burn_evm_verification_gas_measured",
+      "detail": "production_finalized_burn_evm_verification_gas_measured must be true"
+    },
+    {
+      "code": "requirement_production_queue_withdrawal_worst_case_gas_measured",
+      "detail": "production_queue_withdrawal_worst_case_gas_measured must be true"
+    },
+    {
+      "code": "requirement_production_prune_expired_256_worst_case_gas_measured",
+      "detail": "production_prune_expired_256_worst_case_gas_measured must be true"
+    },
+    {
+      "code": "requirement_production_prune_discardable_256_worst_case_gas_measured",
+      "detail": "production_prune_discardable_256_worst_case_gas_measured must be true"
+    },
+    {
+      "code": "requirement_production_safe_admin_overhead_gas_measured",
+      "detail": "production_safe_admin_overhead_gas_measured must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_registry_artifacts_pinned",
+      "detail": "production_checkpoint_registry_artifacts_pinned must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_registry_bootstrap_ratified",
+      "detail": "production_checkpoint_registry_bootstrap_ratified must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_registry_positive_finalized_event_vector",
+      "detail": "production_checkpoint_registry_positive_finalized_event_vector must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_randomx_receipt_image_id_pinned",
+      "detail": "production_checkpoint_randomx_receipt_image_id_pinned must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_randomx_complete_guest_positive_receipt_executed",
+      "detail": "production_checkpoint_randomx_complete_guest_positive_receipt_executed must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_randomx_complete_guest_proving_cost_measured",
+      "detail": "production_checkpoint_randomx_complete_guest_proving_cost_measured must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_economic_chunk_guest_cryptographic_receipt_generated",
+      "detail": "production_checkpoint_economic_chunk_guest_cryptographic_receipt_generated must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_economic_chunk_guest_proving_cost_measured",
+      "detail": "production_checkpoint_economic_chunk_guest_proving_cost_measured must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_economic_block_guest_positive_receipt_executed",
+      "detail": "production_checkpoint_economic_block_guest_positive_receipt_executed must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_economic_block_guest_proving_cost_measured",
+      "detail": "production_checkpoint_economic_block_guest_proving_cost_measured must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_segment_guest_positive_receipt_executed",
+      "detail": "production_checkpoint_segment_guest_positive_receipt_executed must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_segment_guest_proving_cost_measured",
+      "detail": "production_checkpoint_segment_guest_proving_cost_measured must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_outer_guest_positive_receipt_executed",
+      "detail": "production_checkpoint_outer_guest_positive_receipt_executed must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_outer_guest_proving_cost_measured",
+      "detail": "production_checkpoint_outer_guest_proving_cost_measured must be true"
+    },
+    {
+      "code": "requirement_production_checkpoint_outer_evm_verification_gas_measured",
+      "detail": "production_checkpoint_outer_evm_verification_gas_measured must be true"
+    },
+    {
+      "code": "requirement_real_finalized_reserve_deposit_native_block_vector_implemented",
+      "detail": "real_finalized_reserve_deposit_native_block_vector_implemented must be true"
+    },
+    {
+      "code": "requirement_native_privacy_production_verifying_key_installed",
+      "detail": "native_privacy_production_verifying_key_installed must be true"
+    },
+    {
+      "code": "requirement_native_privacy_trusted_setup_ceremony_completed",
+      "detail": "native_privacy_trusted_setup_ceremony_completed must be true"
+    },
+    {
+      "code": "requirement_native_private_mining_real_finalized_deposit_vector_implemented",
+      "detail": "native_private_mining_real_finalized_deposit_vector_implemented must be true"
+    },
+    {
+      "code": "requirement_native_scheduled_public_runtime_configured",
+      "detail": "native_scheduled_public_runtime_configured must be true"
+    },
+    {
+      "code": "requirement_production_reserve_config_hash_configured",
+      "detail": "production_reserve_config_hash_configured must be true"
+    },
+    {
+      "code": "requirement_production_control_plane_recovery_drill_passed",
+      "detail": "production_control_plane_recovery_drill_passed must be true"
+    },
+    {
+      "code": "requirement_production_mainnet_predeployment_preflight_passed",
+      "detail": "production_mainnet_predeployment_preflight_passed must be true"
+    },
+    {
+      "code": "production_finality_unselected",
+      "detail": "a production finality mechanism must be selected"
+    },
+    {
+      "code": "production_finality_unapproved",
+      "detail": "the selected production finality mechanism must be approved"
+    },
+    {
+      "code": "operator_production_finality_unapproved",
+      "detail": "operator intent must independently approve the selected production finality mechanism"
+    },
+    {
+      "code": "operator_finality_direction_invalid",
+      "detail": "operator intent finality_direction must be checkpoint"
+    },
+    {
+      "code": "requirements_deploy_unauthorized",
+      "detail": "deployment authorization is absent"
+    },
+    {
+      "code": "requirements_mainnet_not_ready",
+      "detail": "mainnet_ready must be true"
+    },
+    {
+      "code": "requirements_real_funds_unauthorized",
+      "detail": "real-funds authorization is absent"
+    },
+    {
+      "code": "operator_production_unapproved",
+      "detail": "production approval is absent"
+    },
+    {
+      "code": "operator_deploy_unauthorized",
+      "detail": "operator deployment authorization is absent"
+    },
+    {
+      "code": "operator_parameters_undefined",
+      "detail": "undefined production parameters: governance multisig, guardian multisig, maximum exposure, outflow capacity, withdrawal delay, governance delay, DOM domain and finality policy"
+    },
+    {
+      "code": "operator_real_funds_unauthorized",
+      "detail": "operator real-funds authorization is absent"
+    },
+    {
+      "code": "trusted_release_signing_key_unconfigured",
+      "detail": "an out-of-repository canonical release-signing fingerprint is not configured"
+    },
+    {
+      "code": "operator_residual_risk_unaccepted",
+      "detail": "documented residual risk must be explicitly accepted for the exact release"
+    },
+    {
+      "code": "release_dom_domain_derivation_invalid",
+      "detail": "the deterministic production domain could not be derived: domNetworkMagic must be canonical decimal"
+    },
+    {
+      "code": "release_deployer_missing",
+      "detail": "deployer is not configured"
+    },
+    {
+      "code": "release_deployerNonce_missing",
+      "detail": "deployerNonce is not configured"
+    },
+    {
+      "code": "release_reserve_missing",
+      "detail": "reserve is not configured"
+    },
+    {
+      "code": "release_tokenOwner_missing",
+      "detail": "tokenOwner is not configured"
+    },
+    {
+      "code": "release_tokenOwnerCodeHash_missing",
+      "detail": "tokenOwnerCodeHash is not configured"
+    },
+    {
+      "code": "release_reserveRuntimeCodeHash_missing",
+      "detail": "reserveRuntimeCodeHash is not configured"
+    },
+    {
+      "code": "release_reserveInitcodeHash_missing",
+      "detail": "reserveInitcodeHash is not configured"
+    },
+    {
+      "code": "release_verifierDeployer_missing",
+      "detail": "verifierDeployer is not configured"
+    },
+    {
+      "code": "release_verifierDeployerNonce_missing",
+      "detail": "verifierDeployerNonce is not configured"
+    },
+    {
+      "code": "release_verifier_missing",
+      "detail": "verifier is not configured"
+    },
+    {
+      "code": "release_verifierCodeHash_missing",
+      "detail": "verifierCodeHash is not configured"
+    },
+    {
+      "code": "release_verifierInitcodeHash_missing",
+      "detail": "verifierInitcodeHash is not configured"
+    },
+    {
+      "code": "release_verifierConfigHash_missing",
+      "detail": "verifierConfigHash is not configured"
+    },
+    {
+      "code": "release_reserveConfigHash_missing",
+      "detail": "reserveConfigHash is not configured"
+    },
+    {
+      "code": "release_domDomain_missing",
+      "detail": "domDomain is not configured"
+    },
+    {
+      "code": "release_activationScheduleCommitment_missing",
+      "detail": "activationScheduleCommitment is not configured"
+    },
+    {
+      "code": "release_checkpointRegistryDeployer_missing",
+      "detail": "checkpointRegistryDeployer is not configured"
+    },
+    {
+      "code": "release_checkpointRegistryDeployerNonce_missing",
+      "detail": "checkpointRegistryDeployerNonce is not configured"
+    },
+    {
+      "code": "release_checkpointRegistry_missing",
+      "detail": "checkpointRegistry is not configured"
+    },
+    {
+      "code": "release_checkpointRegistryRuntimeCodeHash_missing",
+      "detail": "checkpointRegistryRuntimeCodeHash is not configured"
+    },
+    {
+      "code": "release_checkpointRegistryInitcodeHash_missing",
+      "detail": "checkpointRegistryInitcodeHash is not configured"
+    },
+    {
+      "code": "release_checkpointRegistryConfigHash_missing",
+      "detail": "checkpointRegistryConfigHash is not configured"
+    },
+    {
+      "code": "release_checkpointVerifierDeployer_missing",
+      "detail": "checkpointVerifierDeployer is not configured"
+    },
+    {
+      "code": "release_checkpointVerifierDeployerNonce_missing",
+      "detail": "checkpointVerifierDeployerNonce is not configured"
+    },
+    {
+      "code": "release_checkpointVerifier_missing",
+      "detail": "checkpointVerifier is not configured"
+    },
+    {
+      "code": "release_checkpointVerifierCodeHash_missing",
+      "detail": "checkpointVerifierCodeHash is not configured"
+    },
+    {
+      "code": "release_checkpointVerifierInitcodeHash_missing",
+      "detail": "checkpointVerifierInitcodeHash is not configured"
+    },
+    {
+      "code": "release_checkpointVerifierConfigHash_missing",
+      "detail": "checkpointVerifierConfigHash is not configured"
+    },
+    {
+      "code": "release_checkpointGuardian_missing",
+      "detail": "checkpointGuardian is not configured"
+    },
+    {
+      "code": "release_checkpointGuardianCodeHash_missing",
+      "detail": "checkpointGuardianCodeHash is not configured"
+    },
+    {
+      "code": "release_checkpointGuardianImplementation_missing",
+      "detail": "checkpointGuardianImplementation is not configured"
+    },
+    {
+      "code": "release_checkpointGuardianImplementationCodeHash_missing",
+      "detail": "checkpointGuardianImplementationCodeHash is not configured"
+    },
+    {
+      "code": "release_checkpointDomNetworkMagic_missing",
+      "detail": "checkpointDomNetworkMagic is not configured"
+    },
+    {
+      "code": "release_checkpointDomChainId_missing",
+      "detail": "checkpointDomChainId is not configured"
+    },
+    {
+      "code": "release_checkpointFirstV4Height_missing",
+      "detail": "checkpointFirstV4Height is not configured"
+    },
+    {
+      "code": "release_checkpointActivationEmptyStateRoot_missing",
+      "detail": "checkpointActivationEmptyStateRoot is not configured"
+    },
+    {
+      "code": "release_checkpointIntervalBlocks_missing",
+      "detail": "checkpointIntervalBlocks is not configured"
+    },
+    {
+      "code": "release_checkpointConfirmationDepthBlocks_missing",
+      "detail": "checkpointConfirmationDepthBlocks is not configured"
+    },
+    {
+      "code": "release_checkpointChallengePeriodSeconds_missing",
+      "detail": "checkpointChallengePeriodSeconds is not configured"
+    },
+    {
+      "code": "release_checkpointInitialHeight_missing",
+      "detail": "checkpointInitialHeight is not configured"
+    },
+    {
+      "code": "release_checkpointInitialBlock_missing",
+      "detail": "checkpointInitialBlock is not configured"
+    },
+    {
+      "code": "release_checkpointInitialStateRoot_missing",
+      "detail": "checkpointInitialStateRoot is not configured"
+    },
+    {
+      "code": "release_checkpointInitialContextHash_missing",
+      "detail": "checkpointInitialContextHash is not configured"
+    },
+    {
+      "code": "release_checkpointInitialTotalDifficulty_missing",
+      "detail": "checkpointInitialTotalDifficulty is not configured"
+    },
+    {
+      "code": "release_governance_missing",
+      "detail": "governance is not configured"
+    },
+    {
+      "code": "release_governanceCodeHash_missing",
+      "detail": "governanceCodeHash is not configured"
+    },
+    {
+      "code": "release_governanceImplementation_missing",
+      "detail": "governanceImplementation is not configured"
+    },
+    {
+      "code": "release_governanceImplementationCodeHash_missing",
+      "detail": "governanceImplementationCodeHash is not configured"
+    },
+    {
+      "code": "release_governanceOwnersCommitment_missing",
+      "detail": "governanceOwnersCommitment is not configured"
+    },
+    {
+      "code": "release_guardian_missing",
+      "detail": "guardian is not configured"
+    },
+    {
+      "code": "release_guardianCodeHash_missing",
+      "detail": "guardianCodeHash is not configured"
+    },
+    {
+      "code": "release_guardianImplementation_missing",
+      "detail": "guardianImplementation is not configured"
+    },
+    {
+      "code": "release_guardianImplementationCodeHash_missing",
+      "detail": "guardianImplementationCodeHash is not configured"
+    },
+    {
+      "code": "release_guardianOwnersCommitment_missing",
+      "detail": "guardianOwnersCommitment is not configured"
+    },
+    {
+      "code": "release_governanceOwners_missing",
+      "detail": "governanceOwners is not configured"
+    },
+    {
+      "code": "release_guardianOwners_missing",
+      "detail": "guardianOwners is not configured"
+    },
+    {
+      "code": "release_checkpointGuardianOwners_missing",
+      "detail": "checkpointGuardianOwners is not configured"
+    },
+    {
+      "code": "release_not_production_ready",
+      "detail": "productionReady must be true"
+    },
+    {
+      "code": "release_governance_owners_invalid",
+      "detail": "governanceOwners must contain exactly three distinct owners"
+    },
+    {
+      "code": "release_guardian_owners_invalid",
+      "detail": "guardianOwners must contain exactly three distinct owners"
+    },
+    {
+      "code": "release_checkpointGuardian_owners_invalid",
+      "detail": "checkpointGuardianOwners must contain exactly three distinct owners"
+    },
+    {
+      "code": "release_control_plane_owner_reuse",
+      "detail": "control-plane owner addresses must be globally distinct"
+    },
+    {
+      "code": "release_native_ethereum_trusted_checkpoint_invalid",
+      "detail": "nativeEthereumTrustedCheckpoint must be a nonzero bytes32 value"
+    },
+    {
+      "code": "release_deployment_plan_invalid",
+      "detail": "invalid CREATE deployment plan: invalid address (argument=\"address\", value=null, code=INVALID_ARGUMENT, version=6.17.0)"
+    },
+    {
+      "code": "release_checkpoint_registry_deployment_plan_invalid",
+      "detail": "invalid checkpoint registry CREATE plan: invalid address (argument=\"address\", value=null, code=INVALID_ARGUMENT, version=6.17.0)"
+    },
+    {
+      "code": "release_verifier_deployment_plan_invalid",
+      "detail": "invalid verifier CREATE plan: invalid address (argument=\"address\", value=null, code=INVALID_ARGUMENT, version=6.17.0)"
+    },
+    {
+      "code": "release_checkpoint_verifier_deployment_plan_invalid",
+      "detail": "invalid checkpoint_verifier CREATE plan: invalid address (argument=\"address\", value=null, code=INVALID_ARGUMENT, version=6.17.0)"
+    },
+    {
+      "code": "pilot_funds_authorization_invalid",
+      "detail": "pilot funds authorization is invalid: pilot authorization state is invalid or consumed"
+    },
+    {
+      "code": "contract_PRODUCTION_VERIFIER_CODE_HASH_zero",
+      "detail": "PRODUCTION_VERIFIER_CODE_HASH remains fail-closed zero"
+    },
+    {
+      "code": "contract_PRODUCTION_VERIFIER_CONFIG_HASH_zero",
+      "detail": "PRODUCTION_VERIFIER_CONFIG_HASH remains fail-closed zero"
+    },
+    {
+      "code": "contract_PRODUCTION_RESERVE_PREACTIVATION_CONFIG_HASH_zero",
+      "detail": "PRODUCTION_RESERVE_PREACTIVATION_CONFIG_HASH remains fail-closed zero"
+    },
+    {
+      "code": "checkpoint_contract_PRODUCTION_VERIFIER_CODE_HASH_zero",
+      "detail": "PRODUCTION_VERIFIER_CODE_HASH remains fail-closed zero"
+    },
+    {
+      "code": "checkpoint_contract_PRODUCTION_VERIFIER_CONFIG_HASH_zero",
+      "detail": "PRODUCTION_VERIFIER_CONFIG_HASH remains fail-closed zero"
+    },
+    {
+      "code": "checkpoint_contract_PRODUCTION_CHECKPOINT_CONFIG_HASH_zero",
+      "detail": "PRODUCTION_CHECKPOINT_CONFIG_HASH remains fail-closed zero"
+    },
+    {
+      "code": "compiled_reserve_runtime_unavailable",
+      "detail": "the source-verified compiled reserve runtime hash is unavailable; binding failure: invalid address (argument=\"address\", value=null, code=INVALID_ARGUMENT, version=6.17.0)"
+    },
+    {
+      "code": "compiled_reserve_initcode_unavailable",
+      "detail": "the source-verified compiled reserve initcode hash is unavailable; binding failure: invalid address (argument=\"address\", value=null, code=INVALID_ARGUMENT, version=6.17.0)"
+    },
+    {
+      "code": "compiled_checkpoint_registry_runtime_unavailable",
+      "detail": "the source-verified compiled checkpoint registry runtime hash is unavailable; binding failure: Safe owners must contain exactly three addresses"
+    },
+    {
+      "code": "compiled_checkpoint_registry_initcode_unavailable",
+      "detail": "the source-verified compiled checkpoint registry initcode hash is unavailable; binding failure: Safe owners must contain exactly three addresses"
+    },
+    {
+      "code": "compiled_verifier_runtime_unavailable",
+      "detail": "the source-verified finalized-burn adapter runtime hash is unavailable; binding failure: exact finalized-burn verifier configuration fields required"
+    },
+    {
+      "code": "compiled_verifier_initcode_unavailable",
+      "detail": "the source-verified finalized-burn adapter initcode hash is unavailable; binding failure: exact finalized-burn verifier configuration fields required"
+    },
+    {
+      "code": "compiled_checkpoint_verifier_runtime_unavailable",
+      "detail": "the source-verified checkpoint adapter runtime hash is unavailable; binding failure: exact checkpoint verifier configuration fields required"
+    },
+    {
+      "code": "compiled_checkpoint_verifier_initcode_unavailable",
+      "detail": "the source-verified checkpoint adapter initcode hash is unavailable; binding failure: exact checkpoint verifier configuration fields required"
+    },
+    {
+      "code": "release_evidence_unconfigured",
+      "detail": "release evidence schema and releaseId are required"
+    },
+    {
+      "code": "evidence_reproducibleBuildReport_missing",
+      "detail": "reproducibleBuildReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_verifierReproducibleBuildReport_missing",
+      "detail": "verifierReproducibleBuildReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_realFinalizedEndToEndReport_missing",
+      "detail": "realFinalizedEndToEndReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_releaseValidationReport_missing",
+      "detail": "releaseValidationReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointProofCapacityReport_missing",
+      "detail": "checkpointProofCapacityReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointRegistryReproducibleBuildReport_missing",
+      "detail": "checkpointRegistryReproducibleBuildReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointVerifierReproducibleBuildReport_missing",
+      "detail": "checkpointVerifierReproducibleBuildReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointBootstrapRatificationReport_missing",
+      "detail": "checkpointBootstrapRatificationReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointFinalizedEventReport_missing",
+      "detail": "checkpointFinalizedEventReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_operationsReviewReport_missing",
+      "detail": "operationsReviewReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_mainnetForkRehearsalReport_missing",
+      "detail": "mainnetForkRehearsalReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_securityValidationReport_missing",
+      "detail": "securityValidationReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_residualRiskAcceptanceReport_missing",
+      "detail": "residualRiskAcceptanceReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_controlPlaneEvidenceBundle_missing",
+      "detail": "controlPlaneEvidenceBundle must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_controlPlaneSeparationReport_missing",
+      "detail": "controlPlaneSeparationReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_controlPlaneRecoveryDrillReport_missing",
+      "detail": "controlPlaneRecoveryDrillReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_safeRecoveryFinalEvidenceBundle_missing",
+      "detail": "safeRecoveryFinalEvidenceBundle must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_mainnetPredeploymentAttestationReport_missing",
+      "detail": "mainnetPredeploymentAttestationReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_nativePrivacyTrustedSetupAttestationReport_missing",
+      "detail": "nativePrivacyTrustedSetupAttestationReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_nativeScheduledRuntimeActivationAttestationReport_missing",
+      "detail": "nativeScheduledRuntimeActivationAttestationReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_nativeRuntimeManifest_missing",
+      "detail": "nativeRuntimeManifest must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_nativeRuntimeSpendVerifyingKeyArtifact_missing",
+      "detail": "nativeRuntimeSpendVerifyingKeyArtifact must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_reserveArtifact_missing",
+      "detail": "reserveArtifact must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_verifierArtifact_missing",
+      "detail": "verifierArtifact must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_verifierConfigManifest_missing",
+      "detail": "verifierConfigManifest must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_verifyingKeyArtifact_missing",
+      "detail": "verifyingKeyArtifact must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointRegistryArtifact_missing",
+      "detail": "checkpointRegistryArtifact must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointVerifierArtifact_missing",
+      "detail": "checkpointVerifierArtifact must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointVerifierConfigManifest_missing",
+      "detail": "checkpointVerifierConfigManifest must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointVerifyingKeyArtifact_missing",
+      "detail": "checkpointVerifyingKeyArtifact must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointProvingProgramArtifact_missing",
+      "detail": "checkpointProvingProgramArtifact must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_checkpointProvingProgramSourceManifest_missing",
+      "detail": "checkpointProvingProgramSourceManifest must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_riscZeroHealthSourceCatalog_missing",
+      "detail": "riscZeroHealthSourceCatalog must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_provingProgramArtifact_missing",
+      "detail": "provingProgramArtifact must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_provingProgramSourceManifest_missing",
+      "detail": "provingProgramSourceManifest must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_mainnetColdStartAttestationReport_missing",
+      "detail": "mainnetColdStartAttestationReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_nativeWalletCustodyAttestationReport_missing",
+      "detail": "nativeWalletCustodyAttestationReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "evidence_nativeWalletRecoveryAttestationReport_missing",
+      "detail": "nativeWalletRecoveryAttestationReport must reference a present file with an exact SHA-256"
+    },
+    {
+      "code": "trusted_setup_decision_missing",
+      "detail": "trustedSetup.required must be explicitly true or false"
+    },
+    {
+      "code": "checkpoint_trusted_setup_decision_missing",
+      "detail": "checkpoint verifier trustedSetup.required must be explicitly true or false"
+    },
+    {
+      "code": "control_plane_governance_missing",
+      "detail": "governance control-plane snapshot is required"
+    },
+    {
+      "code": "control_plane_guardian_missing",
+      "detail": "guardian control-plane snapshot is required"
+    },
+    {
+      "code": "control_plane_checkpointGuardian_missing",
+      "detail": "checkpointGuardian control-plane snapshot is required"
+    },
+    {
+      "code": "control_plane_evidence_content_invalid",
+      "detail": "control-plane evidence is missing, malformed or cross-inconsistent: Safe control release evidence schema is invalid"
+    },
+    {
+      "code": "source_manifest_unverified",
+      "detail": "the complete deterministic source manifest check must pass"
+    },
+    {
+      "code": "repository_dirty",
+      "detail": "the release source tree must be clean"
+    },
+    {
+      "code": "source_commit_missing",
+      "detail": "the release manifest requires an exact lowercase Git commit"
+    },
+    {
+      "code": "release_evidence_parent_mismatch",
+      "detail": "the release-evidence commit must have the exact sourceCommit as its sole parent"
+    },
+    {
+      "code": "release_evidence_diff_missing",
+      "detail": "the exact source-to-release-evidence commit diff was not inspected"
+    },
+    {
+      "code": "source_tag_missing",
+      "detail": "the release manifest requires an annotated signed source tag"
+    },
+    {
+      "code": "source_commit_signature_unverified",
+      "detail": "git verify-commit must authenticate the immutable source commit"
+    },
+    {
+      "code": "release_evidence_commit_signature_unverified",
+      "detail": "git verify-commit must authenticate the release-evidence HEAD"
+    },
+    {
+      "code": "source_tag_signature_unverified",
+      "detail": "git verify-tag must authenticate the declared tag"
+    },
+    {
+      "code": "source_author_mismatch",
+      "detail": "source author identity is not the required identity"
+    },
+    {
+      "code": "source_committer_mismatch",
+      "detail": "source committer identity is not the required identity"
+    }
+  ],
+  "reserveConfigHash": null,
+  "checkpointRegistryConfigHash": null,
+  "verifierConfigHash": null,
+  "checkpointVerifierConfigHash": null,
+  "diagnostic": {
+    "schema": "usdom-readiness-diagnostic/v1",
+    "buildSkipped": true,
+    "actionAuthorized": false,
+    "scope": "Readiness reports gate evidence for the requested mode; they never authorize signing, broadcast, deployment or movement of funds.",
+    "limitation": "Compiled-artifact and native-runtime validation was intentionally not executed; related blockers are diagnostic and cannot be cleared by this report.",
+    "groups": [
+      {
+        "group": "release-configuration",
+        "count": 68
+      },
+      {
+        "group": "evidence-and-attestations",
+        "count": 42
+      },
+      {
+        "group": "requirements-and-authorization",
+        "count": 36
+      },
+      {
+        "group": "operator-authorization",
+        "count": 8
+      },
+      {
+        "group": "repository-and-provenance",
+        "count": 8
+      },
+      {
+        "group": "other",
+        "count": 7
+      },
+      {
+        "group": "checkpoint-and-finality",
+        "count": 6
+      },
+      {
+        "group": "control-plane",
+        "count": 4
+      },
+      {
+        "group": "verifier-configuration",
+        "count": 4
+      },
+      {
+        "group": "compiled-artifact-bindings",
+        "count": 2
+      }
+    ]
+  }
+}

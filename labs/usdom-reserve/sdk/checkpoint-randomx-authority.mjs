@@ -54,7 +54,7 @@ export function validateCheckpointRandomxImageIdBinding({
   if(typeof imageIdArtifact!=='string') throw new TypeError('imageIdArtifact is required');
   const failures=[];
   need(failures,nativeConfig,
-    /CANDIDATE_V2_SCHEMA_VERSION, Some\(value\)[\s\S]*?decode_hex_array::<32>\(value, "RandomX receipt ImageID"\)[\s\S]*?image_id == \[0; 32\][\s\S]*?Some\(image_id\)/,
+    /CANDIDATE_V2_SCHEMA_VERSION \| ISSUANCE_CLOSURE_SCHEMA_VERSION, Some\(value\)[\s\S]*?decode_hex_array::<32>\(value, "RandomX receipt ImageID"\)[\s\S]*?image_id == \[0; 32\][\s\S]*?Some\(image_id\)/,
     'native_manifest_does_not_pin_nonzero_image_id');
   need(failures,checkpointProgram,
     /pub randomx_receipt_image_id: \[u8; 32\][\s\S]*?self\.previous\.randomx_receipt_image_id != self\.next\.randomx_receipt_image_id/,

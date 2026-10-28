@@ -1,0 +1,59 @@
+USDOM Solidity adversarial audit - stage 1273
+Date: 2026-10-26
+Scope: ERC-20 scalar returndata boundaries in USDOMProofReserve
+
+Conclusion
+==========
+
+No new material production defect was found. The existing reserve fails closed when
+the configured token returns malformed data from decimals() during construction or
+balanceOf() during deposit and payout. The exercise added executable regression
+coverage only; production Solidity and its ABI were not changed in this stage.
+
+Boundary reviewed
+=================
+
+The hostile token can now return, independently for decimals() and balanceOf():
+
+1. 31 bytes (truncated ABI word);
+2. 33 bytes (trailing data);
+3. a 1 MiB returndata bomb; or
+4. one exact ABI word containing the adversarial value 2.
+
+The constructor rejects all four decimals responses through the reserve's bounded
+one-word STATICCALL decoder and the exact six-decimal comparison. Deposit and payout
+use the same decoder for balanceOf and reject all four responses. Returndata must be
+exactly 32 bytes, the caller copies at most one word, and failed token observations
+revert the complete transaction.
+
+Regression evidence
+===================
+
+testTokenDecimalsAndBalanceReturnDataMustBeExactAndBounded proves that:
+
+- malformed decimals() data cannot create a reserve with an ambiguous token policy;
+- malformed balanceOf() data cannot create deposit credit or consume a deposit ID;
+- the same failures during payout cannot mark a burn paid, remove its pending debt,
+  or change totalPendingAmount; and
+- after exact token behavior is restored, the original deposit and withdrawal paths
+  remain executable, so failure handling does not strand otherwise valid state.
+
+Validation
+==========
+
+- Focused Forge regression: 1 passed, 0 failed.
+- Full Forge run: 209 passed, 0 failed, 0 skipped across 14 suites.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 handler reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 handler reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 handler reverts.
+- Runtime sizes remained unchanged:
+  - USDOMProofReserve: 20,003 bytes; EIP-170 margin 4,573 bytes.
+  - DOMCheckpointRegistry: 10,605 bytes; margin 13,971 bytes.
+  - USDOMReserve: 14,609 bytes; margin 9,967 bytes.
+- Repository git diff --check passed.
+
+Operational constraints
+=======================
+
+No Rust, production script, network, signing, deployment, funds, commit, or push was
+performed.

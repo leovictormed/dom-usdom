@@ -1,0 +1,34 @@
+USDⓄM — ETAPA 1416
+Private submission post-body, cancellation-safe admission
+Date: 2026-10-26
+
+Scope
+- Authenticated POST /usdom/v4/transfer/submit/v1
+- Authenticated POST /usdom/v4/burn/submit/v1
+- HTTP body delivery, proof-worker admission, client cancellation, and bounded concurrency
+
+Finding (material availability defect)
+The shared tower ConcurrencyLimitLayer(1) wrapped extraction of the JSON body as well as native proof work. An authenticated client that slowly delivered a body could therefore occupy the sole transfer/burn proof-worker admission without submitting any complete request. The ordinary 30-second timeout limited duration per request but still allowed repeated starvation. In addition, tying the admission lifetime to the HTTP request future would allow a disconnected client to release admission while already-started native work continued.
+
+Correction
+- Replaced pre-extraction proof admission with a dedicated one-permit semaphore acquired with try_acquire_owned only after bounded JSON extraction and canonical payload decoding.
+- Moved the acquired permit into a spawned Tokio submission task. Once native work starts, disconnecting or cancelling the HTTP request no longer releases admission before that work ends.
+- Added a distinct four-permit body-delivery admission before extraction. Slow authenticated bodies remain bounded but cannot consume the proof-worker permit.
+- Transfer and burn continue sharing the same proof-worker semaphore because they use the same native proof-verifying runtime.
+- Capacity exhaustion remains fail-fast and retryable (HTTP 503) rather than accumulating a queue.
+
+Focused evidence
+1. target/debug/deps/dom_rpc-9dfa47fe5e647ed4 slow_private_submission_body_does_not_hold_proof_worker_admission --nocapture
+   PASS: 1 passed, 0 failed, 125 filtered out, 0.02s.
+2. target/debug/deps/dom_rpc-9dfa47fe5e647ed4 private_submission_capacity_survives_client_cancellation --nocapture
+   PASS: 1 passed, 0 failed, 125 filtered out, 0.46s.
+3. cargo test -p dom-rpc slow_private_submission_body_does_not_hold_proof_worker_admission -- --exact --nocapture
+   Compile PASS (dom-rpc), command exited 0; the exact filter selected 0 tests because the qualified test name includes the tests module. The two direct binary invocations above are the authoritative executed focal evidence.
+4. cargo fmt --all -- --check initially identified only two local line-wrap differences. They were corrected manually; no unrelated source was formatted.
+5. git diff --check -- crates/dom-rpc/src/lib.rs
+   PASS.
+
+Limits
+- No RandomX proof or mining was executed.
+- No network access, commit, push, deployment, signature, or funds were used.
+- This stage proves bounded HTTP admission behavior; it does not replace consensus, ZK-proof soundness, or end-to-end mainnet validation.

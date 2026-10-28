@@ -1,0 +1,44 @@
+USDOM mainnet readiness — Stage 1357
+Date: 2026-10-26
+
+Finding
+=======
+
+The mandatory imported-source provenance check parsed PROVENANCE.json and
+LOCAL-CHANGES.json with native json.loads over pathname reads, then resolved and
+reopened every named file. Duplicate keys, unbounded authority files, symlink
+resolution, hardlinks and pathname replacement were not rejected. Assertions
+also supplied incomplete schema/type validation and can be disabled by Python's
+optimized mode.
+
+Correction
+==========
+
+The gate now uses explicit fatal checks. Authority JSON and imported files are
+opened component by component beneath the project directory with dir_fd and
+O_NOFOLLOW. Each capture requires a regular, owner-controlled, non-group/world-
+writable, single-link file within a fixed size cap, reads one descriptor snapshot, checks
+stat stability, and verifies the pathname still names the captured inode.
+
+Paths must be canonical relative POSIX paths without traversal, separators or
+control characters. Strict UTF-8 JSON rejects duplicate keys. Exact schemas,
+canonical lowercase SHA-256 digests, false readiness/pushed flags, change-set
+inclusion and bounded nonempty reasons are enforced before file hashing.
+
+Validation
+==========
+
+- Adversarial import-provenance self-test passed, including duplicate JSON and
+  hardlink rejection.
+- Critical inventory-only gate passed for 256 sources.
+- Publication boundary suite passed 2/2.
+- Python compilation and git diff --check passed.
+- The live import gate remains fail closed because LOCAL-CHANGES.json has stale
+  hashes while several imported files are still actively modified. This stage
+  did not convert concurrent local work into provenance evidence.
+
+Scope
+=====
+
+No provenance hash was updated. No network, deployment, signing, funds,
+production fact, commit or push occurred.

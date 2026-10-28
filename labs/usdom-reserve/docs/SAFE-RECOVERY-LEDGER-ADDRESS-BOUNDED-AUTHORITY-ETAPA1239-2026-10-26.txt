@@ -1,0 +1,38 @@
+ETAPA 1239 — AUTORIDADE LIMITADA PARA IDENTIDADE LEDGER NA RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema
+
+O executor de recuperação Safe consultava diretamente `cast wallet address --ledger`
+três vezes por papel: seleção inicial, confirmação e revalidação pré-assinatura. Essas
+operações de hardware não tinham timeout, KILL, limites de canais ou formato estrito,
+apesar de influenciarem qual owner pode assinar e transmitir a recuperação.
+
+Correção
+
+Foi criada `run_bounded_ledger_address`, que:
+
+- aceita somente um rótulo seguro para os arquivos temporários;
+- reatesta Cast e timeout imediatamente antes da interação;
+- limita cada operação Ledger a 300 segundos em foreground, com TERM e KILL após
+  cinco segundos;
+- captura stdout e stderr separadamente em arquivos privados;
+- reatesta Node e limita cada canal a 64 KiB com UTF-8 fatal;
+- exige sucesso, stdout não vazio e stderr vazio;
+- exige exatamente uma linha e um endereço Ethereum de 20 bytes antes de retorná-lo.
+
+As três consultas por papel agora usam a função. As comparações entre seleção,
+confirmação e pré-assinatura permanecem obrigatórias.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais, incluindo a fronteira Ledger: 10/10 aprovados;
+- focais mais `operator-runbook`: 94/94 aprovados;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhum dispositivo Ledger foi acessado. Nenhuma rede real, assinatura, transmissão,
+implantação, fundo, Rust, Solidity, Cargo, Forge, commit ou push foi executado ou
+alterado nesta etapa.

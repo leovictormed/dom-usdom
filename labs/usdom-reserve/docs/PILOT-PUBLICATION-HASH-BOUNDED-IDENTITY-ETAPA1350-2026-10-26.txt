@@ -1,0 +1,34 @@
+ETAPA 1350 — RESPOSTA DE PUBLICAÇÃO LIMITADA E AUTENTICADA
+Data: 2026-10-26
+
+Problema
+
+O publicador privado já limitava e validava estritamente o envelope JSON-RPC,
+mas os dois executores capturavam seu stdout em substituição de comando sem teto.
+Um helper alterado poderia fazer o shell acumular saída antes da comparação do
+hash.
+
+Correção
+
+Cada resposta de publicação agora é gravada no diretório privado temporário com
+byte sentinela de 68 bytes e exige arquivo final de até 67 bytes. Um checker
+dedicado abre o arquivo com `O_NOFOLLOW`, exige arquivo regular 0600 do usuário,
+link único e snapshot estável, aceita exatamente um hash Ethereum de 66
+caracteres com no máximo um LF terminal e exige igualdade com o hash esperado da
+transação assinada.
+
+O checker não imprime o hash. Depois de sua aprovação, o executor usa o hash
+esperado já autenticado. Deadline, excesso, troca de arquivo, bytes residuais,
+hash malformado ou divergente abortam antes da espera pelo recibo.
+
+Validação offline
+
+- Sintaxe Node e Bash: aprovada.
+- Regressão adversarial e suíte focal: 16/16 aprovadas.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 2/2 respostas de publicação têm deadline, cap, snapshot
+  direto, forma exata e vínculo ao hash esperado.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

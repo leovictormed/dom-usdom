@@ -133,6 +133,17 @@ test('HTTPS transport rejects proxy/CA overrides and redacts fetch failures',asy
   {NODE_OPTIONS:'--use-env-proxy'},
   {NODE_OPTIONS:'--use-system-ca'},
   {NODE_OPTIONS:'--openssl-config=/tmp/openssl.cnf'},
+  {NODE_OPTIONS:'--require=/tmp/hook.cjs'},
+  {OPENSSL_CONF:'/tmp/openssl.cnf'},
+  {OPENSSL_ENGINES:'/tmp/engines'},
+  {SSLKEYLOGFILE:'/tmp/tls.keys'},
+  {NODE_PATH:'/tmp/node-modules'},
+  {NODE_DEBUG:'tls,net'},
+  {RES_OPTIONS:'ndots:15'},
+  {LOCALDOMAIN:'attacker.example'},
+  {HOSTALIASES:'/tmp/hosts.aliases'},
+  {LD_PRELOAD:'/tmp/hook.so'},
+  {DYLD_INSERT_LIBRARIES:'/tmp/hook.dylib'},
  ]) assert.throws(()=>new BoundedMainnetPreflightProvider('https://rpc.example/',
   {environment}),/unsafe HTTPS transport/);
  const provider=new BoundedMainnetPreflightProvider('https://rpc.example/',{
@@ -166,6 +177,9 @@ test('state RPC cannot escape or change the pinned finalized snapshot',async()=>
   await assert.rejects(()=>provider.send('eth_getCode',['0x'+'11'.repeat(20),'latest']),/precedes/);
   assert.deepEqual(provider.pinFinalizedSnapshot('0x10','0x'+'22'.repeat(32)),
    {tag:'0x10',hash:'0x'+'22'.repeat(32),allowPendingNonce:false});
+  for(const number of ['9'.repeat(100000),'0x10000000000000000']) {
+   assert.throws(()=>provider.pinFinalizedSnapshot(number,'0x'+'22'.repeat(32)),/number is invalid/);
+  }
   await assert.rejects(()=>provider.send('eth_getCode',['0x'+'11'.repeat(20),'0xf']),/not pinned/);
   assert.throws(()=>provider.pinFinalizedSnapshot('0x11','0x'+'33'.repeat(32)),/repinned/);
   assert.equal(await provider.send('eth_getCode',['0x'+'11'.repeat(20),'0x10']),'0x');
@@ -201,6 +215,8 @@ test('transport binds mainnet chain and pinned/finalized block identities',async
   await assert.rejects(()=>provider.send('eth_getBlockByNumber',['finalized',false]),/regressed/);
   result={number:'0x11',hash:'0x'+'55'.repeat(32),timestamp:'0x6500000c'};
   assert.equal((await provider.send('eth_getBlockByNumber',['finalized',false])).number,'0x11');
+  result={number:'0x10000000000000000',hash:pinnedHash,timestamp:'0x6500000c'};
+  await assert.rejects(()=>provider.send('eth_getBlockByNumber',['finalized',false]),/identity is invalid/);
  } finally { provider.destroy(); }
 });
 
@@ -227,6 +243,8 @@ test('multisource finalized time is monotonic, bounded and only a plausibility c
   mutate(v=>{v[1].collectedAfterMs=v[1].collectedBeforeMs-1;}),{nowMs:now}),/sample 2/);
  assert.throws(()=>validateMainnetPreflightTimeConsensus(samples,{nowMs:now+31*60*1000}),/implausible/);
  assert.throws(()=>validateMainnetPreflightTimeConsensus(samples,{nowMs:now-15*60*1000}),/implausible/);
+ assert.throws(()=>validateMainnetPreflightTimeConsensus(
+  mutate(v=>{v[0].finalizedTimestamp=`0x${'f'.repeat(100000)}`;}),{nowMs:now}),/sample 1/);
 });
 
 test('bounded provider aborts when wall clock regresses or diverges from monotonic time',async()=>{

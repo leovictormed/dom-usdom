@@ -1,0 +1,10 @@
+Etapa 1450 — lifecycle Node da assinatura de recuperação Safe
+
+Sete sites finitos de Node ainda estavam sem deadline: snapshots, validações de
+plano/provas, reconstrução, montagem e instalações finais. Todos agora usam um
+helper que reatesta Node e timeout, aplica TERM em 120 segundos e KILL após cinco,
+e reatesta Node depois do filho.
+
+Lifecycle, cleanup, pinning, escrita durável e provas de substituição passam
+15/15. Sintaxe e diff-check passam. Nenhuma rede, Ledger, assinatura, deploy,
+fundos, commit ou push ocorreu.

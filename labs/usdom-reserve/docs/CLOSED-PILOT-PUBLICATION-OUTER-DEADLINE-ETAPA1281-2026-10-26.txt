@@ -1,0 +1,34 @@
+ETAPA 1281 — PRAZO EXTERNO PARA PUBLICAÇÃO DO PILOTO FECHADO
+Data: 2026-10-26
+
+Problema
+
+O publicador privado de transações já limita a requisição HTTP a 30 segundos e a
+resposta a 64 KiB, mas os executores de depósito e resgate o invocavam sem prazo no
+nível do processo. Falhas fora da requisição, inclusive inicialização ou encerramento
+do runtime, podiam manter a cerimônia presa depois da autorização explícita.
+
+Correção
+
+As duas únicas chamadas de publicação do piloto agora usam um prazo externo de 45
+segundos em foreground, enviam TERM e escalam para KILL após cinco segundos. O prazo
+externo é maior que o limite HTTP interno, preservando o caminho normal e garantindo
+um teto para o ciclo completo do filho. A transação bruta continua sendo transmitida
+somente por caminho de arquivo privado e nunca entra em argv, variável ou log.
+
+A regressão exige o wrapper exato nos dois executores e proíbe a forma anterior de
+publicação Node direta. Uma expectativa antiga de idempotência terminal foi ajustada
+para reconhecer as formas equivalentes, em uma linha ou várias, sem alterar a
+exigência create-once-or-identical.
+
+Validação local
+
+- sintaxe Bash dos dois executores: aprovada;
+- suíte focal do piloto: 23/23 aprovada;
+- suíte ampliada closed-mainnet/pilot: 67/67 aprovada;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

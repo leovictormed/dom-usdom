@@ -14,6 +14,7 @@ import {
   removePrivateFileDurableIfExists,writePrivateFileDurableNew,
 } from '../sdk/durable-private-file.mjs';
 import {parseStrictJson} from '../sdk/strict-json.mjs';
+import {canonicalEthereumQuantity,MAX_UINT256} from '../sdk/ethereum-quantity.mjs';
 import {BoundedMainnetPreflightProvider,mainnetPreflightRpcSourceSet,
   matchMainnetPreflightRpcSources}
   from '../sdk/mainnet-preflight-rpc.mjs';
@@ -85,11 +86,16 @@ async function loadAuthenticatedPackage(releaseBytes,release,verifierBytes,verif
 }
 
 async function collect(provider,submission) {
-  const [chainId,finalized]=await Promise.all([
-    provider.send('eth_chainId',[]).then(BigInt),provider.send('eth_getBlockByNumber',['finalized',false]),
+  const [chainIdRaw,finalized]=await Promise.all([
+    provider.send('eth_chainId',[]),provider.send('eth_getBlockByNumber',['finalized',false]),
   ]);
-  if(!finalized?.hash || !/^0x[0-9a-fA-F]+$/.test(finalized.number??'')
-      || !/^0x[0-9a-fA-F]+$/.test(finalized.timestamp??'')) {
+  let chainId,finalizedBlockNumber,finalizedBlockTimestamp;
+  try {
+    chainId=canonicalEthereumQuantity(chainIdRaw,{maximum:MAX_UINT256});
+    finalizedBlockNumber=canonicalEthereumQuantity(finalized?.number);
+    finalizedBlockTimestamp=canonicalEthereumQuantity(finalized?.timestamp);
+  } catch { throw new Error('RPC did not return canonical bounded quantities'); }
+  if(chainId!=='1'||!finalized?.hash||!/^0x[0-9a-fA-F]{64}$/.test(finalized.hash)) {
     throw new Error('RPC did not return a canonical finalized block');
   }
   const blockTag=finalized.number;
@@ -116,8 +122,8 @@ async function collect(provider,submission) {
   }
   const snapshotAfter=await provider.send('eth_getBlockByNumber',[blockTag,false]);
   return {
-    chainId:chainId.toString(),finalizedBlockNumber:BigInt(finalized.number).toString(),
-    finalizedBlockHash:finalized.hash,finalizedBlockTimestamp:BigInt(finalized.timestamp).toString(),
+    chainId,finalizedBlockNumber,
+    finalizedBlockHash:finalized.hash,finalizedBlockTimestamp,
     snapshotBlockHashAfter:snapshotAfter?.hash??null,registryRuntimeCodeHash:keccak256(code),
     onchainStatementHash,submissionCallAccepted,
     registry:{checkpointConfigHash,halted,gracefullyShutdown,latestIssuanceClosed,

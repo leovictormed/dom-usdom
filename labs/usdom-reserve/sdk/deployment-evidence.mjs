@@ -22,7 +22,8 @@ export function validateDeploymentEvidence(value) {
       ||value.name!==names[Number(value.index)]) throw new Error('deployment evidence identity is invalid');
   for(const field of ['releaseConfigSha256','packageSha256','rpcCatalogSha256',
     'observationDocumentSha256','rawSha256']) {
-    if(typeof value[field]!=='string'||!sha.test(value[field])) throw new Error(`${field} is invalid`);
+    if(typeof value[field]!=='string'||!sha.test(value[field])
+        ||BigInt(`0x${value[field]}`)===0n) throw new Error(`${field} is invalid`);
   }
   for(const field of ['observationHash','transactionHash','initcodeHash','runtimeCodeHash',
     'receiptBlockHash','finalizedBlockHash']) {
@@ -55,7 +56,8 @@ export function validateDeploymentRawEvidence(value) {
       ||value.name!==names[Number(value.index)]) throw new Error('deployment raw evidence identity is invalid');
   for(const field of ['releaseConfigSha256','packageSha256','rpcCatalogSha256',
     'observationDocumentSha256','rawSha256']) {
-    if(typeof value[field]!=='string'||!sha.test(value[field])) throw new Error(`${field} is invalid`);
+    if(typeof value[field]!=='string'||!sha.test(value[field])
+        ||BigInt(`0x${value[field]}`)===0n) throw new Error(`${field} is invalid`);
   }
   for(const field of ['observationHash','transactionHash']) {
     if(typeof value[field]!=='string'||!bytes32.test(value[field])||BigInt(value[field])===0n) {
@@ -78,7 +80,7 @@ export function validateDeploymentRawEvidence(value) {
   return value;
 }
 
-const receiptKeys=['schema','transactionHash','blockNumber','blockHash','status','from','to','contractAddress',
+const receiptKeys=['schema','transactionHash','blockNumber','blockHash','transactionIndex','status','from','to','contractAddress',
   'gasUsed','effectiveGasPrice','actualCost'];
 export function validateDeploymentReceiptEvidence(value) {
   if(!value||typeof value!=='object'||Array.isArray(value)
@@ -89,6 +91,7 @@ export function validateDeploymentReceiptEvidence(value) {
     throw new Error('deployment receipt status or destination is invalid');
   }
   canonicalEthereumQuantity(value.blockNumber);
+  canonicalEthereumQuantity(value.transactionIndex);
   for(const field of ['transactionHash','blockHash']) {
     if(typeof value[field]!=='string'||!bytes32.test(value[field])||BigInt(value[field])===0n) {
       throw new Error(`${field} is invalid`);
@@ -109,15 +112,19 @@ export function validateDeploymentReceiptEvidence(value) {
 
 export function projectDeploymentReceipt(receipt) {
   if(!receipt||typeof receipt!=='object'||Array.isArray(receipt)) throw new Error('RPC receipt is invalid');
+  const gasUsed=canonicalEthereumQuantity(receipt.gasUsed,{maximum:MAINNET_DEPLOYMENT_MAX_GAS_LIMIT});
+  const effectiveGasPrice=canonicalEthereumQuantity(receipt.effectiveGasPrice,
+    {maximum:MAINNET_DEPLOYMENT_MAX_FEE_PER_GAS});
   const status=receipt.status==='0x01'?'0x1':receipt.status;
   const projected={schema:'usdom-mainnet-deployment-receipt-v1',
     transactionHash:typeof receipt.transactionHash==='string'?receipt.transactionHash.toLowerCase():receipt.transactionHash,
     blockNumber:receipt.blockNumber,
     blockHash:typeof receipt.blockHash==='string'?receipt.blockHash.toLowerCase():receipt.blockHash,
+    transactionIndex:receipt.transactionIndex,
     status,from:typeof receipt.from==='string'?getAddress(receipt.from):receipt.from,to:receipt.to,
     contractAddress:typeof receipt.contractAddress==='string'?getAddress(receipt.contractAddress):receipt.contractAddress,
     gasUsed:receipt.gasUsed,effectiveGasPrice:receipt.effectiveGasPrice,
-    actualCost:(BigInt(receipt.gasUsed)*BigInt(receipt.effectiveGasPrice)).toString()};
+    actualCost:(BigInt(gasUsed)*BigInt(effectiveGasPrice)).toString()};
   return validateDeploymentReceiptEvidence(projected);
 }
 
@@ -133,7 +140,8 @@ export function validateDeploymentFeeAnchor(value) {
       ||typeof value.index!=='string'||!(/^[0-3]$/).test(value.index)
       ||value.name!==names[Number(value.index)]) throw new Error('deployment fee anchor identity is invalid');
   for(const field of ['packageSha256','observationDocumentSha256']) {
-    if(typeof value[field]!=='string'||!sha.test(value[field])) throw new Error(`${field} is invalid`);
+    if(typeof value[field]!=='string'||!sha.test(value[field])
+        ||BigInt(`0x${value[field]}`)===0n) throw new Error(`${field} is invalid`);
   }
   for(const field of ['observationHash','finalizedBlockHash']) {
     if(typeof value[field]!=='string'||!bytes32.test(value[field])||BigInt(value[field])===0n) {
@@ -150,4 +158,36 @@ export function validateDeploymentFeeAnchor(value) {
   projected+=MAINNET_DEPLOYMENT_PRIORITY_FEE_PER_GAS;
   if(BigInt(fee)!==projected) throw new Error('deployment fee projection mismatch');
   return value;
+}
+
+export function validateDeploymentStageLink({raw,receipt,completion,anchor}) {
+  validateDeploymentRawEvidence(raw); validateDeploymentReceiptEvidence(receipt);
+  validateDeploymentEvidence(completion); validateDeploymentFeeAnchor(anchor);
+  for(const field of ['index','name','chainId','packageSha256','observationDocumentSha256','observationHash']) {
+    if(anchor[field]!==raw[field]||completion[field]!==raw[field]) {
+      throw new Error(`deployment stage ${field} link is invalid`);
+    }
+  }
+  for(const field of ['releaseConfigSha256','rpcCatalogSha256','transactionHash','from','nonce',
+    'expectedContract','rawSha256']) {
+    if(completion[field]!==raw[field]) throw new Error(`deployment stage ${field} link is invalid`);
+  }
+  const receiptHeight=BigInt(receipt.blockNumber);
+  const anchorHeight=BigInt(anchor.finalizedBlockNumber);
+  const completionHeight=BigInt(completion.finalizedBlockNumber);
+  if(receipt.transactionHash!==raw.transactionHash||receipt.from!==raw.from
+      ||receipt.contractAddress!==raw.expectedContract
+      ||completion.receiptBlockNumber!==receipt.blockNumber
+      ||completion.receiptBlockHash!==receipt.blockHash
+      ||anchor.gasLimit!==raw.gasLimit||anchor.maxFeePerGas!==raw.maxFeePerGas
+      ||BigInt(receipt.gasUsed)>BigInt(raw.gasLimit)
+      ||BigInt(receipt.effectiveGasPrice)>BigInt(raw.maxFeePerGas)
+      ||BigInt(receipt.actualCost)>BigInt(raw.maximumCost)
+      ||anchorHeight>completionHeight
+      ||(receiptHeight===anchorHeight&&receipt.blockHash!==anchor.finalizedBlockHash)
+      ||(receiptHeight===completionHeight&&receipt.blockHash!==completion.finalizedBlockHash)
+      ||(anchorHeight===completionHeight&&anchor.finalizedBlockHash!==completion.finalizedBlockHash)) {
+    throw new Error('deployment stage receipt, cost or finality link is invalid');
+  }
+  return true;
 }

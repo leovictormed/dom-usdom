@@ -1,0 +1,32 @@
+Etapa 1425 — regressão da fronteira curl do wallet RPC
+
+Resultado
+
+A terceira chamada curl de observe-finalized-deposit-wallet.sh é necessária: ela
+relê /chain/identity depois que o observador produz o estado e rejeita a saída se
+o nó ou a identidade da cadeia mudou durante a operação. Removê-la eliminaria a
+verificação final contra reorganização, substituição do nó ou resposta de outra
+instância local.
+
+Correção
+
+wallet-rpc-curl-boundary.test.mjs deixou de presumir que ambos os fluxos fazem
+exatamente duas leituras. A regressão agora prova, para cada chamada, o mesmo
+binário curl pinado, reatestação imediatamente antes e depois, deadline de dez
+segundos, limite de resposta de 65.536 bytes, HTTP explícito e destino loopback
+exato. O observador deve conter três leituras e vincular a terceira à comparação
+IDENTITY_FILE/IDENTITY_AFTER_FILE; o registrador continua com duas leituras.
+
+Validação local
+
+- Regressão focal wallet-rpc-curl-boundary: 2/2 aprovada.
+- Sintaxe bash dos dois executores: aprovada.
+- Suítes relacionadas foram executadas. Três vermelhos são expectativas
+  concorrentes fora deste escopo: credential-flow-descriptors ainda procura
+  /proc/$$/fd/* em vez da forma equivalente /proc/"$$"/fd/*; operator-runbook
+  ainda espera a remoção direta agora substituída pelo helper bounded do
+  packager e sua simulação de receipt divergiu do executor em evolução. Nenhuma
+  dessas falhas envolve a fronteira curl deste estágio.
+- git diff --check da regressão: aprovado.
+
+Nenhuma rede, Ledger, assinatura, deploy, fundos, commit ou push foi executado.

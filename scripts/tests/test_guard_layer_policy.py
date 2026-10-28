@@ -1101,14 +1101,26 @@ class AuthorshipPolicyTests(unittest.TestCase):
                     "git",
                     "commit",
                     "--quiet",
-                    "-m",
-                    "exact identity\n\n"
-                    "Signed-off-by: Soren Planck <sorenplanck@tutamail.com>",
+                    "-m", "exact identity",
                 ],
                 cwd=root,
                 check=True,
             )
             self.assertEqual(self._check(root, baseline).returncode, 0)
+
+    def test_any_commit_trailer_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, baseline = self._repository(directory)
+            (root / "marker").write_text("trailer\n", encoding="utf-8")
+            subprocess.run(["git", "add", "marker"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "--quiet", "-m", "subject\n\n"
+                 "Signed-off-by: Soren Planck <sorenplanck@tutamail.com>"],
+                cwd=root, check=True,
+            )
+            result = self._check(root, baseline)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("forbidden commit trailer", result.stderr)
 
     def test_lowercase_author_or_github_merge_committer_fail(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1175,7 +1187,7 @@ class AuthorshipPolicyTests(unittest.TestCase):
             )
             result = self._check(root, baseline)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("forbidden Co-authored-by trailer", result.stderr)
+            self.assertIn("forbidden commit trailer", result.stderr)
 
     def test_self_coauthor_and_third_party_identity_trailers_fail(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1196,7 +1208,7 @@ class AuthorshipPolicyTests(unittest.TestCase):
             )
             result = self._check(root, baseline)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("forbidden Co-authored-by trailer", result.stderr)
+            self.assertIn("forbidden commit trailer", result.stderr)
 
         with tempfile.TemporaryDirectory() as directory:
             root, baseline = self._repository(directory)
@@ -1215,7 +1227,7 @@ class AuthorshipPolicyTests(unittest.TestCase):
             )
             result = self._check(root, baseline)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("unauthorized identity trailer", result.stderr)
+            self.assertIn("forbidden commit trailer", result.stderr)
 
         with tempfile.TemporaryDirectory() as directory:
             root, baseline = self._repository(directory)
@@ -1235,7 +1247,7 @@ class AuthorshipPolicyTests(unittest.TestCase):
             )
             result = self._check(root, baseline)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("unauthorized identity trailer", result.stderr)
+            self.assertIn("forbidden commit trailer", result.stderr)
 
 
 if __name__ == "__main__":

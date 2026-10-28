@@ -1,0 +1,37 @@
+Stage 1276 — exact typed pilot DAG snapshots
+Date: 2026-10-26
+
+Finding
+-------
+The offline pilot reconciler accepted unknown root and phase keys. It also left
+some terminal fields untyped during partial states, accepted mixed-case burn
+identifiers, and treated a phase explicitly set to null as though it were truly
+absent. These ambiguities weakened the persisted snapshot authority used for
+crash recovery.
+
+Correction
+----------
+The root permits only deposit and redemption keys, and each phase requires its
+exact writer-defined field set whenever present. A present null phase is
+malformed. Deposit allowance is canonical uint256 text in all states;
+redemption payout markers are booleans; burn and request identifiers are
+canonical lowercase bytes32.
+
+Adversarial regression
+----------------------
+Regressions reject root/phase field injection, null or missing required phase
+fields, leading-zero, 100,000-digit and uint256-overflow allowance values,
+numeric payout flags and uppercase request identifiers.
+
+Validation
+----------
+- Pilot DAG SDK Node syntax check: pass.
+- Pilot DAG, evidence, command generation, finality restart, receipt-cost,
+  deposit/redemption executors and terminal financial suites: 17/17 pass.
+- Focused DAG rerun: 5/5 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

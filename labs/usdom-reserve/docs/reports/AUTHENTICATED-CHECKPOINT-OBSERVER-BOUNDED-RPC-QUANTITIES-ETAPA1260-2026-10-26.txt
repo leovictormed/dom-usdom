@@ -1,0 +1,39 @@
+Stage 1260 — bounded RPC quantities in authenticated checkpoint observation
+Date: 2026-10-26
+
+Finding
+-------
+The authenticated checkpoint observer applied permissive hexadecimal regexes
+and then converted RPC chain ID, finalized block number and timestamp directly
+with `BigInt`. A bounded HTTP response could still contain a very large numeric
+string, and noncanonical leading-zero or uppercase quantity spellings reached
+the authority path before the candidate observation validator.
+
+Correction
+----------
+The collector now canonicalizes the raw chain ID as a bounded uint256 Ethereum
+quantity and requires exact mainnet value 1. Finalized block number and timestamp
+use the shared canonical uint64 quantity reader before the block tag is used or
+the observation is formed. The former direct conversions are absent. Hash,
+snapshot stability, registry runtime/state and multisource agreement checks
+remain intact.
+
+Adversarial regression
+----------------------
+The live-hardening regression proves all three raw channels pass through the
+bounded readers and that direct finalized-number/timestamp conversion is absent.
+The shared quantity suite exercises 100,000-digit, overflow, leading-zero,
+uppercase and malformed inputs; checkpoint observation regressions independently
+reject out-of-range finalized evidence.
+
+Validation
+----------
+- Observer Node syntax check: pass.
+- Authenticated observer, checkpoint submission/finalized-event, preflight RPC
+  and quantity suites: 43/43 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

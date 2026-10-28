@@ -25,7 +25,7 @@ test('cross-domain and cross-deployment replay bindings remain complete', () => 
 
 test('the replay gate detects removal of each independently required boundary', () => {
   const mutations = [
-    ['reserveContract', 'block.chainid, address(this), funder, salt', 'funder, salt'],
+    ['reserveContract', 'deploymentChainId, address(this), funder, salt', 'funder, salt'],
     ['preactivationPolicy', ',address checkpointRegistry)', ')'],
     ['checkpointContract', 'NATIVE_STATE_VERSION,\n            TRANSITION_BATCH_VERSION,', ''],
     ['depositFinality', 'event.emitter() == policy.reserve', 'true'],
@@ -33,8 +33,10 @@ test('the replay gate detects removal of each independently required boundary', 
     ['finalizedBurnProgram', 'burn.reserve != state.reserve', 'false'],
     ['proofReserveSdk', 'BurnIntent(bytes32 burnId,bytes32 requestId,address recipient',
       'BurnIntent(bytes32 requestId,bytes32 burnId,address recipient'],
-    ['checkpointStatement', 'encoded[608..640].copy_from_slice(&value.ethereum_chain_id);',
-      'encoded[608..640].copy_from_slice(&value.checkpoint_config_hash);'],
+    ['checkpointStatement', 'encoded[704..736].copy_from_slice(&v.ethereum_chain_id);',
+      'encoded[704..736].copy_from_slice(&v.checkpoint_config_hash);'],
+    ['checkpointStatement', 'encoded[575] = u8::from(self.issuance_closed);',
+      'encoded[575] = 0;'],
   ];
   for (const [name, before, after] of mutations) {
     assert.ok(sources[name].includes(before), `missing mutation anchor: ${before}`);

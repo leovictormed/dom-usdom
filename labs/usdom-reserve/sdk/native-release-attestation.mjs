@@ -1,10 +1,12 @@
 import {TypedDataEncoder,getAddress} from 'ethers';
+import {createHash} from 'node:crypto';
 import {
   EIP1271_MAGIC_VALUE,MAX_EIP1271_SIGNATURE_BYTES,collectFinalizedEip1271Approvals,
   validEip1271Signature,
 } from './finalized-eip1271-approval.mjs';
 import {validateRecoverableSafeControlReleaseEvidence} from './safe-control-release-evidence.mjs';
 import {validateRpcConsensusEvidence} from './rpc-consensus-evidence.mjs';
+import {parseStrictJsonBytes} from './strict-json.mjs';
 
 export {EIP1271_MAGIC_VALUE};
 export const NATIVE_ATTESTATION_DOMAIN_NAME='USDOM Native Release Attestation';
@@ -12,7 +14,11 @@ export const NATIVE_ATTESTATION_DOMAIN_VERSION='2';
 export const MAX_NATIVE_ATTESTATION_SIGNATURE_BYTES=MAX_EIP1271_SIGNATURE_BYTES;
 
 const bytes32Pattern=/^0x[0-9a-fA-F]{64}$/;
-const canonicalUintPattern=/^(0|[1-9][0-9]*)$/;
+const canonicalUint256Pattern=/^(0|[1-9][0-9]{0,77})$/;
+const nonzeroUint64Pattern=/^[1-9][0-9]{0,19}$/;
+function nonzeroUint64(value) {
+  return typeof value==='string'&&nonzeroUint64Pattern.test(value)&&BigInt(value)<(1n<<64n);
+}
 const types={NativeReleaseAttestation:[
   {name:'kind',type:'string'},
   {name:'releaseId',type:'string'},
@@ -41,25 +47,29 @@ function exactKeys(value,keys,label) {
   }
 }
 
-export function validateNativeReleaseAttestationSigningRequest({request,bundle,bundleSha256,
+export function validateNativeReleaseAttestationSigningRequest({request,bundle,bundleBytes,bundleSha256,
   releaseConfig,releaseEvidence,privacyVerifierConfigHash,nativeRuntimeManifestSha256,
-  walletPublicIdentitySha256}={}) {
+  walletPublicIdentitySha256,walletCustodyEvidenceSha256,walletRecoveryEvidenceSha256}={}) {
   exactKeys(request,['schema','releaseId','sourceCommit','finalizedAnchor','subjects','requests'],
     'native release-attestation request');
-  if(request.schema!=='usdom-native-release-attestation-requests/v2') {
+  if(request.schema!=='usdom-native-release-attestation-requests/v3') {
     throw new Error('native release-attestation request version is invalid');
   }
   exactKeys(request.finalizedAnchor,
     ['blockNumber','blockHash','blockTimestamp','governance','governanceCodeHash','rpcConsensus'],
     'native release-attestation finalized anchor');
   validateRpcConsensusEvidence(request.finalizedAnchor.rpcConsensus);
-  if(typeof request.finalizedAnchor.blockNumber!=='string'
-      || !/^[1-9][0-9]*$/.test(request.finalizedAnchor.blockNumber)
+  if(!nonzeroUint64(request.finalizedAnchor.blockNumber)
       || !bytes32Pattern.test(request.finalizedAnchor.blockHash??'')
-      || typeof request.finalizedAnchor.blockTimestamp!=='string'
-      || !/^[1-9][0-9]*$/.test(request.finalizedAnchor.blockTimestamp)
+      || !nonzeroUint64(request.finalizedAnchor.blockTimestamp)
       || !bytes32Pattern.test(request.finalizedAnchor.governanceCodeHash??'')) {
     throw new Error('native release-attestation finalized anchor is invalid');
+  }
+  if(!Buffer.isBuffer(bundleBytes)
+      ||JSON.stringify(parseStrictJsonBytes(bundleBytes,{label:'Safe evidence bundle',
+        maxBytes:4*1024*1024,maxDepth:64}))!==JSON.stringify(bundle)
+      ||createHash('sha256').update(bundleBytes).digest('hex')!==bundleSha256) {
+    throw new Error('Safe evidence bundle bytes differ from parsed authority');
   }
   validateRecoverableSafeControlReleaseEvidence(bundle);
   const bundleDocument=releaseEvidence?.controlPlaneEvidenceBundle;
@@ -86,14 +96,16 @@ export function validateNativeReleaseAttestationSigningRequest({request,bundle,b
   }
   for(const [value,label] of [[privacyVerifierConfigHash,'privacy verifier configuration'],
     [nativeRuntimeManifestSha256,'native runtime manifest'],
-    [walletPublicIdentitySha256,'wallet public identity']]) {
+    [walletPublicIdentitySha256,'wallet public identity'],
+    [walletCustodyEvidenceSha256,'wallet custody evidence'],
+    [walletRecoveryEvidenceSha256,'wallet recovery evidence']]) {
     if(!sha256Pattern.test(value??'')) throw new Error(`${label} hash is invalid`);
   }
   const expectedSubjects={nativePrivacyTrustedSetup:`0x${privacyVerifierConfigHash}`,
     nativeScheduledRuntimeActivation:`0x${nativeRuntimeManifestSha256}`,
-    nativeWalletCustody:`0x${walletPublicIdentitySha256}`,
-    nativeWalletRecovery:`0x${walletPublicIdentitySha256}`,
-    walletPublicIdentitySha256};
+    nativeWalletCustody:`0x${walletCustodyEvidenceSha256}`,
+    nativeWalletRecovery:`0x${walletRecoveryEvidenceSha256}`,
+    walletPublicIdentitySha256,walletCustodyEvidenceSha256,walletRecoveryEvidenceSha256};
   exactKeys(request.subjects,Object.keys(expectedSubjects),'native attestation subjects');
   if(JSON.stringify(request.subjects)!==JSON.stringify(expectedSubjects)) {
     throw new Error('native attestation subjects differ from independently derived artifacts');
@@ -122,10 +134,12 @@ export function validateNativeReleaseAttestationSigningRequest({request,bundle,b
 }
 
 function canonicalChainId(value) {
-  if(typeof value!=='string' || !canonicalUintPattern.test(value) || value==='0') {
+  if(typeof value!=='string' || !canonicalUint256Pattern.test(value) || value==='0') {
     throw new Error('ethereumChainId must be a nonzero canonical integer string');
   }
-  return BigInt(value);
+  const parsed=BigInt(value);
+  if(parsed>=(1n<<256n)) throw new Error('ethereumChainId must fit uint256');
+  return parsed;
 }
 
 function bytes32(value,name) {
@@ -146,8 +160,7 @@ export function nativeReleaseAttestationTypedData(attestation,releaseConfig) {
   if(!attestation || typeof attestation!=='object' || Array.isArray(attestation)) {
     throw new Error('native release attestation is missing');
   }
-  if(typeof attestation.completedAt!=='string' || !/^[1-9][0-9]*$/.test(attestation.completedAt)
-      || BigInt(attestation.completedAt)>0xffffffffffffffffn) {
+  if(!nonzeroUint64(attestation.completedAt)) {
     throw new Error('completedAt must be a nonzero canonical uint64 string');
   }
   const governance=getAddress(releaseConfig?.governance);
@@ -200,5 +213,7 @@ export async function collectNativeAttestationApprovals({provider,releaseConfig,
       signature:attestation.signature}];
   }));
   return collectFinalizedEip1271Approvals({provider,chainId:releaseConfig?.ethereumChainId,
-    governance:releaseConfig?.governance,requests});
+    governance:releaseConfig?.governance,
+    governanceImplementation:releaseConfig?.governanceImplementation,
+    governanceImplementationCodeHash:releaseConfig?.governanceImplementationCodeHash,requests});
 }

@@ -1,0 +1,66 @@
+{
+  "schema": "usdom-closed-mainnet-pilot-parameter-policy-v1",
+  "ethereum": {
+    "chainId": "1",
+    "token": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "tokenDecimals": "6",
+    "pilotAmountBaseUnits": "1000000"
+  },
+  "reserve": {
+    "maxOutstandingBaseUnits": "1000000",
+    "outflowCapacityBaseUnitsPerRefillPeriod": "1000000",
+    "refillPeriodSeconds": "86400",
+    "withdrawalDelaySeconds": "86400",
+    "governanceDelaySeconds": "172800",
+    "maximumCertificateLifetimeSeconds": "604800",
+    "minimumExecutionWindowSeconds": "3600",
+    "maximumFinalityAgeSlots": "50400",
+    "ethereumSecondsPerSlot": "12"
+  },
+  "nativeFinality": {
+    "relaySafetyMarginSeconds": "3600",
+    "maximumEthereumAnchorAgeSeconds": "1800",
+    "maximumDomClockLeadSeconds": "7200",
+    "checkpointIntervalBlocks": "360",
+    "confirmationDepthBlocks": "30",
+    "maximumCheckpointSpanBlocks": "390",
+    "challengePeriodSeconds": "172800"
+  },
+  "proof": {
+    "maximumProofBytes": "260",
+    "verifierGasLimit": "5000000",
+    "maximumPruneBatch": "256"
+  },
+  "safe": {
+    "roleCount": "3",
+    "ownersPerRole": "3",
+    "thresholdPerRole": "2",
+    "minimumDistinctOwnersAcrossRoles": "9"
+  },
+  "transactionGas": {
+    "tokenCallGasLimit": "500000",
+    "registryCallGasLimit": "100000",
+    "controlPlaneCallGasLimit": "50000",
+    "depositGasLimit": "500000",
+    "redemptionGasLimit": "2500000",
+    "maximumFeePerGasWei": "100000000000",
+    "deploymentMaximumGasLimit": "20000000",
+    "deploymentSequenceMaximumGasLimit": "12500000",
+    "deploymentMaximumTransactionCostWei": "600000000000000000",
+    "deploymentMaximumSequenceCostWei": "1000000000000000000"
+  },
+  "pilotBudget": {
+    "depositTransactionCapWei": "50000000000000000",
+    "depositCumulativeCapWei": "150000000000000000",
+    "depositMaximumTransactions": "3",
+    "redemptionTransactionCapWei": "100000000000000000",
+    "redemptionCumulativeCapWei": "200000000000000000",
+    "redemptionMaximumTransactions": "2",
+    "totalCumulativeCapWei": "350000000000000000"
+  },
+  "capacityAcceptance": {
+    "releaseSpecificEvidenceRequired": true,
+    "syntheticOrExampleMeasurementsAccepted": false,
+    "authorizationImplied": false
+  }
+}

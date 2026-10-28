@@ -1,0 +1,18 @@
+Stage 1196 — bounded RISC Zero health finalized block
+Date: 2026-10-26
+
+Change
+- The RISC Zero mainnet health assessment now limits finalizedBlockNumber to 20 canonical decimal digits before numeric conversion.
+- It then enforces the exact uint64 maximum.
+
+Security result
+- An untrusted health observation cannot retain or process an arbitrary-size finalized-block integer.
+- Both a 100,000-digit value and exact 2^64 are rejected as health blockers.
+- The change preserves fail-closed incident handling and does not create or change a production observation.
+
+Validation
+- /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/risc0-health.test.mjs test/node/risc0-incident-response.test.mjs
+- Result: 13/13 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

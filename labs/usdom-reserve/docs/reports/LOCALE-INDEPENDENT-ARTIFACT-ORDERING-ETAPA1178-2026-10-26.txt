@@ -1,0 +1,19 @@
+Stage 1178 — locale-independent artifact and owner ordering
+Date: 2026-10-26
+
+After RPC source ordering was fixed, three other readiness inputs still relied
+on ICU collation: canonical Safe owners and the recursive checkpoint/finalized-
+burn artifact directory snapshots. Their accepted alphabets are ASCII, so
+protocol ordering now uses explicit code-unit order, identical to UTF-8 byte
+order and independent of host locale data. Readiness diagnostic tie-breaking
+uses the same deterministic rule.
+
+The focused Safe and capacity/release E2E suites pass 16/16 with pinned Node
+24.19.0. Syntax checks pass for every changed module and targeted diff-check
+passes. The legacy compiled-runtime immutable manifest retains its established
+ordering in this stage because changing it requires isolated artifact
+reconciliation and Forge validation, which was explicitly out of scope while
+the root suite is active.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

@@ -1,0 +1,32 @@
+ETAPA 1378 — DEADLINE PRÓPRIO PARA COMPARAÇÕES BINÁRIAS
+Data: 2026-10-26
+
+Problema
+
+Seis gates `cmp -s` comparavam candidatos, validações e evidência terminal sem
+deadline próprio. Nos pipelines, o prazo aplicado ao produtor Node não abrangia
+necessariamente o consumidor `cmp`; uma entrada substituída ou um descritor
+problemático poderia manter o executor bloqueado.
+
+Correção
+
+Os três pontos do depósito e três do resgate passam por `cmp_exact`. O helper
+executa `cmp -s --` com deadline foreground TERM/KILL de 120 segundos. Sob
+`set -euo pipefail`, diferença de bytes, erro de leitura, timeout ou falha do
+produtor encerram o gate com erro.
+
+A cobertura inclui revalidação de transação bruta contra o JSON autenticado,
+idempotência do pacote de resgate e igualdade create-once da evidência terminal.
+Uma regressão permite somente o `cmp -s` interno do helper e exige todos os seis
+sites protegidos.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores e conservação: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário: 6/6 comparações usam `cmp_exact`; zero `cmp -s` direto resta.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

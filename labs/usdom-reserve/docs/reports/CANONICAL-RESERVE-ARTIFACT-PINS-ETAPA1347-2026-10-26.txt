@@ -1,0 +1,44 @@
+USDOM mainnet readiness — Stage 1347
+Date: 2026-10-26
+
+Finding
+=======
+
+The clean Forge campaign passed 209/209, but the independent artifact checker
+still pinned a preceding reserve ABI and bytecode. It rejected the canonical
+artifact as surface drift before reaching executable-opcode analysis, masking
+the regression that must diagnose a forbidden opcode before the final identity
+hash mismatch. The compiled-runtime materializer also lacked the immutable
+deploymentChainId already present and tested in both production contracts.
+
+Correction
+==========
+
+The closed allowlist was regenerated from the freshly tested artifact and pins
+all identities together: 108 function signatures, 15 event signatures, 32 error
+signatures, the exact selector map, 20,003-byte runtime, 25,671-byte creation
+code, and both bytecode keccaks. Event identity did not change.
+
+The source-verified runtime derivation now maps deploymentChainId to the exact
+ethereumChainId release field for both reserve and checkpoint registry. Derived
+runtime, initcode and immutable-manifest expectations were reconciled to those
+same build artifacts. The domain latch is therefore patched and verified rather
+than being omitted from production runtime derivation.
+
+Validation
+==========
+
+- Complete Forge campaign supplied by the root workflow: 209/209 passed.
+- Artifact-safety test: 4/4 passed.
+- Artifact safety plus source-verified runtime/initcode derivation: 7/7 passed.
+- A wider related Node run passed 26/27. Its only failure is an independent
+  publication dependency-inventory gate reporting four untracked local graph
+  edges; no artifact/runtime assertion failed in that run.
+- The injected byte 100 DELEGATECALL is diagnosed before identity mismatch.
+- git diff --check passed for the affected files.
+
+Scope
+=====
+
+No contract source was changed in this stage. No network, deployment, signing,
+funds, production fact, commit or push occurred.

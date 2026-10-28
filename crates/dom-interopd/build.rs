@@ -1,7 +1,6 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 
 use blake2::{
     digest::{Update, VariableOutput},
@@ -13,20 +12,27 @@ fn main() {
     let repository = manifest_dir.join("../..");
     let lockfile = repository.join("Cargo.lock");
     println!("cargo:rerun-if-changed={}", lockfile.display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        repository.join(".git/HEAD").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        repository.join(".git/index").display()
-    );
-
-    let commit =
-        git_output(&repository, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".to_owned());
-    let dirty = git_output(&repository, &["status", "--porcelain"])
-        .map(|output| !output.is_empty())
-        .unwrap_or(true);
+    println!("cargo:rerun-if-env-changed=DOM_BUILD_COMMIT");
+    println!("cargo:rerun-if-env-changed=USDOM_RELEASE_BUILD");
+    let explicit = env::var("DOM_BUILD_COMMIT")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let release_build = env::var_os("USDOM_RELEASE_BUILD").is_some();
+    if release_build
+        && !explicit
+            .as_deref()
+            .is_some_and(is_canonical_source_authority)
+    {
+        panic!("release build requires DOM_BUILD_COMMIT=sha256:<64 lowercase hex>");
+    }
+    // Release identity comes from the descriptor-bound source authority supplied
+    // by the authenticated builder. Build scripts never execute a PATH-selected
+    // Git binary. Development builds remain explicitly non-authoritative.
+    let authoritative = explicit
+        .as_deref()
+        .is_some_and(is_canonical_source_authority);
+    let commit = explicit.unwrap_or_else(|| "unknown".to_owned());
+    let dirty = !authoritative;
     let lock_digest = fs::read(&lockfile)
         .ok()
         .and_then(|bytes| blake2b_256_hex(&bytes))
@@ -45,18 +51,12 @@ fn main() {
     );
 }
 
-fn git_output(repository: &PathBuf, arguments: &[&str]) -> Option<String> {
-    let output = Command::new("git")
-        .args(arguments)
-        .current_dir(repository)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8(output.stdout)
-        .ok()
-        .map(|value| value.trim().to_owned())
+fn is_canonical_source_authority(value: &str) -> bool {
+    value.len() == 71
+        && value.starts_with("sha256:")
+        && value[7..]
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn blake2b_256_hex(bytes: &[u8]) -> Option<String> {

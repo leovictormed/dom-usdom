@@ -4,7 +4,6 @@ import {
   Signature,
   getAddress,
   getBytes,
-  hashMessage,
   isAddress,
   keccak256,
   recoverAddress,
@@ -19,11 +18,12 @@ import {
   SAFE_MAINNET_IDENTITY,
   SAFE_VERSION,
   prepareRecoverableSafeControlDeployments,
+  validateRecoverableSafeControlPackage,
 } from './safe-control-deployment.mjs';
 import {validateRpcConsensusEvidence} from './rpc-consensus-evidence.mjs';
 
 export const SAFE_CONTROL_SNAPSHOT_SCHEMA = 'usdom-safe-controls-finalized-snapshot/v2';
-export const SAFE_CONTROL_RECOVERY_SCHEMA = 'usdom-safe-controls-recovery/v2';
+export const SAFE_CONTROL_RECOVERY_SCHEMA = 'usdom-safe-controls-recovery/v3';
 export const SAFE_GUARD_STORAGE_SLOT =
   '0x4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c8';
 export const SAFE_FALLBACK_HANDLER_STORAGE_SLOT =
@@ -32,7 +32,7 @@ export const SAFE_FALLBACK_HANDLER_STORAGE_SLOT =
 const ZERO_ADDRESS='0x0000000000000000000000000000000000000000';
 const SENTINEL='0x0000000000000000000000000000000000000001';
 const HASH=/^0x[0-9a-f]{64}$/;
-const UINT=/^(0|[1-9][0-9]*)$/;
+const UINT256=/^(0|[1-9][0-9]{0,77})$/;
 const CONFIGURATION_TYPEHASH=keccak256(toUtf8Bytes(
   'SafeControlConfiguration(bytes32 role,address safe,bytes32 runtimeCodeHash,address singleton,address fallbackHandler,address guard,bytes32 ownersHash,uint256 threshold,uint256 nonce,bytes32 packageHash,uint256 chainId)',
 ));
@@ -54,6 +54,15 @@ const safeInterface=new Interface([
 ]);
 
 function fail(message) { throw new Error(message); }
+function isReservedSafeOwner(value) {
+  // Precompiles answer as code-empty accounts, but cannot be ECDSA owners.
+  return BigInt(getAddress(value))<=0x11n;
+}
+function isPinnedSafeContract(value) {
+  const address=getAddress(value);
+  return ['factory','singleton','fallbackHandler']
+    .some(field=>address===getAddress(SAFE_MAINNET_IDENTITY[field]));
+}
 
 function canonicalJson(value) {
   if(Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -70,9 +79,13 @@ function documentHash(value) {
   return keccak256(toUtf8Bytes(canonicalJson(value)));
 }
 
-function decimal(value,label) {
+function decimal(value,label,bits=256) {
   const text=typeof value==='bigint'?value.toString():value;
-  if(typeof text!=='string'||!UINT.test(text)) fail(`${label} must be canonical unsigned decimal`);
+  const maximumDigits=bits===64?20:78;
+  if(typeof text!=='string'||text.length>maximumDigits||!UINT256.test(text)
+      ||BigInt(text)>=(1n<<BigInt(bits))) {
+    fail(`${label} must be canonical uint${bits} decimal`);
+  }
   return text;
 }
 
@@ -124,6 +137,7 @@ export function safeControlConfigurationHash(value) {
 }
 
 function validatePackageShape(document) {
+  validateRecoverableSafeControlPackage(document);
   if(!document||typeof document!=='object'||Array.isArray(document)) fail('Safe package is missing');
   if(document.schema!==RECOVERABLE_SAFE_CONTROL_SCHEMA||document.ethereumChainId!=='1'
       || document.safeVersion!==SAFE_VERSION||document.threshold!==String(RECOVERABLE_SAFE_THRESHOLD)) {
@@ -134,14 +148,11 @@ function validatePackageShape(document) {
       ||JSON.stringify(Object.keys(document.ownersByRole).sort())!==JSON.stringify([...roles].sort())) {
     fail('Safe package ownersByRole is invalid');
   }
-  const all=[];
   for(const role of roles) {
     const owners=document.ownersByRole[role];
     if(!Array.isArray(owners)||owners.length!==RECOVERABLE_SAFE_OWNER_COUNT
         ||owners.some(value=>typeof value!=='string'||!isAddress(value))) fail(`${role} Safe owners are invalid`);
-    all.push(...owners.map(getAddress));
   }
-  if(new Set(all).size!==9) fail('Safe owners must be globally distinct');
   if(!Array.isArray(document.controls)||document.controls.length!==SAFE_CONTROL_SPECS.length) {
     fail('Safe package controls are invalid');
   }
@@ -318,7 +329,8 @@ export function validateRecoverableSafeControlBaseline(snapshot,packageDocument)
     'finalizedBlockHash','proxyRuntimeCodeHash','roles','rpcConsensus','snapshotHash'],'baseline snapshot');
   validateRpcConsensusEvidence(snapshot.rpcConsensus);
   if(snapshot.schema!==SAFE_CONTROL_SNAPSHOT_SCHEMA||snapshot.ethereumChainId!=='1'
-      || !UINT.test(snapshot.finalizedBlockNumber)||!HASH.test(snapshot.finalizedBlockHash)
+      || (()=>{ try { decimal(snapshot.finalizedBlockNumber,'finalized block number',64); return false; }
+        catch { return true; } })()||!HASH.test(snapshot.finalizedBlockHash)
       || !HASH.test(snapshot.proxyRuntimeCodeHash)||!HASH.test(snapshot.packageHash)
       || !HASH.test(snapshot.snapshotHash)) fail('baseline snapshot identity is invalid');
   if(snapshot.packageHash!==documentHash(packageDocument)) fail('baseline Safe package hash mismatch');
@@ -360,9 +372,11 @@ function recoverSafeSigners(safeTxHash,signatures) {
     const r=`0x${Buffer.from(bytes.slice(offset,offset+32)).toString('hex')}`;
     const s=`0x${Buffer.from(bytes.slice(offset+32,offset+64)).toString('hex')}`;
     const rawV=bytes[offset+64];
-    if(![27,28,31,32].includes(rawV)) fail('contract and preapproved Safe signatures are forbidden');
-    const digest=rawV>30?hashMessage(getBytes(safeTxHash)):safeTxHash;
-    const signature=Signature.from({r,s,v:rawV>30?rawV-4:rawV});
+    if(rawV!==27&&rawV!==28) {
+      fail('recovery requires direct EIP-712 hardware signatures');
+    }
+    const digest=safeTxHash;
+    const signature=Signature.from({r,s,v:rawV});
     const signer=getAddress(recoverAddress(digest,signature));
     if(signers.length&&BigInt(signer)<=BigInt(signers.at(-1))) {
       fail('recovery Safe signers must be distinct and canonically ordered');
@@ -383,6 +397,8 @@ async function verifyRecoveryTransaction({provider,transactionHash,role,baseline
       || !sameAddress(transaction.to,baselineRole.address)
       || !sameAddress(receipt.to,baselineRole.address)||transaction.value!==0n
       || transaction.blockNumber!==receipt.blockNumber||transaction.blockHash!==receipt.blockHash
+      || !Number.isSafeInteger(receipt.index)||receipt.index<0
+      || !Number.isSafeInteger(transaction.index)||transaction.index!==receipt.index
       || !Number.isSafeInteger(receipt.blockNumber)||receipt.blockNumber<=Number(baselineRole.blockNumber??-1)
       || receipt.blockNumber>finalizedBlockNumber) {
     fail(`${role} recovery transaction is not a successful finalized Safe call`);
@@ -434,6 +450,7 @@ async function verifyRecoveryTransaction({provider,transactionHash,role,baseline
     transactionHash,
     blockNumber:String(receipt.blockNumber),
     blockHash:receipt.blockHash,
+    transactionIndex:String(receipt.index),
     safeTxHash,
     signers,
     previousNonce:baselineRole.nonce,
@@ -444,21 +461,24 @@ async function verifyRecoveryTransaction({provider,transactionHash,role,baseline
 function recoveryTransitions(packageDocument,value) {
   exactKeys(value,SAFE_CONTROL_SPECS.map(({role})=>role),'recovery transitionsByRole');
   const existing=Object.values(packageDocument.ownersByRole).flat().map(getAddress);
+  const controlSafes=packageDocument.controls.map(control=>getAddress(control.safe));
   const result={},replacements=[];
   for(const {role} of SAFE_CONTROL_SPECS) {
     exactKeys(value[role],['lostOwner','replacementOwner'],`${role} recovery transition`);
     const lostOwner=getAddress(value[role].lostOwner),replacementOwner=getAddress(value[role].replacementOwner);
     const owners=packageDocument.ownersByRole[role].map(getAddress);
-    if(!owners.includes(lostOwner)||existing.includes(replacementOwner)||lostOwner===replacementOwner) {
+    if(!owners.includes(lostOwner)||existing.includes(replacementOwner)
+        ||controlSafes.includes(replacementOwner)||lostOwner===replacementOwner
+        ||isReservedSafeOwner(replacementOwner)||isPinnedSafeContract(replacementOwner)) {
       fail(`${role} recovery owner transition is invalid`);
     }
     replacements.push(replacementOwner); result[role]={lostOwner,replacementOwner};
   }
-  if(new Set(replacements).size!==3) fail('recovery replacement owners must be globally distinct');
+  if(new Set(replacements).size!==SAFE_CONTROL_SPECS.length) fail('recovery replacement owners must be globally distinct');
   return result;
 }
 
-/** Verify a finalized loss-of-one-key drill across all three control-plane Safes. */
+/** Verify a finalized loss-of-one-key drill across every configured Safe role. */
 export async function collectRecoverableSafeControlRecovery({
   packageDocument,baselineSnapshot,transitionsByRole,transactions,rpcUrl,
   providerFactory=(url)=>new BoundedMainnetPreflightProvider(url),
@@ -530,7 +550,7 @@ export function validateRecoverableSafeControlRecoveryReport(
   if(report.schema!==SAFE_CONTROL_RECOVERY_SCHEMA||report.ethereumChainId!=='1'
       || report.packageHash!==baselineSnapshot.packageHash
       || report.baselineSnapshotHash!==baselineSnapshot.snapshotHash
-      || !HASH.test(report.recoveryHash)) fail('Safe recovery report identity is invalid');
+      || !HASH.test(report.recoveryHash)||BigInt(report.recoveryHash)===0n) fail('Safe recovery report identity is invalid');
   const transitions=recoveryTransitions(packageDocument,report.transitionsByRole);
   const unsignedReport={...report}; delete unsignedReport.recoveryHash;
   if(documentHash(unsignedReport)!==report.recoveryHash) fail('Safe recovery report hash mismatch');
@@ -538,11 +558,13 @@ export function validateRecoverableSafeControlRecoveryReport(
   const after=report.afterSnapshot;
   exactKeys(after,['schema','ethereumChainId','packageHash','finalizedBlockNumber',
     'finalizedBlockHash','proxyRuntimeCodeHash','roles','snapshotHash'],'recovery after snapshot');
-  decimal(after.finalizedBlockNumber,'recovery finalized block number');
+  decimal(after.finalizedBlockNumber,'recovery finalized block number',64);
   if(after.schema!==SAFE_CONTROL_SNAPSHOT_SCHEMA||after.ethereumChainId!=='1'
       || after.packageHash!==baselineSnapshot.packageHash
       || !HASH.test(after.finalizedBlockHash)||!HASH.test(after.proxyRuntimeCodeHash)
       || !HASH.test(after.snapshotHash)
+      ||[after.finalizedBlockHash,after.proxyRuntimeCodeHash,after.snapshotHash]
+        .some(value=>BigInt(value)===0n)
       || BigInt(after.finalizedBlockNumber)<BigInt(baselineSnapshot.finalizedBlockNumber)) {
     fail('recovery after snapshot identity is invalid');
   }
@@ -592,13 +614,16 @@ export function validateRecoverableSafeControlRecoveryReport(
     const expectedSigners=packageDocument.ownersByRole[recovery.role]
       .filter(owner=>!sameAddress(owner,transition.lostOwner))
       .map(getAddress).sort((left,right)=>BigInt(left)<BigInt(right)?-1:1);
-    exactKeys(recovery,['role','safe','transactionHash','blockNumber','blockHash','safeTxHash',
+    exactKeys(recovery,['role','safe','transactionHash','blockNumber','blockHash','transactionIndex','safeTxHash',
       'signers','previousNonce','newNonce'],`recovery transaction ${index}`);
-    decimal(recovery.blockNumber,`${recovery.role} recovery block number`);
+    decimal(recovery.blockNumber,`${recovery.role} recovery block number`,64);
+    decimal(recovery.transactionIndex,`${recovery.role} recovery transaction index`,64);
     if(recovery.role!==SAFE_CONTROL_SPECS[index].role||recovery.role!==baselineRole.role
         || !sameAddress(recovery.safe,baselineRole.address)
         || !HASH.test(recovery.transactionHash)||!HASH.test(recovery.blockHash)
         || !HASH.test(recovery.safeTxHash)
+        ||[recovery.transactionHash,recovery.blockHash,recovery.safeTxHash]
+          .some(value=>BigInt(value)===0n)
         || BigInt(recovery.blockNumber)<=BigInt(baselineSnapshot.finalizedBlockNumber)
         || BigInt(recovery.blockNumber)>BigInt(after.finalizedBlockNumber)
         || recovery.previousNonce!==baselineRole.nonce
@@ -612,6 +637,15 @@ export function validateRecoverableSafeControlRecoveryReport(
   }
   if(new Set(transactionHashes).size!==transactionHashes.length) {
     fail('Safe recovery transaction hashes are not distinct');
+  }
+  for(let index=1;index<report.recoveries.length;index++) {
+    const previous=report.recoveries[index-1],current=report.recoveries[index];
+    const previousBlock=BigInt(previous.blockNumber),currentBlock=BigInt(current.blockNumber);
+    if(currentBlock<previousBlock
+        || currentBlock===previousBlock
+          && BigInt(current.transactionIndex)<=BigInt(previous.transactionIndex)) {
+      fail('Safe recovery transactions are not in strict canonical chain order');
+    }
   }
   return report;
 }

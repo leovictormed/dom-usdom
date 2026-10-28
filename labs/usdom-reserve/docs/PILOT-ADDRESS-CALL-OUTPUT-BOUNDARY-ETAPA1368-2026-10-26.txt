@@ -1,0 +1,32 @@
+ETAPA 1368 — BOUNDARY TIPADO PARA CAST CALL ADDRESS
+Data: 2026-10-26
+
+Problema
+
+As duas leituras RPC de `token()` durante o resgate tinham deadline, mas
+capturavam stdout sem teto e normalizavam qualquer texto antes da comparação.
+Essas leituras vinculam a reserva ao contrato USDT esperado nos dois RPCs.
+
+Correção
+
+As duas chamadas passam agora por `rpc_address_call`, que aplica deadline
+foreground TERM/KILL de 120 segundos, teto sentinela de 44 bytes, exige um
+endereço Ethereum hexadecimal exato de 20 bytes e devolve sua forma minúscula
+canônica.
+
+Cada resultado ainda precisa coincidir com o token fixado no pacote do piloto.
+Falha, timeout, excesso, endereço truncado/estendido, caracteres inválidos ou
+identidade divergente abortam antes de assinatura, publicação ou evidência
+terminal.
+
+Validação offline
+
+- Sintaxe Bash do executor de resgate: aprovada.
+- Suíte focal de resgate e conservação: 8/8 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 2/2 calls com retorno address usam o boundary tipado;
+  nenhum retorno address permanece direto.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

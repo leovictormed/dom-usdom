@@ -14,6 +14,7 @@ const releaseConfig={ethereumChainId:'1',checkpointRegistry:registry,
   checkpointDomNetworkMagic:'1146047821'};
 const iface=new Interface([
   'event Checkpoint(bytes32 indexed bridgeDomain,uint32 indexed domNetworkMagic,uint64 domHeight,bytes32 domBlock,bytes32 domStateRoot,bytes32 checkpointConfigHash)',
+  'event CheckpointFinalizedV2(bytes32 indexed statementHash,bytes32 domContextHash,uint256 domTotalDifficulty,uint128 totalIssued,uint128 totalBurned,bool issuanceClosed,uint256 checkpointCount)',
 ]);
 
 function fixture() {
@@ -23,27 +24,46 @@ function fixture() {
   const state={checkpointConfigHash:h('2'),halted:false,gracefullyShutdown:false,latestIssuanceClosed:false,latestHeight:'1001',latestBlock:h('4'),
     latestStateRoot:h('5'),latestContextHash:h('6'),latestTotalDifficulty:'1000000',latestTotalIssued:'100',latestTotalBurned:'20',
     checkpointCount:'1',candidateStatementHash:'0x'+'00'.repeat(32)};
+  const finalized=iface.encodeEventLog(iface.getEvent('CheckpointFinalizedV2'),
+    [h('a'),h('6'),'1000000','100','20',false,'1']);
   const observations=[1,2].map(index=>({operatorId:`operator-${index}`,
     originKeccak256:keccak256(toUtf8Bytes(`https://rpc${index}.example`)),chainId:'1',
     transactionHash:h('7'),receiptStatus:'1',blockNumber:'20000000',blockHash:h('8'),
     blockTimestamp:'1800000000',finalizedHeadNumber:'20000010',finalizedHeadHash:h('9'),
     snapshotBlockHashAfter:h('8'),registryRuntimeCodeHash:h('1'),checkpointEventCount:'1',
-    log:{address:registry,logIndex:'2',topics:encoded.topics.map(value=>value.toLowerCase()),
-      data:encoded.data.toLowerCase()},state:{...state}}));
+    log:{address:registry,logIndex:'2',transactionIndex:'1',transactionHash:h('7'),
+      blockNumber:'20000000',blockHash:h('8'),removed:false,
+      topics:encoded.topics.map(value=>value.toLowerCase()),
+      data:encoded.data.toLowerCase()},finalizationLog:{address:registry,logIndex:'3',
+      transactionIndex:'1',transactionHash:h('7'),blockNumber:'20000000',blockHash:h('8'),
+      removed:false,topics:finalized.topics.map(value=>value.toLowerCase()),
+      data:finalized.data.toLowerCase()},state:{...state}}));
   const sourceSetCommitment=keccak256(toUtf8Bytes(
     `USDOM_CHECKPOINT_FINALIZED_EVENT_RPC_SOURCES_V2\n${observations.map(value=>
       `${value.operatorId}\u0000${value.originKeccak256}`).join('\n')}`));
   return {releaseEvidence:{...releaseEvidence},releaseConfig:{...releaseConfig},observation:{
-    schema:'usdom-checkpoint-finalized-event-observation-v2',releaseId:'release-1',
+    schema:'usdom-checkpoint-finalized-event-observation-v3',releaseId:'release-1',
     sourceCommit:'a'.repeat(40),sourceTag:'usdom-v1',ethereumChainId:'1',transactionHash:h('7'),
+    statementHash:h('a'),
     blockNumber:'20000000',blockHash:h('8'),blockTimestamp:'1800000000',sourceSetCommitment,
     observations}};
+}
+
+function syncFinalizationLog(source) {
+  const finalized=iface.encodeEventLog(iface.getEvent('CheckpointFinalizedV2'),[
+    h('a'),source.state.latestContextHash,source.state.latestTotalDifficulty,
+    source.state.latestTotalIssued,source.state.latestTotalBurned,
+    source.state.latestIssuanceClosed,source.state.checkpointCount]);
+  source.finalizationLog.topics=finalized.topics.map(value=>value.toLowerCase());
+  source.finalizationLog.data=finalized.data.toLowerCase();
 }
 
 test('builds and validates one exact finalized checkpoint event report',()=>{
   const input=fixture(); const report=buildCheckpointFinalizedEventReport(input);
   assert.equal(report.status,'finalized'); assert.equal(report.sourceCount,'2');
   assert.equal(report.checkpoint.domHeight,'1001'); assert.equal(report.checkpoint.domBlock,h('4'));
+  assert.equal(report.finalization.statementHash,h('a'));
+  assert.equal(report.finalization.domContextHash,h('6'));
   assert.equal(validateCheckpointFinalizedEventReport({...input,report}),true);
   assert.deepEqual(JSON.parse(serializeCheckpointFinalizedEventReport(report)),report);
 });
@@ -53,6 +73,7 @@ test('distinguishes authenticated graceful closure from emergency halt',()=>{
   for(const source of closed.observation.observations) Object.assign(source.state,{
     gracefullyShutdown:true,latestIssuanceClosed:true,latestTotalIssued:'100',latestTotalBurned:'100',
   });
+  for(const source of closed.observation.observations) syncFinalizationLog(source);
   const report=buildCheckpointFinalizedEventReport(closed);
   assert.equal(report.registryState.gracefullyShutdown,true);
   assert.equal(report.registryState.halted,false);
@@ -66,6 +87,7 @@ test('distinguishes authenticated graceful closure from emergency halt',()=>{
       Object.assign(source.state,{gracefullyShutdown:true,latestIssuanceClosed:true,
         latestTotalIssued:'100',latestTotalBurned:'100'});
       mutate(source.state);
+      syncFinalizationLog(source);
     }
     assert.throws(()=>buildCheckpointFinalizedEventReport(invalid),/canonical finalized lifecycle state/);
   }
@@ -77,6 +99,8 @@ test('rejects receipt, block, runtime and post-state disagreement',()=>{
     value=>{value.observation.observations[1].blockHash=h('9');},
     value=>{value.observation.observations[1].registryRuntimeCodeHash=h('9');},
     value=>{value.observation.observations[1].finalizedHeadNumber='19999999';},
+    value=>{value.observation.observations[1].finalizedHeadNumber='20000000';},
+    value=>{value.observation.observations[1].finalizedHeadHash=h('8');},
     value=>{value.observation.observations[1].snapshotBlockHashAfter=h('9');},
     value=>{value.observation.observations[1].state.latestContextHash=h('9');},
     value=>{value.observation.observations[1].state.candidateStatementHash=h('9');},
@@ -98,6 +122,18 @@ test('rejects oversized decimal evidence before numeric conversion',()=>{
   }
 });
 
+test('rejects receipt and finalized-head block positions outside uint64',()=>{
+  const outside=(1n<<64n).toString();
+  for(const mutate of [
+    value=>{value.observation.blockNumber=outside;},
+    value=>{value.observation.observations[0].blockNumber=outside;},
+    value=>{value.observation.observations[0].finalizedHeadNumber=outside;},
+  ]) {
+    const input=fixture(); mutate(input);
+    assert.throws(()=>buildCheckpointFinalizedEventReport(input),/outside uint64/);
+  }
+});
+
 test('rejects malformed, foreign or duplicate Checkpoint logs',()=>{
   for(const mutate of [
     value=>{value.observation.observations[0].checkpointEventCount='2';},
@@ -108,6 +144,33 @@ test('rejects malformed, foreign or duplicate Checkpoint logs',()=>{
     const input=fixture(); mutate(input);
     assert.throws(()=>buildCheckpointFinalizedEventReport(input),/(disagree|framing|decoding)/);
   }
+});
+
+test('rejects missing, foreign, reordered or state-divergent finalization events',()=>{
+  for(const mutate of [
+    value=>{delete value.observation.observations[0].finalizationLog;},
+    value=>{value.observation.observations[0].finalizationLog.address=
+      '0x2000000000000000000000000000000000000002';},
+    value=>{value.observation.observations[0].finalizationLog.logIndex='1';},
+    value=>{value.observation.observations[0].finalizationLog.removed=true;},
+    value=>{value.observation.observations[0].finalizationLog.transactionHash=h('9');},
+    value=>{value.observation.observations[0].finalizationLog.data='0x01';},
+    value=>{
+      const divergent=iface.encodeEventLog(iface.getEvent('CheckpointFinalizedV2'),
+        [h('a'),h('6'),'1000001','100','20',false,'1']);
+      value.observation.observations[0].finalizationLog.data=divergent.data.toLowerCase();
+    },
+  ]) {
+    const input=fixture(); mutate(input);
+    assert.throws(()=>buildCheckpointFinalizedEventReport(input),
+      /(exact supported schema|framing|decoding|different|differs from release)/);
+  }
+});
+
+test('binds the finalized statement to the authenticated submission',()=>{
+  const input=fixture(); input.observation.statementHash=h('9');
+  assert.throws(()=>buildCheckpointFinalizedEventReport(input),
+    /statement differs from the authenticated submission/);
 });
 
 test('rejects event/release mismatch, untrusted sources and forged reports',()=>{
@@ -121,6 +184,10 @@ test('rejects event/release mismatch, untrusted sources and forged reports',()=>
   const input=fixture(); const report=structuredClone(buildCheckpointFinalizedEventReport(input));
   report.registryState.checkpointCount='999';
   assert.throws(()=>validateCheckpointFinalizedEventReport({...input,report}),/not canonical/);
+  const forged=structuredClone(buildCheckpointFinalizedEventReport(input));
+  forged.finalization.statementHash=h('9');
+  assert.throws(()=>validateCheckpointFinalizedEventReport({...input,report:forged}),
+    /statement differs from the authenticated submission/);
 });
 
 test('preparer rechecks release and finalized observation before output',async()=>{

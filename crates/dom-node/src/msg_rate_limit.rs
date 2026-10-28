@@ -24,6 +24,7 @@ pub const RATE_WINDOW_SECS: u64 = 10;
 /// Longest test window accepted by a production-linked binary. A longer
 /// window is stricter, but bounding it prevents accidental near-permanent
 /// throttling and retains the integration test's one-hour window.
+#[cfg(test)]
 const MAX_TEST_RATE_WINDOW_SECS: u64 = 60 * 60;
 
 /// Cheap, O(1) messages: Ping, Pong, and the ignored-by-default commands
@@ -108,8 +109,9 @@ pub fn category_for(cmd: Command) -> Option<RateCategory> {
 }
 
 /// Per-category budgets and window, resolved once per connection. Production
-/// uses the constants above; tests override via `DOM_TEST_RATELIMIT_*` (mirrors
-/// the write-timeout's `DOM_TEST_WRITE_TIMEOUT_SECS`).
+/// uses the constants above. Unit tests may override them with
+/// `DOM_TEST_RATELIMIT_*`; that environment-variable reader is not compiled
+/// into a production binary.
 #[derive(Debug, Clone, Copy)]
 pub struct RateLimitConfig {
     /// Window length in seconds.
@@ -142,25 +144,34 @@ impl Default for RateLimitConfig {
 }
 
 impl RateLimitConfig {
-    /// Production defaults, with optional `DOM_TEST_RATELIMIT_*` overrides.
+    /// Production defaults. Test-only environment overrides are compiled only
+    /// while this crate's unit tests are being built.
     pub fn from_env() -> Self {
-        let d = Self::default();
-        Self {
-            window_secs: bounded_test_window_override(
-                "DOM_TEST_RATELIMIT_WINDOW_SECS",
-                d.window_secs,
-            ),
-            cheap: bounded_test_budget_override("DOM_TEST_RATELIMIT_CHEAP", u64::from(d.cheap))
-                as u32,
-            sync: bounded_test_budget_override("DOM_TEST_RATELIMIT_SYNC", u64::from(d.sync)) as u32,
-            tx: bounded_test_budget_override("DOM_TEST_RATELIMIT_TX", u64::from(d.tx)) as u32,
-            block: bounded_test_budget_override("DOM_TEST_RATELIMIT_BLOCK", u64::from(d.block))
-                as u32,
-            #[cfg(feature = "native-usdom-v4-poc")]
-            native_usdom: bounded_test_budget_override(
-                "DOM_TEST_RATELIMIT_NATIVE_USDOM",
-                u64::from(d.native_usdom),
-            ) as u32,
+        #[cfg(not(test))]
+        {
+            Self::default()
+        }
+        #[cfg(test)]
+        {
+            let d = Self::default();
+            Self {
+                window_secs: bounded_test_window_override(
+                    "DOM_TEST_RATELIMIT_WINDOW_SECS",
+                    d.window_secs,
+                ),
+                cheap: bounded_test_budget_override("DOM_TEST_RATELIMIT_CHEAP", u64::from(d.cheap))
+                    as u32,
+                sync: bounded_test_budget_override("DOM_TEST_RATELIMIT_SYNC", u64::from(d.sync))
+                    as u32,
+                tx: bounded_test_budget_override("DOM_TEST_RATELIMIT_TX", u64::from(d.tx)) as u32,
+                block: bounded_test_budget_override("DOM_TEST_RATELIMIT_BLOCK", u64::from(d.block))
+                    as u32,
+                #[cfg(feature = "native-usdom-v4-poc")]
+                native_usdom: bounded_test_budget_override(
+                    "DOM_TEST_RATELIMIT_NATIVE_USDOM",
+                    u64::from(d.native_usdom),
+                ) as u32,
+            }
         }
     }
 
@@ -176,11 +187,13 @@ impl RateLimitConfig {
     }
 }
 
+#[cfg(test)]
 fn bounded_test_budget_override(key: &str, production_default: u64) -> u64 {
     let text = std::env::var(key).ok();
     parse_bounded_test_override(text.as_deref(), 1, production_default, production_default)
 }
 
+#[cfg(test)]
 fn bounded_test_window_override(key: &str, production_default: u64) -> u64 {
     let text = std::env::var(key).ok();
     parse_bounded_test_override(
@@ -191,9 +204,9 @@ fn bounded_test_window_override(key: &str, production_default: u64) -> u64 {
     )
 }
 
-/// Test knobs are linked into the production binary, so they must only make
-/// admission stricter. Requiring canonical decimal form also rejects padded,
+/// Requiring canonical decimal form rejects padded,
 /// signed and whitespace-surrounded values that are easy to set accidentally.
+#[cfg(test)]
 fn parse_bounded_test_override(text: Option<&str>, min: u64, max: u64, fallback: u64) -> u64 {
     let Some(text) = text else {
         return fallback;

@@ -1,0 +1,15 @@
+Stage 1191 — preactivation-policy bounded integer parsing
+Date: 2026-10-26
+
+DOM/Ethereum domain derivation and checkpoint preactivation policy converted
+arbitrary-length canonical decimal strings before applying ABI width bounds.
+The common policy parser now applies lexical ceilings for uint8, uint32,
+uint64, uint128 and uint256 before BigInt, followed by the existing exact
+numeric bound.
+
+Adversarial tests reject 100,000-digit network magic/checkpoint epoch fields
+and exact 2^256 before ABI encoding. The complete focused policy suite passes
+6/6 with pinned Node 24.19.0; targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

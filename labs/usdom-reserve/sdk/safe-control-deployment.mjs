@@ -27,6 +27,7 @@ export const SAFE_CONTROL_SPECS = Object.freeze([
   Object.freeze({role: 'governance', saltNonce: '1'}),
   Object.freeze({role: 'reserveGuardian', saltNonce: '2'}),
   Object.freeze({role: 'checkpointGuardian', saltNonce: '3'}),
+  Object.freeze({role: 'usdtCustody', saltNonce: '4'}),
 ]);
 
 const zeroAddress = '0x0000000000000000000000000000000000000000';
@@ -44,7 +45,11 @@ function fail(message) {
 
 function canonicalAddress(value, label) {
   if (typeof value !== 'string' || !isAddress(value)) fail(`${label} must be an address`);
-  return getAddress(value);
+  const address=getAddress(value);
+  // Ethereum mainnet precompiles have empty code and therefore otherwise look
+  // like EOAs to the deployment observer, despite being unable to sign.
+  if(BigInt(address)<=0x11n) fail(`${label} must not be a reserved precompile address`);
+  return address;
 }
 
 function canonicalOwners(values, expectedCount) {
@@ -52,7 +57,10 @@ function canonicalOwners(values, expectedCount) {
     fail(`owners must contain exactly ${expectedCount} addresses`);
   }
   const owners=values.map((value,index)=>canonicalAddress(value,`owner ${index + 1}`))
-    .sort((left,right)=>left.toLowerCase().localeCompare(right.toLowerCase()));
+    .sort((left,right)=>{
+      const a=left.toLowerCase(),b=right.toLowerCase();
+      return a<b?-1:a>b?1:0;
+    });
   if(new Set(owners.map(value=>value.toLowerCase())).size!==owners.length) {
     fail('Safe owners must be distinct');
   }
@@ -63,14 +71,64 @@ export function canonicalOwnersByRole(value) {
   if(!value||typeof value!=='object'||Array.isArray(value)
       ||JSON.stringify(Object.keys(value).sort())!==JSON.stringify(
         SAFE_CONTROL_SPECS.map(({role})=>role).sort())) {
-    fail('ownersByRole must contain exactly governance, reserveGuardian and checkpointGuardian');
+    fail('ownersByRole must contain exactly governance, reserveGuardian, checkpointGuardian and usdtCustody');
   }
   const result=Object.fromEntries(SAFE_CONTROL_SPECS.map(({role})=>[
     role,canonicalOwners(value[role],RECOVERABLE_SAFE_OWNER_COUNT),
   ]));
-  const all=Object.values(result).flat().map(owner=>owner.toLowerCase());
-  if(new Set(all).size!==all.length) fail('Safe owner addresses must not be reused between roles');
+  const sets=Object.values(result).map(set=>set.map(owner=>owner.toLowerCase()).sort());
+  if(sets.some(set=>JSON.stringify(set)!==JSON.stringify(sets[0]))) fail('all separated Safe roles must use the same ratified 2-of-3 owner set');
   return result;
+}
+
+/** Validate the complete deterministic deployment package without trusting a
+ * previously computed package hash. This is used again by offline consumers
+ * after the RPC-backed preparation ceremony. */
+export function validateRecoverableSafeControlPackage(document) {
+  const packageKeys=['schema','ethereumChainId','ownersByRole','threshold','safeVersion',
+    'factory','singleton','fallbackHandler','proxyCreationCodeHash','factoryCodeHash',
+    'singletonCodeHash','fallbackHandlerCodeHash','controls'];
+  if(!document||typeof document!=='object'||Array.isArray(document)
+      ||JSON.stringify(Object.keys(document).sort())!==JSON.stringify(packageKeys.sort())
+      ||document.schema!==RECOVERABLE_SAFE_CONTROL_SCHEMA||document.ethereumChainId!=='1'
+      ||document.threshold!==String(RECOVERABLE_SAFE_THRESHOLD)
+      ||document.safeVersion!==SAFE_VERSION) fail('Safe package policy is invalid');
+  const ownersByRole=canonicalOwnersByRole(document.ownersByRole);
+  if(JSON.stringify(ownersByRole)!==JSON.stringify(document.ownersByRole)) {
+    fail('Safe package owners must use canonical order and checksum');
+  }
+  for(const key of Object.keys(SAFE_MAINNET_IDENTITY)) {
+    if(document[key]!==SAFE_MAINNET_IDENTITY[key]) fail(`Safe package ${key} is not pinned`);
+  }
+  if(!Array.isArray(document.controls)||document.controls.length!==SAFE_CONTROL_SPECS.length) {
+    fail('Safe package controls are invalid');
+  }
+  const safes=[];
+  for(let index=0;index<SAFE_CONTROL_SPECS.length;index++) {
+    const spec=SAFE_CONTROL_SPECS[index],control=document.controls[index];
+    if(!control||JSON.stringify(Object.keys(control).sort())!==JSON.stringify(
+      ['role','owners','saltNonce','safe','to','value','data','dataHash'].sort())
+        ||control.role!==spec.role||control.saltNonce!==spec.saltNonce
+        ||JSON.stringify(control.owners)!==JSON.stringify(ownersByRole[spec.role])
+        ||getAddress(control.safe)!==control.safe||getAddress(control.to)!==SAFE_MAINNET_IDENTITY.factory
+        ||control.value!=='0'||control.dataHash!==keccak256(control.data)) {
+      fail(`${spec.role} Safe deployment control is invalid`);
+    }
+    const transaction=canonicalTransaction(control);
+    const decoded=decodeAndValidateSetup({transaction,owners:ownersByRole[spec.role],
+      threshold:RECOVERABLE_SAFE_THRESHOLD,saltNonce:spec.saltNonce});
+    if(decoded.singleton!==SAFE_MAINNET_IDENTITY.singleton
+        ||decoded.fallbackHandler!==SAFE_MAINNET_IDENTITY.fallbackHandler) {
+      fail(`${spec.role} Safe initializer identity is invalid`);
+    }
+    safes.push(control.safe.toLowerCase());
+  }
+  if(new Set(safes).size!==SAFE_CONTROL_SPECS.length) fail('predicted Safe addresses must be globally distinct');
+  const owners=Object.values(ownersByRole).flat().map(value=>value.toLowerCase());
+  if(safes.some(safe=>owners.includes(safe))) {
+    fail('predicted Safe addresses must not be Safe owners');
+  }
+  return document;
 }
 
 function canonicalTransaction(transaction) {
@@ -123,12 +181,65 @@ async function requireCode(provider, address, label, blockTag) {
   return keccak256(code);
 }
 
+function deploymentBlockIdentity(block, label) {
+  if(!block || !Number.isSafeInteger(block.number) || block.number<0
+      || typeof block.hash!=='string' || !/^0x[0-9a-fA-F]{64}$/.test(block.hash)) {
+    fail(`${label} block identity is invalid`);
+  }
+  return {number:block.number,hash:block.hash.toLowerCase()};
+}
+
+function deploymentBlockNumber(blockTag, finalizedNumber) {
+  if(blockTag==='finalized') return finalizedNumber;
+  const validNumber=typeof blockTag==='number' && Number.isSafeInteger(blockTag) && blockTag>=0;
+  const validHex=typeof blockTag==='string' && /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]{0,13})$/.test(blockTag);
+  if(!validNumber && !validHex) fail('Safe deployment block tag must be finalized or a numeric block');
+  const number=Number(blockTag);
+  if(!Number.isSafeInteger(number) || number>finalizedNumber) {
+    fail('Safe deployment snapshot exceeds the finalized block');
+  }
+  return number;
+}
+
 function requirePinnedIdentity(observed) {
   for (const key of Object.keys(SAFE_MAINNET_IDENTITY)) {
     if (observed[key] !== SAFE_MAINNET_IDENTITY[key]) {
       fail(`Safe mainnet ${key} does not match the pinned identity`);
     }
   }
+}
+
+export function buildRecoverableSafeControlDeploymentPackage({ownersByRole,proxyCreationCode}={}) {
+  const canonicalByRole=canonicalOwnersByRole(ownersByRole);
+  if(typeof proxyCreationCode!=='string'||!/^0x(?:[0-9a-fA-F]{2})+$/.test(proxyCreationCode)
+      ||keccak256(proxyCreationCode)!==SAFE_MAINNET_IDENTITY.proxyCreationCodeHash) {
+    fail('Safe proxy creation code does not match the pinned identity');
+  }
+  const controls=SAFE_CONTROL_SPECS.map(spec=>{
+    const owners=canonicalByRole[spec.role];
+    const initializer=safeInterface.encodeFunctionData('setup',[owners,RECOVERABLE_SAFE_THRESHOLD,
+      zeroAddress,'0x',SAFE_MAINNET_IDENTITY.fallbackHandler,zeroAddress,0,zeroAddress]);
+    const transaction=canonicalTransaction({to:SAFE_MAINNET_IDENTITY.factory,value:'0',
+      data:factoryInterface.encodeFunctionData('createProxyWithNonce',[
+        SAFE_MAINNET_IDENTITY.singleton,initializer,spec.saltNonce])});
+    const decoded=decodeAndValidateSetup({transaction,owners,threshold:RECOVERABLE_SAFE_THRESHOLD,
+      saltNonce:spec.saltNonce});
+    const initcode=concat([proxyCreationCode,zeroPadValue(decoded.singleton,32)]);
+    const salt=keccak256(solidityPacked(['bytes32','uint256'],[
+      keccak256(decoded.initializer),BigInt(spec.saltNonce)]));
+    return {role:spec.role,owners,saltNonce:spec.saltNonce,
+      safe:getCreate2Address(transaction.to,salt,keccak256(initcode)),to:transaction.to,
+      value:transaction.value,data:transaction.data,dataHash:keccak256(transaction.data)};
+  });
+  if(new Set(controls.map(value=>value.safe.toLowerCase())).size!==controls.length) {
+    fail('predicted Safe addresses must be globally distinct');
+  }
+  const owners=Object.values(canonicalByRole).flat().map(value=>value.toLowerCase());
+  if(controls.some(value=>owners.includes(value.safe.toLowerCase()))) {
+    fail('predicted Safe addresses must not be Safe owners');
+  }
+  return {schema:RECOVERABLE_SAFE_CONTROL_SCHEMA,ethereumChainId:'1',ownersByRole:canonicalByRole,
+    threshold:String(RECOVERABLE_SAFE_THRESHOLD),safeVersion:SAFE_VERSION,...SAFE_MAINNET_IDENTITY,controls};
 }
 
 async function prepareSafeControlDeploymentsForPolicy({
@@ -144,7 +255,13 @@ async function prepareSafeControlDeploymentsForPolicy({
   try {
   const network = await provider.getNetwork();
   if (network.chainId !== 1n) fail(`expected Ethereum chain ID 1, got ${network.chainId}`);
-  if (!await provider.getBlock(blockTag)) fail('RPC did not return the requested block');
+  const finalized=deploymentBlockIdentity(await provider.getBlock('finalized'),'initial finalized');
+  const snapshotNumber=deploymentBlockNumber(blockTag,finalized.number);
+  const snapshot=snapshotNumber===finalized.number?finalized:
+    deploymentBlockIdentity(await provider.getBlock(snapshotNumber),'requested Safe snapshot');
+  if(snapshot.number!==snapshotNumber) fail('Safe deployment snapshot number does not match its request');
+  provider.pinFinalizedSnapshot?.(snapshot.number,snapshot.hash);
+  blockTag=snapshot.number;
   const ownerCode=await Promise.all(Object.values(ownersByRole).flat()
     .map(value=>provider.getCode(value,blockTag)));
   if(ownerCode.some(code=>code!=='0x')) {
@@ -159,6 +276,8 @@ async function prepareSafeControlDeploymentsForPolicy({
   const [proxyCreationCode] = factoryInterface.decodeFunctionResult(
     'proxyCreationCode', proxyCreationResult,
   );
+
+  const deterministic=buildRecoverableSafeControlDeploymentPackage({ownersByRole,proxyCreationCode});
 
   const controls = [];
   let shared;
@@ -219,22 +338,26 @@ async function prepareSafeControlDeploymentsForPolicy({
     ),
   };
   requirePinnedIdentity(observedIdentity);
-  return {
-    schema,
-    ethereumChainId: '1',
-    ownersByRole,
-    threshold: String(threshold),
-    safeVersion: SAFE_VERSION,
-    ...observedIdentity,
-    controls,
-  };
+  const result={...deterministic,schema,...observedIdentity,controls};
+  validateRecoverableSafeControlPackage(result);
+  const ending=deploymentBlockIdentity(await provider.getBlock(blockTag),'ending Safe snapshot');
+  if(ending.number!==snapshot.number || ending.hash!==snapshot.hash) {
+    fail('Safe deployment finalized snapshot changed during preparation');
+  }
+  const finalizedAfter=deploymentBlockIdentity(await provider.getBlock('finalized'),'ending finalized');
+  if(finalizedAfter.number<finalized.number
+      || (finalizedAfter.number===finalized.number && finalizedAfter.hash!==finalized.hash)) {
+    fail('Safe deployment finalized snapshot changed or regressed during preparation');
+  }
+  return result;
   } finally {
     if (typeof provider?.destroy === 'function') await provider.destroy();
   }
 }
 
-/** Build the production control-plane package with three independent hardware
- * keys and a 2-of-3 threshold. Input order cannot change the CREATE2 addresses. */
+/** Build each production control role from three distinct hardware-wallet EOA
+ * identities and a 2-of-3 threshold. This describes key separation, not three
+ * different human operators. Input order cannot change the CREATE2 addresses. */
 export async function prepareRecoverableSafeControlDeployments({
   ownersByRole,rpcUrl,blockTag,providerFactory,
 }={}) {

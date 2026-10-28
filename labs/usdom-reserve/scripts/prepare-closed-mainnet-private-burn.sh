@@ -38,6 +38,7 @@ REPOSITORY_ROOT=$(CDPATH='' cd -- "$LAB_ROOT/../.." && pwd -P)
 for tool_boundary_command in stat realpath id dirname sha256sum cut; do command -v "$tool_boundary_command" >/dev/null; done
 source "$LAB_ROOT/scripts/pinned-shell-tool-functions.sh"
 pin_runtime_tool node
+pin_runtime_tool timeout
 node() { assert_runtime_tool node; "$node_bin" "$@"; }
 RUNTIME_ROOT="$LAB_ROOT/evidence/native-runtime"
 WITNESS_ROOT="$LAB_ROOT/evidence/finalized-deposit-witness"
@@ -53,6 +54,7 @@ fi
 WALLET_ROOT="$HOME/.local/share/dom-usdom/mainnet-wallet"
 RECOVERY="$WALLET_ROOT/recovery.usdom"
 PUBLIC_IDENTITY="$WALLET_ROOT/public-identity.json"
+ONEKEY_RECIPIENT_EVIDENCE="$WALLET_ROOT/onekey-ios-redemption-account-evidence.json"
 KEYSTORE_CREDENTIAL="$WALLET_ROOT/tpm2-keystore-credential.usdom"
 KEYSTORE_EVIDENCE="$WALLET_ROOT/tpm2-keystore-v1.json"
 TPM_RUNTIME="/dev/shm/dom-usdom-tpm-$(id -u)"
@@ -113,7 +115,7 @@ for directory in "$WALLET_ROOT" "$OBSERVED_STATE" "$TPM_RUNTIME"; do
     exit 1
   fi
 done
-for file in "$RECOVERY" "$PUBLIC_IDENTITY" "$KEYSTORE_CREDENTIAL" "$KEYSTORE_EVIDENCE"; do
+for file in "$RECOVERY" "$PUBLIC_IDENTITY" "$KEYSTORE_CREDENTIAL" "$KEYSTORE_EVIDENCE" "$ONEKEY_RECIPIENT_EVIDENCE"; do
   if [[ ! -f "$file" || -L "$file" \
     || $(stat -c '%u:%a:%h' "$file") != "$(id -u):600:1" ]]; then
     printf 'Wallet keystore input is not a current-user 0600 file: %s\n' "$file" >&2
@@ -145,6 +147,7 @@ if [[ -e "$OUTPUT_STATE" || -L "$OUTPUT_STATE" ]]; then
 fi
 SECRET_DIRECTORY=$(mktemp -d -p /dev/shm usdom-private-burn.XXXXXXXX)
 chmod 0700 -- "$SECRET_DIRECTORY"
+SECRET_DIRECTORY_IDENTITY=$(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY")
 RECOVERY_PASSWORD_FILE="$SECRET_DIRECTORY/recovery-password"
 STATE_PASSWORD_FILE="$SECRET_DIRECTORY/state-password"
 RECIPIENT_FILE="$SECRET_DIRECTORY/recipient"
@@ -153,8 +156,20 @@ cleanup() {
   trap - EXIT HUP INT TERM
   unset recovery_password
   if [[ "$SECRET_DIRECTORY" == /dev/shm/usdom-private-burn.* \
-    && -d "$SECRET_DIRECTORY" && ! -L "$SECRET_DIRECTORY" ]]; then
-    find "$SECRET_DIRECTORY" -depth -delete 2>/dev/null || true
+    && $(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY" 2>/dev/null) == "$SECRET_DIRECTORY_IDENTITY" ]]; then
+    if assert_runtime_tool node && assert_runtime_tool timeout &&
+      "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+        "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+        "$SECRET_DIRECTORY" > /dev/null 2> /dev/null &&
+      assert_runtime_tool node && assert_runtime_tool timeout &&
+      test ! -e "$SECRET_DIRECTORY"; then
+      :
+    else
+      status=1
+    fi
+  else
+    # A replaced pathname is not the secret directory this process created.
+    status=1
   fi
   exit "$status"
 }
@@ -220,11 +235,11 @@ keystore_binary_sha256=$(sha256sum -- "$keystore_binary" | cut -d ' ' -f 1)
 builder_binary_sha256=$(sha256sum -- "$builder_binary" | cut -d ' ' -f 1)
 
 test "$(fixed_input_commitment)" = "$input_commitment"
-FIRST_RECIPIENT=$(cast wallet address --ledger)
-SECOND_RECIPIENT=$(cast wallet address --ledger)
+FIRST_RECIPIENT=$(node "$LAB_ROOT/scripts/read-onekey-ios-hardware-address.mjs" "$ONEKEY_RECIPIENT_EVIDENCE")
+SECOND_RECIPIENT=$(node "$LAB_ROOT/scripts/read-onekey-ios-hardware-address.mjs" "$ONEKEY_RECIPIENT_EVIDENCE")
 if [[ ! "$FIRST_RECIPIENT" =~ ^0x[0-9a-fA-F]{40}$ \
   || "$FIRST_RECIPIENT" != "$SECOND_RECIPIENT" ]]; then
-  printf '%s\n' 'Ledger returned a missing, malformed or unstable redemption address.' >&2
+  printf '%s\n' 'OneKey iPhone evidence returned a missing, malformed or unstable redemption address.' >&2
   exit 1
 fi
 
@@ -239,7 +254,7 @@ exec </dev/null
 
 test "$(fixed_input_commitment)" = "$input_commitment"
 test "$(sha256sum -- "$keystore_binary" | cut -d ' ' -f 1)" = "$keystore_binary_sha256"
-"$keystore_binary" unlock \
+if ! "$keystore_binary" unlock \
   --manifest-file "$MANIFEST" \
   --manifest-sha256 "$manifest_sha256" \
   --recovery-file "$RECOVERY" \
@@ -248,12 +263,16 @@ test "$(sha256sum -- "$keystore_binary" | cut -d ' ' -f 1)" = "$keystore_binary_
   --credential-file "$KEYSTORE_CREDENTIAL" \
   --keystore-lock-file "$KEYSTORE_LOCK" \
   --evidence-file "$KEYSTORE_EVIDENCE" \
-  --output-password-file "$STATE_PASSWORD_FILE"
+  --output-password-file "$STATE_PASSWORD_FILE" \
+  >"$SECRET_DIRECTORY/keystore.stdout" 2>"$SECRET_DIRECTORY/keystore.stderr"; then
+  printf '%s\n' 'Native wallet unlock failed; private diagnostics were suppressed.' >&2
+  exit 1
+fi
 
 test "$(fixed_input_commitment)" = "$input_commitment"
 test "$(sha256sum -- "$builder_binary" | cut -d ' ' -f 1)" = "$builder_binary_sha256"
 test ! -e "$OUTPUT_STATE"; test ! -L "$OUTPUT_STATE"
-"$builder_binary" \
+if ! "$builder_binary" \
   --manifest-file "$MANIFEST" \
   --manifest-sha256 "$manifest_sha256" \
   --deposit-witness-file "$WITNESS" \
@@ -262,7 +281,11 @@ test ! -e "$OUTPUT_STATE"; test ! -L "$OUTPUT_STATE"
   --proving-key-file "$PROVING_KEY" \
   --proving-key-sha256 "$proving_key_sha256" \
   --recipient-file "$RECIPIENT_FILE" \
-  --output-directory "$OUTPUT_STATE"
+  --output-directory "$OUTPUT_STATE" \
+  >"$SECRET_DIRECTORY/builder.stdout" 2>"$SECRET_DIRECTORY/builder.stderr"; then
+  printf '%s\n' 'Private burn construction failed; private diagnostics were suppressed.' >&2
+  exit 1
+fi
 test -d "$OUTPUT_STATE"; test ! -L "$OUTPUT_STATE"
 test "$(stat -c '%u' "$OUTPUT_STATE")" = "$(id -u)"
 output_mode=$(stat -c '%a' "$OUTPUT_STATE")

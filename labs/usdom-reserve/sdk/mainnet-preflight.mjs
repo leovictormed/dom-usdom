@@ -4,6 +4,7 @@ import {SAFE_MAINNET_IDENTITY} from './safe-control-deployment.mjs';
 import {safeOwnersCommitment} from './configuration.mjs';
 import {FINALIZED_BURN_PROOF_ACCEPTED_HASH} from './verifier-config.mjs';
 import {CHECKPOINT_PROOF_ACCEPTED_HASH} from './checkpoint-verifier-config.mjs';
+import {validateMainnetDeploymentTopology} from './mainnet-deployment-identity.mjs';
 
 export const EMPTY_CODE_HASH = '0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470';
 export const ETHEREUM_MAINNET_USDT = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
@@ -89,6 +90,9 @@ function requireObservationSchema(blockers,phase,observation) {
       'guardianCodeHash','guardianImplementation','guardianImplementationCodeHash',
       'guardianOwnersCommitment',
       'withdrawalDelay','governanceDelay','maxOutstanding','outflowCapacity','paused',
+      'pilotRestrictedDeployment','permissionlessDeposits','pilotDepositConsumed',
+      'authorizedPilotDeposit','authorizedPilotSnapshot','authorizedPilotValidUntil',
+      'pilotAuthorizationGeneration','permissionlessDepositsReadyAt',
       'depositsClosed','gracefullyShutdown','resumeReadyAt','totalDeposited','totalReleased','pendingQueue',
       'outstanding','unreservedCollateral','availableOutflow','totalProvedDebtAmount','controlPlaneHealthy']);
   requireExactKeys(blockers,observation?.reserve?.pendingQueue,'reserve_pending_queue_schema_invalid',
@@ -171,8 +175,6 @@ function requireLiveIdentities(blockers, release, observation) {
         ||new Set(expectedOwnersByRole[role]).size!==3) add(blockers,`release_${role}_owners_invalid`,
       `${role} must bind three distinct owners`);
   }
-  if(new Set(Object.values(expectedOwnersByRole).flat()).size!==9) add(blockers,
-    'release_control_plane_owner_reuse','Safe owner addresses must not be reused between roles');
   const safeAddresses=['governance','guardian','checkpointGuardian'].map(role=>release?.[role]);
   if(safeAddresses.some((safe,index)=>safeAddresses.some((other,otherIndex)=>
     otherIndex<index && sameAddress(safe,other)))) {
@@ -226,10 +228,19 @@ function requireLiveIdentities(blockers, release, observation) {
         ||!sameUint(adapter?.deploymentChainId,release?.ethereumChainId)
         ||!sameHash(adapter?.verifierConfigHash,release?.[configField])
         ||!sameHash(adapter?.proofAccepted,accepted)
-        ||!sameHash(adapter?.imageId,adapter?.imageId)||adapter.imageId.toLowerCase()===zeroHash) {
+        ||!bytes32Pattern.test(adapter?.imageId??'')||adapter.imageId.toLowerCase()===zeroHash) {
       add(blockers,`${role}_initial_state_mismatch`,
         `${role} immutable constructor state differs from the exact release and RISC Zero authority`);
     }
+  }
+  // The adapter ABI and acceptance magic are bookkeeping capabilities, not a
+  // cryptographic domain separator. If both adapters share one ImageID then an
+  // identical (seal, statement journal) tuple is valid in both proof domains.
+  // Require independent guest programs at the observed immutable boundary.
+  if(sameHash(observation?.finalizedBurnVerifier?.imageId,
+    observation?.checkpointVerifier?.imageId)) {
+    add(blockers,'risc0_adapter_image_capability_collision',
+      'finalized-burn and checkpoint adapters must use distinct guest ImageIDs');
   }
   for (const role of ['governance','guardian','checkpointGuardian']) {
     const expectedOwners=expectedOwnersByRole[role];
@@ -424,6 +435,15 @@ export function assessMainnetPreflight({phase, releaseConfig, observation, riscZ
     requireCreatePlan(blockers,releaseConfig,'release_reserve','deployer','deployerNonce','reserve');
     requireCreatePlan(blockers,releaseConfig,'release_checkpoint_registry','checkpointRegistryDeployer',
       'checkpointRegistryDeployerNonce','checkpointRegistry');
+    try {
+      const deployments=[observation?.finalizedBurnVerifierDeployment,
+        observation?.checkpointVerifierDeployment];
+      if(phase!=='predeployment') deployments.push(observation?.checkpointRegistryDeployment,
+        observation?.deployment);
+      validateMainnetDeploymentTopology(releaseConfig,{deployments});
+    } catch(error) {
+      add(blockers,'release_deployment_topology_invalid',error.message);
+    }
   }
   requireFinalizedIdentity(blockers, observation);
   requireLiveIdentities(blockers, releaseConfig, observation);
@@ -439,8 +459,9 @@ export function assessMainnetPreflight({phase, releaseConfig, observation, riscZ
   },observation?.finalizedBlockNumber);
 
   if (phase === 'predeployment') {
-    if (!sameUint(observation?.deployerNonce, releaseConfig?.deployerNonce)) {
-      add(blockers, 'deployer_nonce_mismatch', 'the finalized deployer nonce differs from the release plan');
+    if (!sameUint(observation?.deployerNonce, releaseConfig?.checkpointRegistryDeployerNonce)) {
+      add(blockers, 'deployer_nonce_mismatch',
+        'the finalized deployer nonce differs from the next deployment in the release plan');
     }
     if (!sameUint(observation?.checkpointRegistryDeployerNonce,
       releaseConfig?.checkpointRegistryDeployerNonce)) {
@@ -534,6 +555,23 @@ export function assessMainnetPreflight({phase, releaseConfig, observation, riscZ
       requireReserveGetter(blockers, reserve, getter, releaseConfig?.[field], 'uint');
     }
     if (reserve?.paused !== true) add(blockers, 'reserve_not_paused', 'a mainnet deployment must remain paused');
+    if (reserve?.pilotRestrictedDeployment !== true) {
+      add(blockers,'reserve_pilot_restriction_disabled',
+        'a production reserve must be deployed with the immutable closed-pilot restriction');
+    }
+    if (reserve?.permissionlessDeposits !== false) {
+      add(blockers,'reserve_permissionless_deposits_open_at_cold_start',
+        'permissionless deposits must remain closed at cold start');
+    }
+    if (reserve?.pilotDepositConsumed !== false) {
+      add(blockers,'reserve_pilot_deposit_already_consumed',
+        'the one-shot pilot deposit must be unused at cold start');
+    }
+    for (const name of ['authorizedPilotDeposit','authorizedPilotSnapshot']) {
+      if (!sameHash(reserve?.[name],zeroHash)) {
+        add(blockers,`reserve_${name}_unsafe`,`${name} must be zero at cold start`);
+      }
+    }
     if (reserve?.depositsClosed !== false) {
       add(blockers,'reserve_deposits_closed_at_cold_start','a fresh reserve must not start with deposits closed');
     }
@@ -543,7 +581,10 @@ export function assessMainnetPreflight({phase, releaseConfig, observation, riscZ
     if (reserve?.controlPlaneHealthy !== true) {
       add(blockers,'reserve_control_plane_unhealthy','the deployed reserve rejects its current control-plane identity or policy');
     }
-    for (const [name,expected] of Object.entries({resumeReadyAt:0,totalDeposited:0,totalReleased:0,
+    for (const [name,expected] of Object.entries({resumeReadyAt:0,authorizedPilotValidUntil:0,
+      pilotAuthorizationGeneration:0,
+      permissionlessDepositsReadyAt:0,
+      totalDeposited:0,totalReleased:0,
       outstanding:0,unreservedCollateral:0,totalProvedDebtAmount:0})) {
       if (!sameUint(reserve?.[name], expected)) add(blockers, `reserve_${name}_unsafe`, `reserve ${name} is not ${expected}`);
     }

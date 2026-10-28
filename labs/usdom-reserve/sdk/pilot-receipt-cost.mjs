@@ -1,8 +1,11 @@
 function quantity(value,label) {
-  if(typeof value!=='string'||(!/^(0|[1-9][0-9]*)$/.test(value)&&!/^0x(0|[1-9a-f][0-9a-f]*)$/.test(value))) {
+  if(typeof value!=='string'||value.length>78
+      ||(!/^(0|[1-9][0-9]*)$/.test(value)&&!/^0x(0|[1-9a-f][0-9a-f]{0,63})$/.test(value))) {
     throw new Error(`${label} is not a canonical quantity`);
   }
-  return BigInt(value);
+  const parsed=BigInt(value);
+  if(parsed>=1n<<256n) throw new Error(`${label} exceeds uint256`);
+  return parsed;
 }
 export function validatePilotReceiptCost({gasUsed,effectiveGasPrice,maximumCost}) {
   const gas=quantity(gasUsed,'gasUsed'),price=quantity(effectiveGasPrice,'effectiveGasPrice');

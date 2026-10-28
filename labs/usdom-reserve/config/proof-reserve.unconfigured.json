@@ -63,12 +63,12 @@
   "guardianImplementation": null,
   "guardianImplementationCodeHash": null,
   "guardianOwnersCommitment": null,
-  "withdrawalDelaySeconds": null,
-  "governanceDelaySeconds": null,
-  "maxOutstandingBaseUnits": null,
-  "outflowCapacityBaseUnitsPerDay": null,
+  "withdrawalDelaySeconds": "86400",
+  "governanceDelaySeconds": "172800",
+  "maxOutstandingBaseUnits": "1000000",
+  "outflowCapacityBaseUnitsPerDay": "1000000",
   "realFundsAuthorized": false,
-  "nativeRelaySafetyMarginSeconds": null,
-  "nativeMaxEthereumAnchorAgeSeconds": null,
-  "nativeMaxDomClockLeadSeconds": null
+  "nativeRelaySafetyMarginSeconds": "3600",
+  "nativeMaxEthereumAnchorAgeSeconds": "1800",
+  "nativeMaxDomClockLeadSeconds": "7200"
 }

@@ -45,9 +45,10 @@ assert.match(burn,/checkpoint_statement\.total_burned != state\.total_burned/);
 
 // SDK offsets reproduce the append-only 550-byte frame and hash the totals in
 // DOMCheckpointV3 order rather than their serialization order.
-assert.match(submission,/statementBytes=550/);
+assert.match(submission,/statementBytes=551/);
 assert.match(submission,/totalIssued:readUnsigned\(bytes,518,16/);
 assert.match(submission,/totalBurned:readUnsigned\(bytes,534,16/);
+assert.match(submission,/issuanceClosed:bytes\[550\]===1/);
 assert.match(submission,/fixedUnsigned\(checkpoint\.totalIssued,128\)[\s\S]*fixedUnsigned\(checkpoint\.totalBurned,128\)/);
 assert.match(submission,/identity\.registry\.toLowerCase\(\)===zeroAddress/);
 assert.match(submission,/BigInt\(checkpoint\.height\)<=BigInt\(checkpoint\.previousHeight\)/);

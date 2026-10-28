@@ -1,0 +1,48 @@
+USDOM Solidity adversarial audit - stage 1280
+Date: 2026-10-26
+Scope: gas exhaustion at ERC-20 scalar read boundaries
+
+Conclusion
+==========
+
+No new material production defect was found. USDOMProofReserve performs token scalar
+reads through _staticcallWord with TOKEN_GAS_LIMIT = 500,000, copies at most one word,
+requires exactly 32 return bytes, and maps call failure to UnsupportedToken. A token
+that consumes all forwarded gas therefore cannot consume unbounded caller gas or
+partially mutate reserve accounting.
+
+Coverage added
+==============
+
+The hostile token scalar-return controller gained a selector-specific gas-exhaustion
+mode. It loops until its STATICCALL allocation is exhausted. The existing scalar
+boundary regression now exercises this fifth mode for:
+
+- decimals() while constructing a reserve;
+- balanceOf() before and after a deposit transfer; and
+- balanceOf() before and after a withdrawal transfer.
+
+The test proves each call fails closed, a failed deposit does not consume its ID or
+create credit, and a failed payout does not mark the burn paid or release pending
+debt. Restoring exact token behavior allows the intended operation to complete.
+Production contracts and ABI were unchanged.
+
+Validation
+==========
+
+- Focused Forge regression: 1 passed, 0 failed.
+- Full Forge run: 209 passed, 0 failed, 0 skipped across 14 suites.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 handler reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 handler reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 handler reverts.
+- Runtime sizes remained unchanged:
+  - USDOMProofReserve: 20,003 bytes; EIP-170 margin 4,573 bytes.
+  - DOMCheckpointRegistry: 10,605 bytes; margin 13,971 bytes.
+  - USDOMReserve: 14,609 bytes; margin 9,967 bytes.
+- Repository git diff --check passed.
+
+Operational constraints
+=======================
+
+No Rust, production script, network, signing, deployment, funds, commit, or push was
+performed.

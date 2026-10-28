@@ -661,6 +661,7 @@ mod tests {
             .is_none());
     }
 
+    #[cfg(feature = "host-reference")]
     #[test]
     fn untrusted_eclipse_identities_never_advance_quorum_or_persist() {
         let directory = tempfile::tempdir().unwrap();

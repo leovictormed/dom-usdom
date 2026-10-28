@@ -1,0 +1,28 @@
+ETAPA 1302 — LIMITES PARA CONSULTAS DE ALTURA FINALIZADA
+Data: 2026-10-26
+
+Problema
+
+Os snapshots canônicos e a reconciliação de recibos consultam a altura
+`finalized` de cada RPC. As seis chamadas `cast block finalized`, quatro no
+depósito e duas no resgate, não tinham prazo externo.
+
+Correção
+
+Todas agora executam sob
+`timeout --foreground --signal=TERM --kill-after=5s 120s`. Timeout ou falha
+interrompe o executor antes de selecionar o snapshot ou aceitar finalidade. As
+comparações dual-RPC e os vínculos entre número, hash e recibo permanecem.
+
+A regressão exige igualdade entre inventário total e wrappers: quatro consultas
+limitadas no depósito e duas no resgate, sem consulta direta.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 12/12 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 70/70 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

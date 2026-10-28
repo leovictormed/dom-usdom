@@ -1,0 +1,35 @@
+ETAPA 1374 — INVENTÁRIO COMPLETO DE SUBPROCESSOS CAST
+Data: 2026-10-26
+
+Problema
+
+Após tipar todos os retornos `cast call`, o inventário dos demais subprocessos
+RPC encontrou as leituras `cast codehash` ainda acumulando stdout sem teto. Um
+retorno excedente ou malformado só seria rejeitado pela comparação posterior.
+
+Correção
+
+As leituras de codehash da reserva e do token passam por `rpc_codehash`, com
+deadline foreground TERM/KILL de 120 segundos, teto sentinela de 68 bytes,
+schema hexadecimal exato de 32 bytes e normalização minúscula antes de comparar
+com os hashes fixados na configuração.
+
+O inventário completo também confirmou que não existe `cast gas-price`: o
+piloto deriva o limite de taxa do `baseFeePerGas` do mesmo bloco finalizado, que
+já possui teto e parser numérico canônico. Uma regressão percorre cada comando
+`cast` dos dois executores e exige um `head -c` na própria janela do comando.
+Assim, call, block, chain-id, nonce, estimate, balance, codehash, rpc, wallet,
+mktx e receipt permanecem cobertos por limites de saída e suas validações
+específicas.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores e conservação: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário: zero `cast gas-price`, zero codehash direto e zero subprocesso
+  `cast` sem teto local nos dois executores.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

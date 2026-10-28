@@ -1,0 +1,31 @@
+NETWORK EXECUTOR SNAPSHOT NODE REATTESTATION — STAGE 1170
+Date: 2026-10-26
+
+Finding
+=======
+
+The contract-deployment and Safe-recovery executors pinned Node at startup, but
+their reusable private snapshot functions invoked that saved pathname without
+immediately reattesting its inode, parent directory and SHA-256. This weakened
+the final artifact barriers added in stages 1160 and 1161: the private reader
+could be entered through a runtime that was no longer the authenticated one.
+
+Correction
+==========
+
+Both snapshot functions now call their complete `assert_node_unchanged`
+predicate immediately before every private-reader invocation. Because the
+check lives in the shared function, it covers startup snapshots, resume state,
+installed artifact rereads and the final success barriers, including future
+call sites.
+
+Verification
+============
+
+- Bash syntax: pass for both executors.
+- Focused snapshot/environment/process-group selection: 12/12 pass.
+- Complete operator-runbook suite: 84/84 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

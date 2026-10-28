@@ -1,0 +1,32 @@
+ETAPA 1362 — BOUNDARY TIPADO PARA CAST CALL UINT256
+Data: 2026-10-26
+
+Problema
+
+Quarenta e duas chamadas RPC com retorno `uint256` tinham deadline, mas
+capturavam stdout sem teto e dependiam apenas das comparações financeiras
+posteriores. Elas fornecem saldos USDT, allowance e contadores da reserva.
+
+Correção
+
+Todas as chamadas passam agora por `rpc_uint_call`, que aplica deadline
+foreground TERM/KILL de 120 segundos, teto de 80 bytes e o parser comum de
+inteiro RPC canônico antes de devolver o valor. São 22 pontos no executor de
+depósito e 20 no executor de resgate.
+
+As igualdades dual-RPC, deltas exatos de um USDT, conservação, allowance por
+fase, dívida provada e contadores terminalmente esperados permanecem aplicados
+depois. Falha, timeout, excesso ou retorno de tipo/formato inválido abortam antes
+de assinatura, publicação ou evidência terminal.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores e conservação: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 22/22 calls uint no depósito e 20/20 no resgate usam o
+  boundary tipado.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

@@ -1,0 +1,2 @@
+#!/usr/bin/env node
+import {installWorkflowTransition} from '../sdk/onekey-ios-safe-deposit-rpc-orchestrator.mjs';if(process.argv.length!==6)throw new Error('usage: advance-onekey-ios-safe-deposit-workflow STATE EVENT CONTEXT OUTPUT');try{await installWorkflowTransition({statePath:process.argv[2],eventPath:process.argv[3],contextPath:process.argv[4],outputPath:process.argv[5]});}catch(e){process.stderr.write(`SAFE_DEPOSIT_SIGNED_UNRESOLVED: ${e.message}\n`);process.exitCode=80;}

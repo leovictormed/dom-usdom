@@ -1,4 +1,4 @@
-import {getAddress, TypedDataEncoder, verifyTypedData} from 'ethers';
+import {getAddress, Signature, TypedDataEncoder, verifyTypedData} from 'ethers';
 
 export const burnTypes = Object.freeze({Burn: Object.freeze([
   ['burnId','bytes32'], ['requestId','bytes32'], ['recipient','address'], ['amount','uint64'],
@@ -6,11 +6,15 @@ export const burnTypes = Object.freeze({Burn: Object.freeze([
 ].map(([name,type]) => Object.freeze({name,type})))});
 const zero = '0x' + '00'.repeat(32);
 export function uint(value, bits = 64) {
-  if (typeof value !== 'bigint' && !(typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value))) {
+  if(!Number.isInteger(bits)||bits<1||bits>256) throw new Error('integer width out of range');
+  const maximum=1n<<BigInt(bits);
+  const maximumDigits=(maximum-1n).toString().length;
+  if (typeof value !== 'bigint' && !(typeof value === 'string'&&value.length<=maximumDigits
+      && /^(0|[1-9][0-9]*)$/.test(value))) {
     throw new Error('integers must be bigint or canonical decimal strings');
   }
   const n = BigInt(value);
-  if (n < 0n || n >= 2n ** BigInt(bits)) throw new Error('integer out of range');
+  if (n < 0n || n >= maximum) throw new Error('integer out of range');
   return n;
 }
 function hash(value) {
@@ -51,7 +55,8 @@ export function quorumSignatures({chainId, reserve, burn, signatures, notaries, 
   if (allowed.size !== notaries.length || [...allowed].some(a => BigInt(a) === 0n)) throw new Error('invalid notary set');
   const d = domain(chainId, reserve), b = normalizeBurn(burn);
   const recovered = signatures.map(signature => {
-    if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]{130}$/.test(signature)) throw new Error('65-byte signature required');
+    if (typeof signature !== 'string' || !/^0x[0-9a-f]{130}$/.test(signature)
+        || Signature.from(signature).serialized !== signature) throw new Error('canonical 65-byte signature required');
     const signer = verifyTypedData(d, burnTypes, b, signature).toLowerCase();
     if (!allowed.has(signer)) throw new Error('unknown signer');
     return {signer, signature};

@@ -46,6 +46,7 @@ try {
     throw new Error('release-authorization request schema is invalid');
   }
   validateReleaseAuthorizationSigningRequest({request,bundle:safeBundle,
+    bundleBytes:fixedBytes[5],
     bundleSha256:createHash('sha256').update(fixedBytes[5]).digest('hex'),
     releaseConfig,releaseEvidence});
   const signature=signatureBytes.toString('ascii').trim();

@@ -1,0 +1,40 @@
+USDOM mainnet readiness — Stage 1364
+Date: 2026-10-26
+
+Finding
+=======
+
+The mainnet gas/code-size gate consumed its execution policies, contract source,
+compiled artifacts and production requirements through ordinary pathname reads.
+Artifact and requirements JSON used native parsing, so duplicate keys and
+unbounded documents could influence code-size diagnostics or the evidence-
+complete decision. Files could also be replaced between path inspection and
+content use.
+
+Correction
+==========
+
+Every input now crosses a canonical relative-path descriptor boundary beneath
+the selected root. Each component is opened with dir_fd and O_NOFOLLOW; the file
+must be regular, single-link, owner-controlled and bounded, remain unchanged
+during its read, and still be named by the captured inode afterwards.
+
+Policy sources have a 4 MiB ceiling and compiled artifacts an 8 MiB ceiling.
+JSON is strict UTF-8 with duplicate-key rejection. Production requirements must
+be an object before its exact boolean measurement facts are evaluated.
+
+Validation
+==========
+
+- Self-test rejects duplicate JSON authority and hardlinked input.
+- Self-test and live mainnet gas-budget checker passed.
+- Live output retains freshMeasurementsRequired:true and gasEvidenceComplete:false.
+- Critical inventory passed for 256 sources.
+- Deployment and publication Node regressions passed 14/14.
+- Python compilation and git diff --check passed.
+
+Scope
+=====
+
+No measurement or production fact changed. No manifest/hash freeze, network,
+deployment, signing, funds, commit or push occurred.

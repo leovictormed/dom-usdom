@@ -12,7 +12,7 @@ needles={
 'crates/dom-usdom-checkpoint-program/src/lib.rs':['CHECKPOINT_SEGMENT_STATE_DOMAIN','CHECKPOINT_SEGMENT_TRANSITION_DOMAIN','CHECKPOINT_SEGMENT_PRIVATE_INPUT_DOMAIN','CHECKPOINT_SEGMENT_POLICY_INPUT_DOMAIN','CHECKPOINT_SEGMENT_NATIVE_OPENING_DOMAIN'],
 'crates/dom-usdom-finalized-burn-program/src/lib.rs':['FINALIZED_BURN_STATEMENT_TYPE','self.amount.to_be_bytes()','self.height.to_be_bytes()','self.finality_beacon_slot.to_be_bytes()'],
 'crates/dom-chain/src/native_usdom_v4.rs':['USDOM_V4_BLOCK_MAGIC','USDOM_V4_SNAPSHOT_MAGIC'],
-'labs/usdom-reserve/contracts/USDOMProofReserve.sol':['BURN_STATEMENT_TYPEHASH','BURN_INTENT_TYPEHASH','BURN_DEBT_TYPEHASH','abi.encode('],
+'labs/usdom-reserve/contracts/USDOMProofReserve.sol':['BURN_STATEMENT_TYPEHASH','BURN_DEBT_TYPEHASH','abi.encode('],
 'labs/usdom-reserve/contracts/DOMCheckpointRegistry.sol':['CHECKPOINT_STATEMENT_TYPEHASH','CHECKPOINT_IDENTITY_TYPEHASH','CHECKPOINT_BOOTSTRAP_TYPEHASH'],
 'labs/usdom-reserve/sdk/checkpoint-context.mjs':['CHECKPOINT_CONTEXT_MAGIC','CHECKPOINT_CONTEXT_VERSION','writeUint(encoded,8,BigInt(CHECKPOINT_CONTEXT_VERSION),2)','contextHash:keccak256(encoded)'],
 }

@@ -1,0 +1,31 @@
+ETAPA 1359 — BOUNDARY ÚNICO PARA NONCES RPC
+Data: 2026-10-26
+
+Problema
+
+Vinte e quatro leituras estáticas de nonce tinham deadline, mas cada chamada
+capturava stdout diretamente. Os valores governam sequência, recuperação após
+queda e prevenção de segunda publicação.
+
+Correção
+
+Todas as leituras passam agora por `read_nonce`, que aplica deadline TERM/KILL
+de 120 segundos, teto de 80 bytes e o parser comum de inteiro RPC canônico antes
+de imprimir um valor limitado ao chamador. Isso cobre nonce inicial, pending,
+finalized, recuperação e releituras imediatamente anteriores à publicação.
+
+Comparações dual-RPC, nonce esperado, sucessor exato e classificação
+`publish`/`recover-receipt` permanecem aplicadas depois. Falha, timeout, excesso,
+forma inválida ou divergência abortam antes de assinar ou publicar novamente.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores, release e recuperação: 19/19 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 13/13 pontos de depósito e 11/11 de resgate usam o
+  boundary único limitado e canônico.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

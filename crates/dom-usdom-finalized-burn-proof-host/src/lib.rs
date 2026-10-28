@@ -44,10 +44,10 @@ const GROTH16_RECEIPT_NAME: &str = "finalized-burn-groth16-receipt.bin";
 const EVM_SEAL_NAME: &str = "finalized-burn-evm-seal.bin";
 #[cfg(feature = "prove")]
 const EVM_PACKAGE_INDEX_NAME: &str = "finalized-burn-evm-proof-index.json";
-const PROGRAM_SHA256: &str = "883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21";
+const PROGRAM_SHA256: &str = "bf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511";
 const IMAGE_ID_FILE_SHA256: &str =
     "5c07a37b10235eb0b42c667408ff4f890cb9273d8e68d0f70a04e8e697677103";
-const IMAGE_ID: &str = "2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea";
+const IMAGE_ID: &str = "f0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae";
 const MAX_PROGRAM_BYTES: usize = 4 * 1024 * 1024;
 #[cfg(feature = "prove")]
 const MAX_JOB_INDEX_BYTES: usize = 16 * 1024;

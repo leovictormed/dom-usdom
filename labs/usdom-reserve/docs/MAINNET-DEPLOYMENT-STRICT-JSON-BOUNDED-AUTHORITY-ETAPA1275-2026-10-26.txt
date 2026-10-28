@@ -1,0 +1,34 @@
+ETAPA 1275 — AUTORIDADE LIMITADA PARA JSON ESTRITO DO DEPLOY
+Data: 2026-10-26
+
+Problema
+
+Depois que a derivação Node limitada produzia uma transação JSON, o executor ainda
+chamava diretamente o validador de JSON estrito. Esse subprocesso não tinha prazo,
+término forçado nem limites de stdout e stderr. Assim, a fronteira final entre a
+derivação e o consumo do documento ainda podia bloquear a cerimônia.
+
+Correção
+
+Foi criada `run_node_empty_authority`, uma autoridade para validadores que devem
+terminar sem saída. Ela reatesta Node e timeout, executa em foreground por no máximo
+120 segundos com TERM e KILL, reatesta Node antes de examinar os canais, limita
+stdout e stderr a 64 KiB com UTF-8 estrito e exige status zero e ambos vazios.
+
+`run_node_json_authority` agora encaminha a validação estrita do documento gerado a
+essa autoridade. A regressão de inventário reconhece explicitamente tanto chamadas
+Node diretas existentes quanto essa chamada limitada, impedindo que validações
+desapareçam silenciosamente.
+
+Validação local
+
+- `bash -n scripts/execute-mainnet-deployment.sh`: aprovado;
+- testes focais de autoridade, framing e implantação: 26/26 aprovados;
+- regressão focal do inventário JSON: 1/1 aprovada;
+- suíte operacional e de implantação ampliada: 114/114 aprovada;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

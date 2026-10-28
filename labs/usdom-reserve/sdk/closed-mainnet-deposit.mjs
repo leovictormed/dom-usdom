@@ -1,5 +1,7 @@
-import {AbiCoder,Interface,getAddress,keccak256} from 'ethers';
+import {Interface,getAddress,keccak256} from 'ethers';
 import {proofReserveConfigurationFromRelease} from './finalized-burn-submission.mjs';
+import {validatePilotFundsAuthorizationState} from './pilot-funds-authorization.mjs';
+import {reserveDepositId} from './proof-reserve.mjs';
 
 export const CLOSED_MAINNET_DEPOSIT_SCHEMA='usdom-closed-mainnet-deposit-v1';
 export const CLOSED_MAINNET_DEPOSIT_AMOUNT=1_000_000n;
@@ -7,11 +9,11 @@ const usdt=getAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7');
 const scalarField=BigInt('0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001');
 const walletFields=[
   'schema','domDomain','privacyPolicyHash','chainScalar','receivingCommitment',
-  'recipientAddress','backupPath',
+  'recipientAddress',
 ];
 const transactionFields=['name','to','value','method','data','dataKeccak256'];
 const packageFields=[
-  'schema','releaseConfigSha256','reserveConfigHash','walletIdentitySha256',
+  'schema','releaseConfigSha256','reserveConfigHash','walletIdentitySha256','pilotFundsAuthorizationDigest',
   'ethereumChainId','funder','token','reserve','amountBaseUnits','salt',
   'depositId','receivingCommitment','recipientAddress','transactions','broadcastAuthorized',
 ];
@@ -59,37 +61,51 @@ function validateRecipientAddress(recipientAddress,expectedOwner) {
 
 export function validateNativeReceivingWalletPublic(wallet) {
   exact(wallet,walletFields,'native receiving-wallet identity');
-  if(wallet.schema!=='usdom-native-receiving-wallet-public-v1'
-      || typeof wallet.backupPath!=='string' || !wallet.backupPath.startsWith('/')) {
+  if(wallet.schema!=='usdom-native-receiving-wallet-public-v1') {
     throw new Error('native receiving-wallet identity metadata is invalid');
   }
   const domain=bytes32(wallet.domDomain,'wallet domDomain');
-  bytes32(wallet.privacyPolicyHash,'wallet privacyPolicyHash');
+  const privacyPolicyHash=bytes32(wallet.privacyPolicyHash,'wallet privacyPolicyHash');
   const chain=bytes32(wallet.chainScalar,'wallet chainScalar');
   const owner=bytes32(wallet.receivingCommitment,'wallet receivingCommitment');
   const address=validateRecipientAddress(wallet.recipientAddress,owner);
   if('0x'+address.subarray(8,40).toString('hex')!==chain) {
     throw new Error('recipientAddress does not reproduce its public deposit commitment');
   }
-  return {domain,owner,address:wallet.recipientAddress};
+  return {domain,privacyPolicyHash,owner,address:wallet.recipientAddress};
 }
 
 export function buildClosedMainnetDepositPackage({
-  release,wallet,funder,salt,releaseConfigSha256,walletIdentitySha256,
+  release,wallet,funder,salt,releaseConfigSha256,walletIdentitySha256,expectedPrivacyPolicyHash,
+  pilotFundsSnapshot,pilotFundsAuthorizationState,
 }) {
   const configuration=proofReserveConfigurationFromRelease(release);
   const publicWallet=validateNativeReceivingWalletPublic(wallet);
   const normalizedFunder=getAddress(funder);
   const normalizedSalt=bytes32(salt,'deposit salt');
+  if(normalizedFunder!==pilotFundsSnapshot?.funder||normalizedSalt!==pilotFundsSnapshot?.salt) {
+    throw new Error('deposit identity differs from pilot authorization');
+  }
+  if(publicWallet.owner!==pilotFundsSnapshot.receivingCommitment) {
+    throw new Error('deposit receiving commitment differs from pilot authorization');
+  }
   rawHash(releaseConfigSha256,'releaseConfigSha256');
+  if(releaseConfigSha256!==pilotFundsSnapshot?.releaseConfigSha256) {
+    throw new Error('release bytes differ from the pilot authorization snapshot');
+  }
   rawHash(walletIdentitySha256,'walletIdentitySha256');
+  const expectedPolicy=bytes32(expectedPrivacyPolicyHash,'expectedPrivacyPolicyHash');
   if(BigInt(configuration.ethereumChainId)!==1n || getAddress(configuration.token)!==usdt
-      || release.productionReady!==true || release.realFundsAuthorized!==true
+      || release.productionReady!==true || release.realFundsAuthorized!==false
       || publicWallet.domain!==configuration.domDomain.toLowerCase()
-      || BigInt(configuration.maxOutstandingBaseUnits)!==CLOSED_MAINNET_DEPOSIT_AMOUNT
-      || BigInt(configuration.outflowCapacityBaseUnitsPerDay)!==CLOSED_MAINNET_DEPOSIT_AMOUNT) {
+      || publicWallet.privacyPolicyHash!==expectedPolicy
+      || BigInt(configuration.maxOutstandingBaseUnits)<CLOSED_MAINNET_DEPOSIT_AMOUNT
+      || BigInt(configuration.outflowCapacityBaseUnitsPerDay)<CLOSED_MAINNET_DEPOSIT_AMOUNT) {
     throw new Error('closed deposit differs from the authorized exact mainnet release');
   }
+  const pilotAuthorization=validatePilotFundsAuthorizationState({state:pilotFundsAuthorizationState,
+    snapshot:pilotFundsSnapshot,releaseConfig:release,
+    depositAmountBaseUnits:CLOSED_MAINNET_DEPOSIT_AMOUNT.toString()});
   const resetData=tokenInterface.encodeFunctionData('approve',[configuration.reserve,0n]);
   const approveData=tokenInterface.encodeFunctionData(
     'approve',[configuration.reserve,CLOSED_MAINNET_DEPOSIT_AMOUNT],
@@ -97,12 +113,12 @@ export function buildClosedMainnetDepositPackage({
   const depositData=reserveInterface.encodeFunctionData('deposit',[
     CLOSED_MAINNET_DEPOSIT_AMOUNT,normalizedSalt,publicWallet.owner,
   ]);
-  const depositId=keccak256(AbiCoder.defaultAbiCoder().encode(
-    ['uint256','address','address','bytes32'],
-    [1n,configuration.reserve,normalizedFunder,normalizedSalt],
-  ));
+  const depositId=reserveDepositId({chainId:1n,reserve:configuration.reserve,
+    funder:normalizedFunder,salt:normalizedSalt});
+  if(depositId!==pilotFundsSnapshot.depositId) throw new Error('deposit ID differs from pilot authorization');
   return {
     schema:CLOSED_MAINNET_DEPOSIT_SCHEMA,releaseConfigSha256,
+    pilotFundsAuthorizationDigest:pilotAuthorization.digest.toLowerCase(),
     reserveConfigHash:release.reserveConfigHash.toLowerCase(),walletIdentitySha256,
     ethereumChainId:'1',funder:normalizedFunder,
     token:usdt,reserve:getAddress(configuration.reserve),
@@ -127,6 +143,7 @@ export function validateClosedMainnetDepositPackage(value) {
   }
   rawHash(value.releaseConfigSha256,'releaseConfigSha256');
   rawHash(value.walletIdentitySha256,'walletIdentitySha256');
+  bytes32(value.pilotFundsAuthorizationDigest,'pilotFundsAuthorizationDigest');
   bytes32(value.reserveConfigHash,'reserveConfigHash');
   const funder=getAddress(value.funder),reserve=getAddress(value.reserve);
   if(value.funder!==funder || value.reserve!==reserve || value.token!==usdt) {
@@ -135,9 +152,7 @@ export function validateClosedMainnetDepositPackage(value) {
   const salt=bytes32(value.salt,'deposit salt');
   const owner=bytes32(value.receivingCommitment,'receivingCommitment');
   validateRecipientAddress(value.recipientAddress,owner);
-  const expectedId=keccak256(AbiCoder.defaultAbiCoder().encode(
-    ['uint256','address','address','bytes32'],[1n,reserve,funder,salt],
-  ));
+  const expectedId=reserveDepositId({chainId:1n,reserve,funder,salt});
   if(value.depositId!==expectedId) throw new Error('closed deposit ID is not canonical');
   value.transactions.forEach(item=>exact(item,transactionFields,'closed deposit transaction'));
   const [resetSpender,resetAmount]=tokenInterface.decodeFunctionData(

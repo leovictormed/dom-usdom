@@ -1,0 +1,16 @@
+Stage 1176 — case-stable release-evidence paths
+Date: 2026-10-26
+
+Evidence paths allowed both uppercase and lowercase ASCII components while
+uniqueness was checked byte-for-byte. Two distinct manifest paths could alias
+on a case-insensitive checkout or evidence volume, producing filesystem-
+dependent document selection.
+
+All paths below evidence/ now use lowercase ASCII components. The four exact
+Foundry artifact exceptions retain their source-defined mixed-case names and
+remain closed-set matches. Regressions reject uppercase evidence directories
+and filenames while all four artifacts remain accepted. Focused path suites
+pass 7/7 with pinned Node 24.19.0; targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

@@ -1,0 +1,34 @@
+ETAPA 1423 — HASHES LIMITADOS DO CATÁLOGO DE QUEIMA
+Data: 2026-10-26
+
+Problema
+
+Os quatro hashes que vinculam job index, input, receipt e ELF ao catálogo da
+queima usavam `sha256sum | cut` direto pelo PATH e eram calculados antes de uma
+admissão de tamanho segura. Não havia deadline, snapshot pré/pós ou parser exato
+do digest; um arquivo grande ou mutável podia consumir memória/tempo ou gerar
+uma autoridade incoerente.
+
+Correção
+
+O novo `snapshot_sha256` aceita apenas arquivos sob a raiz privada e limites
+decimais fechados. Antes de carregar bytes, chama `snapshot_file_size` e rejeita
+qualquer tamanho acima do máximo específico. Exige metadados privados e
+reatesta Node e timeout.
+
+O hash roda por Node autenticado com deadline foreground TERM/KILL de 120
+segundos e reafirma o limite dentro do processo. A identidade completa do
+arquivo precisa permanecer igual antes/depois, e o output deve ser exatamente
+64 hexadecimais minúsculos. As quatro autoridades usam o helper; os pipelines
+`sha256sum | cut` correspondentes foram eliminados.
+
+Validação offline
+
+- Sintaxe Bash dos dois packagers: aprovada.
+- Regressões focais e integração leve, sem geração de prova: 9/9 aprovadas.
+- Inventário exige limite pré-leitura, Node/timeout reatestados, deadline,
+  identidade estável, digest canônico e quatro usos.
+- `git diff --check`: aprovado.
+
+Nenhuma prova pesada, rede externa, Ledger, assinatura, deploy, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

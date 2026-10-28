@@ -1,0 +1,19 @@
+Stage 1209 — exact bounded prover-resource parsing
+Date: 2026-10-26
+
+Change
+- GNU time elapsed values are now parsed with exact bounded integer arithmetic instead of Number and floating-point rounding.
+- Accepted forms require canonical m:ss[.fraction] or h:mm:ss[.fraction], minute/second components below 60, at most millisecond precision, and bounded hour/minute widths.
+- Resident-memory values are rejected above the eight-digit policy domain before BigInt conversion.
+
+Security result
+- Resource evidence cannot contain ambiguous fractional components, invalid clock components or precision-dependent floating-point conversions.
+- Large elapsed/resident fields are rejected lexically before numeric conversion.
+- Existing 30-day wall-time and 64-GiB resident-memory limits remain unchanged.
+
+Validation
+- /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/prover-resource-metrics.test.mjs
+- Result: 2/2 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

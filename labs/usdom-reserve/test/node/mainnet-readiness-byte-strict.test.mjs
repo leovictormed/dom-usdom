@@ -16,8 +16,23 @@ test('mainnet readiness JSON boundary rejects ambiguous bytes',()=>{
 
 test('mainnet readiness byte-parses every JSON authority and cross-binds four build reports',async()=>{
   const source=await readFile(checker,'utf8');
-  assert.equal((source.match(/parseStrictJsonBytes\(/g)??[]).length,8);
   assert.doesNotMatch(source,/parseStrictJson\(/);
+  for(const binding of [
+    'sourceRequirements','trustedSetupAuthority','plan','phaseGenerationIdentity','ledger','toolchainLock',
+    'verifierConfig','checkpointVerifierConfig','runStatus','checkpointRegistryArtifactPinsReport',
+    'checkpointRandomxImageRatificationReport','receiptIndex','checkpointRestartWitnessReport','manifest',
+    'finalizedBurnRecursiveCompletionReport','pilotFundsSnapshot','pilotFundsAuthorizationState',
+  ]) {
+    assert.match(source,new RegExp(`${binding}[\\s\\S]{0,160}parseStrictJsonBytes\\(`),
+      `${binding} must be parsed from strict JSON bytes`);
+  }
+  for(const label of [
+    'terminal phase artifact audit','checkpoint outer receipt index','finalized-burn receipt index',
+    'finalized-burn EVM proof index',
+  ]) {
+    assert.match(source,new RegExp(`parseStrictJsonBytes\\([^)]*\\{label:'${label}'`,'s'),
+      `${label} must be parsed from strict JSON bytes`);
+  }
   for(const name of ['reproducibleBuildReport','verifierReproducibleBuildReport',
     'checkpointRegistryReproducibleBuildReport','checkpointVerifierReproducibleBuildReport']) {
     assert.match(source,new RegExp(`evidence\\.${name}`));
@@ -73,7 +88,7 @@ test('mainnet readiness rechecks every evidence byte snapshot before output',asy
   const source=await readFile(checker,'utf8');
   const recheck=source.indexOf(
     'await assertEvidenceByteSnapshotsUnchanged(authorityFileBytes,readRawDirectFile,');
-  const output=source.indexOf('console.log(JSON.stringify(report,null,2));');
+  const output=source.indexOf('console.log(JSON.stringify(output,null,2));');
   assert.ok(recheck>source.indexOf('const report = assessMainnetReadiness('));
   assert.ok(output>recheck);
   assert.match(source,/const readDirectFile=async\(relative,options\)=>/);

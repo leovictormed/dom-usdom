@@ -7,6 +7,7 @@ import re
 import sys
 import hashlib
 from pathlib import Path
+from specialized_manifest import manifest
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -15,6 +16,7 @@ MANIFEST = REPO / "labs/usdom-ethereum-finality/MANIFEST.sha256"
 EXPECTED_SOURCES = {
     "ancestry.rs",
     "checkpoints.rs",
+    "closures.rs",
     "deposits.rs",
     "lib.rs",
     "receipts.rs",
@@ -47,35 +49,17 @@ def check_text(source: str, label: str) -> None:
 
 
 def check_sources() -> None:
-    discovered = {path.name for path in SOURCE_ROOT.glob("*.rs")}
+    payloads=manifest(MANIFEST.parent,"MANIFEST.sha256")
+    discovered = {name[4:] for name in payloads if name.startswith("src/") and "/" not in name[4:]}
     if discovered != EXPECTED_SOURCES:
         fail(
             "Ethereum-finality source inventory changed without panic-boundary review: "
             f"missing={sorted(EXPECTED_SOURCES - discovered)}, "
             f"new={sorted(discovered - EXPECTED_SOURCES)}"
         )
-    for name in sorted(EXPECTED_SOURCES):
-        check_text((SOURCE_ROOT / name).read_text(encoding="utf-8"), name)
-
-    manifest_lines = MANIFEST.read_text(encoding="utf-8").splitlines()
-    manifest_pattern = re.compile(r"^([0-9a-f]{64})  (.+)$")
-    listed: dict[str, str] = {}
-    finality_root = MANIFEST.parent.resolve()
-    for number, line in enumerate(manifest_lines, 1):
-        match = manifest_pattern.fullmatch(line)
-        if match is None or match.group(2) in listed:
-            fail(f"malformed or duplicate Ethereum-finality manifest line {number}")
-        relative = match.group(2)
-        candidate = finality_root / relative
-        path = candidate.resolve()
-        if candidate.is_symlink() or not path.is_relative_to(finality_root) or not path.is_file():
-            fail(f"invalid Ethereum-finality manifest path: {relative}")
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if actual != match.group(1):
-            fail(f"Ethereum-finality manifest digest mismatch: {relative}")
-        listed[relative] = actual
+    for name in sorted(EXPECTED_SOURCES):check_text(payloads[f"src/{name}"].decode(),name)
     expected_production = {f"src/{name}" for name in EXPECTED_SOURCES}
-    if not expected_production.issubset(listed):
+    if not expected_production.issubset(payloads):
         fail("Ethereum-finality manifest omits a reviewed production source")
 
 
@@ -110,8 +94,8 @@ def main(arguments: list[str]) -> None:
     elif not arguments:
         check_sources()
         print(
-            "PASS: all 6 Ethereum-finality production sources are panic-primitive free; "
-            "409-file manifest verified"
+            f"PASS: all {len(EXPECTED_SOURCES)} Ethereum-finality production sources are panic-primitive free; "
+            "410-file manifest verified"
         )
     else:
         raise SystemExit("Usage: check-ethereum-finality-panic-boundary.py [--self-test]")

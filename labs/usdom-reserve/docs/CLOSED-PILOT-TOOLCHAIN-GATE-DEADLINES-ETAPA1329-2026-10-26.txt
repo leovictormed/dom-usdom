@@ -1,0 +1,27 @@
+ETAPA 1329 — LIMITES DOS GATES DE TOOLCHAIN DO PILOTO
+Data: 2026-10-26
+
+Problema
+
+Os dois executores autenticam a toolchain antes dos gates operacionais, mas os
+processos locais podiam permanecer bloqueados indefinidamente antes mesmo da
+criação do diretório temporário da cerimônia.
+
+Correção
+
+Cada invocação de `check-mainnet-toolchain.mjs` agora executa sob deadline
+foreground TERM/KILL de 120 segundos. O gate permanece antes da prontidão,
+Ledger, assinatura, publicação e demais operações.
+
+Timeout, falha ou divergência da toolchain encerram o executor antes de qualquer
+estado operacional dependente.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 74/74 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

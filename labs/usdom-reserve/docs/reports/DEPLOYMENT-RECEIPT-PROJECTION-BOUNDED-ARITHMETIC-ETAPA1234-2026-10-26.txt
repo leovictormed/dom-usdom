@@ -1,0 +1,35 @@
+Stage 1234 — bounded RPC receipt arithmetic before deployment projection
+Date: 2026-10-26
+
+Finding
+-------
+`projectDeploymentReceipt` multiplied raw RPC `gasUsed` and
+`effectiveGasPrice` values with `BigInt` before the projected receipt reached
+the strict evidence validator. A malicious or faulty RPC could therefore force
+conversion and multiplication of an arbitrarily large hexadecimal integer even
+though the resulting evidence would later be rejected.
+
+Correction
+----------
+The projector now canonicalizes and bounds both quantities before arithmetic.
+Gas used is capped by the deployment gas policy and effective gas price by the
+deployment fee policy. The canonical RPC strings remain in the evidence while
+the already bounded decimal values are used to calculate actual cost. The final
+closed-schema validator and cost relation remain unchanged.
+
+Adversarial regression
+----------------------
+Regressions prove fail-closed behavior for 100,000-hex-digit gas and fee values,
+and for each exact policy maximum plus one. All fail before cost multiplication.
+
+Validation
+----------
+- Node syntax check: pass.
+- Deployment evidence, replay/reorg boundary, execution and identity suites:
+  27/27 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

@@ -1,0 +1,9 @@
+Etapa 1448 — lifecycle Node da autorização de release
+
+Oito sites finitos de Node ainda estavam fora de deadline: snapshots privados e
+públicos, validações de request/rede e instalações finais. Todos agora usam um
+helper que reatesta Node e timeout, aplica TERM em 120 segundos e KILL após cinco,
+e reatesta Node ao retornar. As pós-condições de snapshot e instalação permanecem.
+
+Lifecycle, cleanup, pinning e escrita durável passam 12/12. Sintaxe e diff-check
+passam. Nenhuma rede, Ledger, assinatura, deploy, fundos, commit ou push ocorreu.

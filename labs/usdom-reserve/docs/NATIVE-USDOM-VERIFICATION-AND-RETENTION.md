@@ -76,3 +76,15 @@ rollback on conflicting changes, restart/reorg persistence, successful
 finalized-burn reconstruction after older replay data is deleted, retained burn
 archive membership, and fail-closed rejection of a checkpoint whose record was
 compacted.
+
+## Snapshot manifests
+
+The canonical `UDSNAP01` version-5 transport accepts only the three recognized
+DOM network magics and remains strictly bounded to the reorganization-policy
+inventory. Mainnet and Testnet export and verification use the schedule-bound
+APIs: the caller supplies the independently ratified activation schedule, and
+the implementation requires its network, activation record and schedule
+commitment to match the stable canonical-store snapshot. The compatibility API
+continues to derive a schedule only for Regtest and rejects non-Regtest
+manifests. Thus a transported manifest cannot select its own production chain,
+activation height or empty-state identity.

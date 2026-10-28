@@ -1,0 +1,30 @@
+Etapa 1483 — custódia do piloto por uma pessoa sem reduzir quóruns
+
+Escopo auditado
+- scripts/generate-closed-mainnet-phase-command.sh
+- docs/CLOSED-MAINNET-LINUX-RUNBOOK.md
+- test/node/closed-mainnet-command-generator.test.mjs
+
+Resultado
+- O gerador cria localmente nove keystores Ethereum distintos, cada um por um
+  prompt de senha oculto, e não recebe chave, seed ou senha por argumento ou
+  variável de ambiente.
+- Somente o bundle público com os nove endereços é emitido em stdout. Os
+  keystores criptografados permanecem nos diretórios privados fixos.
+- Uma única pessoa pode custodiar e operar as nove chaves no piloto isolado,
+  mas governança, guardião da reserva e guardião de checkpoints permanecem
+  Safes distintos, cada qual 2-de-3. Uma ação exige duas chaves diferentes.
+- Os nove owners devem ser globalmente distintos. A custódia comum não é
+  descrita como independência organizacional.
+- O quórum protótipo de atestadores 3-de-4 não é rebaixado para uma assinatura
+  e não integra a configuração deste piloto de provas/checkpoints.
+
+Lacunas e classificação
+- Não foi encontrado placeholder manual para essas identidades.
+- A posterior distribuição das chaves entre pessoas ou organizações é uma
+  melhoria operacional de custódia para ampliar exposição, não uma alteração
+  silenciosa do threshold técnico do piloto.
+
+Limites
+- Nenhuma chave foi criada, nenhum hardware foi acessado e nenhuma assinatura,
+  rede, implantação ou movimentação de fundos foi executada nesta auditoria.

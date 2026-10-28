@@ -1,0 +1,107 @@
+USDOM Solidity adversarial coverage closure - stage 1289
+Date: 2026-10-26
+
+Result
+======
+
+The consolidated review found no material external boundary or economic state
+transition without adversarial executable evidence. No production or test code was
+changed in this closure stage. This matrix closes the iterative Solidity boundary
+audit unless the contracts, compiler settings, dependencies, or trust model change.
+
+External-boundary matrix
+========================
+
+USDOMProofReserve / ERC-20 and USDT policy
+------------------------------------------
+
+- decimals and balanceOf: short, trailing, oversized, adversarial scalar and gas
+  exhaustion; constructor, deposit, and payout rollback and retry are covered.
+- paused, deprecated, upgradedAddress, basisPointsRate, maximumFee and blacklist:
+  unsafe values, dirty booleans, short/trailing/bomb returns, gas exhaustion, runtime
+  code drift and exact restoration are covered.
+- transfer/transferFrom: false, missing, malformed, short, trailing and bomb returns,
+  fees, lies, confiscation, gas grief and reentrancy callbacks are covered.
+
+USDOMProofReserve / proof, registry and control plane
+----------------------------------------------------
+
+- finalized-burn verifier: invalid/mutated proof, exact acceptance magic, short,
+  oversized and bomb returns, bounded gas, code/config/capability drift and retry.
+- checkpoint registry: config/domain/schedule/halt/shutdown/economic totals are tested
+  under short, trailing, bomb, dirty boolean, identity drift and terminal mismatch.
+- governance/guardian Safe: code/singleton/owners/threshold/guard/modules/fallback are
+  covered for role overlap, malformed dynamic ABI, short/trailing/bomb outputs,
+  arbitrary drift, chain drift, restoration, unauthorized calls and delayed resume.
+
+DOMCheckpointRegistry
+---------------------
+
+- checkpoint verifier has proof mutation, wrong magic, bounded gas/returndata,
+  code/config/capability drift and candidate-preserving retry coverage.
+- guardian Safe has singleton, owner, threshold, guard, module, fallback, malformed
+  ABI and combined-drift coverage on both submission and finalization.
+- candidate competition, tie-break, deadline, predecessor, chain/domain replay,
+  permanent halt, finalized issuance closure and graceful shutdown are covered.
+
+RISC Zero adapters
+------------------
+
+- Both adapters pin verifier code, selector, image, journal schema, deployment chain
+  and capability. Tests cover missing code, wrong selector/image, changed code/chain,
+  short/oversized seal, upstream rejection, nonempty/bomb returndata, gas exhaustion,
+  statement binding and end-to-end reserve/registry integration.
+
+Quorum prototype USDOMReserve
+-----------------------------
+
+- The prototype is forbidden on Ethereum mainnet. Its token boundary still uses
+  bounded gas/one-word decoding and bounded transfer returndata. Tests cover unsafe
+  policy, return bomb/dirty boolean, token runtime drift, transfer lies/fees/malformed
+  returns, freezing, confiscation and reentrancy.
+- EIP-712 binding, quorum ordering/uniqueness, high-s/invalid-v, chain/contract replay,
+  rotation, emergency recovery, delayed resume and stale cleanup are covered.
+
+Economic-transition matrix
+==========================
+
+- Deposits: uniqueness, exact balance deltas, exposure, solvency, policy and atomic
+  rollback are covered in directed tests and accounting invariants.
+- Proof/queue admission: every public field, deployment domain, finalized statement,
+  duplicate burn/request, finality windows, collateral reservation and proof size are
+  covered.
+- Debt lifecycle: expiry, prune, pause, epoch invalidation, renewal, blacklist,
+  verifier/registry drift and graceful shutdown preserve proved debt until payment.
+- Payout: exact recipient/amount, permissionless execution, rate bucket, atomic
+  rollback, replay prevention, external failures and retry are covered.
+- Linked queue: corrupt headers/links/counts, pagination, middle/tail removal, stale
+  generations, bounded batches and maximum-batch execution are covered.
+- Administrative lifecycle: pause, repeated pause, delayed resume, rotation/recovery,
+  unauthorized calls, terminal closure and immutable identities are covered.
+
+Residual model assumptions
+==========================
+
+The tests establish fail-closed Solidity behavior under the declared interfaces and
+trust model. They do not make an invalid consensus proof valid, make USDT censorship
+impossible, or remove key/operator risk. These are explicit system assumptions rather
+than uncovered Solidity branches. Any change to the production verifier hashes,
+Safe policy, USDT behavior, compiler, OpenZeppelin version, or contract bytecode must
+reopen this matrix and rerun the complete gate.
+
+Final validation
+================
+
+- Forge: 209 passed, 0 failed, 0 skipped across 14 suites.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 handler reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 handler reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 handler reverts.
+- Runtime/initcode bytes and EIP-170 runtime margin:
+  - USDOMProofReserve: 20,003 / 25,671; margin 4,573.
+  - DOMCheckpointRegistry: 10,605 / 15,149; margin 13,971.
+  - USDOMReserve: 14,609 / 18,536; margin 9,967.
+  - each RISC Zero adapter: 1,814 / 2,509; margin 22,762.
+- git diff --check passed.
+
+No Rust, production script, network, signing, deployment, funds, commit, or push was
+performed.

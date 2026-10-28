@@ -14,7 +14,9 @@ function hash(value,label) {
   return value.toLowerCase();
 }
 function decimal(value,bits,label,{nonzero=true}={}) {
-  if(typeof value!=='string'||!/^(0|[1-9][0-9]*)$/.test(value)) {
+  const maxDigits={8:3,32:10,64:20,128:39,256:78}[bits];
+  if(maxDigits===undefined||typeof value!=='string'||value.length>maxDigits
+      ||!/^(0|[1-9][0-9]*)$/.test(value)) {
     throw new Error(`${label} must be a canonical decimal string`);
   }
   const parsed=BigInt(value);

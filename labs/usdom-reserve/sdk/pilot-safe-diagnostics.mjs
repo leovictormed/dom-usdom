@@ -1,4 +1,7 @@
 const OPERATIONS=new Set([
+  'check-closed-mainnet-deposit-evidence','check-closed-mainnet-payout-evidence',
+  'check-closed-mainnet-redemption','check-closed-mainnet-redemption-release',
+  'closed-mainnet-burn-block',
   'closed-mainnet-deposit-prepare','closed-mainnet-deposit-check',
   'closed-mainnet-deposit-raw-check','closed-mainnet-phase-check',
   'closed-mainnet-genesis-initialize','closed-mainnet-issuance-submit',

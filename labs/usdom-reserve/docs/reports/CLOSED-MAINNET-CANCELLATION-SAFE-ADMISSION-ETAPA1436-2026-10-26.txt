@@ -1,0 +1,6 @@
+USDⓄM — ETAPA 1436
+Closed-mainnet post-body cancellation-safe admission
+
+Separated two bounded authenticated body-delivery slots from the single long-running mining worker. Admission occurs after JSON decode, fails fast with 503, and the owned permit remains in a spawned task after HTTP cancellation. Mock-only tests ran; no mining.
+
+Focused Rust tests: 3/3 passed, 0 failed, 0.02s. No network/mining/sign/deploy/funds/commit/push.

@@ -1,0 +1,44 @@
+ETAPA 1218 — AUTORIDADE LIMITADA PARA INSTALAÇÕES DURÁVEIS DO SAFE
+Data: 2026-10-26
+
+Problema
+
+O executor de implantação dos controles Safe usava o instalador privado de criação
+única diretamente em cinco caminhos duráveis: restauração do journal, publicação do
+journal, transação bruta, validação e recibo. Embora o instalador já protegesse o
+destino, o chamador não limitava seu tempo ou seus canais e não reabria o arquivo
+instalado para provar que os bytes persistidos eram exatamente os bytes candidatos.
+
+Correção
+
+`scripts/execute-safe-control-deployment.sh` centraliza essas instalações em
+`install_private_create_once`. A função:
+
+- reatesta os binários pinados `timeout` e `node` imediatamente antes do uso;
+- limita o instalador a 30 segundos, com TERM e KILL após cinco segundos;
+- separa stdout e stderr em arquivos privados e rejeita canais acima de 64 KiB ou
+  UTF-8 inválido;
+- exige sucesso e ambos os canais vazios;
+- preserva o modo canônico JSON quando aplicável;
+- relê o destino pela rotina privada limitada de snapshot e exige igualdade byte a
+  byte com o candidato antes de o executor prosseguir.
+
+Cobertura
+
+`test/node/safe-control-deployment-executor.test.mjs` agora exige a nova autoridade,
+a releitura/comparação imediata e proíbe chamadas duráveis diretas ao instalador.
+Também preserva a ordem journal antes dos arquivos derivados.
+
+Validação executada sem rede, assinatura, deploy ou fundos
+
+- `bash -n scripts/execute-safe-control-deployment.sh`
+- testes focais de inventário de processos, executor, finalidade, transação bruta e
+  recibo Safe: 8/8 aprovados
+- suíte ampla `operator-runbook` + executor Safe: 87/87 aprovada
+- `git diff --check`: aprovado
+
+Limites desta evidência
+
+Esta etapa valida código e invariantes locais. Não realizou comunicação de rede,
+assinatura em Ledger, transmissão, implantação, movimentação de fundos, Cargo,
+Forge, commit ou push.

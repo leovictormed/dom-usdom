@@ -13,10 +13,24 @@ const scripts=[
 ];
 
 test('operational private temporaries have status-preserving signal cleanup',async()=>{
+  const boundedCleanup=new Set([
+    'execute-mainnet-deployment.sh','execute-recoverable-safe-recovery.sh',
+    'sign-recoverable-safe-recovery.sh','sign-release-authorizations.sh',
+    'sign-checkpoint-bootstrap-ratification.sh',
+  ]);
   for(const name of scripts) {
     const source=await readFile(path.join(component,'scripts',name),'utf8');
     assert.match(source,/cleanup\(\) \{[\s\S]*local status=\$\{1:-\$\?\}[\s\S]*trap - EXIT HUP INT TERM/);
-    assert.match(source,/"\$node_bin" -e 'require\("fs"\)\.rmSync\(process\.argv\[1\],\{recursive:true,force:true\}\)' "\$(?:temporary|TEMPORARY)" \|\| status=1/);
+    if(boundedCleanup.has(name)) {
+      const cleanup=source.slice(source.indexOf('cleanup() {'),source.indexOf("trap 'cleanup $?' EXIT"));
+      assert.match(cleanup,/assert_node_unchanged && assert_timeout_unchanged/);
+      assert.match(cleanup,/"\$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s/);
+      assert.match(cleanup,/"\$node_bin" -e 'require\("fs"\)\.rmSync\(process\.argv\[1\],\{recursive:true,force:true\}\)'/);
+      assert.match(cleanup,/"\$(?:temporary|TEMPORARY)" > \/dev\/null 2> \/dev\/null &&\n\s+assert_node_unchanged && assert_timeout_unchanged && test ! -e "\$(?:temporary|TEMPORARY)"/);
+      assert.match(cleanup,/else\n(?:    #.*\n)*(?:    #.*\n)*    (?:status=1|\(\( status != 0 \)\) \|\| status=1)/);
+    } else {
+      assert.match(source,/"\$node_bin" -e 'require\("fs"\)\.rmSync\(process\.argv\[1\],\{recursive:true,force:true\}\)' "\$(?:temporary|TEMPORARY)" \|\| status=1/);
+    }
     for(const [signal,status] of [['HUP',129],['INT',130],['TERM',143]])
       assert.match(source,new RegExp(`trap 'cleanup ${status}' ${signal}`));
     assert.match(source,/trap 'cleanup \$\?' EXIT/);
@@ -30,6 +44,27 @@ test('executor cleanup terminates and waits for proxy before erasing secrets',as
     const cleanup=source.slice(source.indexOf('cleanup() {'),source.indexOf("trap 'cleanup $?' EXIT"));
     assert.ok(cleanup.indexOf('stop_rpc_proxy')<cleanup.indexOf('rmSync'));
   }
+});
+
+test('mainnet deployment cleanup authenticates the private directory identity',async()=>{
+  const source=await readFile(path.join(component,'scripts/execute-mainnet-deployment.sh'),'utf8');
+  assert.match(source,/temporary_identity=\$\(\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$temporary"\)/);
+  assert.match(source,/\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$temporary" 2>\/dev\/null\) == "\$temporary_identity"/);
+  assert.ok(source.indexOf('== "$temporary_identity"')<source.indexOf('rmSync(process.argv[1]'));
+});
+
+test('Safe recovery cleanup authenticates the private directory identity',async()=>{
+  const source=await readFile(path.join(component,'scripts/execute-recoverable-safe-recovery.sh'),'utf8');
+  assert.match(source,/temporary_identity=\$\(\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$temporary"\)/);
+  assert.match(source,/\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$temporary" 2>\/dev\/null\) == "\$temporary_identity"/);
+  assert.ok(source.indexOf('== "$temporary_identity"')<source.indexOf('rmSync(process.argv[1]'));
+});
+
+test('Safe deployment cleanup authenticates the private directory identity',async()=>{
+  const source=await readFile(path.join(component,'scripts/execute-safe-control-deployment.sh'),'utf8');
+  assert.match(source,/temporary_identity=\$\(\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$temporary"\)/);
+  assert.match(source,/\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$temporary" 2>\/dev\/null\) == "\$temporary_identity"/);
+  assert.ok(source.indexOf('== "$temporary_identity"')<source.indexOf('rmSync(process.argv[1]'));
 });
 
 test('TERM cleanup removes a private fixture and retains signal status',async t=>{

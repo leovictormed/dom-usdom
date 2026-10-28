@@ -1,0 +1,31 @@
+ETAPA 1417 — REMOÇÃO LIMITADA DOS OUTPUTS EVM
+Data: 2026-10-26
+
+Problema
+
+Antes de republicar index, receipt Groth16 e seal EVM, os dois packagers
+removiam outputs persistentes com `rm` direto pelo PATH. Embora os call sites
+checassem arquivo regular, não havia allowlist central de destinos, ferramenta
+reatestada, deadline ou pós-condição de ausência.
+
+Correção
+
+Cada packager possui agora `remove_output_file`, cuja allowlist contém somente
+seus três nomes publicados sob o `OUTPUT_DIR` exato. O helper rejeita qualquer
+outro pathname, exige arquivo regular e não symlink, e reatesta `rm` e `timeout`.
+
+A remoção usa os binários autenticados com deadline foreground TERM/KILL de
+120 segundos e comprova que nem arquivo nem symlink existem depois. Os dois
+call sites de cada script — index e loop de artefatos — usam exclusivamente o
+helper. As chamadas diretas anteriores foram eliminadas.
+
+Validação offline
+
+- Sintaxe Bash dos dois packagers: aprovada.
+- Regressões focais e integração leve, sem geração de prova: 9/9 aprovadas.
+- Inventário exige allowlist, tipo direto, ferramentas reatestadas, deadline,
+  pós-condição e exatamente dois call sites por packager.
+- `git diff --check`: aprovado.
+
+Nenhuma prova pesada, rede externa, Ledger, assinatura, deploy, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

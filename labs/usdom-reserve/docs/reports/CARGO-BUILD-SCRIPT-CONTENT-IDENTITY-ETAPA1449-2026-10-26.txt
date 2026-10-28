@@ -1,0 +1,21 @@
+Etapa 1449 — identidade de conteúdo dos build scripts Cargo
+Data: 2026-10-26
+
+Problema
+
+A política autorizava build.rs somente pelo caminho. Como build scripts executam durante compilação, substituir o conteúdo de um arquivo no mesmo caminho preservava a autorização e permitia nova execução sem alterar a allowlist.
+
+Correção
+
+- Os seis build scripts revisados agora são fixados por caminho e SHA-256 exato.
+- Cada arquivo é lido pelo boundary existente de descriptor direto, O_NOFOLLOW, owner/mode/nlink, limite de tamanho e snapshot único antes do hash.
+- O inventário completo deve coincidir: arquivo ausente, adicional, movido ou com um byte alterado falha fechado.
+- A checagem do manifest continua exigindo que somente caminhos presentes nessa política possam declarar build = "build.rs".
+
+Regressões
+
+O self-test rejeita mudança do digest, mudança do caminho e remoção da entrada autorizada.
+
+Validação: py_compile, self-test adversarial e política viva aprovados; 36 Cargo locks/15.017 entradas, 234 manifests e quatro npm locks/241 entradas; suíte Node focal 4/4.
+
+Nenhum inventário global foi rematerializado. Não houve rede, build pesado, assinatura, deploy, fundos, commit ou push.

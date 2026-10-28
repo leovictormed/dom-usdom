@@ -1,0 +1,26 @@
+Etapa 1441 — identidade de pacote Cargo e domínio de checksum
+Data: 2026-10-26
+
+Problema
+
+O parser de Cargo.lock exigia apenas strings não vazias para nome e versão. Também aceitava checksum em pacotes locais ou Git, embora checksum seja autoridade do arquivo publicado no registry. Assim, identidades não canônicas e hashes fora de seu domínio poderiam entrar na evidência sem rejeição.
+
+Correção
+
+- Nomes de pacote são limitados ao alfabeto canônico Cargo de letras, números, sublinhado e hífen.
+- Versões exigem SemVer completo major.minor.patch, sem zeros numéricos não canônicos, com prerelease/build metadata estruturados.
+- Pacotes crates.io continuam exigindo checksum SHA-256.
+- Pacotes locais, sem source, devem omitir checksum.
+- Pacotes Git devem omitir checksum e permanecem vinculados à URL HTTPS e revisão exata.
+
+Regressões
+
+O self-test rejeita traversal em nome, versão abreviada, zero inicial, versão não string, pacote local com checksum e pacote Git com checksum. Identidades canônicas continuam aceitas.
+
+Validação
+
+- py_compile e self-test adversarial: aprovados;
+- política viva: 36 Cargo locks/15.017 entradas, 234 manifests e quatro npm locks/241 entradas aprovados;
+- suíte Node focal: 4/4.
+
+Nenhum inventário global foi rematerializado. Não houve rede, build pesado, assinatura, deploy, fundos, commit ou push.

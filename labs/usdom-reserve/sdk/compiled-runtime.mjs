@@ -7,7 +7,8 @@ import {checkpointRegistryConfigHash} from './checkpoint-registry.mjs';
 import {proofReserveDeploymentConfigHash,safeOwnersCommitment} from './configuration.mjs';
 
 const immutableFields={
-  token:['token','address'],tokenCodeHash:['tokenCodeHash','bytes32'],verifier:['verifier','address'],
+  token:['token','address'],deploymentChainId:['ethereumChainId','uint256'],
+  tokenCodeHash:['tokenCodeHash','bytes32'],verifier:['verifier','address'],
   verifierCodeHash:['verifierCodeHash','bytes32'],verifierConfigHash:['verifierConfigHash','bytes32'],
   checkpointRegistry:['checkpointRegistry','address'],
   checkpointRegistryCodeHash:['checkpointRegistryRuntimeCodeHash','bytes32'],
@@ -23,9 +24,11 @@ const immutableFields={
   guardianOwnersCommitment:['guardianOwnersCommitment','bytes32'],
   withdrawalDelay:['withdrawalDelaySeconds','uint64'],governanceDelay:['governanceDelaySeconds','uint64'],
   maxOutstanding:['maxOutstandingBaseUnits','uint64'],outflowCapacity:['outflowCapacityBaseUnitsPerDay','uint64'],
+  pilotRestrictedDeployment:['pilotRestricted','bool'],
 };
 const checkpointRegistryImmutableFields={
-  bridgeDomain:['domDomain','bytes32'],domNetworkMagic:['checkpointDomNetworkMagic','uint32'],
+  bridgeDomain:['domDomain','bytes32'],deploymentChainId:['ethereumChainId','uint256'],
+  domNetworkMagic:['checkpointDomNetworkMagic','uint32'],
   domChainId:['checkpointDomChainId','bytes32'],firstV4Height:['checkpointFirstV4Height','uint64'],
   checkpointInterval:['checkpointIntervalBlocks','uint32'],
   confirmationDepth:['checkpointConfirmationDepthBlocks','uint32'],
@@ -59,11 +62,17 @@ export function verifyCompilerSettings(artifact,{target=expectedTarget,contract=
   const metadata=artifact?.metadata;
   const settings=metadata?.settings;
   if (metadata?.compiler?.version!==expectedCompiler) throw new Error('unexpected Solidity compiler version');
-  if (settings?.optimizer?.enabled!==true || settings.optimizer.runs!==1) {
+  if (!settings || Object.keys(settings).sort().join(',')
+      !=='compilationTarget,evmVersion,libraries,metadata,optimizer,remappings,viaIR') {
+    throw new Error('unexpected Solidity compiler settings schema');
+  }
+  if (Object.keys(settings.optimizer??{}).sort().join(',')!=='enabled,runs'
+      || settings.optimizer.enabled!==true || settings.optimizer.runs!==1) {
     throw new Error('unexpected optimizer configuration');
   }
   if (settings?.evmVersion!=='cancun') throw new Error('unexpected EVM version');
-  if (settings?.metadata?.bytecodeHash!=='none') throw new Error('unexpected bytecode metadata hash mode');
+  if (Object.keys(settings.metadata??{}).join(',')!=='bytecodeHash'
+      || settings.metadata.bytecodeHash!=='none') throw new Error('unexpected bytecode metadata configuration');
   if (settings?.viaIR!==true) throw new Error('unexpected non-via-IR compilation');
   const targets=settings?.compilationTarget;
   if (!targets || Object.keys(targets).length!==1 || targets[target]!==contract) {
@@ -71,9 +80,11 @@ export function verifyCompilerSettings(artifact,{target=expectedTarget,contract=
   }
   if (!settings.libraries || Object.keys(settings.libraries).length!==0) throw new Error('linked libraries are forbidden');
   const remappings=settings.remappings;
-  const expectedRemapping='@openzeppelin/contracts/=vendor/openzeppelin-contracts-5.6.1/';
-  if (!Array.isArray(remappings) || !remappings.includes(expectedRemapping)
-      || remappings.some(value=>value.startsWith('@openzeppelin/contracts/=') && value!==expectedRemapping)) {
+  const expectedRemappings=[
+    '@openzeppelin/contracts/=vendor/openzeppelin-contracts-5.6.1/',
+  ];
+  if (!Array.isArray(remappings) || remappings.length!==expectedRemappings.length
+      || remappings.some((value,index)=>value!==expectedRemappings[index])) {
     throw new Error('unexpected OpenZeppelin remapping');
   }
   return {compilerVersion:expectedCompiler,evmVersion:'cancun',optimizerRuns:1,viaIR:true,bytecodeHash:'none'};
@@ -94,13 +105,49 @@ function immutableDeclarations(ast) {
   return declarations;
 }
 
-function verifyConstructorTuple(artifact,components,label) {
+function verifyConstructorInputs(artifact,inputs,label) {
   const constructors=artifact?.abi?.filter(item=>item?.type==='constructor')??[];
-  if(constructors.length!==1 || constructors[0].inputs?.length!==1
-      ||constructors[0].inputs[0]?.type!=='tuple') {
-    throw new Error(`${label} constructor ABI is not the exact supported tuple`);
+  const actual=constructors[0]?.inputs??[];
+  if(constructors.length!==1 || actual.length!==inputs.length
+      ||actual.some((value,index)=>value.name!==inputs[index][0]||value.type!==inputs[index][1])) {
+    throw new Error(`${label} constructor ABI order or type drifted`);
   }
-  const actual=constructors[0].inputs[0].components??[];
+  return actual;
+}
+
+function verifyFunctionAbi(artifact,{name,inputs,outputs,stateMutability},label) {
+  const matches=artifact?.abi?.filter(item=>item?.type==='function'&&item.name===name)??[];
+  const item=matches[0];
+  if(matches.length!==1 || item.stateMutability!==stateMutability
+      || (item.inputs??[]).length!==inputs.length || (item.outputs??[]).length!==outputs.length
+      || item.inputs.some((value,index)=>value.type!==inputs[index])
+      || item.outputs.some((value,index)=>value.type!==outputs[index])) {
+    throw new Error(`${label} ABI drifted`);
+  }
+}
+
+/** The deployment binding consumes more than constructor encoding: operators,
+ * monitors and parent contracts rely on this exact external ABI. Reject an
+ * artifact whose ABI metadata describes another return convention or preimage
+ * entrypoint before deriving any release hash from it. */
+function verifyRiscZeroAdapterAbi(artifact,contract) {
+  const proofFunction=contract==='DOMFinalizedBurnRiscZeroVerifier'
+    ? 'verifyFinalizedBurn':'verifyDOMCheckpoint';
+  for(const requirement of [
+    {name:proofFunction,inputs:['bytes32','bytes'],outputs:['bytes32'],stateMutability:'view'},
+    {name:'journalDigest',inputs:['bytes32'],outputs:['bytes32'],stateMutability:'pure'},
+    {name:'verifierConfigHash',inputs:[],outputs:['bytes32'],stateMutability:'view'},
+    {name:'riscZeroVerifier',inputs:[],outputs:['address'],stateMutability:'view'},
+    {name:'riscZeroVerifierCodeHash',inputs:[],outputs:['bytes32'],stateMutability:'view'},
+    {name:'verifierSelector',inputs:[],outputs:['bytes4'],stateMutability:'view'},
+    {name:'imageId',inputs:[],outputs:['bytes32'],stateMutability:'view'},
+    {name:'deploymentChainId',inputs:[],outputs:['uint256'],stateMutability:'view'},
+  ]) verifyFunctionAbi(artifact,requirement,`${contract}.${requirement.name}`);
+}
+
+function verifyConstructorTuple(artifact,components,label) {
+  const input=verifyConstructorInputs(artifact,[['config','tuple']],label)[0];
+  const actual=input.components??[];
   if(actual.length!==components.length || actual.some((value,index)=>
     value.name!==components[index][0]||value.type!==components[index][1])) {
     throw new Error(`${label} constructor tuple order or type drifted`);
@@ -210,8 +257,72 @@ function deriveRuntimeCodeHash({artifact,releaseConfig,sourceContents,fields,tar
 }
 
 export function deriveReserveRuntimeCodeHash({artifact,releaseConfig,sourceContents}) {
-  return deriveRuntimeCodeHash({artifact,releaseConfig,sourceContents,fields:immutableFields,
+  return deriveRuntimeCodeHash({artifact,releaseConfig:{...releaseConfig,pilotRestricted:true},sourceContents,fields:immutableFields,
     target:expectedTarget,contract:'USDOMProofReserve'});
+}
+
+/** Revalidate a derived immutable manifest without relying on contract-version
+ * counts. Every compiler reference must be represented once, occupy one exact
+ * 32-byte word and contain the canonical ABI word installed in the runtime. */
+export function validateImmutablePatchManifest(binding) {
+  const manifest=binding?.immutablePatchManifest;
+  const runtime=getBytes(binding?.runtimeBytecode??'0x');
+  if(!Array.isArray(manifest)||manifest.length===0
+      ||!Number.isSafeInteger(binding?.immutableReferenceCount)
+      ||binding.immutableReferenceCount<=0
+      ||!bytes32Pattern.test(binding?.immutablePatchManifestHash??'')) {
+    throw new Error('immutable patch manifest is incomplete');
+  }
+  const canonical={
+    address:/^0x0{24}[0-9a-f]{40}$/,bytes32:/^0x[0-9a-f]{64}$/,
+    uint256:/^0x[0-9a-f]{64}$/,uint64:/^0x0{48}[0-9a-f]{16}$/,
+    uint32:/^0x0{56}[0-9a-f]{8}$/,bytes4:/^0x[0-9a-f]{8}0{56}$/,
+    bool:/^0x0{62}(?:00|01)$/,
+  };
+  const names=new Set(),fields=new Set(),locations=[];
+  let previousName='';
+  for(const entry of manifest) {
+    if(!entry||typeof entry!=='object'||Array.isArray(entry)
+        ||Object.keys(entry).sort().join(',')!=='configField,encoded,locations,name,type'
+        ||typeof entry.name!=='string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.name)
+        ||entry.name.localeCompare(previousName)<=0||names.has(entry.name)
+        ||typeof entry.configField!=='string'||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.configField)
+        ||fields.has(entry.configField)||!(entry.type in canonical)
+        ||!canonical[entry.type].test(entry.encoded??'')
+        ||!Array.isArray(entry.locations)||entry.locations.length===0) {
+      throw new Error('immutable patch manifest is noncanonical');
+    }
+    names.add(entry.name);fields.add(entry.configField);previousName=entry.name;
+    let previous=-1;
+    const encoded=getBytes(entry.encoded);
+    for(const start of entry.locations) {
+      if(!Number.isSafeInteger(start)||start<=previous||start<0||start+32>runtime.length) {
+        throw new Error('immutable patch manifest location is invalid');
+      }
+      previous=start;
+      locations.push({start,end:start+32,name:entry.name,encoded});
+    }
+  }
+  locations.sort((left,right)=>left.start-right.start);
+  if(locations.length!==binding.immutableReferenceCount) {
+    throw new Error('immutable patch manifest does not cover every reference');
+  }
+  for(let index=1;index<locations.length;index++) {
+    if(locations[index].start<locations[index-1].end) {
+      throw new Error('immutable patch manifest locations overlap');
+    }
+  }
+  for(const location of locations) {
+    if(!runtime.subarray(location.start,location.end)
+      .every((byte,index)=>byte===location.encoded[index])) {
+      throw new Error('immutable patch manifest differs from runtime');
+    }
+  }
+  const manifestHash=keccak256(toUtf8Bytes(JSON.stringify(manifest)));
+  if(manifestHash.toLowerCase()!==binding.immutablePatchManifestHash.toLowerCase()) {
+    throw new Error('immutable patch manifest hash mismatch');
+  }
+  return binding;
 }
 
 /** Derive both reserve bytecode identities only after proving that the release
@@ -258,6 +369,7 @@ export function deriveCheckpointRegistryRuntimeCodeHash({artifact,releaseConfig,
 }
 
 export function deriveFinalizedBurnVerifierRuntimeCodeHash({artifact,verifierConfig,sourceContents}) {
+  verifyRiscZeroAdapterAbi(artifact,'DOMFinalizedBurnRiscZeroVerifier');
   const computed=finalizedBurnVerifierConfigHash(verifierConfig);
   return deriveRuntimeCodeHash({artifact,releaseConfig:computed,sourceContents,
     fields:finalizedBurnAdapterImmutableFields,
@@ -265,6 +377,7 @@ export function deriveFinalizedBurnVerifierRuntimeCodeHash({artifact,verifierCon
 }
 
 export function deriveFinalizedBurnAdapterRuntimeCodeHash({artifact,adapterConfig,sourceContents}) {
+  verifyRiscZeroAdapterAbi(artifact,'DOMFinalizedBurnRiscZeroVerifier');
   const computed=finalizedBurnAdapterConfigHash(adapterConfig);
   return deriveRuntimeCodeHash({artifact,releaseConfig:computed,sourceContents,
     fields:finalizedBurnAdapterImmutableFields,
@@ -272,6 +385,7 @@ export function deriveFinalizedBurnAdapterRuntimeCodeHash({artifact,adapterConfi
 }
 
 export function deriveCheckpointVerifierRuntimeCodeHash({artifact,verifierConfig,sourceContents}) {
+  verifyRiscZeroAdapterAbi(artifact,'DOMCheckpointRiscZeroVerifier');
   const computed=checkpointVerifierConfigHash(verifierConfig);
   return deriveRuntimeCodeHash({artifact,releaseConfig:computed,sourceContents,
     fields:checkpointAdapterImmutableFields,
@@ -279,6 +393,7 @@ export function deriveCheckpointVerifierRuntimeCodeHash({artifact,verifierConfig
 }
 
 export function deriveCheckpointAdapterRuntimeCodeHash({artifact,adapterConfig,sourceContents}) {
+  verifyRiscZeroAdapterAbi(artifact,'DOMCheckpointRiscZeroVerifier');
   const computed=checkpointAdapterConfigHash(adapterConfig);
   return deriveRuntimeCodeHash({artifact,releaseConfig:computed,sourceContents,
     fields:checkpointAdapterImmutableFields,
@@ -319,6 +434,8 @@ function deriveRiscZeroAdapterInitcode({
 }) {
   const compiler=verifyCompilerSettings(artifact,{target,contract});
   const creation=bytecodeObject(artifact?.bytecode,`${contract} creation`);
+  verifyConstructorInputs(artifact,[['verifier_','address'],['imageId_','bytes32']],contract);
+  verifyRiscZeroAdapterAbi(artifact,contract);
   const sourceCount=sourceContents===undefined?null:verifyArtifactSources(artifact,sourceContents);
   const computed=configuration(verifierConfig);
   const encoded=AbiCoder.defaultAbiCoder().encode(
@@ -395,9 +512,9 @@ export function deriveReserveInitcodeHash({artifact,releaseConfig,sourceContents
   const components=[['token','address'],['verifier','address'],['checkpointRegistry','address'],
     ['domDomain','bytes32'],['activationScheduleCommitment','bytes32'],['governance','address'],
     ['guardian','address'],['withdrawalDelay','uint64'],['governanceDelay','uint64'],
-    ['maxOutstanding','uint64'],['outflowCapacity','uint64']];
+    ['maxOutstanding','uint64'],['outflowCapacity','uint64'],['pilotRestricted','bool']];
   verifyConstructorTuple(artifact,components,'reserve');
-  const tuple='tuple(address token,address verifier,address checkpointRegistry,bytes32 domDomain,bytes32 activationScheduleCommitment,address governance,address guardian,uint64 withdrawalDelay,uint64 governanceDelay,uint64 maxOutstanding,uint64 outflowCapacity)';
+  const tuple='tuple(address token,address verifier,address checkpointRegistry,bytes32 domDomain,bytes32 activationScheduleCommitment,address governance,address guardian,uint64 withdrawalDelay,uint64 governanceDelay,uint64 maxOutstanding,uint64 outflowCapacity,bool pilotRestricted)';
   const encoded=AbiCoder.defaultAbiCoder().encode([tuple],[{
     token:getAddress(releaseConfig?.token),verifier:getAddress(releaseConfig?.verifier),
     checkpointRegistry:getAddress(releaseConfig?.checkpointRegistry),
@@ -406,6 +523,7 @@ export function deriveReserveInitcodeHash({artifact,releaseConfig,sourceContents
     guardian:getAddress(releaseConfig?.guardian),withdrawalDelay:uint64('withdrawalDelaySeconds'),
     governanceDelay:uint64('governanceDelaySeconds'),maxOutstanding:uint64('maxOutstandingBaseUnits'),
     outflowCapacity:uint64('outflowCapacityBaseUnitsPerDay'),
+    pilotRestricted:true,
   }]);
   const initcode=concat([creation,encoded]);
   return {initcodeHash:keccak256(initcode),initcodeSize:getBytes(initcode).length,
@@ -417,6 +535,13 @@ export function deriveCheckpointRegistryInitcodeHash({artifact,releaseConfig,sou
     target:'contracts/DOMCheckpointRegistry.sol',contract:'DOMCheckpointRegistry',
   });
   const creation=bytecodeObject(artifact?.bytecode,'checkpoint registry creation');
+  const components=[['bridgeDomain','bytes32'],['domNetworkMagic','uint32'],['domChainId','bytes32'],
+    ['firstV4Height','uint64'],['activationEmptyStateRoot','bytes32'],
+    ['activationScheduleCommitment','bytes32'],['checkpointInterval','uint32'],
+    ['confirmationDepth','uint32'],['challengePeriod','uint64'],['verifier','address'],
+    ['guardian','address'],['initialHeight','uint64'],['initialBlock','bytes32'],
+    ['initialStateRoot','bytes32'],['initialContextHash','bytes32'],['initialTotalDifficulty','uint256']];
+  verifyConstructorTuple(artifact,components,'checkpoint registry');
   const sourceCount=sourceContents===undefined?null:verifyArtifactSources(artifact,sourceContents);
   const bytes32=name=>{
     const value=releaseConfig?.[name];

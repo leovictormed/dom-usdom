@@ -1,0 +1,29 @@
+SAFE RAW NONCE BOUNDED PARSING — STAGE 1199
+Date: 2026-10-26
+
+Finding
+=======
+
+The strict Safe raw-transaction checker applied `BigInt` to a nonce of arbitrary
+decimal length before enforcing `Number.MAX_SAFE_INTEGER`. A corrupted durable
+validation artifact could therefore force costly parsing during resume or the
+final evidence-graph barrier before being rejected.
+
+Correction
+==========
+
+Nonce text must now be a canonical decimal string of no more than 16 digits
+before `BigInt` conversion. The existing exact maximum-safe-integer bound and
+transaction nonce equality remain cumulative. Regression coverage rejects
+`2^53` and a 100,000-digit nonce.
+
+Verification
+============
+
+- Node syntax: pass.
+- Focused Safe raw/finality/executor/receipt tests: 6/6 pass.
+- Broad operator-runbook, Safe executor and raw tests: 88/88 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

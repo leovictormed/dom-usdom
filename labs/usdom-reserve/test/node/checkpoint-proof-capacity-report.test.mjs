@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
 import {sha256} from 'ethers';
 import {
   CHECKPOINT_ECONOMIC_BLOCK_IMAGE_ID,CHECKPOINT_ECONOMIC_BLOCK_PROGRAM_SHA256,
@@ -12,6 +14,7 @@ import {
   buildCheckpointProofCapacityReport,
   checkpointIsolatedEvmReceiptCommitment,
   checkpointCapacityArtifactSetCommitment,
+  validateCheckpointProofCapacityAuthority,
   validateCheckpointProofCapacityReport,
 } from '../../sdk/checkpoint-proof-capacity-report.mjs';
 import {
@@ -26,6 +29,10 @@ import {
 import {checkpointRegistryConfigurationFromRelease} from '../../sdk/checkpoint-submission.mjs';
 import {safeOwnersCommitment} from '../../sdk/configuration.mjs';
 import {PINNED_RISC0_MAINNET_V3} from '../../sdk/risc0-verifier-reference.mjs';
+import {
+  CHECKPOINT_CAPACITY_EVIDENCE_PATH,
+  validateInstalledCheckpointCapacityReleaseEvidence,
+} from '../../sdk/checkpoint-capacity-release-evidence-materialization.mjs';
 
 const address=byte=>'0x'+byte.repeat(20);
 const bytes32=byte=>'0x'+byte.repeat(32);
@@ -58,10 +65,12 @@ function checkpointConfig() {
     checkpointGuestImageId:bytes32('b0'),journalSchemaHash:CHECKPOINT_RISC0_JOURNAL_SCHEMA_HASH};
 }
 
+const layerCounts=[390,2,390,390,2,1];
 const layer=(name,programSha256,imageId,index)=>({name,programSha256,imageId,
   inputSetSha256:raw((0x10+index).toString(16)),inputBytes:'4096',
-  journalSetSha256:raw((0x20+index).toString(16)),journalBytes:'32',journalCount:'1',
-  receiptSetSha256:raw((0x30+index).toString(16)),receiptBytes:'8192',receiptCount:'1',
+  journalSetSha256:raw((0x20+index).toString(16)),journalBytes:String(layerCounts[index]*32),
+  journalCount:String(layerCounts[index]),receiptSetSha256:raw((0x30+index).toString(16)),
+  receiptBytes:String(layerCounts[index]*8192),receiptCount:String(layerCounts[index]),
   receiptKind:'succinct',receiptVerified:true,segmentLimitPo2:18,
   provingWallMilliseconds:'1000',peakResidentKiB:'1048576'});
 
@@ -117,6 +126,7 @@ function fixture() {
   );
   const report={schema:CHECKPOINT_PROOF_CAPACITY_REPORT_SCHEMA,
     artifactSetCommitmentSchema:CHECKPOINT_CAPACITY_ARTIFACT_SET_SCHEMA,
+    runId:'20261027T120000Z-123',artifactManifestPath:'artifact-manifest.json',artifactManifestSha256:raw('09'),
     releaseId:evidence.releaseId,
     sourceCommit:evidence.sourceCommit,ethereumChainId:'1',checkpointRegistry:releaseConfig.checkpointRegistry,
     adapter:releaseConfig.checkpointVerifier,adapterRuntimeCodeHash:releaseConfig.checkpointVerifierCodeHash,
@@ -174,6 +184,56 @@ test('checkpoint capacity report binds every recursive receipt and the release a
   assert(Object.isFrozen(checked.layers[0]));
 });
 
+test('checkpoint capacity authority rejects report B under graph A',()=>{
+  const value=fixture();
+  const manifestBytes=Buffer.from(JSON.stringify({schema:'usdom-checkpoint-capacity-artifact-manifest/v1',runId:value.report.runId,files:[{path:'evidence/a',sha256:raw('01'),bytes:1}]},null,2)+'\n');
+  value.report.artifactManifestSha256=createHash('sha256').update(manifestBytes).digest('hex');
+  const authority={reportBytes:Buffer.from(JSON.stringify(value.report)),manifestBytes,reconstructedReport:structuredClone(value.report)};
+  assert.equal(validateCheckpointProofCapacityAuthority(value.report,authority,value).releaseId,value.report.releaseId);
+  const reportB=structuredClone(value.report); reportB.layers[0].receiptSetSha256=raw('fe');
+  assert.throws(()=>validateCheckpointProofCapacityAuthority(reportB,authority,value),/byte-authoritative graph/);
+  assert.throws(()=>validateCheckpointProofCapacityAuthority(value.report,null,value),/authority is required/);
+});
+
+test('installed checkpoint capacity evidence is re-read with exact descriptor, hash and canonical bytes',async()=>{
+  const value=fixture();
+  const manifestBytes=Buffer.from(JSON.stringify({schema:'usdom-checkpoint-capacity-artifact-manifest/v1',runId:value.report.runId,files:[{path:'evidence/a',sha256:raw('01'),bytes:1}]},null,2)+'\n');
+  value.report.artifactManifestSha256=createHash('sha256').update(manifestBytes).digest('hex');
+  const reportBytes=Buffer.from(`${JSON.stringify(value.report,null,2)}\n`);
+  const evidence=JSON.parse(await readFile(
+    new URL('../../config/mainnet-release-evidence.unconfigured.json',import.meta.url),'utf8'));
+  evidence.releaseId=value.evidence.releaseId;
+  evidence.sourceCommit=value.evidence.sourceCommit;
+  evidence.checkpointProofCapacityReport={path:CHECKPOINT_CAPACITY_EVIDENCE_PATH,
+    sha256:createHash('sha256').update(reportBytes).digest('hex')};
+  const input={...value,evidence,reportBytes,manifestBytes,evidenceBytes:Buffer.from(JSON.stringify(evidence)),
+    releaseConfigBytes:Buffer.from(JSON.stringify(value.releaseConfig)),
+    checkpointVerifierConfigBytes:Buffer.from(JSON.stringify(value.checkpointVerifierConfig))};
+  const checked=validateInstalledCheckpointCapacityReleaseEvidence(input);
+  assert.equal(checked.sha256,evidence.checkpointProofCapacityReport.sha256);
+  assert.throws(()=>validateInstalledCheckpointCapacityReleaseEvidence({
+    ...input,reportBytes:Buffer.concat([reportBytes,Buffer.from(' ')]),
+  }),/hash mismatch/);
+  const wrongPathEvidence={...evidence,checkpointProofCapacityReport:{
+      ...evidence.checkpointProofCapacityReport,path:'evidence/checkpoint-capacity/other.json',
+    }};
+  assert.throws(()=>validateInstalledCheckpointCapacityReleaseEvidence({
+    ...input,evidence:wrongPathEvidence,evidenceBytes:Buffer.from(JSON.stringify(wrongPathEvidence)),
+  }),/descriptor is invalid/);
+  const noncanonical=Buffer.from(JSON.stringify(value.report));
+  const noncanonicalEvidence={...evidence,checkpointProofCapacityReport:{
+    path:CHECKPOINT_CAPACITY_EVIDENCE_PATH,
+    sha256:createHash('sha256').update(noncanonical).digest('hex'),
+  }};
+  assert.throws(()=>validateInstalledCheckpointCapacityReleaseEvidence({
+    ...input,reportBytes:noncanonical,evidence:noncanonicalEvidence,
+    evidenceBytes:Buffer.from(JSON.stringify(noncanonicalEvidence)),
+  }),/not canonical/);
+  assert.throws(()=>validateInstalledCheckpointCapacityReleaseEvidence({
+    ...input,evidence:{...evidence,sourceCommit:'f'.repeat(40)},
+  }),/bytes differ from parsed authority/);
+});
+
 test('checkpoint artifact-set commitments are ordered, length-bound and domain-separated',()=>{
   const records=[{sha256:raw('01'),bytes:'32'},{sha256:raw('02'),bytes:'32'}];
   const first=checkpointCapacityArtifactSetCommitment('randomx','journal',records);
@@ -217,9 +277,11 @@ test('checkpoint capacity report builder derives every set commitment before val
   const measured=value.report.layers.map((layer,index)=>({
     name:layer.name,programSha256:layer.programSha256,imageId:layer.imageId,
     inputs:[{sha256:raw((0x40+index).toString(16)),bytes:'4096'}],
-    journals:[{sha256:index===5?sha256(value.report.statementHash).slice(2)
-      :raw((0x50+index).toString(16)),bytes:'32'}],
-    receipts:[{sha256:raw((0x60+index).toString(16)),bytes:'8192'}],
+    journals:Array.from({length:layerCounts[index]},()=>({
+      sha256:index===5?sha256(value.report.statementHash).slice(2)
+        :raw((0x50+index).toString(16)),bytes:'32'})),
+    receipts:Array.from({length:layerCounts[index]},()=>({
+      sha256:raw((0x60+index).toString(16)),bytes:'8192'})),
     receiptKind:'succinct',receiptVerified:true,segmentLimitPo2:18,
     provingWallMilliseconds:'1000',peakResidentKiB:'1048576',
   }));
@@ -270,6 +332,12 @@ test('checkpoint capacity report rejects semantic substitutions',()=>{
     value=>{value.report.layers[5].receiptSetSha256=value.report.layers[0].receiptSetSha256;},
     value=>{value.report.layers[2].journalCount='2';},
     value=>{value.report.layers[2].journalBytes='64';},
+    value=>{Object.assign(value.report.layers[0],{receiptCount:'389',journalCount:'389',
+      journalBytes:String(389*32)});},
+    value=>{for(const index of [1,4]) Object.assign(value.report.layers[index],{
+      receiptCount:'1',journalCount:'1',journalBytes:'32'});},
+    value=>{Object.assign(value.report.layers[5],{receiptCount:'2',journalCount:'2',
+      journalBytes:'64'});},
     value=>{value.checkpointVerifierConfig.randomxReceiptImageId=bytes32('01');},
     value=>{value.report.layers[0].provingWallMilliseconds='2000000';},
     value=>{value.report.outerGroth16ReceiptBytes='0';},

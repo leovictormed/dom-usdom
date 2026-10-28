@@ -16,4 +16,6 @@ test('Safe release evidence invalidates completion marker before derived set and
   'control-plane-separation.json','control-plane-recovery-drill.json',
   'safe-control-release-evidence-bundle.json']) assert.ok(block.includes(name));
  assert.doesNotMatch(block,/\$package_source|\$baseline_source|\$recovery_source/);
+ assert.match(source,/temporary_identity=\$\(\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$temporary"\)/);
+ assert.match(source,/\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$temporary" 2>\/dev\/null\) == "\$temporary_identity"/);
 });

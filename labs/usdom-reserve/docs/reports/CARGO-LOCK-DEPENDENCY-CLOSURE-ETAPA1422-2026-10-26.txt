@@ -1,0 +1,25 @@
+Stage 1422 — Cargo lock dependency closure
+Date: 2026-10-26
+
+Finding
+Cargo package source/checksum identities were pinned, but each package's dependency strings were
+not linked back to another entry. A lock could contain valid packages while retaining a missing,
+ambiguous or version-disconnected dependency edge.
+
+Correction
+- Cargo locks now require the exact version/package top-level schema and supported lock format 3 or 4.
+- Every package dependency inventory must be a unique non-empty string list.
+- Version-qualified edges must resolve to the exact name/version entry.
+- Unqualified edges are accepted only when the package name has exactly one version in that lock;
+  multiple candidates are rejected as ambiguous.
+- Malformed names, absent versions, missing packages and duplicate edges fail closed.
+- Adversarial coverage proves qualified and unique unqualified resolution and rejects missing,
+  ambiguous, wrong-version, traversal-shaped and duplicate edges.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No global inventory was rematerialized. No network, signing, deployment, funds, commit or push occurred.

@@ -1,0 +1,35 @@
+ETAPA 1258 — AUTORIDADE LIMITADA PARA O RESUMO FINAL DA RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema
+
+Depois de instalar e revalidar as evidências finais, o executor ainda invocava jq
+diretamente para projetar o resumo exibido ao operador. Essa última transformação
+não tinha prazo, término forçado, limites de stdout/stderr nem validação canônica do
+JSON resultante. Um jq travado ou uma saída excessiva poderia reter a cerimônia já
+concluída ou consumir recursos sem limite.
+
+Correção
+
+O resumo final agora é materializado em arquivo privado temporário por
+`run_jq_json_authority`. Essa autoridade já reatesta jq, timeout e Node; limita jq a
+30 segundos em foreground com TERM e KILL; limita JSON a 2 MiB e diagnóstico a
+64 KiB; exige UTF-8 estrito, status zero, stdout não vazio, stderr vazio e JSON
+canônico; e mantém o artefato com modo 0600. Somente depois dessas verificações o
+Bash lê e imprime o resumo limitado.
+
+Os testes também passaram a exigir que o arquivo termine nessa leitura e impressão
+por builtins, que a projeção use a autoridade limitada e que o antigo jq direto não
+possa reaparecer.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais de pinning, evidência derivada e paridade: 6/6 aprovados;
+- focais mais `operator-runbook`: 90/90 aprovados;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

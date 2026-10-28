@@ -7,6 +7,13 @@ import {fileURLToPath} from 'node:url';
 
 const endpointValues=[];
 function takeEndpoint(name){const value=process.env[name];delete process.env[name];if(value) endpointValues.push(value);return value}
+function redactEndpoints(error){
+  let message=error instanceof Error?error.message:String(error);
+  for(const endpoint of endpointValues.toSorted((a,b)=>b.length-a.length)) {
+    if(endpoint) message=message.replaceAll(endpoint,'[redacted endpoint]');
+  }
+  return new Error(message);
+}
 
 try {
   if(process.argv.length!==2) throw new Error('this fixed collector accepts no arguments');
@@ -23,6 +30,6 @@ try {
   if(!after.equals(before)) throw new Error('Ethereum checkpoint source catalog changed during collection');
   process.stdout.write(JSON.stringify(result,null,2)+'\n');
 } catch(error) {
-  writeReleaseFailure('collect-ethereum-checkpoint-consensus',error);
+  writeReleaseFailure('collect-ethereum-checkpoint-consensus',redactEndpoints(error));
   process.exitCode=1;
 }

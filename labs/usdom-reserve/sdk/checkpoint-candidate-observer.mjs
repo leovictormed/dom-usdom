@@ -68,7 +68,7 @@ export function assessCheckpointCandidateObservation({releaseConfig,submission,o
       || !same(observation.finalizedBlockHash,observation.snapshotBlockHashAfter)) {
     add(blockers,'finalized_snapshot_changed','the finalized Ethereum snapshot changed during observation');
   }
-  canonicalUint(observation.finalizedBlockNumber,256,'finalized_block_number',blockers);
+  canonicalUint(observation.finalizedBlockNumber,64,'finalized_block_number',blockers);
   const finalizedTimestamp=canonicalUint(
     observation.finalizedBlockTimestamp,64,'finalized_block_timestamp',blockers,
   );

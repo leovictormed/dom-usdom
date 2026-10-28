@@ -1,0 +1,86 @@
+ETAPA 1224 — ProofReserve runtime margin optimization
+Date: 2026-10-26
+
+Objective
+---------
+
+Restore the mandatory 4,096-byte EIP-170 runtime margin for
+`USDOMProofReserve` without removing checks, events, public diagnostics,
+invariants or security semantics. No Rust, scripts, network, signing,
+deployment, funds, commit or push operation was performed.
+
+Finding
+-------
+
+After the preceding security corrections the optimized runtime measured 20,863
+bytes. It was deployable under EIP-170 but left only 3,713 bytes of headroom,
+383 bytes below the project release policy.
+
+The control-plane validation contained two safe, removable duplications:
+
+1. `controlPlaneHealthy()` and `_requireControlPlaneUnchanged()` each encoded
+   the same complete governance-and-guardian predicate; and
+2. each Safe identity check decoded and validated `getOwners()` to compute the
+   immutable owner commitment, then `_safePolicyIntact()` called and validated
+   `getOwners()` a second time.
+
+Correction
+----------
+
+`controlPlaneHealthy()` is now `public` with the same external ABI and exact
+return semantics. `_requireControlPlaneUnchanged()` consumes that single public
+predicate rather than carrying another copy of it.
+
+Safe owner identity is decoded exactly once per control-plane validation. The
+same `ownersIntact` result and canonical owner commitment are reused while the
+remaining policy helper still independently enforces:
+
+- threshold exactly 2;
+- no enabled modules;
+- empty guard;
+- exact pinned mainnet fallback handler and handler runtime; and
+- exact proxy, singleton, implementation and owner-set identities.
+
+Malformed, oversized, duplicate, zero, sentinel, self, contract-owner and
+changed-owner responses remain rejected. This reduces externally controlled
+STATICCALL work as well as bytecode; it does not cache state across calls or
+weaken fail-closed revalidation.
+
+Size evidence
+-------------
+
+Canonical Foundry profile (`solc 0.8.37`, Cancun, optimizer runs 1, via-IR):
+
+- before: runtime 20,863 bytes; EIP-170 margin 3,713 bytes;
+- after: runtime 20,461 bytes; EIP-170 margin 4,115 bytes;
+- reduction: 402 bytes;
+- required maximum: 20,480 bytes;
+- required minimum margin: 4,096 bytes;
+- policy surplus after correction: 19 bytes;
+- initcode after: 26,635 bytes; margin 22,517 bytes.
+
+The Registry remains 10,573 runtime bytes and the quorum prototype remains
+14,609 runtime bytes.
+
+Behavioral evidence
+-------------------
+
+- Complete Foundry suite: 202/202 tests passed in 14 suites, 0 failed, 0
+  skipped.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 reverts.
+- The full suite includes construction/runtime regressions for changed Safe
+  owners, singleton, threshold, modules, guard, fallback handler, malformed
+  owner responses, arbitrary restore, governance/guardian code identity and
+  delayed resume.
+- Targeted formatting and `git diff --check` passed.
+
+Release impact
+--------------
+
+The ProofReserve runtime hash changed and all release artifacts that commit it
+must be rematerialized after concurrent source work stabilizes. The margin gate
+is now satisfied, but only by 19 bytes; any later runtime change must rerun the
+exact size gate. This result does not authorize deployment or real funds and
+does not replace the remaining proof, identity and operator evidence gates.

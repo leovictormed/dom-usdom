@@ -20,14 +20,17 @@ receipt. The journal never contains the private input or intermediate state.
 
 The checked-in `UDFINL04` ProgramBinary was built twice from the same locked
 source snapshot in isolated targets. Both builds produced SHA-256
-`883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21`
+`bf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511`
 and ImageID
-`2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea`.
+`f0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae`.
 `PROVENANCE.json` records the builder, locks and source-manifest identities.
 
-The historical deterministic benchmark (571,308,757 user cycles in 580
-segments at a `2^20` segment limit) covers only UDFINL03. It is not evidence for
-the recursive UDFINL04 relation and cannot satisfy the current release gate.
+The current deterministic execution-only benchmark consumes the canonical
+64,815-byte `UDFINL04` input in 581,398,127 user cycles and 590 segments at a
+`2^20` segment limit. The executor resolves the exact checkpoint-outer claim as
+an explicit unresolved assumption, so this benchmark proves guest execution
+and output binding but does not claim a cryptographically proven recursive
+receipt. That receipt remains a separate release gate.
 
 These artifacts do not authorize production. A production proof/receipt,
 mainnet-configured immutable EVM verifier, finalized registry deployment and

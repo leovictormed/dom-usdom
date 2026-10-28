@@ -1,0 +1,39 @@
+ETAPA 1411 — TMPDIR PRIVADO DO EXECUTOR SAFE
+Data: 2026-10-26
+
+Problema
+
+`execute-safe-control-deployment.sh` criava seu diretório secreto com
+`run_mktemp` sem deadline ou teto e depois aplicava `run_chmod 0700`. A correção
+posterior podia mascarar pathname ou metadados inesperados antes do proxy,
+Ledger, journals e transações brutas.
+
+Correção
+
+O executor reatesta `timeout` e `mktemp`, executa seus binários autenticados com
+deadline foreground TERM/KILL de 30 segundos e limita stdout a 128 bytes. Depois
+reatesta ambos novamente. O pathname aceito é exatamente
+`/dev/shm/usdom-safe-deploy.<8 alfanuméricos>`.
+
+Antes de continuar, exige diretório real e não symlink, UID atual, modo 0700 e
+link count um. `run_chmod 0700` foi removido: sob o umask 077 já fixado, qualquer
+criação divergente falha antes de operações sensíveis.
+
+Auditoria equivalente
+
+O executor ainda contém `run_chmod 0600` corretivo em snapshots, outputs JSON,
+journal, raw candidate e artefatos reconstruídos. Esses pontos foram registrados
+como próximos boundaries equivalentes; não são necessários para tornar atômica
+esta correção do tmpdir.
+
+Validação offline
+
+- Sintaxe Bash: aprovada.
+- Suíte focal Safe deployment/cleanup: 8/8 aprovada.
+- Suíte Safe ampla: 67/69; as duas falhas são assertions Solidity concorrentes
+  em `safe-control-plane-liveness` e `safe-owner-ceremony`, fora do executor e
+  sem relação com esta alteração.
+- Inventário e `git diff --check`: aprovados.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

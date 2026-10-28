@@ -1,0 +1,49 @@
+{
+  "schema": "dom-usdom-mainnet-tool-dispatcher-v1",
+  "compiler": "/usr/bin/x86_64-linux-gnu-gcc-13",
+  "compilerSha256": "1b99826121ae6682a634e5efe09bd3e3df58ce58e0b28f849114ab5b89139c26",
+  "compilerVersion": "x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "source": "labs/usdom-reserve/scripts/mainnet-tool-dispatcher.c",
+  "sourceSha256": "f14d008249e24db0df749c8d8d70b875ca2f4fa3e18a9f5345b53fbaaa58995f",
+  "artifact": "labs/usdom-reserve/scripts/mainnet-tool-dispatcher",
+  "artifactSha256": "6317cc20a70a4958556ecb7374d29976459d5f64c9af5d3c1263b2029a597c0f",
+  "compileArguments": [
+    "-static",
+    "-std=c11",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Wno-format-truncation",
+    "-Wno-misleading-indentation",
+    "-fno-ident",
+    "-fno-asynchronous-unwind-tables",
+    "-Wl,--build-id=none",
+    "-s"
+  ],
+  "reproduction": "Compile twice with the exact compiler and ordered arguments, require byte equality and the recorded SHA-256, then require a static ELF without PT_INTERP.",
+  "runtimeClosure": {
+    "npmEntrypoint": "/usr/lib/chatgpt/resources/cua_node/lib/node_modules/npm/bin/npm-cli.js",
+    "npmEntrypointSha256": "8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7",
+    "npmNodeAuthority": "config/mainnet-toolchain-lock.json#node"
+  },
+  "privatePath": {
+    "tools": [
+      "bash",
+      "node",
+      "npm",
+      "forge",
+      "cast",
+      "rustc",
+      "cargo",
+      "python3",
+      "jq",
+      "solc"
+    ],
+    "descriptorTarget": "/proc/<dispatcher-parent-pid>/fd/<authenticated-fd>",
+    "fallbackDirectories": [
+      "/usr/bin",
+      "/bin"
+    ],
+    "lifecycle": "dispatcher parent retains descriptors and owner-only directory until child exits"
+  }
+}

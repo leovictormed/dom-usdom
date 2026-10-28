@@ -1,0 +1,23 @@
+Etapa 1439 — alinhamento de DTOs e autoridade de depósito
+Data: 2026-10-26
+
+Correções
+
+1. O inventário corrente contém 93 tipos de produção derivados com Deserialize, em vez dos 91 da sentinela anterior. Todos os 93 continuam obrigados individualmente a declarar deny_unknown_fields, e formas serde untagged/alias continuam proibidas. A contagem fechada foi atualizada sem transformar a asserção em limite mínimo.
+
+2. O contrato deixou de calcular o deposit ID com block.chainid lido no momento da chamada e passou a usar deploymentChainId, capturado imutavelmente como block.chainid no construtor. O validador ainda procurava a expressão antiga e sinalizava falsamente perda do binding.
+
+O gate agora exige conjuntamente:
+- declaração immutable de deploymentChainId;
+- atribuição deploymentChainId = block.chainid no construtor;
+- hash do deposit ID sobre deploymentChainId, address(this), funder e salt.
+
+As regressões removem separadamente o domínio de deployment e a captura do chain ID, confirmando que ambas falham fechadas. Os demais bindings de recibo, runtime, destinatário, replay, persistência, undo e reconstrução permanecem inalterados.
+
+Validação focal
+
+node --test test/node/consensus-version-discriminant-boundary.test.mjs test/node/deposit-issuance-authority.test.mjs
+
+Resultado: 6/6 testes aprovados, 0 falhas.
+
+Não houve rede, assinatura, deploy, fundos, commit ou push.

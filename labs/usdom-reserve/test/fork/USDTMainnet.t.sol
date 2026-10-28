@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.37;
 import {USDOMReserve} from "../../contracts/USDOMReserve.sol";
+import {IDOMFinalizedBurnVerifier} from "../../contracts/IDOMFinalizedBurnVerifier.sol";
 import {
-    IDOMFinalizedBurnVerifier,
     IDOMGracefulShutdownRegistry,
     USDOMProofReserve
 } from "../../contracts/USDOMProofReserve.sol";
@@ -162,7 +162,8 @@ contract USDTMainnetForkTest is TestBase {
                 1 days,
                 2 days,
                 100_000e6,
-                2_000e6
+                2_000e6,
+                true
             )
         );
     }

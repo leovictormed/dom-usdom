@@ -42,24 +42,24 @@ test('deployment and Safe executors never normalize authority output with tr',as
     const source=await readFile(path.join(component,'scripts',name),'utf8');
     assert.match(source,/read_canonical_line\(\)/);
     assert.doesNotMatch(source,/\|\s*tr\b|\btr\s+-d/);
-    assert.match(source,/rpc publish[\s\S]*> "\$publish_output"[\s\S]*read_canonical_line "\$publish_output"/);
+    assert.match(source,/publish-private-raw-transaction\.mjs[\s\S]*> "\$publish_output"[\s\S]*read_canonical_line "\$publish_output"/);
   }
 });
 
 test('deployment derivation uses a bounded strict stdout and empty-stderr protocol',async()=>{
   const source=await readFile(path.join(component,'scripts','execute-mainnet-deployment.sh'),'utf8');
   assert.match(source,/run_node_json_authority\(\)/);
-  assert.match(source,/"\$timeout_bin" --signal=TERM 120s "\$node_bin" "\$script"[\s\S]*> "\$output" 2> "\$error"/);
-  assert.match(source,/test ! -s "\$error"[\s\S]*check-private-strict-json-file\.mjs "\$output"/);
+  assert.match(source,/"\$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s[\s\S]*"\$node_bin" "\$script"[\s\S]*> "\$output" 2> "\$error"/);
+  assert.match(source,/\[process\.argv\[1\],2097152\],[\s\S]*\[process\.argv\[2\],65536\][\s\S]*test -s "\$output"\n  test ! -s "\$error"[\s\S]*run_node_empty_authority generated-json scripts\/check-private-strict-json-file\.mjs "\$output"/);
   assert.doesNotMatch(source,/transaction=\$\("\$node_bin" scripts\/prepare-mainnet-deployment-transaction/);
-  assert.equal((source.match(/run_node_json_authority "\$temporary\/transaction\./g)??[]).length,4);
+  assert.equal((source.match(/run_node_json_authority "\$temporary\/transaction\./g)??[]).length,5);
 });
 
 test('Safe envelope, target, raw and final derivations share the strict child protocol',async()=>{
   const source=await readFile(path.join(component,'scripts','execute-recoverable-safe-recovery.sh'),'utf8');
   assert.match(source,/run_node_json_authority\(\)/);
-  assert.match(source,/"\$timeout_bin" --signal=TERM 120s "\$node_bin" "\$script"[\s\S]*> "\$output" 2> "\$error"/);
-  assert.match(source,/test ! -s "\$error"[\s\S]*check-private-strict-json-file\.mjs "\$output"/);
+  assert.match(source,/"\$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s[\s\S]*"\$node_bin" "\$script"[\s\S]*> "\$output" 2> "\$error"/);
+  assert.match(source,/test -s "\$output"\n  test ! -s "\$error"[\s\S]*check-private-strict-json-file\.mjs "\$output"/);
   for(const helper of [
     'prepare-recoverable-safe-recovery-envelope.mjs',
     'check-recoverable-safe-recovery-target.mjs',
@@ -116,7 +116,10 @@ test('RPC proxy background channels are separate, bounded and never replayed',as
     assert.match(source,/check_rpc_proxy_channels\(\)[\s\S]*TextDecoder\("utf-8",\{fatal:true\}\)/);
     assert.match(source,/check_rpc_proxy_channels\(\)[\s\S]*65536/);
     assert.match(source,/for _ in \{1\.\.200\}; do\n  check_rpc_proxy_channels bounded/);
-    assert.match(source,/check_rpc_proxy_channels empty[\s\S]*check-private-rpc-proxy-ready\.mjs[\s\S]*"\$rpc_proxy_ready"/);
+    if(name==='execute-recoverable-safe-recovery.sh')
+      assert.match(source,/check_rpc_proxy_channels empty[\s\S]*check_rpc_proxy_ready "\$rpc_ready_observation"/);
+    else
+      assert.match(source,/check_rpc_proxy_channels empty[\s\S]*check-private-rpc-proxy-ready\.mjs[\s\S]*"\$rpc_proxy_ready"/);
     assert.match(source,/Private RPC proxy failed before readiness with status %s/);
     assert.doesNotMatch(source,/cat "\$rpc_proxy_(?:log|stderr|stdout)"/);
     assert.doesNotMatch(source,/rpc-proxy\.log|>"\$rpc_proxy_log" 2>&1/);

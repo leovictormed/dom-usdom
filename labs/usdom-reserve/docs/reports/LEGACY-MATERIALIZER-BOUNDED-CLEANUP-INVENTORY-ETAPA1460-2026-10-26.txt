@@ -1,0 +1,6 @@
+Stage 1460 — legacy materializer bounded cleanup inventory
+Date: 2026-10-26
+
+Nine policy, native, production, authorization and Safe-control materializers directly invoked authenticated Node for recursive cleanup without a finite deadline or absence postcondition. They now pin and reattest timeout, use foreground TERM at 30 seconds and KILL five seconds later, suppress output, reattest Node and timeout after deletion, require path absence and fail closed.
+
+A common inventory regression covers every corrected materializer. Focused lifecycle/tool suites pass 6/6. No materializer, network, signing, deployment, funds, commit or push occurred.

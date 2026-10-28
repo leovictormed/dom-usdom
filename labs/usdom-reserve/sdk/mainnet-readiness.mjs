@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {getAddress,getCreateAddress} from 'ethers';
 import {proofReserveDeploymentConfigHash,safeOwnersCommitment} from './configuration.mjs';
 import {uint} from './reserve.mjs';
@@ -8,17 +9,27 @@ import {checkpointVerifierConfigHash} from './checkpoint-verifier-config.mjs';
 import {isCanonicalGitSigningKeyFingerprint,isCanonicalReleaseTag} from './git-signature.mjs';
 import {validateRiscZeroMainnetReference} from './risc0-verifier-reference.mjs';
 import {assessMainnetPreflight} from './mainnet-preflight.mjs';
+import {validateMainnetDeploymentTopology} from './mainnet-deployment-identity.mjs';
 import {
   nativeReleaseAttestationDigest,validNativeAttestationSignature,
 } from './native-release-attestation.mjs';
-import {releaseAuthorizationDigest,releaseEvidenceCommitment} from './release-authorization.mjs';
+import {releaseAuthorizationDigest,releaseEvidenceCommitment,
+  validateReleaseAuthorizationFreshness} from './release-authorization.mjs';
 import {validEip1271Signature} from './finalized-eip1271-approval.mjs';
 import {validateRpcConsensusEvidence} from './rpc-consensus-evidence.mjs';
+import {validatePilotFundsAuthorizationState} from './pilot-funds-authorization.mjs';
 import {validateRecoverableSafeControlReleaseArtifactSet} from './safe-control-release-evidence.mjs';
+import {validateSafeControlReleaseArtifactSetV3} from './safe-control-release-evidence-v3.mjs';
+import {SAFE_MAINNET_IDENTITY} from './safe-control-deployment.mjs';
 import {validateSafeRecoveryEvidenceBundleShape} from './safe-recovery-evidence-bundle.mjs';
 import {validateRiscZeroHealthSourceCatalog} from './risc0-health-source-catalog.mjs';
 import {validateFinalizedBurnE2eReport} from './finalized-burn-e2e-report.mjs';
-import {validateCheckpointProofCapacityReport} from './checkpoint-proof-capacity-report.mjs';
+import {validateFinalizedBurnCapacityReport} from './finalized-burn-capacity-report.mjs';
+import {parseStrictJsonBytes} from './strict-json.mjs';
+import {validateProductionOperationalGasEvidence,validateProductionOperationalGasJob} from './production-operational-gas-evidence.mjs';
+import {validateNativePrivacyCeremony,validateNativePrivacyInstallationReceipt} from './native-privacy-ceremony.mjs';
+import {validateClosedMainnetDepositEvidence} from './closed-mainnet-deposit-evidence.mjs';
+import {validateCheckpointProofCapacityAuthority} from './checkpoint-proof-capacity-report.mjs';
 import {isExactReleaseEvidenceShape} from './release-evidence-schema.mjs';
 import {deriveDomDomain} from './preactivation-policy.mjs';
 import {validateSecurityValidationReport} from './security-validation-report.mjs';
@@ -34,7 +45,12 @@ import {validateCheckpointVerifierReproducibleBuildReport}
 import {validateCheckpointRegistryReproducibleBuildReport}
   from './checkpoint-registry-reproducible-build-report.mjs';
 import {validateResidualRiskReport} from './residual-risk-report.mjs';
+import {validateReleaseValidationReport} from './release-validation-report.mjs';
 import {validateTrustedSetupDecisionReport} from './trusted-setup-decision-report.mjs';
+import {validateCheckpointRegistryArtifactPins} from './checkpoint-registry-artifact-pins.mjs';
+import {validateCheckpointRandomxImageRatification} from './checkpoint-randomx-image-ratification.mjs';
+import {validateCheckpointRestartWitnessReport} from './checkpoint-restart-witness-report.mjs';
+import {validateFinalizedBurnRecursiveCompletion} from './finalized-burn-recursive-completion.mjs';
 import {isCanonicalReleaseEvidenceDocumentPath}
   from './release-evidence-document-paths.mjs';
 export {isCanonicalReleaseEvidenceDocumentPath}
@@ -66,6 +82,7 @@ const domMaxFutureBlockTimeSeconds = 120n;
 const reserveMinExecutionWindowSeconds = 3600n;
 const reserveMaxCertificateLifetimeSeconds = 7n*24n*60n*60n;
 const expectedReleaseIdentity = 'Soren Planck <sorenplanck@tutamail.com>';
+const supportedProductionFinalityMechanism = 'ethereum-checkpoint-finality';
 const releaseEvidenceConfigPath =
   'labs/usdom-reserve/config/mainnet-release-evidence.unconfigured.json';
 const operatorIntentPath = 'labs/usdom-reserve/config/operator-intent.json';
@@ -82,6 +99,26 @@ const residualRiskAcceptanceKeys = [
   'reportSha256','reserveConfigHash','releaseEvidenceCommitment','rule','sourceCommit','sourceTag','productionApproved',
   'deployAuthorized','realFundsAuthorized','signature',
 ];
+const releaseAssurancePolicyKeys = [
+  'absolute_zero_risk_required_by_gate','authority','external_audit_required_by_gate','required_basis',
+];
+
+/** Reject spelling variants that would quietly restore impossible assurance gates. */
+export function isForbiddenImpossibleAssuranceRequirement(value) {
+  if(typeof value!=='string') return false;
+  const key=value.toLowerCase().replace(/[^a-z0-9]+/g,'_');
+  const externalAssurance=/(?:external|independent|third_party).*(?:audit|review|assurance|assessment)|(?:audit|review|assurance|assessment).*(?:external|independent|third_party)/;
+  const impossibleRisk=/(?:absolute|zero|no).*risk|risk_?free|risk.*(?:zero|absolute)/;
+  return externalAssurance.test(key)||impossibleRisk.test(key);
+}
+
+export function assertNoImpossibleAssuranceRequirements(keys) {
+  const forbidden=keys.filter(isForbiddenImpossibleAssuranceRequirement);
+  if(forbidden.length!==0) {
+    throw new Error(`impossible assurance requirement reintroduced: ${forbidden.join(',')}`);
+  }
+  return true;
+}
 
 const closedMainnetRequirements = [
   'native_consensus_implemented',
@@ -184,6 +221,7 @@ const closedMainnetRequirements = [
   'production_checkpoint_registry_verifier_implemented',
   'production_checkpoint_registry_verifier_proves_consensus_extension',
   'production_checkpoint_registry_artifact_pinning_implemented',
+  'production_checkpoint_registry_artifacts_pinned',
   'production_checkpoint_registry_bootstrap_ratified',
   'production_checkpoint_registry_positive_finalized_event_vector',
   'production_checkpoint_consensus_extension_private_input_implemented',
@@ -327,6 +365,30 @@ const closedMainnetRequirements = [
   'production_recoverable_safe_control_unsigned_package_implemented',
   'production_recoverable_safe_control_two_of_three_enforced',
   'production_recoverable_safe_control_independent_hardware_keys_required',
+  'production_onekey_classic_1s_model_pinned',
+  'production_onekey_ethereum_derivation_path_explicit',
+  'production_onekey_address_verified_on_device',
+  'production_onekey_sdk_firmware_transport_versions_pinned',
+  'production_onekey_reject_cancel_disconnect_reconnect_verified',
+  'production_onekey_ios_walletconnect_authority_pinned',
+  'production_onekey_ios_walletconnect_session_runtime_pinned',
+  'production_onekey_ios_exact_eip712_signing_verified',
+  'production_onekey_mobile_physical_ceremony_ratified',
+  'production_onekey_hardware_signing_approved',
+  'production_onekey_ios_relayer_role_separation_verified',
+  'production_onekey_ios_relayer_no_token_custody_verified',
+  'production_onekey_ios_relayer_signed_safetx_exact_calldata_verified',
+  'production_onekey_ios_relayer_economic_caps_verified',
+  'production_onekey_ios_relayer_nonce_no_blind_retry_verified',
+  'production_onekey_ios_relayer_emergency_rotation_verified',
+  'production_onekey_ios_safe_custody_identity_verified',
+  'production_onekey_ios_safe_custody_dual_rpc_finality_verified',
+  'production_onekey_ios_safe_custody_relayer_no_usdt_verified',
+  'production_onekey_ios_safe_custody_approve_eip712_finalized',
+  'production_onekey_ios_safe_custody_deposit_eip712_finalized',
+  'production_onekey_ios_safe_custody_deposit_event_verified',
+  'production_onekey_ios_safe_custody_accounting_verified',
+  'production_onekey_ios_safe_custody_operator_ratification_bound',
   'production_recoverable_safe_control_finalized_snapshot_collector_implemented',
   'production_recoverable_safe_control_catalog_bound_multirpc_collection',
   'production_recoverable_safe_control_catalog_bound_multirpc_planning',
@@ -339,7 +401,7 @@ const closedMainnetRequirements = [
   'production_recoverable_safe_control_two_survivor_signatures_enforced',
   'production_recoverable_safe_control_recovery_unsigned_plan_implemented',
   'production_recoverable_safe_control_hardware_signature_handoff_implemented',
-  'production_recoverable_safe_control_signing_inputs_rechecked_per_ledger_action',
+  'production_recoverable_safe_control_signing_inputs_rechecked_per_onekey_action',
   'production_recoverable_safe_control_signature_outputs_create_once',
   'production_recoverable_safe_control_recovery_transaction_assembly_implemented',
   'production_recoverable_safe_control_recovery_crash_safe_executor_implemented',
@@ -356,7 +418,7 @@ const closedMainnetRequirements = [
   'production_signed_release_evidence_commit_and_tag_ceremony_implemented',
   'production_deterministic_residual_risk_report_writer_implemented',
   'production_finalized_eip1271_release_authorization_materializer_implemented',
-  'production_release_authorization_signing_inputs_rechecked_per_ledger_action',
+  'production_release_authorization_signing_inputs_rechecked_per_onekey_action',
   'production_release_authorization_signature_bundles_create_once',
   'production_release_authorization_multi_output_toctou_rejected',
   'production_release_authorization_catalog_bound_multirpc',
@@ -433,7 +495,7 @@ const closedMainnetRequirements = [
   'production_safe_recovery_observer_role_derived_from_envelope',
   'production_safe_recovery_target_role_derived_from_envelope',
   'production_safe_recovery_signer_owner_transition_derived_from_plan',
-  'production_safe_recovery_executor_relayer_derived_from_ledger',
+  'production_safe_recovery_executor_external_gas_only_relayer_verified',
   'production_deployment_handoff_observation_sha_derived_from_package',
   'production_deployment_executor_package_sha_derived_from_snapshot',
   'production_deployment_executor_observation_snapshotted',
@@ -542,6 +604,20 @@ const realFundsRequirements = [
   'native_private_wallet_history_finality_claimed',
 ];
 
+/** Read-only snapshot used to audit the release-blocking policy itself. */
+export function readinessRequirementKeys(mode) {
+  if(mode==='closed-mainnet') {
+    assertNoImpossibleAssuranceRequirements(closedMainnetRequirements);
+    return Object.freeze([...closedMainnetRequirements]);
+  }
+  if(mode==='real-funds') {
+    const keys=[...closedMainnetRequirements,...realFundsRequirements];
+    assertNoImpossibleAssuranceRequirements(keys);
+    return Object.freeze(keys);
+  }
+  throw new Error('mode must be closed-mainnet or real-funds');
+}
+
 const releaseFields = [
   'ethereumChainId','deploymentMethod','deployer','deployerNonce','reserve','token','tokenCodeHash',
   'tokenOwner','tokenOwnerCodeHash',
@@ -574,6 +650,7 @@ const releaseConfigKeys = [
 
 const evidenceDocuments = [
   'reproducibleBuildReport','verifierReproducibleBuildReport','realFinalizedEndToEndReport',
+  'releaseValidationReport',
   'checkpointProofCapacityReport',
   'checkpointRegistryReproducibleBuildReport','checkpointVerifierReproducibleBuildReport',
   'checkpointBootstrapRatificationReport','checkpointFinalizedEventReport',
@@ -613,7 +690,7 @@ function documentArray(value) {
 function readProductionConstant(source, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const expression = new RegExp(
-    `bytes32\\s+public\\s+constant\\s+${escaped}\\s*=\\s*(?:bytes32\\(\\s*(0|0x[0-9a-fA-F]{64})\\s*\\)|(0x[0-9a-fA-F]{64}))\\s*;`,
+    `bytes32\\s+(?:public|private)\\s+constant\\s+${escaped}\\s*=\\s*(?:bytes32\\(\\s*(0|0x[0-9a-fA-F]{64})\\s*\\)|(0x[0-9a-fA-F]{64}))\\s*;`,
   );
   const match = source.match(expression);
   if (!match) return null;
@@ -625,8 +702,24 @@ function validDocument(document, evidenceFiles) {
   return exactObject(document,['path','sha256'])
     && isCanonicalReleaseEvidenceDocumentPath(document.path)
     && typeof document.sha256 === 'string' && sha256Pattern.test(document.sha256)
+    && document.sha256 !== '0'.repeat(64)
     && Object.prototype.hasOwnProperty.call(evidenceFiles ?? {}, document.path)
     && evidenceFiles[document.path] === document.sha256;
+}
+
+function bindDocumentBytes(bytes,value,document,evidenceFiles,label) {
+  if(!Buffer.isBuffer(bytes)||bytes.length<2) throw new Error(`${label} bytes are absent`);
+  if(document!==null && (!validDocument(document,evidenceFiles)
+      ||createHash('sha256').update(bytes).digest('hex')!==document.sha256)) {
+    throw new Error(`${label} bytes differ from the evidence descriptor`);
+  }
+  const parsed=parseStrictJsonBytes(bytes,{label,maxBytes:16*1024*1024,maxDepth:64});
+  const stable=input=>Array.isArray(input)?input.map(stable):input&&typeof input==='object'
+    ?Object.fromEntries(Object.keys(input).sort().map(key=>[key,stable(input[key])])):input;
+  if(JSON.stringify(stable(parsed))!==JSON.stringify(stable(value))) {
+    throw new Error(`${label} object differs from its bytes`);
+  }
+  return parsed;
 }
 
 function requireControlPlaneRole(blockers, evidence, evidenceFiles, releaseConfig, role) {
@@ -640,17 +733,25 @@ function requireControlPlaneRole(blockers, evidence, evidenceFiles, releaseConfi
       `${role} control-plane snapshot must use the exact supported schema`);
     return [];
   }
-  try {
-    if (getAddress(snapshot.address) !== getAddress(releaseConfig?.[role])) {
+  let observedAddress=null;
+  try { observedAddress=getAddress(snapshot.address); }
+  catch {
+    add(blockers, `control_plane_${role}_address_invalid`, `${role} snapshot address is invalid`);
+  }
+  let expectedAddress=null;
+  try { expectedAddress=getAddress(releaseConfig?.[role]); }
+  catch { /* release validation emits the base-field blocker */ }
+  if(observedAddress&&expectedAddress) {
+    if (observedAddress !== expectedAddress) {
       add(blockers, `control_plane_${role}_address_mismatch`, `${role} snapshot address does not match the release`);
     }
-  } catch {
-    add(blockers, `control_plane_${role}_address_invalid`, `${role} snapshot or release address is invalid`);
   }
   const expectedCodeHash = releaseConfig?.[`${role}CodeHash`];
-  if (!bytes32Pattern.test(snapshot.runtimeCodeHash ?? '')
-      || !bytes32Pattern.test(expectedCodeHash ?? '')
-      || snapshot.runtimeCodeHash.toLowerCase() !== expectedCodeHash.toLowerCase()) {
+  const observedCodeHashConfigured=bytes32Pattern.test(snapshot.runtimeCodeHash??'');
+  const expectedCodeHashConfigured=bytes32Pattern.test(expectedCodeHash??'');
+  if (!observedCodeHashConfigured
+      || (expectedCodeHashConfigured
+        &&snapshot.runtimeCodeHash.toLowerCase()!==expectedCodeHash.toLowerCase())) {
     add(blockers, `control_plane_${role}_codehash_mismatch`, `${role} runtime code hash does not match the release`);
   }
   if (!bytes32Pattern.test(snapshot.configurationHash ?? '')
@@ -664,34 +765,92 @@ function requireControlPlaneRole(blockers, evidence, evidenceFiles, releaseConfi
     ? [snapshot.configurationReport] : [];
 }
 
-function requireControlPlaneSemanticEvidence(blockers,evidence,releaseConfig,controlPlaneEvidenceArtifacts) {
+function requireControlPlaneSemanticEvidence(blockers,evidence,evidenceFiles,releaseConfig,
+  controlPlaneEvidenceArtifacts,controlPlaneEvidenceAuthority) {
+  const recoveryV3=controlPlaneEvidenceArtifacts?.bundle?.schema==='usdom-safe-control-release-evidence/v3';
+  const semanticDocuments=[
+    evidence?.controlPlaneEvidenceBundle,
+    ...['governance','guardian','checkpointGuardian','usdtCustody'].map(role=>
+      evidence?.controlPlane?.[role]?.configurationReport),
+    evidence?.controlPlaneSeparationReport,
+    evidence?.controlPlaneRecoveryDrillReport,
+    ...(recoveryV3?[]:[evidence?.safeRecoveryFinalEvidenceBundle]),
+  ];
+  const artifactValues=[
+    controlPlaneEvidenceArtifacts?.bundle,
+    ...['governance','guardian','checkpointGuardian','usdtCustody'].map(role=>
+      controlPlaneEvidenceArtifacts?.roleReports?.[role]),
+    controlPlaneEvidenceArtifacts?.separationReport,
+    controlPlaneEvidenceArtifacts?.recoveryDrillReport,
+    ...(recoveryV3?[]:[controlPlaneEvidenceArtifacts?.finalBundle]),
+  ];
+  const authorityValues=[
+    controlPlaneEvidenceAuthority?.bundleBytes,
+    ...['governance','guardian','checkpointGuardian','usdtCustody'].map(role=>
+      controlPlaneEvidenceAuthority?.roleReportBytes?.[role]),
+    controlPlaneEvidenceAuthority?.separationReportBytes,
+    controlPlaneEvidenceAuthority?.recoveryDrillReportBytes,
+    ...(recoveryV3?[]:[controlPlaneEvidenceAuthority?.finalBundleBytes]),
+  ];
+  if(!semanticDocuments.some(document=>validDocument(document,evidenceFiles))
+      && !artifactValues.some(value=>value!==undefined&&value!==null)
+      && !authorityValues.some(value=>value!==undefined&&value!==null)) {
+    return;
+  }
+  if(['governance','guardian','checkpointGuardian','usdtCustody'].some(role=>
+    !exactObject(evidence?.controlPlane?.[role],
+      ['address','configurationHash','configurationReport','runtimeCodeHash']))) {
+    return;
+  }
+  if(!semanticDocuments.every(document=>validDocument(document,evidenceFiles))) return;
   try {
-    const bundle=validateRecoverableSafeControlReleaseArtifactSet(
-      controlPlaneEvidenceArtifacts,
-    );
-    const finalBundle=validateSafeRecoveryEvidenceBundleShape(
-      controlPlaneEvidenceArtifacts.finalBundle,
-    );
-    if(finalBundle.packageHash!==bundle.packageHash||finalBundle.recoveryHash!==bundle.recoveryHash
+    const authority=controlPlaneEvidenceAuthority;
+    const rebound={
+      bundle:bindDocumentBytes(authority?.bundleBytes,controlPlaneEvidenceArtifacts?.bundle,
+        evidence?.controlPlaneEvidenceBundle,evidenceFiles,'control-plane bundle'),
+      roleReports:Object.fromEntries(['governance','guardian','checkpointGuardian','usdtCustody'].map(role=>[role,
+        bindDocumentBytes(authority?.roleReportBytes?.[role],controlPlaneEvidenceArtifacts?.roleReports?.[role],
+          evidence?.controlPlane?.[role]?.configurationReport,evidenceFiles,`${role} control report`)])),
+      separationReport:bindDocumentBytes(authority?.separationReportBytes,
+        controlPlaneEvidenceArtifacts?.separationReport,evidence?.controlPlaneSeparationReport,
+        evidenceFiles,'control-plane separation report'),
+      recoveryDrillReport:bindDocumentBytes(authority?.recoveryDrillReportBytes,
+        controlPlaneEvidenceArtifacts?.recoveryDrillReport,evidence?.controlPlaneRecoveryDrillReport,
+        evidenceFiles,'control-plane recovery drill report'),
+      ...(recoveryV3?{}:{finalBundle:bindDocumentBytes(authority?.finalBundleBytes,controlPlaneEvidenceArtifacts?.finalBundle,
+        evidence?.safeRecoveryFinalEvidenceBundle,evidenceFiles,'Safe recovery final bundle')}),
+    };
+    const bundle=recoveryV3?validateSafeControlReleaseArtifactSetV3(rebound)
+      :validateRecoverableSafeControlReleaseArtifactSet(rebound);
+    if(!recoveryV3) {
+      const finalBundle=validateSafeRecoveryEvidenceBundleShape(rebound.finalBundle);
+      if(finalBundle.packageHash!==bundle.packageHash||finalBundle.recoveryHash!==bundle.recoveryHash
         ||finalBundle.executions.length!==bundle.recoveryDrillReport.roles.length
         ||finalBundle.executions.some((execution,index)=>
           execution.role!==bundle.recoveryDrillReport.roles[index].safeRole
           ||execution.transactionHash!==bundle.recoveryDrillReport.roles[index].transactionHash)) {
-      throw new Error('output-last Safe recovery bundle disagrees with release evidence');
+        throw new Error('output-last Safe recovery bundle disagrees with release evidence');
+      }
+    } else if(bundle.recoveryDrillReport.finalizedStepCount!==12
+        ||bundle.recoveryDrillReport.roles.some(role=>role.transactions.length!==3)) {
+      throw new Error('recovery v3 release evidence is incomplete');
     }
-    for(const role of ['governance','guardian','checkpointGuardian']) {
+    for(const role of ['governance','guardian','checkpointGuardian','usdtCustody']) {
       const declared=evidence?.controlPlane?.[role];
       const observed=bundle.roleReports[role];
-      if(!declared||getAddress(declared.address)!==getAddress(observed.address)
+      if(!exactObject(declared,['address','configurationHash','configurationReport','runtimeCodeHash'])) {
+        continue;
+      }
+      if(getAddress(declared.address)!==getAddress(observed.address)
           || declared.runtimeCodeHash.toLowerCase()!==observed.runtimeCodeHash
           || declared.configurationHash.toLowerCase()!==observed.configurationHash) {
         throw new Error(`${role} release snapshot disagrees with semantic Safe evidence`);
       }
       const configuredOwners=releaseConfig?.[`${role}Owners`];
-      if(!Array.isArray(configuredOwners)
-          || configuredOwners.length!==observed.ownersAfter.length
-          || observed.ownersAfter.some((owner,index)=>
-            getAddress(owner)!==getAddress(configuredOwners[index]))) {
+      if(Array.isArray(configuredOwners)
+          &&(configuredOwners.length!==observed.ownersAfter.length
+            ||observed.ownersAfter.some((owner,index)=>
+              getAddress(owner)!==getAddress(configuredOwners[index])))) {
         throw new Error(`${role} owners disagree with the exact release`);
       }
     }
@@ -785,21 +944,25 @@ function requireDocuments(blockers, evidence, evidenceFiles, mode, releaseConfig
         'the required checkpoint verifier trusted-setup transcript is absent or hash-mismatched');
     }
   }
-  if(!exactObject(evidence?.controlPlane,['checkpointGuardian','governance','guardian'])) {
-    add(blockers,'control_plane_schema_invalid','controlPlane must use the exact three-role schema');
+  if(!exactObject(evidence?.controlPlane,['checkpointGuardian','governance','guardian','usdtCustody'])) {
+    add(blockers,'control_plane_schema_invalid','controlPlane must use the exact four-role schema');
   }
   const governanceReports = requireControlPlaneRole(blockers, evidence, evidenceFiles, releaseConfig, 'governance');
   const guardianReports = requireControlPlaneRole(blockers, evidence, evidenceFiles, releaseConfig, 'guardian');
   const checkpointGuardianReports =
     requireControlPlaneRole(blockers,evidence,evidenceFiles,releaseConfig,'checkpointGuardian');
+  const usdtCustodyReports =
+    requireControlPlaneRole(blockers,evidence,evidenceFiles,releaseConfig,'usdtCustody');
   const governanceConfigurationHash = evidence?.controlPlane?.governance?.configurationHash;
   const guardianConfigurationHash = evidence?.controlPlane?.guardian?.configurationHash;
   const checkpointGuardianConfigurationHash=evidence?.controlPlane?.checkpointGuardian?.configurationHash;
-  const controlHashes=[governanceConfigurationHash,guardianConfigurationHash,checkpointGuardianConfigurationHash]
+  const usdtCustodyConfigurationHash=evidence?.controlPlane?.usdtCustody?.configurationHash;
+  const controlHashes=[governanceConfigurationHash,guardianConfigurationHash,
+    checkpointGuardianConfigurationHash,usdtCustodyConfigurationHash]
     .filter(value=>bytes32Pattern.test(value??'')).map(value=>value.toLowerCase());
   if (new Set(controlHashes).size!==controlHashes.length) {
     add(blockers,'control_plane_configuration_not_separated',
-      'governance, reserve guardian and checkpoint guardian configuration hashes must differ');
+      'governance, reserve guardian, checkpoint guardian and USDT custody configuration hashes must differ');
   }
   const sharedRiscZeroTranscript=setup?.required===true && checkpointSetup?.required===true
     && typeof setup.transcript?.path==='string'
@@ -828,7 +991,7 @@ function requireDocuments(blockers, evidence, evidenceFiles, mode, releaseConfig
     setup?.decisionReport,...(setup?.required ? [setup.transcript] : []),
     ...(!sharedTrustedSetupDecision ? [checkpointSetup?.decisionReport] : []),
     ...(checkpointSetup?.required && !sharedRiscZeroTranscript ? [checkpointSetup.transcript] : []),
-    ...governanceReports,...guardianReports,...checkpointGuardianReports,
+    ...governanceReports,...guardianReports,...checkpointGuardianReports,...usdtCustodyReports,
   ].filter(document => document && typeof document.path === 'string');
   const paths = allDocuments.map(document => document.path);
   if (new Set(paths).size !== paths.length) {
@@ -843,11 +1006,17 @@ function requireDocuments(blockers, evidence, evidenceFiles, mode, releaseConfig
 }
 
 function requirePreflightAttestation(
-  blockers,{name,phase,document,evidenceFiles,attestation,releaseConfig,riscZeroReference},
+  blockers,{name,phase,document,evidenceFiles,attestation,attestationBytes,requireByteAuthority=false,
+    releaseConfig,riscZeroReference},
 ) {
   if(!validDocument(document,evidenceFiles)) return;
-  const expectedKeys=['blockerCount','blockers','finalizedBlockHash','finalizedBlockNumber',
-    'observation','phase','ready','rpcConsensus'];
+  if(requireByteAuthority||attestationBytes!==undefined) {
+    try { attestation=bindDocumentBytes(attestationBytes,attestation,document,evidenceFiles,
+      `${name} attestation`); }
+    catch(error) { add(blockers,`${name}_attestation_authority_invalid`,error.message); return; }
+  }
+  const expectedKeys=['blockerCount','blockers','collectionCompletedAtMs','collectionStartedAtMs',
+    'finalizedBlockHash','finalizedBlockNumber','observation','phase','ready','rpcConsensus'];
   if(!attestation || typeof attestation!=='object' || Array.isArray(attestation)
       || JSON.stringify(Object.keys(attestation).sort())!==JSON.stringify(expectedKeys)) {
     add(blockers,`${name}_attestation_unreadable`,
@@ -863,6 +1032,13 @@ function requirePreflightAttestation(
       || !Array.isArray(attestation.blockers) || attestation.blockers.length!==0) {
     add(blockers,`${name}_attestation_not_ready`,
       `${name} attestation must report the expected phase with zero blockers`);
+  }
+  if(!Number.isSafeInteger(attestation.collectionStartedAtMs)
+      || !Number.isSafeInteger(attestation.collectionCompletedAtMs)
+      || attestation.collectionStartedAtMs>attestation.collectionCompletedAtMs
+      || attestation.collectionCompletedAtMs-attestation.collectionStartedAtMs>10*60*1000) {
+    add(blockers,`${name}_attestation_collection_window_invalid`,
+      `${name} attestation collection window is invalid`);
   }
   let recomputed;
   try {
@@ -886,9 +1062,17 @@ function requirePreflightAttestation(
 }
 
 function requireNativeReleaseAttestation(
-  blockers,{name,kind,document,evidenceFiles,attestation,evidence,releaseConfig,expectedSubjectCommitment},
+  blockers,{name,kind,document,evidenceFiles,attestation,attestationBytes,evidence,releaseConfig,
+    expectedSubjectCommitment},
 ) {
   if(!validDocument(document,evidenceFiles)) return null;
+  try {
+    attestation=bindDocumentBytes(attestationBytes,attestation,document,evidenceFiles,
+      `${name} attestation`);
+  } catch(error) {
+    add(blockers,`${name}_attestation_authority_invalid`,error.message);
+    return null;
+  }
   const expectedKeys=['approvedBy','checkpointRegistryConfigHash','completedAt','kind','releaseId',
     'reserveConfigHash','schema','signature','sourceCommit','subjectCommitment'];
   if(!attestation || typeof attestation!=='object' || Array.isArray(attestation)
@@ -910,8 +1094,8 @@ function requireNativeReleaseAttestation(
     ['checkpointRegistryConfigHash',releaseConfig?.checkpointRegistryConfigHash],
   ]) {
     const value=attestation[field];
-    if(!bytes32Pattern.test(value??'') || !bytes32Pattern.test(expected??'')
-        || value.toLowerCase()!==expected.toLowerCase()) {
+    if(!bytes32Pattern.test(value??'') || (bytes32Pattern.test(expected??'')
+        &&value.toLowerCase()!==expected.toLowerCase())) {
       add(blockers,`${name}_${field}_mismatch`,`${name} ${field} does not match the exact release`);
     }
   }
@@ -989,7 +1173,7 @@ function requireNativeRuntimeManifest(
   let expectedNetworkMagic=null;
   try { expectedNetworkMagic=uint(releaseConfig?.checkpointDomNetworkMagic,32).toString(16).padStart(8,'0'); }
   catch { /* the release-config validator reports the invalid value */ }
-  if(!expectedNetworkMagic || validation.network_magic!==expectedNetworkMagic) {
+  if(expectedNetworkMagic&&validation.network_magic!==expectedNetworkMagic) {
     add(blockers,'native_runtime_network_magic_mismatch',
       'the native runtime network magic differs from the checkpoint release');
   }
@@ -1005,13 +1189,14 @@ function requireNativeRuntimeManifest(
     [validation.ethereum_genesis_validators_root,releaseConfig?.ethereumGenesisValidatorsRoot,
       'native_runtime_ethereum_genesis_mismatch','native runtime Ethereum genesis root differs from the release'],
   ]) {
-    if(!rawHash(observed) || !bytes32Pattern.test(expected??'')
-        || observed!==expected.slice(2).toLowerCase()) add(blockers,code,detail);
+    if(!rawHash(observed) || (bytes32Pattern.test(expected??'')
+        &&observed!==expected.slice(2).toLowerCase())) add(blockers,code,detail);
   }
+  const expectedTrustedCheckpoint=releaseConfig?.nativeEthereumTrustedCheckpoint;
   if(!rawHash(validation.ethereum_trusted_checkpoint)
-      || !bytes32Pattern.test(releaseConfig?.nativeEthereumTrustedCheckpoint??'')
-      || validation.ethereum_trusted_checkpoint
-        !==releaseConfig.nativeEthereumTrustedCheckpoint.slice(2).toLowerCase()) {
+      ||(bytes32Pattern.test(expectedTrustedCheckpoint??'')
+        &&validation.ethereum_trusted_checkpoint
+          !==expectedTrustedCheckpoint.slice(2).toLowerCase())) {
     add(blockers,'native_runtime_ethereum_trusted_checkpoint_mismatch',
       'native runtime trusted checkpoint differs from the exact release');
   }
@@ -1022,17 +1207,24 @@ function requireNativeRuntimeManifest(
         `native runtime ${name} fork differs from the supported Ethereum mainnet schedule`);
     }
   }
-  if(validation.first_v4_height!==releaseConfig?.checkpointFirstV4Height) {
+  const expectedFirstV4Height=releaseConfig?.checkpointFirstV4Height;
+  if(expectedFirstV4Height!==null&&expectedFirstV4Height!==undefined
+      &&expectedFirstV4Height!==''&&validation.first_v4_height!==expectedFirstV4Height) {
     add(blockers,'native_runtime_first_v4_height_mismatch',
       'native runtime activation height differs from the checkpoint release');
   }
+  const expectedEthereumChainId=releaseConfig?.ethereumChainId;
   if(!rawHash(validation.ethereum_chain_id_uint256)
-      || BigInt(`0x${validation.ethereum_chain_id_uint256}`).toString()!==releaseConfig?.ethereumChainId) {
+      ||(expectedEthereumChainId!==null&&expectedEthereumChainId!==undefined
+        &&expectedEthereumChainId!==''
+        &&BigInt(`0x${validation.ethereum_chain_id_uint256}`).toString()
+          !==expectedEthereumChainId)) {
     add(blockers,'native_runtime_ethereum_chain_id_mismatch',
       'native runtime Ethereum chain ID differs from the release');
   }
-  if(!rawAddress(validation.reserve) || !/^0x[0-9a-fA-F]{40}$/.test(releaseConfig?.reserve??'')
-      || validation.reserve!==releaseConfig.reserve.slice(2).toLowerCase()) {
+  const expectedReserve=releaseConfig?.reserve;
+  if(!rawAddress(validation.reserve) || (/^0x[0-9a-fA-F]{40}$/.test(expectedReserve??'')
+      &&validation.reserve!==expectedReserve.slice(2).toLowerCase())) {
     add(blockers,'native_runtime_reserve_mismatch','native runtime reserve differs from the release');
   }
   for(const [observed,expected,code,detail] of [
@@ -1041,8 +1233,8 @@ function requireNativeRuntimeManifest(
     [validation.deposit_reserve,releaseConfig?.reserve,
       'native_runtime_deposit_reserve_mismatch','native deposit reserve differs from the release'],
   ]) {
-    if(!rawAddress(observed) || !/^0x[0-9a-fA-F]{40}$/.test(expected??'')
-        || observed!==expected.slice(2).toLowerCase()) add(blockers,code,detail);
+    if(!rawAddress(observed) || (/^0x[0-9a-fA-F]{40}$/.test(expected??'')
+        &&observed!==expected.slice(2).toLowerCase())) add(blockers,code,detail);
   }
   for(const [observed,expected,code,detail] of [
     [validation.checkpoint_runtime_code_hash,releaseConfig?.checkpointRegistryRuntimeCodeHash,
@@ -1056,8 +1248,8 @@ function requireNativeRuntimeManifest(
     [validation.deposit_bridge_domain,releaseConfig?.domDomain,
       'native_runtime_deposit_domain_mismatch','native deposit domain differs from the release'],
   ]) {
-    if(!rawHash(observed) || !bytes32Pattern.test(expected??'')
-        || observed!==expected.slice(2).toLowerCase()) add(blockers,code,detail);
+    if(!rawHash(observed) || (bytes32Pattern.test(expected??'')
+        &&observed!==expected.slice(2).toLowerCase())) add(blockers,code,detail);
   }
   if(validation.checkpoint_config_storage_slot!=='0'.repeat(64)) {
     add(blockers,'native_runtime_checkpoint_config_slot_mismatch',
@@ -1134,8 +1326,20 @@ function requireNativeRuntimeManifest(
 }
 
 function requireNativeAttestationApprovalSnapshot(
-  blockers,{observation,attestations,releaseConfig},
+  blockers,{observation,observationAuthority,attestations,releaseConfig},
 ) {
+  try {
+    if(!Buffer.isBuffer(observationAuthority?.bytes)
+        ||!sha256Pattern.test(observationAuthority?.sha256??'')
+        ||createHash('sha256').update(observationAuthority.bytes).digest('hex')
+          !==observationAuthority.sha256) throw new Error('snapshot bytes or descriptor are invalid');
+    const parsed=parseStrictJsonBytes(observationAuthority.bytes,{label:'native attestation approval snapshot',maxBytes:1024*1024,maxDepth:32});
+    if(JSON.stringify(parsed)!==JSON.stringify(observation)) throw new Error('snapshot object differs from authority bytes');
+    observation=parsed;
+  } catch(error) {
+    add(blockers,'native_attestation_approval_snapshot_authority_invalid',error.message);
+    return;
+  }
   const expectedKeys=['approvals','chainId','finalizedBlockHash','finalizedBlockNumber',
     'finalizedBlockTimestamp','governance','governanceCodeHash','rpcConsensus','snapshotBlockHashAfter'];
   if(!observation || typeof observation!=='object' || Array.isArray(observation)
@@ -1146,7 +1350,9 @@ function requireNativeAttestationApprovalSnapshot(
   }
   try { validateRpcConsensusEvidence(observation.rpcConsensus); }
   catch(error) { add(blockers,'native_attestation_approval_rpc_consensus_invalid',error.message); }
-  if(observation.chainId!==releaseConfig?.ethereumChainId || observation.chainId!=='1') {
+  if(observation.chainId!=='1'
+      || (releaseConfig?.ethereumChainId!==null&&releaseConfig?.ethereumChainId!==undefined
+      &&releaseConfig.ethereumChainId!==''&&observation.chainId!==releaseConfig.ethereumChainId)) {
     add(blockers,'native_attestation_approval_chain_mismatch',
       'native attestation approvals were not checked on the release Ethereum chain');
   }
@@ -1158,31 +1364,38 @@ function requireNativeAttestationApprovalSnapshot(
     add(blockers,'native_attestation_approval_block_timestamp_invalid',
       'native attestation approval block timestamp must be a nonzero canonical integer string');
   }
-  if(!bytes32Pattern.test(observation.finalizedBlockHash??'')
-      || observation.finalizedBlockHash.toLowerCase()===zeroHash) {
+  const finalizedBlockHashConfigured=bytes32Pattern.test(observation.finalizedBlockHash??'')
+    &&observation.finalizedBlockHash.toLowerCase()!==zeroHash;
+  if(!finalizedBlockHashConfigured) {
     add(blockers,'native_attestation_approval_block_hash_invalid',
       'native attestation approvals require a nonzero finalized block hash');
   }
-  if(!bytes32Pattern.test(observation.snapshotBlockHashAfter??'')
-      || !bytes32Pattern.test(observation.finalizedBlockHash??'')
+  if(finalizedBlockHashConfigured
+      &&(!bytes32Pattern.test(observation.snapshotBlockHashAfter??'')
       || observation.snapshotBlockHashAfter.toLowerCase()
-        !==observation.finalizedBlockHash.toLowerCase()) {
+        !==observation.finalizedBlockHash.toLowerCase())) {
     add(blockers,'native_attestation_approval_snapshot_changed',
       'the finalized block hash changed while native approvals were checked');
   }
-  try {
-    if(getAddress(observation.governance)!==getAddress(releaseConfig?.governance)) {
-      add(blockers,'native_attestation_approval_governance_mismatch',
-        'the EIP-1271 verifier differs from release governance');
-    }
-  } catch {
+  let observedGovernance=null;
+  try { observedGovernance=getAddress(observation.governance); }
+  catch {
     add(blockers,'native_attestation_approval_governance_invalid',
       'the EIP-1271 governance verifier is invalid');
   }
+  let expectedGovernance=null;
+  try { expectedGovernance=getAddress(releaseConfig?.governance); }
+  catch { /* release validation emits the base-field blocker */ }
+  if(observedGovernance&&expectedGovernance) {
+    if(observedGovernance!==expectedGovernance) {
+      add(blockers,'native_attestation_approval_governance_mismatch',
+        'the EIP-1271 verifier differs from release governance');
+    }
+  }
   if(!bytes32Pattern.test(observation.governanceCodeHash??'')
-      || !bytes32Pattern.test(releaseConfig?.governanceCodeHash??'')
-      || observation.governanceCodeHash.toLowerCase()
-        !==releaseConfig.governanceCodeHash.toLowerCase()) {
+      || (bytes32Pattern.test(releaseConfig?.governanceCodeHash??'')
+      &&observation.governanceCodeHash.toLowerCase()
+        !==releaseConfig.governanceCodeHash.toLowerCase())) {
     add(blockers,'native_attestation_approval_governance_codehash_mismatch',
       'the EIP-1271 verifier code differs from the release');
   }
@@ -1227,8 +1440,20 @@ function requireNativeAttestationApprovalSnapshot(
 }
 
 function requireReleaseAuthorizationApprovalSnapshot(
-  blockers,{observation,authorization,releaseConfig},
+  blockers,{observation,observationAuthority,authorization,releaseConfig},
 ) {
+  try {
+    if(!Buffer.isBuffer(observationAuthority?.bytes)
+        ||!sha256Pattern.test(observationAuthority?.sha256??'')
+        ||createHash('sha256').update(observationAuthority.bytes).digest('hex')
+          !==observationAuthority.sha256) throw new Error('snapshot bytes or descriptor are invalid');
+    const parsed=parseStrictJsonBytes(observationAuthority.bytes,{label:'release authorization approval snapshot',maxBytes:1024*1024,maxDepth:32});
+    if(JSON.stringify(parsed)!==JSON.stringify(observation)) throw new Error('snapshot object differs from authority bytes');
+    observation=parsed;
+  } catch(error) {
+    add(blockers,'release_authorization_approval_snapshot_authority_invalid',error.message);
+    return;
+  }
   const expectedKeys=['approvals','chainId','finalizedBlockHash','finalizedBlockNumber',
     'finalizedBlockTimestamp','governance','governanceCodeHash','rpcConsensus','snapshotBlockHashAfter'];
   if(!observation||typeof observation!=='object'||Array.isArray(observation)
@@ -1239,7 +1464,9 @@ function requireReleaseAuthorizationApprovalSnapshot(
   }
   try { validateRpcConsensusEvidence(observation.rpcConsensus); }
   catch(error) { add(blockers,'release_authorization_approval_rpc_consensus_invalid',error.message); }
-  if(observation.chainId!==releaseConfig?.ethereumChainId||observation.chainId!=='1') {
+  if(observation.chainId!=='1'
+      || (releaseConfig?.ethereumChainId!==null&&releaseConfig?.ethereumChainId!==undefined
+      &&releaseConfig.ethereumChainId!==''&&observation.chainId!==releaseConfig.ethereumChainId)) {
     add(blockers,'release_authorization_approval_chain_mismatch',
       'release authorization was not checked on the release Ethereum chain');
   }
@@ -1256,16 +1483,21 @@ function requireReleaseAuthorizationApprovalSnapshot(
     add(blockers,'release_authorization_approval_snapshot_changed',
       'the finalized block identity changed during release-authorization verification');
   }
-  try {
-    if(getAddress(observation.governance)!==getAddress(releaseConfig?.governance)) throw new Error();
-  } catch {
+  let releaseAuthorizationObservedGovernance=null;
+  try { releaseAuthorizationObservedGovernance=getAddress(observation.governance); }
+  catch { /* a configured expected address keeps the mismatch fail-closed below */ }
+  let releaseAuthorizationExpectedGovernance=null;
+  try { releaseAuthorizationExpectedGovernance=getAddress(releaseConfig?.governance); }
+  catch { /* release validation emits the base-field blocker */ }
+  if(releaseAuthorizationExpectedGovernance
+      &&releaseAuthorizationObservedGovernance!==releaseAuthorizationExpectedGovernance) {
     add(blockers,'release_authorization_approval_governance_mismatch',
       'release authorization was not verified by the release governance');
   }
   if(!bytes32Pattern.test(observation.governanceCodeHash??'')
-      || !bytes32Pattern.test(releaseConfig?.governanceCodeHash??'')
-      || observation.governanceCodeHash.toLowerCase()
-        !==releaseConfig.governanceCodeHash.toLowerCase()) {
+      || (bytes32Pattern.test(releaseConfig?.governanceCodeHash??'')
+      &&observation.governanceCodeHash.toLowerCase()
+        !==releaseConfig.governanceCodeHash.toLowerCase())) {
     add(blockers,'release_authorization_approval_governance_codehash_mismatch',
       'release-authorization governance code differs from the release');
   }
@@ -1297,6 +1529,10 @@ function requireReleaseAuthorizationApprovalSnapshot(
       && BigInt(authorization.acceptedAt)>BigInt(observation.finalizedBlockTimestamp)) {
     add(blockers,'release_authorization_after_finalized_snapshot',
       'release authorization claims a time later than its finalized approval snapshot');
+  }
+  try { validateReleaseAuthorizationFreshness({authorization,observation}); }
+  catch(error) {
+    add(blockers,'release_authorization_stale',error.message);
   }
 }
 
@@ -1454,28 +1690,34 @@ function requireRepositoryProvenance(blockers, evidence, repositoryState) {
       'the native USDOM wallet panic boundary and its complete manifest must pass');
   }
   if (repositoryState.dirty !== false) add(blockers, 'repository_dirty', 'the release source tree must be clean');
-  if (typeof evidence?.sourceCommit !== 'string' || !/^[0-9a-f]{40}$/.test(evidence.sourceCommit)) {
+  const sourceCommitConfigured=typeof evidence?.sourceCommit==='string'
+    &&/^[0-9a-f]{40}$/.test(evidence.sourceCommit);
+  const sourceCommitInspected=sourceCommitConfigured
+    &&repositoryState.sourceCommit===evidence.sourceCommit;
+  if (!sourceCommitConfigured) {
     add(blockers, 'source_commit_missing', 'the release manifest requires an exact lowercase Git commit');
   } else if (repositoryState.sourceCommit !== evidence.sourceCommit) {
     add(blockers, 'source_commit_mismatch',
       'the release manifest sourceCommit does not equal the inspected immutable source commit');
   }
-  if (typeof repositoryState.head !== 'string' || !/^[0-9a-f]{40}$/.test(repositoryState.head)
-      || repositoryState.head === evidence?.sourceCommit) {
+  const releaseEvidenceCommitConfigured=sourceCommitConfigured
+    &&typeof repositoryState.head==='string'&&/^[0-9a-f]{40}$/.test(repositoryState.head)
+    &&repositoryState.head!==evidence.sourceCommit;
+  if (sourceCommitConfigured&&!releaseEvidenceCommitConfigured) {
     add(blockers, 'release_evidence_commit_missing',
       'HEAD must be a distinct signed release-evidence commit after the immutable source commit');
   }
-  if (!Array.isArray(repositoryState.headParents)
+  if (releaseEvidenceCommitConfigured&&(!Array.isArray(repositoryState.headParents)
       || repositoryState.headParents.length !== 1
-      || repositoryState.headParents[0] !== evidence?.sourceCommit) {
+      || repositoryState.headParents[0] !== evidence.sourceCommit)) {
     add(blockers, 'release_evidence_parent_mismatch',
       'the release-evidence commit must have the exact sourceCommit as its sole parent');
   }
   const changes=repositoryState.releaseEvidenceChanges;
-  if (!Array.isArray(changes)) {
+  if (releaseEvidenceCommitConfigured&&!Array.isArray(changes)) {
     add(blockers,'release_evidence_diff_missing',
       'the exact source-to-release-evidence commit diff was not inspected');
-  } else {
+  } else if(releaseEvidenceCommitConfigured) {
     let malformed=false;
     const seen=new Set();
     let releaseConfigModified=false;
@@ -1511,35 +1753,41 @@ function requireRepositoryProvenance(blockers, evidence, repositoryState) {
         'the evidence commit contains a malformed, duplicate, deleted or non-evidence path');
     }
   }
+  const sourceTagConfigured=typeof evidence?.sourceTag==='string'
+    &&isCanonicalReleaseTag(evidence.sourceTag);
   if (typeof evidence?.sourceTag !== 'string' || !evidence.sourceTag) {
     add(blockers, 'source_tag_missing', 'the release manifest requires an annotated signed source tag');
   } else if (!isCanonicalReleaseTag(evidence.sourceTag)) {
     add(blockers,'source_tag_invalid','sourceTag must use canonical usdom-v<semver> release syntax');
-  } else if (repositoryState.tagCommit !== repositoryState.head) {
+  } else if (releaseEvidenceCommitConfigured
+      &&repositoryState.tagCommit !== repositoryState.head) {
     add(blockers, 'source_tag_mismatch', 'the declared source tag does not resolve to the inspected HEAD');
   }
-  if (repositoryState.sourceCommitSignatureVerified !== true) {
+  if (sourceCommitInspected&&repositoryState.sourceCommitSignatureVerified !== true) {
     add(blockers, 'source_commit_signature_unverified',
       'git verify-commit must authenticate the immutable source commit');
   }
-  if (repositoryState.releaseCommitSignatureVerified !== true) {
+  if (releaseEvidenceCommitConfigured&&repositoryState.releaseCommitSignatureVerified !== true) {
     add(blockers, 'release_evidence_commit_signature_unverified',
       'git verify-commit must authenticate the release-evidence HEAD');
   }
-  if (repositoryState.tagSignatureVerified !== true) {
+  if (releaseEvidenceCommitConfigured&&sourceTagConfigured
+      &&repositoryState.tagSignatureVerified !== true) {
     add(blockers, 'source_tag_signature_unverified', 'git verify-tag must authenticate the declared tag');
   }
-  if (repositoryState.sourceAuthor !== expectedReleaseIdentity) {
+  if (sourceCommitInspected&&repositoryState.sourceAuthor !== expectedReleaseIdentity) {
     add(blockers, 'source_author_mismatch', 'source author identity is not the required identity');
   }
-  if (repositoryState.sourceCommitter !== expectedReleaseIdentity) {
+  if (sourceCommitInspected&&repositoryState.sourceCommitter !== expectedReleaseIdentity) {
     add(blockers, 'source_committer_mismatch', 'source committer identity is not the required identity');
   }
-  if (repositoryState.releaseAuthor !== expectedReleaseIdentity) {
+  if (releaseEvidenceCommitConfigured
+      &&repositoryState.releaseAuthor !== expectedReleaseIdentity) {
     add(blockers, 'release_evidence_author_mismatch',
       'release-evidence author identity is not the required identity');
   }
-  if (repositoryState.releaseCommitter !== expectedReleaseIdentity) {
+  if (releaseEvidenceCommitConfigured
+      &&repositoryState.releaseCommitter !== expectedReleaseIdentity) {
     add(blockers, 'release_evidence_committer_mismatch',
       'release-evidence committer identity is not the required identity');
   }
@@ -1552,32 +1800,83 @@ function requireRepositoryProvenance(blockers, evidence, repositoryState) {
  * the deployment runbook against finalized Ethereum state.
  */
 export function assessMainnetReadiness({
-  mode = 'closed-mainnet', requirements, operatorIntent, releaseConfig, evidence, evidenceFiles, repositoryState,
+  mode = 'closed-mainnet', requirements,requirementsAuthority,operatorIntent,releaseConfig,evidence,
+  readinessDocumentAuthority,evidenceFiles,repositoryState,
+  repositoryStateAuthority,
   trustedReleaseSigningKeyFingerprint,
-  contractSource, checkpointContractSource,
+  contractSource,checkpointContractSource,contractSourceAuthority,
   compiledReserveRuntimeCodeHash, compiledReserveInitcodeHash,
   compiledCheckpointRegistryRuntimeCodeHash, compiledCheckpointRegistryInitcodeHash, verifierConfig,
   checkpointVerifierConfig,riscZeroReference,compiledVerifierRuntimeCodeHash,
   compiledVerifierInitcodeHash,compiledCheckpointVerifierRuntimeCodeHash,
-  compiledCheckpointVerifierInitcodeHash,predeploymentAttestation,coldStartAttestation,
+  compiledCheckpointVerifierInitcodeHash,compiledArtifactBindingErrors={},compiledArtifactAuthority,
+  predeploymentAttestation,predeploymentAttestationAuthority,coldStartAttestation,coldStartAttestationAuthority,
   nativePrivacyTrustedSetupAttestation,nativeScheduledRuntimeActivationAttestation,
   nativeWalletCustodyAttestation,nativeWalletRecoveryAttestation,
+  nativeReleaseAttestationAuthority,
   nativeAttestationApprovalObservation,releaseAuthorizationApprovalObservation,
-  nativeRuntimeValidation,controlPlaneEvidenceArtifacts,
-  riscZeroHealthSourceCatalog,finalizedBurnE2eReport,checkpointProofCapacityReport,
+  approvalObservationAuthority,
+  nativeRuntimeValidation,configurationAuthority,controlPlaneEvidenceArtifacts,controlPlaneEvidenceAuthority,
+  riscZeroHealthSourceCatalog,riscZeroHealthSourceCatalogAuthority,
+  finalizedBurnE2eReport,finalizedBurnE2eAuthority,
+  checkpointProofCapacityReport,checkpointProofCapacityAuthority,
+  finalizedBurnCapacityReport,finalizedBurnCapacityAuthority,
+  productionOperationalGasAuthority,finalizedDepositAuthority,
+  nativePrivacyCeremonyAuthority,
+  releaseValidationReport,releaseValidationAuthority,toolchainLockSha256,cargoLockSha256,
+  releaseAssuranceAuthority,
   securityValidationReport,requirementsSha256,sourceManifestSha256,
   operationsReviewReport,operatorRunbookSha256,
   reserveReproducibleBuildReport,verifierReproducibleBuildReport,
   mainnetForkRehearsalReport,mainnetForkRehearsalEvidenceFiles,
-  checkpointBootstrapRatificationReport,ethereumCheckpointConsensus,nativePreactivationFacts,
-  checkpointFinalizedEventReport,
+  checkpointBootstrapRatificationReport,checkpointBootstrapRatificationAuthority,
+  ethereumCheckpointConsensus,nativePreactivationFacts,
+  checkpointFinalizedEventReport,checkpointFinalizedEventAuthority,pilotFundsSnapshot,pilotFundsAuthorizationState,
+  pilotFundsAuthority,
   checkpointVerifierReproducibleBuildReport,
   checkpointRegistryReproducibleBuildReport,
+  checkpointRegistryArtifactPinsReport,
+  checkpointRegistryArtifactPinsAuthority,
+  checkpointRandomxImageRatificationReport,
+  checkpointRandomxImageRatificationAuthority,
+  checkpointRestartWitnessReport,
+  checkpointRestartWitnessAuthority,
+  finalizedBurnRecursiveCompletionReport,
+  finalizedBurnRecursiveCompletionAuthority,
   residualRiskReport,residualRiskDraftSha256,
-  trustedSetupDecisionReport,
+  trustedSetupDecisionReport,trustedSetupVerificationReport,trustedSetupAuthority,
+  trustedSetupAuthoritySha256,trustedSetupDecisionReportAuthority,
 }) {
   if (!['closed-mainnet','real-funds'].includes(mode)) throw new Error('mode must be closed-mainnet or real-funds');
   const blockers = [];
+  try {
+    if(!Buffer.isBuffer(requirementsAuthority?.bytes)) {
+      throw new Error('effective production requirements bytes are absent');
+    }
+    const parsed=parseStrictJsonBytes(requirementsAuthority.bytes,
+      {label:'effective production requirements',maxBytes:4*1024*1024,maxDepth:64});
+    if(JSON.stringify(parsed)!==JSON.stringify(requirements)) {
+      throw new Error('effective production requirements differ from authority bytes');
+    }
+  } catch(error) {
+    add(blockers,'requirements_authority_invalid',error.message);
+  }
+  try {
+    if(!Buffer.isBuffer(readinessDocumentAuthority?.operatorIntentBytes)
+        ||!Buffer.isBuffer(readinessDocumentAuthority?.releaseEvidenceBytes)) {
+      throw new Error('operator intent or release evidence bytes are absent');
+    }
+    const parsedIntent=parseStrictJsonBytes(readinessDocumentAuthority.operatorIntentBytes,
+      {label:'operator intent authority',maxBytes:1024*1024,maxDepth:64});
+    const parsedEvidence=parseStrictJsonBytes(readinessDocumentAuthority.releaseEvidenceBytes,
+      {label:'release evidence authority',maxBytes:4*1024*1024,maxDepth:64});
+    if(JSON.stringify(parsedIntent)!==JSON.stringify(operatorIntent)
+        ||JSON.stringify(parsedEvidence)!==JSON.stringify(evidence)) {
+      throw new Error('readiness documents differ from authority bytes');
+    }
+  } catch(error) {
+    add(blockers,'readiness_document_authority_invalid',error.message);
+  }
   if (!requirements || typeof requirements !== 'object') add(blockers, 'requirements_missing', 'production requirements are missing');
   else {
     for (const key of closedMainnetRequirements) {
@@ -1596,30 +1895,99 @@ export function assessMainnetReadiness({
         'production_withdrawal_queue_lease_period_seconds must be exactly 604800');
     }
     const finality = requirements.finality_evaluation;
-    if (!finality || typeof finality.selected_production_mechanism !== 'string' || !finality.selected_production_mechanism) {
+    const hasSelectedFinality=typeof finality?.selected_production_mechanism === 'string'
+      && finality.selected_production_mechanism.length>0;
+    if (!hasSelectedFinality) {
       add(blockers, 'production_finality_unselected', 'a production finality mechanism must be selected');
+    } else if (finality.selected_production_mechanism !== supportedProductionFinalityMechanism) {
+      add(blockers, 'production_finality_unsupported',
+        `selected production finality mechanism must be ${supportedProductionFinalityMechanism}`);
     }
-    if (requirements.checkpoint_poc_authorization?.production_mechanism_approved !== true) {
-      add(blockers, 'production_finality_unapproved', 'the selected production finality mechanism must be approved');
+    if(hasSelectedFinality
+        &&typeof requirements.checkpoint_poc_authorization?.production_mechanism_approved!=='boolean') {
+      add(blockers,'production_finality_approval_invalid',
+        'production_mechanism_approved must be boolean');
+    } else if(hasSelectedFinality
+        &&requirements.checkpoint_poc_authorization.production_mechanism_approved!==true) {
+      add(blockers,'production_finality_unapproved',
+        'the selected production finality mechanism must be approved');
     }
-    if (requirements.deploy_authorized !== true) add(blockers, 'requirements_deploy_unauthorized', 'deployment authorization is absent');
+    if(hasSelectedFinality&&operatorIntent&&typeof operatorIntent==='object'
+        &&!Array.isArray(operatorIntent)
+        &&typeof operatorIntent?.checkpoint_poc_authorization?.production_mechanism_approved
+          !=='boolean') {
+      add(blockers,'operator_production_finality_approval_invalid',
+        'operator production_mechanism_approved must be boolean');
+    } else if(hasSelectedFinality&&operatorIntent&&typeof operatorIntent==='object'
+        &&!Array.isArray(operatorIntent)
+        &&operatorIntent.checkpoint_poc_authorization.production_mechanism_approved!==true) {
+      add(blockers,'operator_production_finality_unapproved',
+        'operator intent must independently approve the selected production finality mechanism');
+    }
+    if (hasSelectedFinality&&operatorIntent&&typeof operatorIntent==='object'
+        &&!Array.isArray(operatorIntent)&&operatorIntent.finality_direction !== 'checkpoint') {
+      add(blockers,'operator_finality_direction_invalid',
+        'operator intent finality_direction must be checkpoint');
+    }
+    if (operatorIntent && typeof operatorIntent==='object' && !Array.isArray(operatorIntent)
+        &&operatorIntent.finality_comparison !== 'docs/FINALITY-COMPARISON.txt') {
+      add(blockers,'operator_finality_comparison_invalid',
+        'operator intent must bind the canonical finality comparison document');
+    }
+    if(typeof requirements.deploy_authorized!=='boolean') {
+      add(blockers,'requirements_deploy_authorization_invalid',
+        'requirements deploy_authorized must be boolean');
+    } else if(requirements.deploy_authorized!==true) {
+      add(blockers,'requirements_deploy_unauthorized','deployment authorization is absent');
+    }
     if (mode === 'real-funds') {
       for (const key of realFundsRequirements) {
         if (requirements[key] !== true) add(blockers, `requirement_${key}`, `${key} must be true`);
       }
-      if (requirements.mainnet_ready !== true) add(blockers, 'requirements_mainnet_not_ready', 'mainnet_ready must be true');
-      if (requirements.real_funds_authorized !== true) add(blockers, 'requirements_real_funds_unauthorized', 'real-funds authorization is absent');
+      if(typeof requirements.mainnet_ready!=='boolean') {
+        add(blockers,'requirements_mainnet_ready_invalid',
+          'requirements mainnet_ready must be boolean');
+      } else if(requirements.mainnet_ready!==true) {
+        add(blockers,'requirements_mainnet_not_ready','mainnet_ready must be true');
+      }
+      if(typeof requirements.real_funds_authorized!=='boolean') {
+        add(blockers,'requirements_real_funds_authorization_invalid',
+          'requirements real_funds_authorized must be boolean');
+      } else if(requirements.real_funds_authorized!==true) {
+        add(blockers,'requirements_real_funds_unauthorized',
+          'real-funds authorization is absent');
+      }
     }
   }
 
   if (!operatorIntent || typeof operatorIntent !== 'object') add(blockers, 'operator_intent_missing', 'operator intent is missing');
   else {
-    if(operatorIntent.schema!==1 || !exactObject(operatorIntent,operatorIntentKeys)) {
+    const exactOperatorIntent=operatorIntent.schema===1&&exactObject(operatorIntent,operatorIntentKeys);
+    if(!exactOperatorIntent) {
       add(blockers,'operator_intent_schema_invalid',
         'operator intent must use schema 1 with the exact supported top-level fields');
     }
-    if (operatorIntent.production_approved !== true) add(blockers, 'operator_production_unapproved', 'production approval is absent');
-    if (operatorIntent.deploy_authorized !== true) add(blockers, 'operator_deploy_unauthorized', 'operator deployment authorization is absent');
+    const assurance=operatorIntent.release_assurance_policy;
+    if(!exactObject(assurance,releaseAssurancePolicyKeys)
+        ||assurance.external_audit_required_by_gate!==false
+        ||assurance.absolute_zero_risk_required_by_gate!==false
+        ||typeof assurance.required_basis!=='string'||assurance.required_basis.length===0
+        ||typeof assurance.authority!=='string'||assurance.authority.length===0) {
+      add(blockers,'operator_release_assurance_policy_invalid',
+        'release policy must keep external audit and absolute zero risk optional while requiring documented residual-risk acceptance');
+    }
+    if(typeof operatorIntent.production_approved!=='boolean') {
+      add(blockers,'operator_production_approval_invalid',
+        'operator production_approved must be boolean');
+    } else if(operatorIntent.production_approved!==true) {
+      add(blockers,'operator_production_unapproved','production approval is absent');
+    }
+    if(typeof operatorIntent.deploy_authorized!=='boolean') {
+      add(blockers,'operator_deploy_authorization_invalid',
+        'operator deploy_authorized must be boolean');
+    } else if(operatorIntent.deploy_authorized!==true) {
+      add(blockers,'operator_deploy_unauthorized','operator deployment authorization is absent');
+    }
     if (!Array.isArray(operatorIntent.undefined)
         || operatorIntent.undefined.some(value=>typeof value!=='string' || value.length===0)
         || new Set(operatorIntent.undefined).size!==operatorIntent.undefined.length) {
@@ -1628,34 +1996,56 @@ export function assessMainnetReadiness({
     } else if (operatorIntent.undefined.length) {
       add(blockers, 'operator_parameters_undefined', `undefined production parameters: ${operatorIntent.undefined.join(', ')}`);
     }
-    if (mode === 'real-funds' && operatorIntent.real_funds_authorized !== true) {
-      add(blockers, 'operator_real_funds_unauthorized', 'operator real-funds authorization is absent');
+    if(mode==='real-funds'&&typeof operatorIntent.real_funds_authorized!=='boolean') {
+      add(blockers,'operator_real_funds_authorization_invalid',
+        'operator real_funds_authorized must be boolean');
+    } else if(mode==='real-funds'&&operatorIntent.real_funds_authorized!==true) {
+      add(blockers,'operator_real_funds_unauthorized',
+        'operator real-funds authorization is absent');
     }
     const signingFingerprint=trustedReleaseSigningKeyFingerprint;
     if (!isCanonicalGitSigningKeyFingerprint(signingFingerprint)) {
       add(blockers,'trusted_release_signing_key_unconfigured',
         'an out-of-repository canonical release-signing fingerprint is not configured');
     } else {
-      if (operatorIntent.release_signing_key_fingerprint!==signingFingerprint) {
+      const operatorSigningFingerprint=operatorIntent.release_signing_key_fingerprint;
+      if(operatorSigningFingerprint!==null&&operatorSigningFingerprint!==undefined
+          &&operatorSigningFingerprint!==''&&operatorSigningFingerprint!==signingFingerprint) {
         add(blockers,'operator_release_signing_key_mismatch',
           'the repository declaration differs from the out-of-repository release trust anchor');
       }
-      if (repositoryState?.sourceCommitSignerFingerprint!==signingFingerprint) {
+      const sourceCommitConfigured=typeof evidence?.sourceCommit==='string'
+        &&/^[0-9a-f]{40}$/.test(evidence.sourceCommit);
+      const sourceCommitInspected=sourceCommitConfigured
+        &&repositoryState?.sourceCommit===evidence.sourceCommit;
+      const releaseEvidenceCommitConfigured=sourceCommitConfigured
+        &&typeof repositoryState?.head==='string'&&/^[0-9a-f]{40}$/.test(repositoryState.head)
+        &&repositoryState.head!==evidence.sourceCommit;
+      if (sourceCommitInspected
+          &&repositoryState?.sourceCommitSignerFingerprint!==signingFingerprint) {
         add(blockers,'source_commit_signer_mismatch',
           'the immutable source commit was not signed by the operator-pinned key');
       }
-      if (repositoryState?.releaseCommitSignerFingerprint!==signingFingerprint) {
+      if (releaseEvidenceCommitConfigured
+          &&repositoryState?.releaseCommitSignerFingerprint!==signingFingerprint) {
         add(blockers,'release_evidence_commit_signer_mismatch',
           'the release-evidence commit was not signed by the operator-pinned key');
       }
-      if (repositoryState?.tagSignerFingerprint!==signingFingerprint) {
+      const sourceTagConfigured=typeof evidence?.sourceTag==='string'
+        &&isCanonicalReleaseTag(evidence.sourceTag);
+      if (releaseEvidenceCommitConfigured&&sourceTagConfigured
+          &&repositoryState?.tagSignerFingerprint!==signingFingerprint) {
         add(blockers,'source_tag_signer_mismatch',
           'the release tag was not signed by the operator-pinned key');
       }
     }
     const acceptance=operatorIntent.residual_risk_acceptance;
+    const exactAcceptance=acceptance&&typeof acceptance==='object'&&!Array.isArray(acceptance)
+      &&exactObject(acceptance,residualRiskAcceptanceKeys);
+    const exactReleaseConfig=exactObject(releaseConfig,releaseConfigKeys);
+    const exactReleaseEvidence=isExactReleaseEvidenceShape(evidence);
     if(acceptance && typeof acceptance==='object' && !Array.isArray(acceptance)
-        && !exactObject(acceptance,residualRiskAcceptanceKeys)) {
+        && !exactAcceptance) {
       add(blockers,'operator_residual_risk_schema_invalid',
         'residual-risk acceptance must use the exact supported schema');
     }
@@ -1663,60 +2053,78 @@ export function assessMainnetReadiness({
         || acceptance.accepted!==true) {
       add(blockers,'operator_residual_risk_unaccepted',
         'documented residual risk must be explicitly accepted for the exact release');
-    } else {
-      if (acceptance.releaseId!==evidence?.releaseId) {
+    } else if(exactOperatorIntent&&exactAcceptance&&exactReleaseConfig&&exactReleaseEvidence) {
+      if (typeof evidence?.releaseId==='string'&&evidence.releaseId.length>0
+          &&acceptance.releaseId!==evidence.releaseId) {
         add(blockers,'operator_residual_risk_release_mismatch',
           'residual-risk acceptance releaseId does not match the evidence release');
       }
-      if (acceptance.sourceCommit!==evidence?.sourceCommit) {
+      if (typeof evidence?.sourceCommit==='string'&&/^[0-9a-f]{40}$/.test(evidence.sourceCommit)
+          &&acceptance.sourceCommit!==evidence.sourceCommit) {
         add(blockers,'operator_residual_risk_commit_mismatch',
           'residual-risk acceptance sourceCommit does not match the evidence release');
       }
-      if (acceptance.sourceTag!==evidence?.sourceTag) {
+      if (typeof evidence?.sourceTag==='string'&&isCanonicalReleaseTag(evidence.sourceTag)
+          &&acceptance.sourceTag!==evidence.sourceTag) {
         add(blockers,'operator_residual_risk_tag_mismatch',
           'residual-risk acceptance sourceTag does not match the evidence release');
       }
-      try {
-        if(String(acceptance.releaseEvidenceCommitment).toLowerCase()
-            !==releaseEvidenceCommitment(evidence).toLowerCase()) throw new Error();
-      } catch {
-        add(blockers,'operator_residual_risk_evidence_commitment_mismatch',
-          'residual-risk acceptance does not bind the complete release evidence and artifact hashes');
+      const releaseEvidenceCommitmentConfigured=exactReleaseEvidence
+        &&typeof evidence.sourceTag==='string'&&isCanonicalReleaseTag(evidence.sourceTag);
+      if(releaseEvidenceCommitmentConfigured) {
+        try {
+          if(String(acceptance.releaseEvidenceCommitment).toLowerCase()
+              !==releaseEvidenceCommitment(evidence).toLowerCase()) throw new Error();
+        } catch {
+          add(blockers,'operator_residual_risk_evidence_commitment_mismatch',
+            'residual-risk acceptance does not bind the complete release evidence and artifact hashes');
+        }
       }
       for (const [field,expected] of [
         ['reserveConfigHash',releaseConfig?.reserveConfigHash],
         ['checkpointRegistryConfigHash',releaseConfig?.checkpointRegistryConfigHash],
       ]) {
         const value=acceptance[field];
-        if (!bytes32Pattern.test(value??'') || !bytes32Pattern.test(expected??'')
-            || value.toLowerCase()!==expected.toLowerCase()) {
+        if (!bytes32Pattern.test(value??'') || (bytes32Pattern.test(expected??'')
+            &&value.toLowerCase()!==expected.toLowerCase())) {
           add(blockers,`operator_residual_risk_${field}_mismatch`,
             `residual-risk acceptance ${field} does not match the release`);
         }
       }
       const reportSha=evidence?.residualRiskAcceptanceReport?.sha256;
-      if (!sha256Pattern.test(acceptance.reportSha256??'') || acceptance.reportSha256!==reportSha) {
+      if (validDocument(evidence?.residualRiskAcceptanceReport,evidenceFiles)
+          &&(!sha256Pattern.test(acceptance.reportSha256??'') || acceptance.reportSha256!==reportSha)) {
         add(blockers,'operator_residual_risk_report_mismatch',
           'residual-risk acceptance does not bind the exact report SHA-256');
       }
-      try {
-        if (getAddress(acceptance.acceptingAuthority)!==getAddress(releaseConfig?.governance)) {
+      let acceptingAuthority=null;
+      try { acceptingAuthority=getAddress(acceptance.acceptingAuthority); }
+      catch {
+        add(blockers,'operator_residual_risk_authority_invalid',
+          'residual-risk acceptance authority is not a valid address');
+      }
+      let expectedAcceptingAuthority=null;
+      try { expectedAcceptingAuthority=getAddress(releaseConfig?.governance); }
+      catch { /* release validation emits the base-field blocker */ }
+      if(acceptingAuthority&&expectedAcceptingAuthority) {
+        if (acceptingAuthority!==expectedAcceptingAuthority) {
           add(blockers,'operator_residual_risk_authority_mismatch',
             'residual-risk acceptance authority does not match release governance');
         }
-      } catch {
-        add(blockers,'operator_residual_risk_authority_invalid',
-          'residual-risk acceptance authority is not a valid address');
       }
       if (!isCanonicalNonzeroUint64(acceptance.acceptedAt)) {
         add(blockers,'operator_residual_risk_timestamp_invalid',
           'residual-risk acceptance timestamp must be a nonzero canonical integer string');
       }
-      if(acceptance.productionApproved!==true||acceptance.deployAuthorized!==true
-          || acceptance.realFundsAuthorized!==true
-          || acceptance.productionApproved!==operatorIntent.production_approved
-          || acceptance.deployAuthorized!==operatorIntent.deploy_authorized
-          || acceptance.realFundsAuthorized!==operatorIntent.real_funds_authorized) {
+      const scopeFlags=[acceptance.productionApproved,acceptance.deployAuthorized,
+        acceptance.realFundsAuthorized,operatorIntent.production_approved,
+        operatorIntent.deploy_authorized,operatorIntent.real_funds_authorized];
+      if(scopeFlags.every(value=>typeof value==='boolean')
+          &&(acceptance.productionApproved!==true||acceptance.deployAuthorized!==true
+            ||acceptance.realFundsAuthorized!==true
+            ||acceptance.productionApproved!==operatorIntent.production_approved
+            ||acceptance.deployAuthorized!==operatorIntent.deploy_authorized
+            ||acceptance.realFundsAuthorized!==operatorIntent.real_funds_authorized)) {
         add(blockers,'operator_release_authorization_scope_mismatch',
           'governance authorization must exactly approve production, deployment and real funds');
       }
@@ -1730,22 +2138,29 @@ export function assessMainnetReadiness({
           'release authorization requires a nonempty canonical bounded EIP-1271 signature');
       }
       requireReleaseAuthorizationApprovalSnapshot(blockers,{observation:
-        releaseAuthorizationApprovalObservation,authorization:acceptance,releaseConfig});
+        releaseAuthorizationApprovalObservation,
+        observationAuthority:approvalObservationAuthority?.releaseAuthorization,
+        authorization:acceptance,releaseConfig});
     }
   }
 
-  try {
-    const expectedDomDomain=deriveDomDomain({domNetworkMagic:releaseConfig?.checkpointDomNetworkMagic,
-      domChainId:releaseConfig?.checkpointDomChainId,ethereumChainId:releaseConfig?.ethereumChainId,
-      reserve:releaseConfig?.reserve,checkpointRegistry:releaseConfig?.checkpointRegistry});
-    if(!bytes32Pattern.test(releaseConfig?.domDomain??'')
-        || releaseConfig.domDomain.toLowerCase()!==expectedDomDomain) {
-      add(blockers,'release_dom_domain_derivation_mismatch',
-        'domDomain does not match the deterministic production chain and deployment identity');
+  const domDomainInputs=['checkpointDomNetworkMagic','checkpointDomChainId','ethereumChainId',
+    'reserve','checkpointRegistry','domDomain'];
+  if(domDomainInputs.every(field=>releaseConfig?.[field]!==null
+      &&releaseConfig?.[field]!==undefined&&releaseConfig?.[field]!=='')) {
+    try {
+      const expectedDomDomain=deriveDomDomain({domNetworkMagic:releaseConfig.checkpointDomNetworkMagic,
+        domChainId:releaseConfig.checkpointDomChainId,ethereumChainId:releaseConfig.ethereumChainId,
+        reserve:releaseConfig.reserve,checkpointRegistry:releaseConfig.checkpointRegistry});
+      if(!bytes32Pattern.test(releaseConfig.domDomain)
+          || releaseConfig.domDomain.toLowerCase()!==expectedDomDomain) {
+        add(blockers,'release_dom_domain_derivation_mismatch',
+          'domDomain does not match the deterministic production chain and deployment identity');
+      }
+    } catch(error) {
+      add(blockers,'release_dom_domain_derivation_invalid',
+        `the deterministic production domain could not be derived: ${error.message}`);
     }
-  } catch(error) {
-    add(blockers,'release_dom_domain_derivation_invalid',
-      `the deterministic production domain could not be derived: ${error.message}`);
   }
 
   let computed;
@@ -1761,59 +2176,126 @@ export function assessMainnetReadiness({
         add(blockers, `release_${key}_missing`, `${key} is not configured`);
       }
     }
-    if (releaseConfig.productionReady !== true) add(blockers, 'release_not_production_ready', 'productionReady must be true');
+    if(typeof releaseConfig.productionReady!=='boolean') {
+      add(blockers,'release_production_ready_invalid','productionReady must be boolean');
+    } else if(releaseConfig.productionReady!==true) {
+      add(blockers, 'release_not_production_ready', 'productionReady must be true');
+    }
     if(typeof releaseConfig.realFundsAuthorized!=='boolean') {
       add(blockers,'release_real_funds_authorization_invalid','realFundsAuthorized must be boolean');
     }
-    if (releaseConfig.ethereumChainId !== '1') {
+    if (releaseConfig.ethereumChainId!==null&&releaseConfig.ethereumChainId!==undefined
+        &&releaseConfig.ethereumChainId!==''&&releaseConfig.ethereumChainId !== '1') {
       add(blockers, 'release_wrong_chain', 'Ethereum chain ID must be the exact string 1');
     }
+    const operationalFields=[
+      'token','reserve','verifier','checkpointRegistry','checkpointVerifier',
+      'governance','guardian','checkpointGuardian',
+    ];
+    const operationalInputsPresent=operationalFields.every(field=>releaseConfig[field]!==null
+      &&releaseConfig[field]!==undefined&&releaseConfig[field]!=='');
+    const configuredContracts=new Set();
+    const operationalContractAddresses=[];
+    for(const field of operationalFields) {
+      try {
+        const address=getAddress(releaseConfig[field]);
+        configuredContracts.add(address); operationalContractAddresses.push(address);
+      } catch {}
+    }
+    if(operationalInputsPresent
+        &&(operationalContractAddresses.length!==8||configuredContracts.size!==8)) {
+      add(blockers,'release_contract_identity_collision',
+        'operational contract roles must contain eight distinct addresses');
+    }
+    for(const field of ['governanceImplementation','guardianImplementation',
+      'checkpointGuardianImplementation']) {
+      try {
+        const address=getAddress(releaseConfig[field]);
+        if(address!==getAddress(SAFE_MAINNET_IDENTITY.singleton)
+            ||String(releaseConfig[`${field}CodeHash`]).toLowerCase()
+              !==SAFE_MAINNET_IDENTITY.singletonCodeHash.toLowerCase()) {
+          add(blockers,'release_safe_implementation_identity_invalid',
+            'Safe implementations must match the pinned singleton address and codehash');
+        }
+        if(operationalContractAddresses.includes(address)) add(blockers,'release_contract_identity_collision',
+          'Safe implementations must differ from operational contract roles');
+        configuredContracts.add(address);
+      } catch {}
+    }
+    for(const field of ['factory','singleton','fallbackHandler']) {
+      const address=getAddress(SAFE_MAINNET_IDENTITY[field]);
+      if(operationalContractAddresses.includes(address)) add(blockers,'release_contract_identity_collision',
+        'operational contract roles must differ from fixed Safe infrastructure');
+      configuredContracts.add(address);
+    }
     const allOwners=[];
-    for(const role of ['governance','guardian','checkpointGuardian']) {
+    let completeOwnerSets=0;
+    for(const role of ['governance','guardian','checkpointGuardian','usdtCustody']) {
+      const ownerField=`${role}Owners`;
+      const ownerInput=releaseConfig[ownerField];
+      if(ownerInput===null||ownerInput===undefined||ownerInput==='') continue;
       const owners=[];
-      for(const value of releaseConfig[`${role}Owners`]??[]) try { owners.push(getAddress(value)); } catch {}
-      if(owners.length!==3||new Set(owners).size!==3) add(blockers,`release_${role}_owners_invalid`,
-        `${role}Owners must contain exactly three distinct owners`);
-      else allOwners.push(...owners);
-      if(role!=='checkpointGuardian'&&owners.length===3&&new Set(owners).size===3) {
+      for(const value of Array.isArray(ownerInput)?ownerInput:[]) try { owners.push(getAddress(value)); } catch {}
+      const ownersValid=owners.length===3&&new Set(owners).size===3
+        &&owners.every(owner=>BigInt(owner)>0x11n&&!configuredContracts.has(owner));
+      if(!ownersValid) add(blockers,`release_${role}_owners_invalid`,
+        `${role}Owners must contain exactly three distinct owners that are not precompiles or configured contracts`);
+      else { allOwners.push(...owners); completeOwnerSets++; }
+      if(role!=='checkpointGuardian'&&ownersValid) {
         const declared=releaseConfig[`${role}OwnersCommitment`];
-        if(!bytes32Pattern.test(declared??'')||declared.toLowerCase()!==safeOwnersCommitment(owners)) {
+        if(declared!==null&&declared!==undefined&&declared!==''
+            &&(!bytes32Pattern.test(declared)||declared.toLowerCase()!==safeOwnersCommitment(owners))) {
           add(blockers,`release_${role}_owners_commitment_mismatch`,`${role} owner commitment mismatch`);
         }
       }
     }
-    if(allOwners.length!==9||new Set(allOwners).size!==9) add(blockers,'release_control_plane_owner_reuse',
-      'control-plane owner addresses must be globally distinct');
-    if(releaseConfig.ethereumGenesisValidatorsRoot!==ethereumMainnetGenesisValidatorsRoot) {
+    if(releaseConfig.ethereumGenesisValidatorsRoot===null
+        ||releaseConfig.ethereumGenesisValidatorsRoot===undefined
+        ||releaseConfig.ethereumGenesisValidatorsRoot==='') {
+      add(blockers,'release_ethereumGenesisValidatorsRoot_missing',
+        'ethereumGenesisValidatorsRoot is not configured');
+    } else if(releaseConfig.ethereumGenesisValidatorsRoot!==ethereumMainnetGenesisValidatorsRoot) {
       add(blockers,'release_ethereum_genesis_validators_root_invalid',
         'ethereumGenesisValidatorsRoot must be the canonical Ethereum mainnet root');
     }
-    if(!bytes32Pattern.test(releaseConfig.nativeEthereumTrustedCheckpoint??'')
-        || releaseConfig.nativeEthereumTrustedCheckpoint.toLowerCase()===zeroHash) {
+    if(releaseConfig.nativeEthereumTrustedCheckpoint===null
+        ||releaseConfig.nativeEthereumTrustedCheckpoint===undefined
+        ||releaseConfig.nativeEthereumTrustedCheckpoint==='') {
+      add(blockers,'release_nativeEthereumTrustedCheckpoint_missing',
+        'nativeEthereumTrustedCheckpoint is not configured');
+    } else if(!bytes32Pattern.test(releaseConfig.nativeEthereumTrustedCheckpoint)
+        ||releaseConfig.nativeEthereumTrustedCheckpoint.toLowerCase()===zeroHash) {
       add(blockers,'release_native_ethereum_trusted_checkpoint_invalid',
         'nativeEthereumTrustedCheckpoint must be a nonzero bytes32 value');
     }
-    try {
-      const withdrawalDelay=uint(releaseConfig.withdrawalDelaySeconds,64);
-      const relayMargin=uint(releaseConfig.nativeRelaySafetyMarginSeconds,64);
-      const anchorAge=uint(releaseConfig.nativeMaxEthereumAnchorAgeSeconds,64);
-      const clockLead=uint(releaseConfig.nativeMaxDomClockLeadSeconds,64);
-      const minimum=withdrawalDelay+reserveMinExecutionWindowSeconds+relayMargin;
-      if(relayMargin===0n || anchorAge===0n || clockLead===0n
-          || clockLead<domMaxFutureBlockTimeSeconds || relayMargin<anchorAge
-          || clockLead>=reserveMaxCertificateLifetimeSeconds
-          || minimum>reserveMaxCertificateLifetimeSeconds-clockLead) {
-        throw new Error('native burn timing policy is incompatible with reserve certificate windows');
+    const nativeBurnTimingFields=['withdrawalDelaySeconds','nativeRelaySafetyMarginSeconds',
+      'nativeMaxEthereumAnchorAgeSeconds','nativeMaxDomClockLeadSeconds'];
+    if(nativeBurnTimingFields.every(field=>releaseConfig[field]!==null
+        &&releaseConfig[field]!==undefined&&releaseConfig[field]!=='')) {
+      try {
+        const withdrawalDelay=uint(releaseConfig.withdrawalDelaySeconds,64);
+        const relayMargin=uint(releaseConfig.nativeRelaySafetyMarginSeconds,64);
+        const anchorAge=uint(releaseConfig.nativeMaxEthereumAnchorAgeSeconds,64);
+        const clockLead=uint(releaseConfig.nativeMaxDomClockLeadSeconds,64);
+        const minimum=withdrawalDelay+reserveMinExecutionWindowSeconds+relayMargin;
+        if(relayMargin===0n || anchorAge===0n || clockLead===0n
+            || clockLead<domMaxFutureBlockTimeSeconds || relayMargin<anchorAge
+            || clockLead>=reserveMaxCertificateLifetimeSeconds
+            || minimum>reserveMaxCertificateLifetimeSeconds-clockLead) {
+          throw new Error('native burn timing policy is incompatible with reserve certificate windows');
+        }
+      } catch(error) {
+        add(blockers,'release_native_burn_timing_invalid',error.message);
       }
-    } catch(error) {
-      add(blockers,'release_native_burn_timing_invalid',error.message);
     }
     if (releaseConfig.reserveRuntimeCodeHash !== null && releaseConfig.reserveRuntimeCodeHash !== undefined
+        &&releaseConfig.reserveRuntimeCodeHash!==''
         && (!bytes32Pattern.test(releaseConfig.reserveRuntimeCodeHash)
           || releaseConfig.reserveRuntimeCodeHash.toLowerCase() === zeroHash)) {
       add(blockers, 'release_reserve_runtime_codehash_invalid', 'reserveRuntimeCodeHash must be nonzero bytes32');
     }
     if (releaseConfig.reserveInitcodeHash !== null && releaseConfig.reserveInitcodeHash !== undefined
+        &&releaseConfig.reserveInitcodeHash!==''
         && (!bytes32Pattern.test(releaseConfig.reserveInitcodeHash)
           || releaseConfig.reserveInitcodeHash.toLowerCase()===zeroHash)) {
       add(blockers, 'release_reserve_initcode_hash_invalid', 'reserveInitcodeHash must be nonzero bytes32');
@@ -1825,14 +2307,18 @@ export function assessMainnetReadiness({
       ['checkpointVerifierInitcodeHash','checkpoint_verifier_initcode_hash'],
     ]) {
       const value=releaseConfig[field];
-      if (value!==null && value!==undefined
+      if (value!==null && value!==undefined&&value!==''
           && (!bytes32Pattern.test(value) || value.toLowerCase()===zeroHash)) {
         add(blockers,`release_${code}_invalid`,`${field} must be nonzero bytes32`);
       }
     }
-    if (releaseConfig.deploymentMethod !== 'CREATE') {
+    const deploymentMethodPresent=releaseConfig.deploymentMethod!==null
+      &&releaseConfig.deploymentMethod!==undefined&&releaseConfig.deploymentMethod!=='';
+    if (deploymentMethodPresent&&releaseConfig.deploymentMethod !== 'CREATE') {
       add(blockers, 'release_deployment_method_invalid', 'the committed-address release supports only CREATE');
-    } else {
+    } else if(['deployer','deployerNonce','reserve'].every(field=>releaseConfig[field]!==null
+        &&releaseConfig[field]!==undefined&&releaseConfig[field]!=='')
+        &&releaseConfig.deploymentMethod==='CREATE') {
       try {
         const deployer = getAddress(releaseConfig.deployer);
         if (BigInt(deployer) === 0n) throw new Error('deployer must not be zero');
@@ -1845,7 +2331,25 @@ export function assessMainnetReadiness({
         add(blockers, 'release_deployment_plan_invalid', `invalid CREATE deployment plan: ${error.message}`);
       }
     }
-    if (releaseConfig.deploymentMethod === 'CREATE') {
+    const topologyFields=[
+      'verifierDeployer','verifierDeployerNonce','verifier',
+      'checkpointVerifierDeployer','checkpointVerifierDeployerNonce','checkpointVerifier',
+      'checkpointRegistryDeployer','checkpointRegistryDeployerNonce','checkpointRegistry',
+      'deployer','deployerNonce','reserve',
+    ];
+    if(releaseConfig.deploymentMethod==='CREATE'
+        &&topologyFields.every(field=>releaseConfig[field]!==null
+          &&releaseConfig[field]!==undefined&&releaseConfig[field]!=='')) {
+      try {
+        validateMainnetDeploymentTopology(releaseConfig);
+      } catch(error) {
+        add(blockers,'release_deployment_topology_invalid',error.message);
+      }
+    }
+    if (releaseConfig.deploymentMethod === 'CREATE'
+        &&['checkpointRegistryDeployer','checkpointRegistryDeployerNonce','checkpointRegistry']
+          .every(field=>releaseConfig[field]!==null&&releaseConfig[field]!==undefined
+            &&releaseConfig[field]!=='')) {
       try {
         const deployer=getAddress(releaseConfig.checkpointRegistryDeployer);
         if (BigInt(deployer)===0n) throw new Error('checkpoint registry deployer must not be zero');
@@ -1866,6 +2370,8 @@ export function assessMainnetReadiness({
         ['checkpoint_verifier','checkpointVerifierDeployer','checkpointVerifierDeployerNonce',
           'checkpointVerifier'],
       ]) {
+        if([deployerField,nonceField,addressField].some(field=>releaseConfig[field]===null
+            ||releaseConfig[field]===undefined||releaseConfig[field]==='')) continue;
         try {
           const deployer=getAddress(releaseConfig[deployerField]);
           if(BigInt(deployer)===0n) throw new Error(`${prefix} deployer must not be zero`);
@@ -1880,13 +2386,34 @@ export function assessMainnetReadiness({
         }
       }
     }
-    try {
-      if (getAddress(releaseConfig.token) !== mainnetUsdt) add(blockers, 'release_wrong_token', 'token is not Ethereum mainnet USDT');
-    } catch {
-      add(blockers, 'release_invalid_token', 'token is not a valid address');
+    if(releaseConfig.token!==null&&releaseConfig.token!==undefined&&releaseConfig.token!=='') {
+      try {
+        if (getAddress(releaseConfig.token) !== mainnetUsdt) add(blockers, 'release_wrong_token', 'token is not Ethereum mainnet USDT');
+      } catch {
+        add(blockers, 'release_invalid_token', 'token is not a valid address');
+      }
     }
-    if (mode === 'real-funds' && releaseConfig.realFundsAuthorized !== true) {
-      add(blockers, 'release_real_funds_unauthorized', 'release manifest does not authorize real funds');
+    if (mode === 'real-funds') {
+      if(releaseConfig.realFundsAuthorized===true) {
+        add(blockers,'release_real_funds_manual_flag','real-funds authorization cannot be promoted by release-config editing');
+      } else if(releaseConfig.realFundsAuthorized===false) try {
+        if(!Buffer.isBuffer(pilotFundsAuthority?.snapshotBytes)
+            ||!Buffer.isBuffer(pilotFundsAuthority?.authorizationStateBytes)) {
+          throw new Error('pilot funds byte authority is absent');
+        }
+        const snapshot=parseStrictJsonBytes(pilotFundsAuthority.snapshotBytes,
+          {label:'pilot funds snapshot',maxBytes:1024*1024,maxDepth:32});
+        const state=parseStrictJsonBytes(pilotFundsAuthority.authorizationStateBytes,
+          {label:'pilot funds authorization state',maxBytes:1024*1024,maxDepth:32});
+        if(JSON.stringify(snapshot)!==JSON.stringify(pilotFundsSnapshot)
+            ||JSON.stringify(state)!==JSON.stringify(pilotFundsAuthorizationState)) {
+          throw new Error('pilot funds objects differ from their authority bytes');
+        }
+        validatePilotFundsAuthorizationState({state,snapshot,releaseConfig,
+          depositAmountBaseUnits:snapshot?.pilotDepositBaseUnits});
+      } catch(error) {
+        add(blockers,'pilot_funds_authorization_invalid',`pilot funds authorization is invalid: ${error.message}`);
+      }
     }
     const commitmentFields = ['ethereumChainId','reserve','token','tokenCodeHash','verifier','verifierCodeHash',
       'verifierConfigHash','checkpointRegistry','checkpointRegistryRuntimeCodeHash',
@@ -1896,7 +2423,8 @@ export function assessMainnetReadiness({
       'guardianImplementationCodeHash','guardianOwnersCommitment',
       'withdrawalDelaySeconds','governanceDelaySeconds',
       'maxOutstandingBaseUnits','outflowCapacityBaseUnitsPerDay'];
-    if (commitmentFields.every(key => releaseConfig[key] !== null && releaseConfig[key] !== undefined)) {
+    if (commitmentFields.every(key => releaseConfig[key] !== null && releaseConfig[key] !== undefined
+        &&releaseConfig[key]!=='')) {
       try {
         computed = proofReserveDeploymentConfigHash({
           ethereumChainId:releaseConfig.ethereumChainId,reserve:releaseConfig.reserve,token:releaseConfig.token,
@@ -1934,10 +2462,12 @@ export function assessMainnetReadiness({
       'checkpointActivationEmptyStateRoot','activationScheduleCommitment','checkpointVerifier',
       'checkpointVerifierCodeHash','checkpointVerifierConfigHash','checkpointGuardian',
       'checkpointGuardianCodeHash','checkpointGuardianImplementation',
-      'checkpointGuardianImplementationCodeHash','checkpointIntervalBlocks','checkpointConfirmationDepthBlocks',
+      'checkpointGuardianImplementationCodeHash','checkpointGuardianOwners',
+      'checkpointIntervalBlocks','checkpointConfirmationDepthBlocks',
       'checkpointChallengePeriodSeconds','checkpointInitialHeight','checkpointInitialBlock',
       'checkpointInitialStateRoot','checkpointInitialContextHash','checkpointInitialTotalDifficulty'];
-    if (checkpointCommitmentFields.every(key => releaseConfig[key] !== null && releaseConfig[key] !== undefined)) {
+    if (checkpointCommitmentFields.every(key => releaseConfig[key] !== null
+        &&releaseConfig[key] !== undefined&&releaseConfig[key]!=='')) {
       try {
         const schedule=activationSchedule({networkMagic:releaseConfig.checkpointDomNetworkMagic,
           chainId:releaseConfig.checkpointDomChainId,firstV4Height:releaseConfig.checkpointFirstV4Height,
@@ -1982,7 +2512,26 @@ export function assessMainnetReadiness({
     }
   }
 
-  if (typeof contractSource !== 'string') add(blockers, 'contract_source_missing', 'USDOMProofReserve source is missing');
+  const bindSource=(bytes,value,label)=>{
+    if(!Buffer.isBuffer(bytes)) throw new Error(`${label} bytes are absent`);
+    const parsed=bytes.toString('utf8');
+    if(!Buffer.from(parsed,'utf8').equals(bytes)||parsed!==value) {
+      throw new Error(`${label} object differs from authority bytes`);
+    }
+    return parsed;
+  };
+  let authenticatedContractSource=null,authenticatedCheckpointContractSource=null;
+  try {
+    authenticatedContractSource=bindSource(contractSourceAuthority?.reserveBytes,contractSource,
+      'USDOMProofReserve source');
+    authenticatedCheckpointContractSource=bindSource(
+      contractSourceAuthority?.checkpointRegistryBytes,checkpointContractSource,
+      'DOMCheckpointRegistry source');
+  } catch(error) {
+    add(blockers,'contract_source_authority_invalid',error.message);
+  }
+
+  if (typeof authenticatedContractSource !== 'string') add(blockers, 'contract_source_missing', 'USDOMProofReserve source is missing');
   else {
     const pins = {
       PRODUCTION_VERIFIER_CODE_HASH: releaseConfig?.verifierCodeHash,
@@ -1990,16 +2539,18 @@ export function assessMainnetReadiness({
       PRODUCTION_RESERVE_PREACTIVATION_CONFIG_HASH:computed?.reservePreActivationConfigHash,
     };
     for (const [name, expected] of Object.entries(pins)) {
-      const actual = readProductionConstant(contractSource, name);
+      const actual = readProductionConstant(authenticatedContractSource, name);
+      const expectedPresent=expected!==null&&expected!==undefined&&expected!=='';
       if (!actual) add(blockers, `contract_${name}_unreadable`, `${name} is absent or not a canonical bytes32 literal`);
       else if (actual === zeroHash) add(blockers, `contract_${name}_zero`, `${name} remains fail-closed zero`);
-      else if (!bytes32Pattern.test(expected ?? '') || actual !== expected.toLowerCase()) {
+      else if (expectedPresent
+          &&(!bytes32Pattern.test(expected) || actual !== expected.toLowerCase())) {
         add(blockers, `contract_${name}_mismatch`, `${name} does not match the release manifest`);
       }
     }
   }
 
-  if (typeof checkpointContractSource !== 'string') {
+  if (typeof authenticatedCheckpointContractSource !== 'string') {
     add(blockers,'checkpoint_contract_source_missing','DOMCheckpointRegistry source is missing');
   } else {
     const pins={
@@ -2008,91 +2559,238 @@ export function assessMainnetReadiness({
       PRODUCTION_CHECKPOINT_CONFIG_HASH:computedCheckpoint?.checkpointConfigHash,
     };
     for (const [name,expected] of Object.entries(pins)) {
-      const actual=readProductionConstant(checkpointContractSource,name);
+      const actual=readProductionConstant(authenticatedCheckpointContractSource,name);
+      const expectedPresent=expected!==null&&expected!==undefined&&expected!=='';
       if (!actual) add(blockers,`checkpoint_contract_${name}_unreadable`,`${name} is absent or not canonical`);
       else if (actual===zeroHash) add(blockers,`checkpoint_contract_${name}_zero`,`${name} remains fail-closed zero`);
-      else if (!bytes32Pattern.test(expected??'') || actual!==expected.toLowerCase()) {
+      else if(expectedPresent
+          &&(!bytes32Pattern.test(expected)||actual!==expected.toLowerCase())) {
         add(blockers,`checkpoint_contract_${name}_mismatch`,`${name} does not match the release manifest`);
       }
     }
   }
 
+  const compiledFailure=(name,fallback)=>{
+    const detail=compiledArtifactBindingErrors?.[name];
+    return typeof detail==='string'&&detail.length>0&&detail.length<=512&&!/[\r\n\0]/u.test(detail)
+      ? `${fallback}; binding failure: ${detail}` : fallback;
+  };
+  try {
+    for(const [name,runtimeCodeHash,initcodeHash] of [
+      ['reserve',compiledReserveRuntimeCodeHash,compiledReserveInitcodeHash],
+      ['checkpointRegistry',compiledCheckpointRegistryRuntimeCodeHash,
+        compiledCheckpointRegistryInitcodeHash],
+      ['finalizedBurnVerifier',compiledVerifierRuntimeCodeHash,compiledVerifierInitcodeHash],
+      ['checkpointVerifier',compiledCheckpointVerifierRuntimeCodeHash,
+        compiledCheckpointVerifierInitcodeHash],
+    ]) {
+      const bytes=compiledArtifactAuthority?.[name]?.bindingBytes;
+      const summaryUnavailable=!bytes32Pattern.test(runtimeCodeHash??'')
+        &&!bytes32Pattern.test(initcodeHash??'');
+      // A binding cannot exist before its constructor/configuration inputs are
+      // complete. Preserve the component-specific `compiled_*_unavailable`
+      // blockers (with the captured derivation failure), but do not mislabel
+      // that expected dependency state as an authority-integrity failure.
+      if(!Buffer.isBuffer(bytes)&&summaryUnavailable
+          &&typeof compiledArtifactBindingErrors?.[name]==='string') continue;
+      if(!Buffer.isBuffer(bytes)) throw new Error(`${name} compiled binding bytes are absent`);
+      const binding=parseStrictJsonBytes(bytes,
+        {label:`${name} compiled binding`,maxBytes:1024*1024,maxDepth:32});
+      if(binding?.runtimeCodeHash!==runtimeCodeHash||binding?.initcodeHash!==initcodeHash) {
+        throw new Error(`${name} compiled summary differs from authenticated binding bytes`);
+      }
+    }
+  } catch(error) {
+    add(blockers,'compiled_artifact_authority_invalid',error.message);
+  }
   if (!bytes32Pattern.test(compiledReserveRuntimeCodeHash ?? '')
       || compiledReserveRuntimeCodeHash.toLowerCase() === zeroHash) {
-    add(blockers, 'compiled_reserve_runtime_unavailable', 'the source-verified compiled reserve runtime hash is unavailable');
-  } else if (!bytes32Pattern.test(releaseConfig?.reserveRuntimeCodeHash ?? '')
-      || compiledReserveRuntimeCodeHash.toLowerCase() !== releaseConfig.reserveRuntimeCodeHash.toLowerCase()) {
+    add(blockers, 'compiled_reserve_runtime_unavailable', compiledFailure('reserve',
+      'the source-verified compiled reserve runtime hash is unavailable'));
+  } else if (bytes32Pattern.test(releaseConfig?.reserveRuntimeCodeHash ?? '')
+      &&compiledReserveRuntimeCodeHash.toLowerCase() !== releaseConfig.reserveRuntimeCodeHash.toLowerCase()) {
     add(blockers, 'compiled_reserve_runtime_mismatch', 'compiled reserve runtime hash differs from the release manifest');
   }
   if (!bytes32Pattern.test(compiledReserveInitcodeHash ?? '') || compiledReserveInitcodeHash.toLowerCase()===zeroHash) {
-    add(blockers, 'compiled_reserve_initcode_unavailable', 'the source-verified compiled reserve initcode hash is unavailable');
-  } else if (!bytes32Pattern.test(releaseConfig?.reserveInitcodeHash ?? '')
-      || compiledReserveInitcodeHash.toLowerCase()!==releaseConfig.reserveInitcodeHash.toLowerCase()) {
+    add(blockers, 'compiled_reserve_initcode_unavailable', compiledFailure('reserve',
+      'the source-verified compiled reserve initcode hash is unavailable'));
+  } else if (bytes32Pattern.test(releaseConfig?.reserveInitcodeHash ?? '')
+      &&compiledReserveInitcodeHash.toLowerCase()!==releaseConfig.reserveInitcodeHash.toLowerCase()) {
     add(blockers, 'compiled_reserve_initcode_mismatch', 'compiled reserve initcode hash differs from the release manifest');
   }
   if (!bytes32Pattern.test(compiledCheckpointRegistryRuntimeCodeHash??'')
       || compiledCheckpointRegistryRuntimeCodeHash.toLowerCase()===zeroHash) {
-    add(blockers,'compiled_checkpoint_registry_runtime_unavailable',
-      'the source-verified compiled checkpoint registry runtime hash is unavailable');
-  } else if (!bytes32Pattern.test(releaseConfig?.checkpointRegistryRuntimeCodeHash??'')
-      || compiledCheckpointRegistryRuntimeCodeHash.toLowerCase()
+    add(blockers,'compiled_checkpoint_registry_runtime_unavailable',compiledFailure('checkpointRegistry',
+      'the source-verified compiled checkpoint registry runtime hash is unavailable'));
+  } else if (bytes32Pattern.test(releaseConfig?.checkpointRegistryRuntimeCodeHash??'')
+      &&compiledCheckpointRegistryRuntimeCodeHash.toLowerCase()
         !== releaseConfig.checkpointRegistryRuntimeCodeHash.toLowerCase()) {
     add(blockers,'compiled_checkpoint_registry_runtime_mismatch',
       'compiled checkpoint registry runtime hash differs from the release manifest');
   }
   if (!bytes32Pattern.test(compiledCheckpointRegistryInitcodeHash??'')
       || compiledCheckpointRegistryInitcodeHash.toLowerCase()===zeroHash) {
-    add(blockers,'compiled_checkpoint_registry_initcode_unavailable',
-      'the source-verified compiled checkpoint registry initcode hash is unavailable');
-  } else if (!bytes32Pattern.test(releaseConfig?.checkpointRegistryInitcodeHash??'')
-      || compiledCheckpointRegistryInitcodeHash.toLowerCase()
+    add(blockers,'compiled_checkpoint_registry_initcode_unavailable',compiledFailure('checkpointRegistry',
+      'the source-verified compiled checkpoint registry initcode hash is unavailable'));
+  } else if (bytes32Pattern.test(releaseConfig?.checkpointRegistryInitcodeHash??'')
+      &&compiledCheckpointRegistryInitcodeHash.toLowerCase()
         !== releaseConfig.checkpointRegistryInitcodeHash.toLowerCase()) {
     add(blockers,'compiled_checkpoint_registry_initcode_mismatch',
       'compiled checkpoint registry initcode hash differs from the release manifest');
   }
+  if(requirements?.production_checkpoint_registry_artifacts_pinned===true) {
+    const pins=checkpointRegistryArtifactPinsReport;
+    let pinsShape=true;
+    try { validateCheckpointRegistryArtifactPins(pins,checkpointRegistryArtifactPinsAuthority); } catch { pinsShape=false; }
+    if(!pinsShape
+        ||pins.runtimeCodeHash?.toLowerCase()!==compiledCheckpointRegistryRuntimeCodeHash?.toLowerCase()
+        ||pins.initcodeHash?.toLowerCase()!==compiledCheckpointRegistryInitcodeHash?.toLowerCase()
+        ||pins.checkpointRegistryConfigHash?.toLowerCase()!==releaseConfig?.checkpointRegistryConfigHash?.toLowerCase()
+        ||pins.artifactPath!=='out/DOMCheckpointRegistry.sol/DOMCheckpointRegistry.json'
+        ||pins.releaseConfigPath!=='config/proof-reserve.unconfigured.json') {
+      add(blockers,'checkpoint_registry_artifact_pins_report_invalid',
+        'registry artifacts may be declared pinned only with a current runtime/initcode/config report');
+    }
+  }
+  if(requirements?.production_checkpoint_randomx_receipt_image_id_pinned===true) {
+    const ratification=checkpointRandomxImageRatificationReport;
+    let ratificationShape=true;
+    try { validateCheckpointRandomxImageRatification(ratification,checkpointRandomxImageRatificationAuthority); } catch { ratificationShape=false; }
+    if(!ratificationShape
+        ||ratification.imageId?.toLowerCase()!==String(checkpointVerifierConfig?.randomxReceiptImageId??'').replace(/^0x/,'').toLowerCase()
+        ||ratification.randomxRelationsExecuted!==true||ratification.receiptsVerified!==true
+        ||!Number.isSafeInteger(ratification.receiptCount)||ratification.receiptCount<1) {
+      add(blockers,'checkpoint_randomx_image_ratification_invalid',
+        'RandomX ImageID may be declared pinned only after a matching verified receipt set');
+    }
+  }
+  if(requirements?.production_verified_checkpoint_restart_witness_live_exercised===true) {
+    const restart=checkpointRestartWitnessReport;
+    let restartShape=true;
+    try { validateCheckpointRestartWitnessReport(restart,checkpointRestartWitnessAuthority); } catch { restartShape=false; }
+    if(!restartShape
+        ||restart.firstStartupAccepted!==true||restart.secondStartupAccepted!==true
+        ||restart.sameDataDirectory!==true||restart.checkpointWitnessRequired!==true
+        ||restart.firstProcessPid===restart.secondProcessPid) {
+      add(blockers,'checkpoint_restart_witness_report_invalid',
+        'restart witness claim requires two distinct successful node processes over the same data directory');
+    }
+  }
+  for(const claim of ['production_finalized_burn_recursive_checkpoint_artifacts_pinned',
+    'production_finalized_burn_recursive_checkpoint_receipt_verified',
+    'production_finalized_burn_risc0_evm_receipt_verifier_implemented']) {
+    if(requirements?.[claim]!==true) continue;
+    const completion=finalizedBurnRecursiveCompletionReport;
+    let completionShape=true;
+    try { validateFinalizedBurnRecursiveCompletion(completion,
+      finalizedBurnRecursiveCompletionAuthority); } catch { completionShape=false; }
+    if(!completionShape
+        ||completion.checkpointOuterReceiptVerified!==true||completion.finalizedBurnReceiptVerified!==true
+        ||completion.evmReceiptVerified!==true
+        ||completion.adapterRuntimeCodeHash?.toLowerCase()!==compiledVerifierRuntimeCodeHash?.toLowerCase()
+        ||completion.adapterInitcodeHash?.toLowerCase()!==compiledVerifierInitcodeHash?.toLowerCase()
+        ||completion.adapterConfigHash?.toLowerCase()!==releaseConfig?.verifierConfigHash?.toLowerCase()) {
+      add(blockers,`${claim}_completion_invalid`,
+        'finalized-burn claim requires the current recursive receipt and EVM adapter completion report');
+    }
+  }
   if(!bytes32Pattern.test(compiledVerifierRuntimeCodeHash??'')
       || compiledVerifierRuntimeCodeHash.toLowerCase()===zeroHash) {
-    add(blockers,'compiled_verifier_runtime_unavailable',
-      'the source-verified finalized-burn adapter runtime hash is unavailable');
-  } else if(!bytes32Pattern.test(releaseConfig?.verifierCodeHash??'')
-      || compiledVerifierRuntimeCodeHash.toLowerCase()!==releaseConfig.verifierCodeHash.toLowerCase()) {
+    add(blockers,'compiled_verifier_runtime_unavailable',compiledFailure('finalizedBurnVerifier',
+      'the source-verified finalized-burn adapter runtime hash is unavailable'));
+  } else if(bytes32Pattern.test(releaseConfig?.verifierCodeHash??'')
+      &&compiledVerifierRuntimeCodeHash.toLowerCase()!==releaseConfig.verifierCodeHash.toLowerCase()) {
     add(blockers,'compiled_verifier_runtime_mismatch',
       'compiled finalized-burn adapter runtime hash differs from the release manifest');
   }
   if(!bytes32Pattern.test(compiledVerifierInitcodeHash??'')
       || compiledVerifierInitcodeHash.toLowerCase()===zeroHash) {
-    add(blockers,'compiled_verifier_initcode_unavailable',
-      'the source-verified finalized-burn adapter initcode hash is unavailable');
-  } else if(!bytes32Pattern.test(releaseConfig?.verifierInitcodeHash??'')
-      || compiledVerifierInitcodeHash.toLowerCase()!==releaseConfig.verifierInitcodeHash.toLowerCase()) {
+    add(blockers,'compiled_verifier_initcode_unavailable',compiledFailure('finalizedBurnVerifier',
+      'the source-verified finalized-burn adapter initcode hash is unavailable'));
+  } else if(bytes32Pattern.test(releaseConfig?.verifierInitcodeHash??'')
+      &&compiledVerifierInitcodeHash.toLowerCase()!==releaseConfig.verifierInitcodeHash.toLowerCase()) {
     add(blockers,'compiled_verifier_initcode_mismatch',
       'compiled finalized-burn adapter initcode hash differs from the release manifest');
   }
   if(!bytes32Pattern.test(compiledCheckpointVerifierRuntimeCodeHash??'')
       || compiledCheckpointVerifierRuntimeCodeHash.toLowerCase()===zeroHash) {
-    add(blockers,'compiled_checkpoint_verifier_runtime_unavailable',
-      'the source-verified checkpoint adapter runtime hash is unavailable');
-  } else if(!bytes32Pattern.test(releaseConfig?.checkpointVerifierCodeHash??'')
-      || compiledCheckpointVerifierRuntimeCodeHash.toLowerCase()
+    add(blockers,'compiled_checkpoint_verifier_runtime_unavailable',compiledFailure('checkpointVerifier',
+      'the source-verified checkpoint adapter runtime hash is unavailable'));
+  } else if(bytes32Pattern.test(releaseConfig?.checkpointVerifierCodeHash??'')
+      &&compiledCheckpointVerifierRuntimeCodeHash.toLowerCase()
         !==releaseConfig.checkpointVerifierCodeHash.toLowerCase()) {
     add(blockers,'compiled_checkpoint_verifier_runtime_mismatch',
       'compiled checkpoint adapter runtime hash differs from the release manifest');
   }
   if(!bytes32Pattern.test(compiledCheckpointVerifierInitcodeHash??'')
       || compiledCheckpointVerifierInitcodeHash.toLowerCase()===zeroHash) {
-    add(blockers,'compiled_checkpoint_verifier_initcode_unavailable',
-      'the source-verified checkpoint adapter initcode hash is unavailable');
-  } else if(!bytes32Pattern.test(releaseConfig?.checkpointVerifierInitcodeHash??'')
-      || compiledCheckpointVerifierInitcodeHash.toLowerCase()
+    add(blockers,'compiled_checkpoint_verifier_initcode_unavailable',compiledFailure('checkpointVerifier',
+      'the source-verified checkpoint adapter initcode hash is unavailable'));
+  } else if(bytes32Pattern.test(releaseConfig?.checkpointVerifierInitcodeHash??'')
+      &&compiledCheckpointVerifierInitcodeHash.toLowerCase()
         !==releaseConfig.checkpointVerifierInitcodeHash.toLowerCase()) {
     add(blockers,'compiled_checkpoint_verifier_initcode_mismatch',
       'compiled checkpoint adapter initcode hash differs from the release manifest');
   }
 
   requireDocuments(blockers, evidence, evidenceFiles, mode, releaseConfig);
+  if(requirements?.native_scheduled_public_runtime_configured===true
+      ||requirements?.production_reserve_config_hash_configured===true) {
+    try {
+      const releaseBytes=configurationAuthority?.releaseConfigBytes;
+      const manifestBytes=configurationAuthority?.nativeRuntimeManifestBytes;
+      if(!Buffer.isBuffer(releaseBytes)||!Buffer.isBuffer(manifestBytes)) {
+        throw new Error('release and native runtime bytes are absent');
+      }
+      const release=bindDocumentBytes(releaseBytes,releaseConfig,null,evidenceFiles,
+        'production release configuration');
+      if(release.reserveConfigHash!==releaseConfig.reserveConfigHash) {
+        throw new Error('reserve configuration hash differs from release bytes');
+      }
+      const manifest=parseStrictJsonBytes(manifestBytes,{label:'native runtime manifest',
+        maxBytes:4*1024*1024,maxDepth:64});
+      bindDocumentBytes(manifestBytes,manifest,evidence.nativeRuntimeManifest,evidenceFiles,
+        'native runtime manifest');
+      if(createHash('sha256').update(manifestBytes).digest('hex')!==nativeRuntimeValidation?.manifest_sha256) {
+        throw new Error('native runtime validation does not identify the manifest bytes');
+      }
+      bindDocumentBytes(configurationAuthority?.scheduledRuntimeAttestationBytes,
+        nativeScheduledRuntimeActivationAttestation,
+        evidence.nativeScheduledRuntimeActivationAttestationReport,evidenceFiles,
+        'scheduled runtime activation attestation');
+    } catch(error) {
+      add(blockers,'production_configuration_authority_invalid',
+        `production configuration byte authority is unavailable or invalid: ${error.message}`);
+    }
+  }
+  if(validDocument(evidence?.releaseValidationReport,evidenceFiles)) {
+    try {
+      if(!Buffer.isBuffer(releaseValidationAuthority?.reportBytes)
+          ||!Buffer.isBuffer(releaseValidationAuthority?.reconstructedReportBytes)) {
+        throw new Error('descriptor-bound release validation authority is unavailable');
+      }
+      const installed=parseStrictJsonBytes(releaseValidationAuthority.reportBytes,
+        {label:'installed release validation report'});
+      const reconstructed=parseStrictJsonBytes(releaseValidationAuthority.reconstructedReportBytes,
+        {label:'reconstructed release validation report'});
+      if(JSON.stringify(installed)!==JSON.stringify(releaseValidationReport)
+          ||JSON.stringify(reconstructed)!==JSON.stringify(releaseValidationAuthority.reconstructedReport)
+          ||!releaseValidationAuthority.reportBytes.equals(
+            releaseValidationAuthority.reconstructedReportBytes)) {
+        throw new Error('installed report does not equal the descriptor-bound raw reconstruction');
+      }
+      validateReleaseValidationReport(reconstructed,{releaseEvidence:evidence,
+        toolchainLockSha256,cargoLockSha256});
+    } catch(error) {
+      add(blockers,'release_validation_report_invalid',
+        `mandatory long release-vector report is invalid: ${error.message}`);
+    }
+  }
   if(validDocument(evidence?.securityValidationReport,evidenceFiles)) {
     try {
-      validateSecurityValidationReport(securityValidationReport,{releaseEvidence:evidence,
+      const report=bindDocumentBytes(releaseAssuranceAuthority?.securityValidationReportBytes,
+        securityValidationReport,evidence.securityValidationReport,evidenceFiles,'security validation report');
+      validateSecurityValidationReport(report,{releaseEvidence:evidence,
         requirementsSha256,sourceManifestSha256});
     } catch(error) {
       add(blockers,'security_validation_report_invalid',
@@ -2101,7 +2799,9 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.operationsReviewReport,evidenceFiles)) {
     try {
-      validateOperationsReviewReport(operationsReviewReport,{releaseEvidence:evidence,releaseConfig,
+      const report=bindDocumentBytes(releaseAssuranceAuthority?.operationsReviewReportBytes,
+        operationsReviewReport,evidence.operationsReviewReport,evidenceFiles,'operations review report');
+      validateOperationsReviewReport(report,{releaseEvidence:evidence,releaseConfig,
         runbookSha256:operatorRunbookSha256});
     } catch(error) {
       add(blockers,'operations_review_report_invalid',
@@ -2110,7 +2810,9 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.reproducibleBuildReport,evidenceFiles)) {
     try {
-      validateReserveReproducibleBuildReport(reserveReproducibleBuildReport,{
+      const report=bindDocumentBytes(releaseAssuranceAuthority?.reserveReproducibleBuildReportBytes,
+        reserveReproducibleBuildReport,evidence.reproducibleBuildReport,evidenceFiles,'reserve reproducible-build report');
+      validateReserveReproducibleBuildReport(report,{
         releaseEvidence:evidence,releaseConfig});
     } catch(error) {
       add(blockers,'reserve_reproducible_build_report_invalid',
@@ -2119,7 +2821,9 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.verifierReproducibleBuildReport,evidenceFiles)) {
     try {
-      validateVerifierReproducibleBuildReport(verifierReproducibleBuildReport,{
+      const report=bindDocumentBytes(releaseAssuranceAuthority?.verifierReproducibleBuildReportBytes,
+        verifierReproducibleBuildReport,evidence.verifierReproducibleBuildReport,evidenceFiles,'verifier reproducible-build report');
+      validateVerifierReproducibleBuildReport(report,{
         releaseEvidence:evidence,releaseConfig,verifierConfig});
     } catch(error) {
       add(blockers,'verifier_reproducible_build_report_invalid',
@@ -2128,7 +2832,9 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.mainnetForkRehearsalReport,evidenceFiles)) {
     try {
-      validateMainnetForkRehearsalReport({report:mainnetForkRehearsalReport,
+      const report=bindDocumentBytes(releaseAssuranceAuthority?.mainnetForkRehearsalReportBytes,
+        mainnetForkRehearsalReport,evidence.mainnetForkRehearsalReport,evidenceFiles,'mainnet fork rehearsal report');
+      validateMainnetForkRehearsalReport({report,
         releaseEvidence:evidence,releaseConfig,evidenceFiles:mainnetForkRehearsalEvidenceFiles});
     } catch(error) {
       add(blockers,'mainnet_fork_rehearsal_report_invalid',
@@ -2137,9 +2843,16 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.checkpointBootstrapRatificationReport,evidenceFiles)) {
     try {
-      validateCheckpointBootstrapRatificationReport({report:checkpointBootstrapRatificationReport,
-        releaseEvidence:evidence,releaseConfig,checkpointConsensus:ethereumCheckpointConsensus,
-        nativeFacts:nativePreactivationFacts});
+      const report=bindDocumentBytes(checkpointBootstrapRatificationAuthority?.reportBytes,
+        checkpointBootstrapRatificationReport,evidence.checkpointBootstrapRatificationReport,
+        evidenceFiles,'checkpoint bootstrap ratification report');
+      const consensus=bindDocumentBytes(checkpointBootstrapRatificationAuthority?.consensusBytes,
+        ethereumCheckpointConsensus,null,evidenceFiles,'Ethereum checkpoint consensus');
+      const facts=bindDocumentBytes(checkpointBootstrapRatificationAuthority?.nativeFactsBytes,
+        nativePreactivationFacts,null,evidenceFiles,'native preactivation facts');
+      validateCheckpointBootstrapRatificationReport({report,
+        releaseEvidence:evidence,releaseConfig,checkpointConsensus:consensus,
+        nativeFacts:facts});
     } catch(error) {
       add(blockers,'checkpoint_bootstrap_ratification_report_invalid',
         `checkpoint bootstrap ratification report is invalid: ${error.message}`);
@@ -2147,7 +2860,10 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.checkpointFinalizedEventReport,evidenceFiles)) {
     try {
-      validateCheckpointFinalizedEventReport({report:checkpointFinalizedEventReport,
+      const report=bindDocumentBytes(checkpointFinalizedEventAuthority?.reportBytes,
+        checkpointFinalizedEventReport,evidence.checkpointFinalizedEventReport,evidenceFiles,
+        'checkpoint finalized event report');
+      validateCheckpointFinalizedEventReport({report,
         releaseEvidence:evidence,releaseConfig});
     } catch(error) {
       add(blockers,'checkpoint_finalized_event_report_invalid',
@@ -2156,7 +2872,10 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.checkpointVerifierReproducibleBuildReport,evidenceFiles)) {
     try {
-      validateCheckpointVerifierReproducibleBuildReport(checkpointVerifierReproducibleBuildReport,
+      const report=bindDocumentBytes(releaseAssuranceAuthority?.checkpointVerifierReproducibleBuildReportBytes,
+        checkpointVerifierReproducibleBuildReport,evidence.checkpointVerifierReproducibleBuildReport,
+        evidenceFiles,'checkpoint verifier reproducible-build report');
+      validateCheckpointVerifierReproducibleBuildReport(report,
         {releaseEvidence:evidence,releaseConfig,verifierConfig:checkpointVerifierConfig});
     } catch(error) {
       add(blockers,'checkpoint_verifier_reproducible_build_report_invalid',
@@ -2165,8 +2884,10 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.checkpointRegistryReproducibleBuildReport,evidenceFiles)) {
     try {
-      validateCheckpointRegistryReproducibleBuildReport(
-        checkpointRegistryReproducibleBuildReport,{releaseEvidence:evidence,releaseConfig});
+      const report=bindDocumentBytes(releaseAssuranceAuthority?.checkpointRegistryReproducibleBuildReportBytes,
+        checkpointRegistryReproducibleBuildReport,evidence.checkpointRegistryReproducibleBuildReport,
+        evidenceFiles,'checkpoint registry reproducible-build report');
+      validateCheckpointRegistryReproducibleBuildReport(report,{releaseEvidence:evidence,releaseConfig});
     } catch(error) {
       add(blockers,'checkpoint_registry_reproducible_build_report_invalid',
         `checkpoint registry reproducible-build report is invalid: ${error.message}`);
@@ -2174,7 +2895,9 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.residualRiskAcceptanceReport,evidenceFiles)) {
     try {
-      validateResidualRiskReport(residualRiskReport,{releaseEvidence:evidence,releaseConfig,
+      const report=bindDocumentBytes(releaseAssuranceAuthority?.residualRiskReportBytes,
+        residualRiskReport,evidence.residualRiskAcceptanceReport,evidenceFiles,'residual-risk report');
+      validateResidualRiskReport(report,{releaseEvidence:evidence,releaseConfig,
         requirements,draftSha256:residualRiskDraftSha256});
     } catch(error) {
       add(blockers,'residual_risk_report_invalid',
@@ -2188,8 +2911,12 @@ export function assessMainnetReadiness({
           !==JSON.stringify(evidence.checkpointTrustedSetup.decisionReport)) {
         throw new Error('both verifier decision slots must reference the same immutable report');
       }
-      validateTrustedSetupDecisionReport(trustedSetupDecisionReport,{releaseEvidence:evidence,
-        releaseConfig,verifierConfig,checkpointVerifierConfig});
+      const report=bindDocumentBytes(trustedSetupDecisionReportAuthority?.reportBytes,
+        trustedSetupDecisionReport,evidence.trustedSetup.decisionReport,evidenceFiles,
+        'trusted-setup decision report');
+      validateTrustedSetupDecisionReport(report,{releaseEvidence:evidence,
+        releaseConfig,verifierConfig,checkpointVerifierConfig,trustedSetupVerificationReport,
+        trustedSetupAuthority,trustedSetupAuthoritySha256});
     } catch(error) {
       add(blockers,'trusted_setup_decision_report_invalid',
         `trusted-setup decision report is invalid: ${error.message}`);
@@ -2197,7 +2924,9 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.realFinalizedEndToEndReport,evidenceFiles)) {
     try {
-      validateFinalizedBurnE2eReport(finalizedBurnE2eReport,{
+      const report=bindDocumentBytes(finalizedBurnE2eAuthority?.reportBytes,finalizedBurnE2eReport,
+        evidence.realFinalizedEndToEndReport,evidenceFiles,'finalized-burn E2E report');
+      validateFinalizedBurnE2eReport(report,{
         evidence,releaseConfig,verifierConfig,riscZeroReference,
       });
     } catch(error) {
@@ -2207,7 +2936,12 @@ export function assessMainnetReadiness({
   }
   if(validDocument(evidence?.checkpointProofCapacityReport,evidenceFiles)) {
     try {
-      validateCheckpointProofCapacityReport(checkpointProofCapacityReport,{
+      if(!Buffer.isBuffer(checkpointProofCapacityAuthority?.reportBytes)
+          ||createHash('sha256').update(checkpointProofCapacityAuthority.reportBytes).digest('hex')
+            !==evidence.checkpointProofCapacityReport.sha256) {
+        throw new Error('report bytes do not match the release-evidence descriptor');
+      }
+      validateCheckpointProofCapacityAuthority(checkpointProofCapacityReport,checkpointProofCapacityAuthority,{
         evidence,releaseConfig,checkpointVerifierConfig,riscZeroReference,
       });
     } catch(error) {
@@ -2215,14 +2949,134 @@ export function assessMainnetReadiness({
         `checkpoint proof capacity report is invalid: ${error.message}`);
     }
   }
+  if(requirements?.production_finalized_burn_proving_capacity_measured===true
+      ||requirements?.production_finalized_burn_evm_verification_gas_measured===true) {
+    try {
+      if(!validDocument(evidence?.finalizedBurnCapacityReport,evidenceFiles)
+          ||!finalizedBurnCapacityAuthority?.validated
+          ||!Buffer.isBuffer(finalizedBurnCapacityAuthority.reportBytes)
+          ||!Buffer.isBuffer(finalizedBurnCapacityAuthority.manifestBytes)) throw new Error('byte authority is absent');
+      const parsed=parseStrictJsonBytes(finalizedBurnCapacityAuthority.reportBytes,{label:'finalized-burn capacity authority',maxBytes:1024*1024,maxDepth:32});
+      if(JSON.stringify(parsed)!==JSON.stringify(finalizedBurnCapacityReport)
+          ||createHash('sha256').update(finalizedBurnCapacityAuthority.reportBytes).digest('hex')
+            !==evidence.finalizedBurnCapacityReport.sha256
+          ||createHash('sha256').update(finalizedBurnCapacityAuthority.manifestBytes).digest('hex')!==finalizedBurnCapacityReport.artifactManifestSha256) throw new Error('report differs from graph authority');
+      validateFinalizedBurnCapacityReport(finalizedBurnCapacityReport,{riscZeroReference});
+    } catch(error) { add(blockers,'finalized_burn_capacity_authority_invalid',`finalized-burn capacity graph is unavailable or invalid: ${error.message}`); }
+  }
+  if(['production_queue_withdrawal_worst_case_gas_measured',
+    'production_prune_expired_256_worst_case_gas_measured',
+    'production_prune_discardable_256_worst_case_gas_measured',
+    'production_safe_admin_overhead_gas_measured'].some(key=>requirements?.[key]===true)) {
+    try {
+      const jobBytes=productionOperationalGasAuthority?.jobBytes;
+      const reportBytes=productionOperationalGasAuthority?.reportBytes;
+      const releaseConfigBytes=productionOperationalGasAuthority?.releaseConfigBytes;
+      if(!Buffer.isBuffer(jobBytes)||!Buffer.isBuffer(reportBytes)||!Buffer.isBuffer(releaseConfigBytes)) {
+        throw new Error('job, report and release byte authority are required');
+      }
+      const job=validateProductionOperationalGasJob(parseStrictJsonBytes(jobBytes,{label:'operational gas job',maxBytes:1024*1024,maxDepth:16}));
+      const report=parseStrictJsonBytes(reportBytes,{label:'operational gas report',maxBytes:4*1024*1024,maxDepth:32});
+      validateProductionOperationalGasEvidence(report,job);
+      const releaseFromBytes=parseStrictJsonBytes(releaseConfigBytes,{label:'operational gas release',maxBytes:4*1024*1024,maxDepth:64});
+      if(JSON.stringify(releaseFromBytes)!==JSON.stringify(releaseConfig)
+          ||job.releaseConfigSha256!=='0x'+createHash('sha256').update(releaseConfigBytes).digest('hex')
+          ||job.reserve!==releaseConfig.reserve.toLowerCase()
+          ||job.reserveRuntimeCodeHash!==releaseConfig.reserveRuntimeCodeHash.toLowerCase()
+          ||job.reserveConfigHash!==releaseConfig.reserveConfigHash.toLowerCase()
+          ||JSON.stringify(job.safeAddresses)!==JSON.stringify([releaseConfig.governance.toLowerCase(),releaseConfig.guardian.toLowerCase()])
+          ||JSON.stringify(job.safeImplementationCodeHashes)!==JSON.stringify([releaseConfig.governanceImplementationCodeHash.toLowerCase(),releaseConfig.guardianImplementationCodeHash.toLowerCase()])
+          ||JSON.stringify(job.safeRuntimeCodeHashes)!==JSON.stringify([releaseConfig.governanceCodeHash.toLowerCase(),releaseConfig.guardianCodeHash.toLowerCase()])) {
+        throw new Error('operational gas evidence belongs to another release or runtime identity');
+      }
+    } catch(error) {
+      add(blockers,'production_operational_gas_authority_invalid',
+        `operational gas job/report authority is unavailable or invalid: ${error.message}`);
+    }
+  }
+  if(requirements?.native_private_mining_real_finalized_deposit_vector_implemented===true
+      ||requirements?.real_finalized_reserve_deposit_native_block_vector_implemented===true) {
+    try {
+      const authority=finalizedDepositAuthority;
+      const parse=(field,label)=>{
+        const bytes=authority?.[field];
+        if(!Buffer.isBuffer(bytes)||bytes.length<2) throw new Error(`${label} bytes are absent`);
+        return parseStrictJsonBytes(bytes,{label,maxBytes:4*1024*1024,maxDepth:64});
+      };
+      const packageValue=parse('packageBytes','closed deposit package');
+      const execution=parse('executionBytes','closed deposit execution receipt');
+      const depositFinality=parse('depositFinalityBytes','closed deposit finality');
+      const baseline=parse('baselineBytes','closed deposit financial baseline');
+      const release=parse('releaseBytes','closed deposit release');
+      const wallet=parse('walletBytes','closed deposit wallet observation');
+      const pilotFundsSnapshot=parse('pilotFundsSnapshotBytes','closed deposit pilot snapshot');
+      const pilotFundsAuthorizationState=parse('pilotFundsAuthorizationStateBytes',
+        'closed deposit pilot authorization state');
+      const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
+      if(JSON.stringify(release)!==JSON.stringify(releaseConfig)) {
+        throw new Error('closed deposit release bytes belong to another release');
+      }
+      validateClosedMainnetDepositEvidence({packageValue,packageBytes:authority.packageBytes,
+        packageSha256:digest(authority.packageBytes),execution,executionBytes:authority.executionBytes,
+        depositFinality,depositFinalityBytes:authority.depositFinalityBytes,
+        depositFinalitySha256:digest(authority.depositFinalityBytes),
+        baseline,baselineBytes:authority.baselineBytes,baselineSha256:digest(authority.baselineBytes),
+        release,releaseBytes:authority.releaseBytes,releaseSha256:digest(authority.releaseBytes),
+        wallet,walletBytes:authority.walletBytes,walletSha256:digest(authority.walletBytes),
+        pilotFundsSnapshot,pilotFundsSnapshotBytes:authority.pilotFundsSnapshotBytes,
+        pilotFundsSnapshotSha256:digest(authority.pilotFundsSnapshotBytes),
+        pilotFundsAuthorizationState,
+        pilotFundsAuthorizationStateBytes:authority.pilotFundsAuthorizationStateBytes,
+        pilotFundsAuthorizationStateSha256:digest(authority.pilotFundsAuthorizationStateBytes),
+        expectedPrivacyPolicyHash:`0x${requirements.native_privacy_policy_hash}`});
+    } catch(error) {
+      add(blockers,'finalized_deposit_authority_invalid',
+        `finalized-deposit package/execution/wallet authority is unavailable or invalid: ${error.message}`);
+    }
+  }
+  if(requirements?.native_privacy_trusted_setup_ceremony_completed===true
+      ||requirements?.native_privacy_production_verifying_key_installed===true) {
+    try {
+      const authority=nativePrivacyCeremonyAuthority;
+      for(const field of ['transcriptBytes','circuitBytes','finalProvingKeyBytes','verifyingKeyBytes',
+        'runtimeManifestBytes','installationReceiptBytes','installedTranscriptBytes',
+        'installedVerifyingKeyBytes','installedRuntimeManifestBytes']) {
+        if(!Buffer.isBuffer(authority?.[field])||authority[field].length<1) throw new Error(`${field} is absent`);
+      }
+      const transcript=parseStrictJsonBytes(authority.transcriptBytes,{label:'native privacy ceremony transcript',maxBytes:8*1024*1024,maxDepth:64});
+      const validated=validateNativePrivacyCeremony(transcript,{circuitBytes:authority.circuitBytes,
+        finalProvingKeyBytes:authority.finalProvingKeyBytes,verifyingKeyBytes:authority.verifyingKeyBytes});
+      const receipt=parseStrictJsonBytes(authority.installationReceiptBytes,{label:'native privacy installation receipt',maxBytes:1024*1024,maxDepth:32});
+      validateNativePrivacyInstallationReceipt(receipt,{nativeRuntimeManifestBytes:authority.runtimeManifestBytes,
+        ceremonyTranscriptBytes:authority.transcriptBytes,verifyingKeyBytes:authority.verifyingKeyBytes,
+        privacyVerifierConfigHash:validated.privacyVerifierConfigHash,
+        verifyingKeySha256:validated.verifyingKeySha256});
+      if(!authority.installedTranscriptBytes.equals(authority.transcriptBytes)
+          ||!authority.installedVerifyingKeyBytes.equals(authority.verifyingKeyBytes)
+          ||!authority.installedRuntimeManifestBytes.equals(authority.runtimeManifestBytes)
+          ||validated.privacyVerifierConfigHash!==nativeRuntimeValidation?.privacy_verifier_config_hash
+          ||validated.verifyingKeySha256!==nativeRuntimeValidation?.spend_verifying_key_sha256) {
+        throw new Error('native privacy ceremony or installed copies differ from the release runtime identity');
+      }
+    } catch(error) {
+      add(blockers,'native_privacy_ceremony_authority_invalid',
+        `native privacy ceremony/installation authority is unavailable or invalid: ${error.message}`);
+    }
+  }
   if(validDocument(evidence?.riscZeroHealthSourceCatalog,evidenceFiles)) {
-    try { validateRiscZeroHealthSourceCatalog(riscZeroHealthSourceCatalog); }
+    try {
+      const catalog=bindDocumentBytes(riscZeroHealthSourceCatalogAuthority?.catalogBytes,
+        riscZeroHealthSourceCatalog,evidence.riscZeroHealthSourceCatalog,evidenceFiles,
+        'RISC Zero health source catalog');
+      validateRiscZeroHealthSourceCatalog(catalog);
+    }
     catch(error) {
       add(blockers,'risc0_health_source_catalog_invalid',
         `RISC Zero health source catalog is invalid: ${error.message}`);
     }
   }
-  requireControlPlaneSemanticEvidence(blockers,evidence,releaseConfig,controlPlaneEvidenceArtifacts);
+  requireControlPlaneSemanticEvidence(blockers,evidence,evidenceFiles,releaseConfig,
+    controlPlaneEvidenceArtifacts,controlPlaneEvidenceAuthority);
   const nativeRuntime=requireNativeRuntimeManifest(blockers,{
     evidence,evidenceFiles,releaseConfig,nativeRuntimeValidation,
   });
@@ -2230,12 +3084,14 @@ export function assessMainnetReadiness({
     name:'native_privacy_trusted_setup',kind:'native-privacy-trusted-setup',
     document:evidence?.nativePrivacyTrustedSetupAttestationReport,evidenceFiles,
     attestation:nativePrivacyTrustedSetupAttestation,evidence,releaseConfig,
+    attestationBytes:nativeReleaseAttestationAuthority?.nativePrivacyTrustedSetupBytes,
     expectedSubjectCommitment:nativeRuntime?.privacyVerifierSubject,
   });
   requireNativeReleaseAttestation(blockers,{
     name:'native_scheduled_runtime_activation',kind:'native-scheduled-runtime-activation',
     document:evidence?.nativeScheduledRuntimeActivationAttestationReport,evidenceFiles,
     attestation:nativeScheduledRuntimeActivationAttestation,evidence,releaseConfig,
+    attestationBytes:nativeReleaseAttestationAuthority?.nativeScheduledRuntimeActivationBytes,
     expectedSubjectCommitment:nativeRuntime?.manifestSubject,
   });
   if(mode==='real-funds') {
@@ -2243,11 +3099,13 @@ export function assessMainnetReadiness({
       name:'native_wallet_custody',kind:'native-wallet-custody',
       document:evidence?.nativeWalletCustodyAttestationReport,evidenceFiles,
       attestation:nativeWalletCustodyAttestation,evidence,releaseConfig,
+      attestationBytes:nativeReleaseAttestationAuthority?.nativeWalletCustodyBytes,
     });
     const recoverySubject=requireNativeReleaseAttestation(blockers,{
       name:'native_wallet_recovery',kind:'native-wallet-recovery',
       document:evidence?.nativeWalletRecoveryAttestationReport,evidenceFiles,
       attestation:nativeWalletRecoveryAttestation,evidence,releaseConfig,
+      attestationBytes:nativeReleaseAttestationAuthority?.nativeWalletRecoveryBytes,
     });
     if(custodySubject && recoverySubject && custodySubject!==recoverySubject) {
       add(blockers,'native_wallet_recovery_identity_mismatch',
@@ -2272,7 +3130,9 @@ export function assessMainnetReadiness({
   ];
   if(nativeAttestationDocuments.every(document=>validDocument(document,evidenceFiles))) {
     requireNativeAttestationApprovalSnapshot(blockers,{
-      observation:nativeAttestationApprovalObservation,attestations:nativeAttestations,releaseConfig,
+      observation:nativeAttestationApprovalObservation,
+      observationAuthority:approvalObservationAuthority?.nativeAttestations,
+      attestations:nativeAttestations,releaseConfig,
     });
   }
   const computedVerifierConfig=requireVerifierConfiguration(
@@ -2308,11 +3168,17 @@ export function assessMainnetReadiness({
   if(trustedRiscZeroReference) {
     requirePreflightAttestation(blockers,{name:'predeployment',phase:'predeployment',
       document:evidence?.mainnetPredeploymentAttestationReport,evidenceFiles,
-      attestation:predeploymentAttestation,releaseConfig,riscZeroReference:trustedRiscZeroReference});
+      attestation:predeploymentAttestation,
+      attestationBytes:predeploymentAttestationAuthority?.reportBytes,
+      requireByteAuthority:true,
+      releaseConfig,riscZeroReference:trustedRiscZeroReference});
     if(mode==='real-funds') {
       requirePreflightAttestation(blockers,{name:'cold_start',phase:'postdeployment',
         document:evidence?.mainnetColdStartAttestationReport,evidenceFiles,
-        attestation:coldStartAttestation,releaseConfig,riscZeroReference:trustedRiscZeroReference});
+        attestation:coldStartAttestation,
+        attestationBytes:coldStartAttestationAuthority?.reportBytes,
+        requireByteAuthority:true,
+        releaseConfig,riscZeroReference:trustedRiscZeroReference});
     }
   }
   if(trustedRiscZeroReference) {
@@ -2334,6 +3200,11 @@ export function assessMainnetReadiness({
     }
   }
   if(computedVerifierConfig && computedCheckpointVerifierConfig) {
+    if(computedVerifierConfig.finalizedBurnGuestImageId
+        ===computedCheckpointVerifierConfig.checkpointGuestImageId) {
+      add(blockers,'risc0_adapter_image_capability_collision',
+        'finalized-burn and checkpoint verifier manifests must use distinct guest ImageIDs');
+    }
     for(const field of ['riscZeroVerifier','riscZeroVerifierCodeHash','riscZeroVerifierSelector',
       'verifyingKeySha256','trustedSetupTranscriptSha256']) {
       if(String(computedVerifierConfig[field]).toLowerCase()
@@ -2343,7 +3214,19 @@ export function assessMainnetReadiness({
       }
     }
   }
-  requireRepositoryProvenance(blockers, evidence, repositoryState);
+  try {
+    if(!Buffer.isBuffer(repositoryStateAuthority?.bytes)) {
+      throw new Error('repository state bytes are absent');
+    }
+    const parsed=parseStrictJsonBytes(repositoryStateAuthority.bytes,
+      {label:'repository state snapshot',maxBytes:1024*1024,maxDepth:32});
+    if(JSON.stringify(parsed)!==JSON.stringify(repositoryState)) {
+      throw new Error('repository state object differs from authority bytes');
+    }
+    requireRepositoryProvenance(blockers,evidence,parsed);
+  } catch(error) {
+    add(blockers,'repository_state_authority_invalid',error.message);
+  }
   return {mode, ready:blockers.length === 0, blockerCount:blockers.length, blockers,
     reserveConfigHash:computed?.reserveConfigHash ?? null,
     checkpointRegistryConfigHash:computedCheckpoint?.checkpointConfigHash ?? null,

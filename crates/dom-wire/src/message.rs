@@ -68,6 +68,42 @@ impl Command {
             ))),
         }
     }
+
+    /// Maximum payload accepted for this command.
+    ///
+    /// This bound is deliberately available at envelope/codec level: a peer
+    /// must not be allowed to make a cheap fixed-width command consume the
+    /// block-sized global reassembly allowance before its payload decoder runs.
+    pub const fn max_payload_len(self) -> usize {
+        match self {
+            // Maximum v4 Hello, including the 256-byte user agent.
+            Self::Hello => 4 + 4 + 32 + 8 + 32 + 2 + 256 + 8 + 2 + 8,
+            // Ping/Pong payloads are opaque and echoed. Keep enough room for a
+            // nonce plus future domain/version bytes without permitting bulk.
+            Self::Ping | Self::Pong => 64,
+            // Inventory relay is currently ignored, but remains bounded for
+            // forward compatibility rather than inheriting the block ceiling.
+            Self::Inv => 64 * 1024,
+            Self::GetHeaders => 2 + dom_core::MAX_LOCATOR_HASHES * 32 + 32,
+            Self::Headers => 2 + dom_core::MAX_HEADERS_PER_MSG * (4 + 1024),
+            Self::GetBlock => 32,
+            Self::Block => dom_core::MAX_BLOCK_SERIALIZED_SIZE + 4,
+            // A standalone transaction can never legitimately exceed the
+            // consensus block serialization ceiling.
+            Self::Tx => dom_core::MAX_BLOCK_SERIALIZED_SIZE,
+            Self::GetAddr => 0,
+            Self::Addr => 2 + MAX_ADDRS_PER_MESSAGE * (1 + u8::MAX as usize + 8),
+            Self::GetBlockData => 2 + dom_core::MAX_GETBLOCKDATA_HASHES * 32,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            Self::UsdomV4Package => dom_core::MAX_BLOCK_SERIALIZED_SIZE + 12,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            Self::UsdomV2Package => {
+                dom_core::MAX_BLOCK_SERIALIZED_SIZE + MAX_USDOM_V2_WITNESS_BUNDLE_BYTES + 16
+            }
+            #[cfg(feature = "native-usdom-v4-poc")]
+            Self::SyncTip => SyncTipPayload::BYTES,
+        }
+    }
 }
 
 /// Maximum payload size per message (prevents memory exhaustion DoS).
@@ -135,6 +171,13 @@ impl WireMessage {
         if length > MAX_MESSAGE_PAYLOAD {
             return Err(DomError::Malformed(format!(
                 "payload length {length} > MAX_MESSAGE_PAYLOAD"
+            )));
+        }
+        let command_limit = command.max_payload_len();
+        if length > command_limit {
+            return Err(DomError::Malformed(format!(
+                "payload length {length} exceeds {:?} command limit {command_limit}",
+                command
             )));
         }
         if data.len() != 13 + length {
@@ -1433,6 +1476,47 @@ mod parser_boundary_tests {
         data.extend_from_slice(&((MAX_MESSAGE_PAYLOAD as u32) + 1).to_le_bytes());
         data.extend_from_slice(&0u32.to_le_bytes()); // checksum (rejected earlier on length)
         assert!(WireMessage::from_bytes(&data, TEST_MAGIC).is_err());
+    }
+
+    #[test]
+    fn cheap_command_cannot_inherit_global_block_payload_limit() {
+        let payload = vec![0x5a; Command::Ping.max_payload_len() + 1];
+        assert!(payload.len() < MAX_MESSAGE_PAYLOAD);
+        let data = frame(Command::Ping, &payload);
+        assert!(WireMessage::from_bytes(&data, TEST_MAGIC).is_err());
+
+        let maximum = vec![0x5a; Command::Ping.max_payload_len()];
+        assert!(WireMessage::from_bytes(&frame(Command::Ping, &maximum), TEST_MAGIC).is_ok());
+    }
+
+    #[test]
+    fn every_command_limit_is_within_global_envelope_limit() {
+        let commands = [
+            Command::Hello,
+            Command::Ping,
+            Command::Pong,
+            Command::Inv,
+            Command::GetHeaders,
+            Command::Headers,
+            Command::GetBlock,
+            Command::Block,
+            Command::Tx,
+            Command::GetAddr,
+            Command::Addr,
+            Command::GetBlockData,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            Command::UsdomV4Package,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            Command::UsdomV2Package,
+            #[cfg(feature = "native-usdom-v4-poc")]
+            Command::SyncTip,
+        ];
+        for command in commands {
+            assert!(
+                command.max_payload_len() <= MAX_MESSAGE_PAYLOAD,
+                "{command:?}"
+            );
+        }
     }
 
     // 3. Wrong checksum → Err.

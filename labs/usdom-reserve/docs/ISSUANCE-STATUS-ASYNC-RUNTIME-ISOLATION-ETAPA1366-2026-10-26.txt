@@ -1,0 +1,51 @@
+Stage 1366 — issuance-status async runtime isolation
+Date: 2026-10-26
+
+Finding
+
+The issuance-status HTTP handler invoked the synchronous `NodeHandle` method
+directly from its async future. A consumed-deposit query can authenticate as
+many as 256 canonical history blocks, including database reads, decoding and
+commitment reconstruction. That work blocked a Tokio worker thread and could
+delay unrelated RPC requests; because the future did not yield, the ordinary
+HTTP timeout could not make progress while the call was executing.
+
+Correction
+
+The handler now executes the bounded synchronous status operation with
+`tokio::task::spawn_blocking`. The async runtime remains responsive while the
+chain/runtime snapshot and store work run on the blocking pool. Backend errors
+retain their existing typed HTTP mapping, worker join failure becomes a
+sanitized internal error, and the complete response-evidence validator still
+runs before serialization.
+
+DoS and boundary review
+
+- The route remains bearer-authenticated and rate-limited.
+- It shares the expensive-scan nonqueueing inflight semaphore; excess requests
+  receive a retryable rejection instead of accumulating behind the scan.
+- JSON is protected by the standard 1,024,000-byte body limit and strict
+  `deny_unknown_fields`; every identifier must be canonical nonzero 32-byte
+  hex before backend work.
+- A timed-out blocking task can finish its already-bounded scan, but a second
+  task cannot perform another scan concurrently because the production handle
+  uses nonblocking chain/runtime locks and returns overloaded immediately.
+- Canonical height lookup, package authentication and runtime state remain
+  under the same chain-before-runtime snapshot, so moving threads does not
+  weaken reorg atomicity.
+- Store gaps/corruption continue to fail closed through `CanonicalGap` or a
+  sanitized internal response; no partial status body is serialized.
+- Response size is constant apart from one fixed inclusion object and contains
+  no attacker-sized collection.
+
+Evidence
+
+- Current-thread Tokio regression with a simulated 200-ms synchronous backend:
+  the independent 10-ms timer completes under 100 ms and the request later
+  returns HTTP 200; 1 passed, 0 failed.
+- Existing authenticated, chain-pinned issuance-status endpoint regression:
+  1 passed, 0 failed.
+- dom-rpc compiled successfully; rustfmt and git diff --check pass.
+- No RandomX mining, network, wallet, signature, deployment, funds, commit or
+  push occurred.
+

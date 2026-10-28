@@ -1,4 +1,15 @@
 const whitespace=code=>code===0x20||code===0x09||code===0x0a||code===0x0d;
+const hasUnpairedSurrogate=value=>{
+ for(let index=0;index<value.length;index++) {
+  const code=value.charCodeAt(index);
+  if(code>=0xd800&&code<=0xdbff) {
+   const low=value.charCodeAt(index+1);
+   if(!(low>=0xdc00&&low<=0xdfff)) return true;
+   index++;
+  } else if(code>=0xdc00&&code<=0xdfff) return true;
+ }
+ return false;
+};
 
 /**
  * Parse security-sensitive JSON while rejecting duplicate object keys.
@@ -29,6 +40,9 @@ export function parseStrictJson(source,{label='JSON',maxBytes=64*1024*1024,maxDe
     let result;
     try { result=JSON.parse(source.slice(start,offset)); }
     catch { fail('invalid string escape'); }
+    // Isolated UTF-16 surrogate escapes become U+FFFD when encoded as UTF-8.
+    // Reject them before hashing/re-encoding to keep one string -> one byte form.
+    if(hasUnpairedSurrogate(result)) fail('unpaired Unicode surrogate');
     if(Buffer.byteLength(result,'utf8')>maxStringBytes) fail(`string exceeds ${maxStringBytes} bytes`);
     return result;
    }
@@ -51,6 +65,13 @@ export function parseStrictJson(source,{label='JSON',maxBytes=64*1024*1024,maxDe
   offset+=match[0].length;
   const value=Number(match[0]);
   if(!Number.isFinite(value)) fail('non-finite number');
+  if(!Number.isSafeInteger(value)&&!/[.eE]/.test(match[0])) fail('integer is not canonically representable');
+  // JSON.parse silently rounds decimal/exponent spellings such as
+  // 0.10000000000000001.  A security boundary must not let two distinct
+  // numeric tokens collapse to the same IEEE-754 value.  Requiring the
+  // ECMAScript shortest round-trip spelling also excludes -0, redundant
+  // fractions and alternate exponent forms before callers hash/re-encode.
+  if(JSON.stringify(value)!==match[0]) fail('number is not canonically representable');
   return value;
  };
  const value=depth=>{

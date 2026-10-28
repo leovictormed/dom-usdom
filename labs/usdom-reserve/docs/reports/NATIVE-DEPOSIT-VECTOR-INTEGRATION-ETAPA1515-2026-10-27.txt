@@ -1,0 +1,13 @@
+ETAPA 1515B — integração dos vetores nativos de depósito
+
+O comando execute-pilot-deposit-secret agora executa a cadeia operacional real depois do
+depósito Ethereum: coleta a fonte finalizada, constrói e executa a relação do witness,
+inicializa o genesis Mainnet fechado, provisiona a custódia TPM, registra a carteira,
+submete a emissão, minera exatamente um bloco, observa a carteira por histórico autenticado
+e roda check:native-finalized-deposit-vector.
+
+O validador final religa bytes e hashes do manifesto, witness, registro da carteira,
+recibo de submissão, recibo do único bloco e observação canônica. Ele exige 1.000.000
+unidades, altura 1, ausência de mineração contínua e de broadcast Ethereum, além do mesmo
+depositId, noteCommitment, chainId, genesis e blockHash. Nenhum claim foi marcado true:
+isso só pode ocorrer depois da execução externa produzir todos esses artefatos reais.

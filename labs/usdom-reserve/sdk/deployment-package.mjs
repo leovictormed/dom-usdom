@@ -1,5 +1,7 @@
 import {getAddress,getCreateAddress,keccak256} from 'ethers';
+import {createHash} from 'node:crypto';
 import {uint} from './reserve.mjs';
+import {parseStrictJsonBytes} from './strict-json.mjs';
 import {auditedDeploymentGasLimit,MAINNET_DEPLOYMENT_SEQUENCE_MAX_GAS_LIMIT,
 } from './mainnet-deployment-execution.mjs';
 
@@ -63,11 +65,12 @@ function canonicalApprovedArtifact(value,name) {
  * signing key nor has an RPC transport, so it cannot broadcast a transaction. */
 export function buildMainnetDeploymentPackage({releaseConfigSha256,observationDocumentSha256,
   observationHash,plans,approvedArtifacts}) {
-  if(!sha256Pattern.test(releaseConfigSha256??'')) {
+  if(!sha256Pattern.test(releaseConfigSha256??'')||BigInt(`0x${releaseConfigSha256}`)===0n) {
     throw new Error('release configuration SHA-256 must be canonical lowercase hex');
   }
   if(!sha256Pattern.test(observationDocumentSha256??'')
-      ||!bytes32Pattern.test(observationHash??'')) {
+      ||BigInt(`0x${observationDocumentSha256}`)===0n
+      ||!bytes32Pattern.test(observationHash??'')||BigInt(observationHash)===0n) {
     throw new Error('deployment identity observation commitments are invalid');
   }
   exactObject(plans,names,'deployment plans');
@@ -137,7 +140,14 @@ export function validateMainnetDeploymentPackage(value) {
   return canonical;
 }
 
-export function validateMainnetDeploymentLedgerHandoff({handoff,packageValue,index,packageSha256}) {
+export function validateMainnetDeploymentLedgerHandoff({handoff,packageValue,packageBytes,index,
+  packageSha256}) {
+  if(!Buffer.isBuffer(packageBytes)
+      ||JSON.stringify(parseStrictJsonBytes(packageBytes,{label:'reviewed deployment package',
+        maxBytes:8*1024*1024,maxDepth:32}))!==JSON.stringify(packageValue)
+      ||createHash('sha256').update(packageBytes).digest('hex')!==packageSha256) {
+    throw new Error('deployment package bytes differ from reviewed authority');
+  }
   validateMainnetDeploymentPackage(packageValue);
   exactObject(handoff,['schema','chainId','releaseConfigSha256','packageSha256','rpcCatalogSha256',
     'observationDocumentSha256','observationHash','transaction'],'deployment Ledger handoff');

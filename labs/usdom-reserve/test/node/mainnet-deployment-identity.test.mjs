@@ -4,7 +4,8 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {Wallet,getCreateAddress,keccak256,toUtf8Bytes} from 'ethers';
 import {deriveMainnetDeploymentIdentity,observeMainnetDeploymentIdentity as observeIdentity,
-  validateMainnetDeploymentIdentityObservation}
+  validateMainnetDeploymentIdentityObservation,validateMainnetDeploymentTopology,
+  validateOrderedDeploymentChronology}
   from '../../sdk/mainnet-deployment-identity.mjs';
 
 const template=JSON.parse(readFileSync(fileURLToPath(new URL(
@@ -40,7 +41,7 @@ class Provider {
   }
 }
 
-test('deployment identity derives four consecutive CREATE addresses from one Ledger EOA',()=>{
+test('deployment identity derives four consecutive CREATE addresses from one gas-only relayer EOA',()=>{
   const result=deriveMainnetDeploymentIdentity({releaseConfig:template,deployer,baseNonce:'7'});
   assert.deepEqual(result.plans.map(plan=>plan.nonce),['7','8','9','10']);
   for(let index=0;index<4;index++) {
@@ -54,6 +55,32 @@ test('deployment identity derives four consecutive CREATE addresses from one Led
   assert.deepEqual(deriveMainnetDeploymentIdentity({
     releaseConfig:result.configuration,deployer,baseNonce:'7',
   }).configuration,result.configuration);
+});
+
+test('deployment topology rejects multiple EOAs, nonce gaps and reordered finalized chronology',()=>{
+  const configured=deriveMainnetDeploymentIdentity({releaseConfig:template,deployer,baseNonce:'7'})
+    .configuration;
+  assert.deepEqual(validateMainnetDeploymentTopology(configured).map(plan=>plan.nonce),
+    [7n,8n,9n,10n]);
+  const secondDeployer=new Wallet(
+    '0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd').address;
+  assert.throws(()=>validateMainnetDeploymentTopology({...configured,
+    checkpointVerifierDeployer:secondDeployer,
+    checkpointVerifier:getCreateAddress({from:secondDeployer,nonce:8}),
+  }),/one deployer/);
+  assert.throws(()=>validateMainnetDeploymentTopology({...configured,
+    checkpointVerifierDeployerNonce:'9',
+    checkpointVerifier:getCreateAddress({from:deployer,nonce:9}),
+  }),/consecutive/);
+  const deployments=['finalizedBurnVerifier','checkpointVerifier','checkpointRegistry','reserve']
+    .map((name,index)=>({name,receiptBlockNumber:String(100+index),
+      receiptBlockHash:`0x${(100+index).toString(16).padStart(64,'0')}`,
+      finalizedBlockNumber:String(200+index),
+      finalizedBlockHash:`0x${(200+index).toString(16).padStart(64,'0')}`}));
+  assert.equal(validateOrderedDeploymentChronology(deployments),deployments);
+  deployments[1].finalizedBlockNumber='199';
+  deployments[1].finalizedBlockHash=`0x${(199).toString(16).padStart(64,'0')}`;
+  assert.throws(()=>validateOrderedDeploymentChronology(deployments),/chronology/);
 });
 
 test('dual-RPC identity observation rejects nonce, chain, EOA and address hazards',async()=>{
@@ -78,16 +105,24 @@ test('dual-RPC identity observation rejects nonce, chain, EOA and address hazard
 });
 
 test('deployment identity refuses authorization, collisions, drift and nonce overflow',()=>{
+  const plannedReserve=getCreateAddress({from:deployer,nonce:10});
   for(const releaseConfig of [
     {...template,productionReady:true},
     {...template,realFundsAuthorized:true},
     {...template,deploymentMethod:'CREATE2'},
     {...template,verifierDeployer:new Wallet('0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd').address},
     {...template,governance:getCreateAddress({from:deployer,nonce:7})},
+    {...template,governanceOwners:[plannedReserve,
+      new Wallet('0x1111111111111111111111111111111111111111111111111111111111111111').address,
+      new Wallet('0x2222222222222222222222222222222222222222222222222222222222222222').address]},
   ]) assert.throws(()=>deriveMainnetDeploymentIdentity({releaseConfig,deployer,baseNonce:'7'}));
   assert.throws(()=>deriveMainnetDeploymentIdentity({
     releaseConfig:template,deployer,baseNonce:(2n**64n-3n).toString(),
   }));
+  for(const baseNonce of ['9'.repeat(100_000),'07','-1',7,7n]) {
+    assert.throws(()=>deriveMainnetDeploymentIdentity({releaseConfig:template,deployer,baseNonce}),
+      /outside uint64 bounds/);
+  }
   assert.deepEqual(deriveMainnetDeploymentIdentity({releaseConfig:template,deployer,
     baseNonce:(2n**64n-4n).toString()}).plans.map(value=>value.nonce),[
     (2n**64n-4n).toString(),(2n**64n-3n).toString(),
@@ -168,6 +203,17 @@ test('deployment identity materializer uses bounded catalog sources and redacts 
  assert.match(source,/currentCatalogBytes\.equals\(catalogBytes\)/);
  assert.match(source,/writeReleaseFailure\('prepare-mainnet-deployment-identity-materialization'/);
  assert.doesNotMatch(source,/JsonRpcProvider|ETHEREUM_RPC_URL/);
+});
+
+test('deployment identity materializer binds both locked parent descriptors',()=>{
+ const source=readFileSync(fileURLToPath(new URL(
+  '../../scripts/materialize-mainnet-deployment-identity.sh',import.meta.url)),'utf8');
+ assert.match(source,/realpath -e \/proc\/\$\$\/fd\/9/);
+ assert.match(source,/realpath -e \/proc\/\$\$\/fd\/8/);
+ assert.match(source,/config_parent_identity=\$\(stat -Lc '%d:%i:%u:%a' -- \/proc\/\$\$\/fd\/9\)/);
+ assert.match(source,/evidence_parent_identity=\$\(stat -Lc '%d:%i:%u:%a' -- \/proc\/\$\$\/fd\/8\)/);
+ assert.match(source,/assert_locked_parents\(\)[\s\S]*stat -c '%d:%i:%u:%a'[\s\S]*stat -Lc '%d:%i:%u:%a'/);
+ assert.ok((source.match(/assert_locked_parents/g)??[]).length>=5);
 });
 
 test('deployment package binds and rereads the exact identity observation bytes',()=>{

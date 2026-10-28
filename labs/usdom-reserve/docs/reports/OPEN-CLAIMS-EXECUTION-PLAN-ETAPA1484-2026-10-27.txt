@@ -1,0 +1,21 @@
+Etapa 1484 — cobertura executável das claims abertas
+
+- `open-claims-plan` produz um documento determinístico com as 33 claims falsas
+  consumidas pelo gate de fundos reais e as ordena em 21 fases.
+- Cada entrada contém categoria, fase nomeada, comando completo para gerar a
+  fase, validação sintática, execução e a classe de evidência que fecha a claim.
+- O ponteiro final é sempre a chave exata em production-requirements.json; a
+  fase não promove claims e não aceita argumentos, caminhos ou placeholders.
+- Claims de configuração seguem a preparação source-bound. Evidências de
+  checkpoint seguem a fase autenticada de proofs/observations; custos e gás
+  seguem a fase de capacidade e seu materializador; depósito, privacidade e
+  carteira seguem o piloto de depósito; burn/receipt/resgate seguem o piloto de
+  resgate; recovery e preflight possuem rotas próprias.
+- As 33 rotas estão implementadas e classificadas com produtor e validador.
+  `native_privacy_trusted_setup_ceremony_completed` consome três contribuições
+  externas, monta e revalida o transcript; a rota seguinte instala a VK
+  derivada create-once e compara os bytes instalados. Ambas continuam falsas
+  até que a evidência externa real seja produzida e a fase execute com sucesso.
+- O teste exige cobertura 33/33, unicidade, ordem exata das 21 fases e ausência
+  de placeholders. Cobertura do plano não declara readiness nem autoriza fundos.
+- Esta etapa apenas gerou e validou o plano; nenhuma fase operacional rodou.

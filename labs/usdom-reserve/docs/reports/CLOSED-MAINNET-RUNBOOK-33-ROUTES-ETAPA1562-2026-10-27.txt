@@ -1,0 +1,15 @@
+Etapa 1562B — runbook e plano das 33 rotas
+
+- O runbook agora deriva sua ordem autoritativa das mesmas 21 fases do plano
+  determinístico e define critérios explícitos de interrupção e aborto.
+- As 33 rotas possuem produtor e validador operacional; a fase dedicada de
+  privacidade continua dependendo de contribuições externas reais antes de
+  montar/revalidar a cerimônia e instalar create-once a VK derivada.
+- Cobertura 33/33 não é tratada como readiness, autorização, ausência de risco
+  ou evidência externa já produzida.
+- As classificações obsoletas missing-mpc-engine e missing-phase-integration
+  deixaram de ser aceitas pelo checker.
+- Validação local: teste documental 3/3; regressões plano/semântica 9/9;
+  checker do plano PASS 33/33; diff-check aprovado.
+- Nenhuma rede, assinatura, blockchain, deploy, fundo, push ou rematerialização
+  de manifests foi executada.

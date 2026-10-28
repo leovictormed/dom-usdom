@@ -25,6 +25,8 @@ test('TPM authority and keystore provisioning bound children and terminate on si
   ]);
   for(const source of [bootstrap,provision]) {
     assert.match(source,/timeout --signal=TERM --kill-after=30s 3600s cargo build/);
+    assert.match(source,/pin_runtime_tool cargo/);
+    assert.match(source,/cargo\(\) \{ assert_runtime_tool cargo; "\$cargo_bin" "\$@"; \}/);
   }
   assert.match(bootstrap,/timeout --signal=TERM --kill-after=5s 300s "\$keystore_binary" unlock/);
   assert.match(bootstrap,/timeout --signal=TERM --kill-after=5s 300s "\$bootstrap_binary"/);
@@ -33,5 +35,8 @@ test('TPM authority and keystore provisioning bound children and terminate on si
     assert.match(provision,new RegExp(`trap 'cleanup ${status}' ${signal}`));
   }
   assert.match(provision,/cleanup\(\) \{[\s\S]*local status=\$\{1:-\$\?\}[\s\S]*trap - EXIT HUP INT TERM[\s\S]*exit "\$status"/);
+  assert.match(provision,/SECRET_DIRECTORY_IDENTITY=\$\(stat -c '%u:%d:%i:%a' "\$SECRET_DIRECTORY"\)/);
+  assert.match(provision,/stat -c '%u:%d:%i:%a' "\$SECRET_DIRECTORY" 2>\/dev\/null\) == "\$SECRET_DIRECTORY_IDENTITY"/);
+  assert.match(provision,/# Refuse to erase a replacement for the credential directory we created\.[\s\S]*status=1/);
   assert.doesNotMatch(provision,/trap cleanup EXIT HUP INT TERM/);
 });

@@ -1,0 +1,35 @@
+Stage 1285 — exact DOM issuance RPC authorities
+Date: 2026-10-26
+
+Finding
+-------
+The DOM mainnet identity and issuance admission response validators checked all
+consumed values but accepted unknown fields. An RPC response with conflicting
+or future-shaped authority data could therefore pass subset validation before
+the private issuance intent or durable restart receipt was recorded.
+
+Correction
+----------
+DOM identity now requires exactly the nine fields emitted by the pinned RPC API.
+Issuance admission requires exactly schema_version, accepted, candidate_id and
+state. Existing positive safe-integer protocol/tip/scan constraints, mainnet
+network and magic, nonzero chain/genesis/tip hashes, and nonzero queued candidate
+requirements remain unchanged.
+
+Adversarial regression
+----------------------
+Regressions reject extra and missing fields in both response types, alongside
+the existing regtest identity, network-magic substitution and zero candidate
+identifier cases.
+
+Validation
+----------
+- Finalized-deposit issuance SDK Node syntax check: pass.
+- Issuance, conservation, deposit/payout evidence, pilot DAG, wallet receipt
+  and finalized-source suites: 21/21 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

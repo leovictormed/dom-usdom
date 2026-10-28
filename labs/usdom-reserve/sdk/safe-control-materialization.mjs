@@ -5,12 +5,14 @@ import {
   validateRecoverableSafeControlReleaseArtifactSet,
 } from './safe-control-release-evidence.mjs';
 import {_safeControlObservationInternals} from './safe-control-observation.mjs';
+import {validateSafeControlReleaseArtifactSetV3} from './safe-control-release-evidence-v3.mjs';
 
 export const SAFE_CONTROL_RELEASE_FRAGMENT_SCHEMA='usdom-safe-control-release-fragment/v2';
 export const SAFE_CONTROL_EVIDENCE_PATHS=Object.freeze({
   governance:'evidence/control-plane/governance-configuration.json',
   guardian:'evidence/control-plane/guardian-configuration.json',
   checkpointGuardian:'evidence/control-plane/checkpoint-guardian-configuration.json',
+  usdtCustody:'evidence/control-plane/usdt-custody-configuration.json',
   separation:'evidence/control-plane/control-plane-separation.json',
   recovery:'evidence/control-plane/control-plane-recovery-drill.json',
   bundle:'evidence/control-plane/safe-control-release-evidence-bundle.json',
@@ -18,6 +20,7 @@ export const SAFE_CONTROL_EVIDENCE_PATHS=Object.freeze({
 });
 
 const SHA256=/^[0-9a-f]{64}$/;
+const ZERO_SHA256='0'.repeat(64);
 const {canonicalJson}=_safeControlObservationInternals;
 
 function fail(message) { throw new Error(message); }
@@ -29,7 +32,8 @@ function exactKeys(value,keys,label) {
 }
 function document(value,path,label) {
   exactKeys(value,['path','sha256'],label);
-  if(value.path!==path||typeof value.sha256!=='string'||!SHA256.test(value.sha256)) {
+  if(value.path!==path||typeof value.sha256!=='string'||!SHA256.test(value.sha256)
+      ||value.sha256===ZERO_SHA256) {
     fail(`${label} identity is invalid`);
   }
   return value;
@@ -40,17 +44,22 @@ function assignUnset(target,key,value,label) {
 }
 
 export function validateSafeControlReleaseFragment(fragment,bundle) {
-  validateRecoverableSafeControlReleaseArtifactSet({
+  const artifactSet={
     bundle,
     roleReports:bundle.roleReports,
     separationReport:bundle.separationReport,
     recoveryDrillReport:bundle.recoveryDrillReport,
-  });
+  };
+  if(bundle.schema==='usdom-safe-control-release-evidence/v3') validateSafeControlReleaseArtifactSetV3(artifactSet);
+  else validateRecoverableSafeControlReleaseArtifactSet(artifactSet);
   exactKeys(fragment,['schema','bundleHash','controlPlaneEvidenceBundle','controlPlane',
     'controlPlaneSeparationReport','controlPlaneRecoveryDrillReport'],
   'Safe control release fragment');
-  if(fragment.schema!==SAFE_CONTROL_RELEASE_FRAGMENT_SCHEMA
-      || fragment.bundleHash!==bundle.bundleHash) fail('Safe control release fragment identity mismatch');
+  const expectedFragmentSchema=bundle.schema==='usdom-safe-control-release-evidence/v3'
+    ?'usdom-safe-control-release-fragment/v3':SAFE_CONTROL_RELEASE_FRAGMENT_SCHEMA;
+  if(fragment.schema!==expectedFragmentSchema||fragment.bundleHash!==bundle.bundleHash) {
+    fail('Safe control release fragment identity mismatch');
+  }
   document(fragment.controlPlaneEvidenceBundle,SAFE_CONTROL_EVIDENCE_PATHS.bundle,
     'Safe control bundle document');
   exactKeys(fragment.controlPlane,SAFE_CONTROL_RELEASE_ROLE_MAP.map(value=>value.releaseRole),
@@ -77,7 +86,9 @@ export function validateSafeControlReleaseFragment(fragment,bundle) {
 
 /** Populate source-release identities only; readiness and authorization remain false. */
 export function materializeSafeControlReleaseConfig({releaseConfig,artifactSet}={}) {
-  const bundle=validateRecoverableSafeControlReleaseArtifactSet(artifactSet);
+  const bundle=artifactSet?.bundle?.schema==='usdom-safe-control-release-evidence/v3'
+    ?validateSafeControlReleaseArtifactSetV3(artifactSet)
+    :validateRecoverableSafeControlReleaseArtifactSet(artifactSet);
   if(!releaseConfig||typeof releaseConfig!=='object'||Array.isArray(releaseConfig)) {
     fail('proof-reserve release config is missing');
   }
@@ -85,18 +96,18 @@ export function materializeSafeControlReleaseConfig({releaseConfig,artifactSet}=
     fail('Safe materialization cannot preserve a readiness or real-funds claim');
   }
   const result=structuredClone(releaseConfig);
-  const allOwners=[];
   for(const {releaseRole} of SAFE_CONTROL_RELEASE_ROLE_MAP) {
+    if(releaseRole==='usdtCustody') continue;
     const key=`${releaseRole}Owners`;
     if(!Object.prototype.hasOwnProperty.call(result,key)) fail(`proof-reserve release config lacks ${key}`);
     const approvedOwners=bundle.roleReports[releaseRole].ownersAfter.map(getAddress);
     if(result[key]!==null&&canonicalJson(result[key].map(getAddress))!==canonicalJson(approvedOwners)) {
       fail(`proof-reserve release config.${key} already contains a different value`);
     }
-    result[key]=approvedOwners; allOwners.push(...approvedOwners);
+    result[key]=approvedOwners;
   }
-  if(new Set(allOwners).size!==9) fail('Safe role owners must be globally distinct');
   for(const {releaseRole} of SAFE_CONTROL_RELEASE_ROLE_MAP) {
+    if(releaseRole==='usdtCustody') continue;
     const observed=bundle.roleReports[releaseRole];
     const addressKey=releaseRole;
     const codeHashKey=`${releaseRole}CodeHash`;
@@ -121,7 +132,9 @@ export function materializeSafeControlReleaseConfig({releaseConfig,artifactSet}=
 export function materializeSafeControlReleaseMetadata({
   releaseEvidence,fragment,artifactSet,
 }={}) {
-  const bundle=validateRecoverableSafeControlReleaseArtifactSet(artifactSet);
+  const bundle=artifactSet?.bundle?.schema==='usdom-safe-control-release-evidence/v3'
+    ?validateSafeControlReleaseArtifactSetV3(artifactSet)
+    :validateRecoverableSafeControlReleaseArtifactSet(artifactSet);
   validateSafeControlReleaseFragment(fragment,bundle);
   if(!releaseEvidence||typeof releaseEvidence!=='object'||Array.isArray(releaseEvidence)
       || releaseEvidence.schema!==1) fail('mainnet release evidence config is invalid');
@@ -134,7 +147,7 @@ export function materializeSafeControlReleaseMetadata({
     const next=fragment[key];
     const emptyControlPlane=key==='controlPlane'
       && result[key]&&typeof result[key]==='object'&&!Array.isArray(result[key])
-      && Object.keys(result[key]).sort().join(',')==='checkpointGuardian,governance,guardian'
+      && Object.keys(result[key]).sort().join(',')==='checkpointGuardian,governance,guardian,usdtCustody'
       && Object.values(result[key]).every(value=>value===null);
     if(result[key]!==null&&!emptyControlPlane
         && canonicalJson(result[key])!==canonicalJson(next)) {

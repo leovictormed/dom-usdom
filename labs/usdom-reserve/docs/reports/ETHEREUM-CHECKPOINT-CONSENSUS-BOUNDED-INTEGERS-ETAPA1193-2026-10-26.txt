@@ -1,0 +1,18 @@
+Stage 1193 — bounded Ethereum checkpoint-consensus integers
+Date: 2026-10-26
+
+Change
+- Beacon API decimal fields are rejected lexically when they exceed the maximum decimal digits of their declared uint width, before BigInt conversion.
+- The bound covers uint8, uint32, uint64, uint128 and uint256 inputs while retaining the existing exact post-conversion range check.
+
+Security result
+- An untrusted Beacon response cannot force arbitrary-size integer conversion through a finalized epoch or another checkpoint numeric field.
+- A 100,000-digit finalized epoch is rejected before conversion, and the exact uint64 overflow boundary remains rejected by the numeric range check.
+- This is local validation hardening only; it does not assert a production checkpoint fact or authorize release.
+
+Validation
+- /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/ethereum-checkpoint-consensus.test.mjs
+- Result: 11/11 pass.
+- Targeted git diff --check passes.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

@@ -10,6 +10,7 @@ import {readDirectFile,readDirectProjectFile} from '../sdk/direct-project-file.m
 import {parseStrictJsonBytes} from '../sdk/strict-json.mjs';
 import {runPinnedExecutable} from '../sdk/pinned-executable-child.mjs';
 import {snapshotExecutable} from '../sdk/stable-executable.mjs';
+import {validateNativePrivacyInstallationReceipt} from '../sdk/native-privacy-ceremony.mjs';
 import {
   buildNativeReleaseAttestation,nativeReleaseAttestationTypedData,
 } from '../sdk/native-release-attestation.mjs';
@@ -83,27 +84,53 @@ try {
   const publicIdentityPath=path.join(walletRoot,'public-identity.json');
   const tpmEvidencePath=path.join(walletRoot,'tpm2-keystore-v1.json');
   const recoveryEvidencePath=path.join(walletRoot,'recovery-drill-v1/wallet-recovery-drill.json');
-  const [identityBytes,tpmBytes,recoveryBytes]=await Promise.all([
+  const privacyInstallationPath=path.join(accountHome,'.local/share/dom-usdom/mainnet-privacy/installation.json');
+  const privacyRoot=path.dirname(privacyInstallationPath);
+  const privacyTranscriptPath=path.join(privacyRoot,'ceremony-transcript.json');
+  const privacyVerifyingKeyPath=path.join(privacyRoot,'spend-verifying-key.bin');
+  const privacyManifestPath=path.join(privacyRoot,'native-usdom-v2.json');
+  const [identityBytes,tpmBytes,recoveryBytes,privacyInstallationBytes,privacyTranscriptBytes,
+    privacyVerifyingKeyBytes,privacyManifestBytes]=await Promise.all([
     readPrivateWalletEvidence(publicIdentityPath,{minimum:1,maximum:4*1024*1024,privateMode:true,
       label:'wallet public identity'}),
     readPrivateWalletEvidence(tpmEvidencePath,{minimum:1,maximum:4*1024*1024,privateMode:true,
       label:'TPM custody evidence'}),
     readPrivateWalletEvidence(recoveryEvidencePath,{minimum:1,maximum:4*1024*1024,privateMode:true,
       label:'wallet recovery evidence'}),
+    readPrivateWalletEvidence(privacyInstallationPath,{minimum:1,maximum:4*1024*1024,privateMode:true,
+      label:'native privacy VK installation receipt'}),
+    readPrivateWalletEvidence(privacyTranscriptPath,{minimum:1,maximum:8*1024*1024,privateMode:true,
+      label:'installed native privacy ceremony transcript'}),
+    readPrivateWalletEvidence(privacyVerifyingKeyPath,{minimum:1,maximum:16*1024*1024,privateMode:true,
+      label:'installed native privacy verifying key'}),
+    readPrivateWalletEvidence(privacyManifestPath,{minimum:1,maximum:4*1024*1024,privateMode:true,
+      label:'installed native privacy runtime manifest'}),
   ]);
-  const [identity,tpm,recovery]=[
+  const [identity,tpm,recovery,privacyInstallation]=[
     parseJson(identityBytes,'wallet public identity'),
     parseJson(tpmBytes,'TPM custody evidence'),
     parseJson(recoveryBytes,'wallet recovery evidence'),
+    parseJson(privacyInstallationBytes,'native privacy VK installation receipt'),
   ];
   const identitySha=sha(identityBytes);
+  const custodyEvidenceSha=sha(tpmBytes);
+  const recoveryEvidenceSha=sha(recoveryBytes);
+  validateNativePrivacyInstallationReceipt(privacyInstallation,{
+    nativeRuntimeManifestBytes:manifestBytes,
+    ceremonyTranscriptBytes:privacyTranscriptBytes,
+    verifyingKeyBytes:privacyVerifyingKeyBytes,
+    privacyVerifierConfigHash:validation.privacy_verifier_config_hash,
+    verifyingKeySha256:validation.spend_verifying_key_sha256,
+  });
   if(identity.schema!=='usdom-native-receiving-wallet-public-v1'
       || tpm.schema!=='usdom-tpm2-wallet-keystore-v1'
       || recovery.schema!=='usdom-wallet-recovery-drill-v1'
       || tpm.public_identity_sha256!==identitySha || tpm.wallet_address!==identity.recipient_address
       || recovery.wallet_address!==identity.recipient_address
       || tpm.native_manifest_sha256!==manifestDocument.sha256
-      || recovery.native_manifest_sha256!==manifestDocument.sha256) {
+      || recovery.native_manifest_sha256!==manifestDocument.sha256
+      ||privacyInstallation.schema!=='usdom-native-privacy-vk-installation-v2'
+      ||!privacyManifestBytes.equals(manifestBytes)) {
     throw new Error('wallet custody, recovery, identity and native runtime do not reconcile');
   }
   const catalog=parseJson(fixedBytes.at(-1),'mainnet preflight RPC catalog');
@@ -115,7 +142,8 @@ try {
   const subjects={
     nativePrivacyTrustedSetup:`0x${validation.privacy_verifier_config_hash}`,
     nativeScheduledRuntimeActivation:`0x${manifestDocument.sha256}`,
-    nativeWalletCustody:`0x${identitySha}`,nativeWalletRecovery:`0x${identitySha}`,
+    nativeWalletCustody:`0x${custodyEvidenceSha}`,
+    nativeWalletRecovery:`0x${recoveryEvidenceSha}`,
   };
   const kinds={nativePrivacyTrustedSetup:'native-privacy-trusted-setup',
     nativeScheduledRuntimeActivation:'native-scheduled-runtime-activation',
@@ -128,7 +156,8 @@ try {
       typedData:TypedDataEncoder.getPayload(typed.domain,typed.types,typed.message)}];
   }));
   const [currentFixedBytes,currentManifestBytes,currentIdentityBytes,currentTpmBytes,
-    currentRecoveryBytes]=await Promise.all([
+    currentRecoveryBytes,currentPrivacyInstallationBytes,currentPrivacyTranscriptBytes,
+    currentPrivacyVerifyingKeyBytes,currentPrivacyManifestBytes]=await Promise.all([
     readFixedInputs(),
     readDirectProjectFile(root,manifestDocument.path,{
       minimum:manifestBytes.length,maximum:manifestBytes.length,exactMode:0o600,
@@ -140,16 +169,30 @@ try {
       privateMode:true,label:'TPM custody evidence'}),
     readPrivateWalletEvidence(recoveryEvidencePath,{minimum:recoveryBytes.length,maximum:recoveryBytes.length,
       privateMode:true,label:'wallet recovery evidence'}),
+    readPrivateWalletEvidence(privacyInstallationPath,{minimum:privacyInstallationBytes.length,maximum:privacyInstallationBytes.length,
+      privateMode:true,label:'native privacy VK installation receipt'}),
+    readPrivateWalletEvidence(privacyTranscriptPath,{minimum:privacyTranscriptBytes.length,maximum:privacyTranscriptBytes.length,
+      privateMode:true,label:'installed native privacy ceremony transcript'}),
+    readPrivateWalletEvidence(privacyVerifyingKeyPath,{minimum:privacyVerifyingKeyBytes.length,maximum:privacyVerifyingKeyBytes.length,
+      privateMode:true,label:'installed native privacy verifying key'}),
+    readPrivateWalletEvidence(privacyManifestPath,{minimum:privacyManifestBytes.length,maximum:privacyManifestBytes.length,
+      privateMode:true,label:'installed native privacy runtime manifest'}),
   ]);
   if(currentFixedBytes.some((bytes,index)=>!bytes.equals(fixedBytes[index]))
       ||!currentManifestBytes.equals(manifestBytes)||!currentIdentityBytes.equals(identityBytes)
-      ||!currentTpmBytes.equals(tpmBytes)||!currentRecoveryBytes.equals(recoveryBytes)) {
+      ||!currentTpmBytes.equals(tpmBytes)||!currentRecoveryBytes.equals(recoveryBytes)
+      ||!currentPrivacyInstallationBytes.equals(privacyInstallationBytes)
+      ||!currentPrivacyTranscriptBytes.equals(privacyTranscriptBytes)
+      ||!currentPrivacyVerifyingKeyBytes.equals(privacyVerifyingKeyBytes)
+      ||!currentPrivacyManifestBytes.equals(privacyManifestBytes)) {
     throw new Error('native release inputs changed during attestation request preparation');
   }
-  process.stdout.write(`${JSON.stringify({schema:'usdom-native-release-attestation-requests/v2',
+  process.stdout.write(`${JSON.stringify({schema:'usdom-native-release-attestation-requests/v3',
     releaseId:releaseEvidence.releaseId,sourceCommit:releaseEvidence.sourceCommit,
     finalizedAnchor:anchor,
-    subjects:{...subjects,walletPublicIdentitySha256:identitySha},requests},null,2)}\n`);
+    subjects:{...subjects,walletPublicIdentitySha256:identitySha,
+      walletCustodyEvidenceSha256:custodyEvidenceSha,
+      walletRecoveryEvidenceSha256:recoveryEvidenceSha},requests},null,2)}\n`);
 } catch(error) {
   writeReleaseFailure('prepare-native-release-attestation-requests',error);
   process.exitCode=1;

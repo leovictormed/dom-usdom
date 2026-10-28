@@ -1,0 +1,34 @@
+Stage 1270 — canonical bounded pilot receipt block positions
+Date: 2026-10-26
+
+Finding
+-------
+Pilot transaction receipt validation accepted every nonempty hexadecimal string
+as a block number. This admitted noncanonical Ethereum quantities and values of
+unbounded size into finality reconciliation, even though a block position is a
+bounded protocol fact.
+
+Correction
+----------
+Receipt blockNumber must now be a lowercase, minimal Ethereum quantity with at
+most 64 value bits. The lexical length cap precedes BigInt conversion. Existing
+transaction, signer, target, receipt hash and exact finality block/hash bindings
+remain unchanged.
+
+Adversarial regression
+----------------------
+Regressions reject a leading-zero quantity, uppercase hexadecimal, a
+100,000-nibble input and exact 2^64. The canonical fixture remains accepted for
+both deposit and redemption schemas.
+
+Validation
+----------
+- SDK Node syntax check: pass.
+- Pilot evidence, DAG, command generation, receipt-cost, deposit/redemption
+  executors and terminal financial evidence suites: 14/14 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

@@ -1,0 +1,35 @@
+Stage 1282 — exact framed finalized-deposit registration
+Date: 2026-10-26
+
+Finding
+-------
+The encrypted-wallet registration accepted additional fields and treated its
+104-byte wallet address as an opaque lowercase string. It did not independently
+prove the USDADR01 framing or that the embedded receiving commitment matched the
+registration. Zero finalized-tip and snapshot-seal values were also accepted.
+
+Correction
+----------
+Registration now requires exactly fourteen writer-defined fields. The wallet
+address must begin with USDADR01, contain nonzero chain and trailing commitments,
+and reproduce receiving_commitment at bytes 40..72. Finalized tip hash and the
+48-byte snapshot seal must be canonical and nonzero. Existing witness, manifest,
+amount, note, height and no-broadcast bindings remain unchanged.
+
+Adversarial regression
+----------------------
+Regressions reject an injected field, all-zero/malformed address, substituted
+embedded receiving commitment, zero tip hash and zero snapshot seal, alongside
+the existing oversized-height and cryptographic-authority substitutions.
+
+Validation
+----------
+- Finalized-deposit issuance SDK Node syntax check: pass.
+- Issuance, conservation, deposit/payout evidence, pilot DAG, wallet receipt
+  and finalized-source suites: 21/21 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

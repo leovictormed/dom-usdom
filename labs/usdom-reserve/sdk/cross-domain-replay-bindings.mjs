@@ -32,9 +32,8 @@ export function validateCrossDomainReplayBindings({
   const failures = [];
   const burnIntentType='BurnIntent(bytes32 burnId,bytes32 requestId,address recipient,uint64 amount,bytes32 domDomain,uint64 validUntil,uint256 ethereumChainId,address reserve)';
   const finalizedBurnType='FinalizedBurn(bytes32 burnId,bytes32 requestId,address recipient,uint64 amount,bytes32 domDomain,uint64 height,bytes32 blockHash,bytes32 stateRoot,uint64 finalityBeaconSlot,uint64 validUntil,uint256 ethereumChainId,address reserve,bytes32 activationScheduleCommitment)';
-  const checkpointType='DOMCheckpointV3(bytes32 bridgeDomain,uint32 domNetworkMagic,uint16 nativeStateVersion,uint16 transitionBatchVersion,uint64 previousHeight,bytes32 previousBlock,bytes32 previousStateRoot,bytes32 previousContextHash,uint256 previousTotalDifficulty,uint64 domHeight,bytes32 domBlock,bytes32 domStateRoot,bytes32 domContextHash,uint256 domTotalDifficulty,uint128 totalIssued,uint128 totalBurned,uint64 confirmationHeight,bytes32 confirmationBlock,uint256 confirmationTotalDifficulty,uint64 confirmationTimestamp,uint256 ethereumChainId,address registry,bytes32 activationScheduleCommitment,bytes32 checkpointConfigHash)';
+  const checkpointType='DOMCheckpointV4(bytes32 bridgeDomain,uint32 domNetworkMagic,uint16 nativeStateVersion,uint16 transitionBatchVersion,uint64 previousHeight,bytes32 previousBlock,bytes32 previousStateRoot,bytes32 previousContextHash,uint256 previousTotalDifficulty,uint64 domHeight,bytes32 domBlock,bytes32 domStateRoot,bytes32 domContextHash,uint256 domTotalDifficulty,uint128 totalIssued,uint128 totalBurned,bool issuanceClosed,uint64 confirmationHeight,bytes32 confirmationBlock,uint256 confirmationTotalDifficulty,uint64 confirmationTimestamp,uint256 ethereumChainId,address registry,bytes32 activationScheduleCommitment,bytes32 checkpointConfigHash)';
   for(const [source,type,code] of [
-    [reserveContract,burnIntentType,'solidity_burn_intent_type_drift'],
     [nativeState,burnIntentType,'rust_burn_intent_type_drift'],
     [proofReserveSdk,burnIntentType,'sdk_burn_intent_type_drift'],
     [reserveContract,finalizedBurnType,'solidity_finalized_burn_type_drift'],
@@ -45,8 +44,8 @@ export function validateCrossDomainReplayBindings({
     [checkpointRegistrySdk,checkpointType,'sdk_checkpoint_type_drift'],
   ]) if(!source.includes(type)) failures.push(code);
   const depositId = section(reserveContract, 'function depositId', 'function burnStatementHash');
-  const burnStatement = section(reserveContract, 'function burnStatementHash', 'function burnIntentHash');
-  const burnIntent = section(reserveContract, 'function burnIntentHash', 'function deposit(');
+  const burnStatement = section(reserveContract, 'function burnStatementHash', 'function burnDebtHash');
+  const burnEncoder = section(reserveContract, 'function _burnHash', 'function deposit(');
   const checkpointHash = section(
     checkpointContract, 'function checkpointStatementHash', 'function guardianControlHealthy',
   );
@@ -55,16 +54,16 @@ export function validateCrossDomainReplayBindings({
   const finalizedBurn = section(
     finalizedBurnProgram, 'fn finalized_burn_statement', 'pub fn execute_with_checkpoint_assumption',
   );
+  const checkpointV6Hash = section(
+    checkpointStatement, 'impl CheckpointStatementV6', '/// Decode the exact public statement',
+  );
 
   requirePattern(failures, depositId,
-    /function depositId[\s\S]*?keccak256\(abi\.encode\(block\.chainid, address\(this\), funder, salt\)\)/,
+    /function depositId[\s\S]*?keccak256\(abi\.encode\(deploymentChainId, address\(this\), funder, salt\)\)/,
     'deposit_id_missing_chain_or_reserve');
-  requirePattern(failures, burnStatement,
-    /BURN_STATEMENT_TYPEHASH[\s\S]*?burn\.domDomain[\s\S]*?block\.chainid,[\s\S]*?address\(this\),[\s\S]*?activationScheduleCommitment/,
+  requirePattern(failures, `${burnStatement}\n${burnEncoder}`,
+    /_burnHash\(burn, 0\)[\s\S]*?encoded\[5\] = burn\.domDomain[\s\S]*?format == 0[\s\S]*?encoded\[10\] = bytes32\(uint256\(burn\.validUntil\)\)[\s\S]*?encoded\[11\] = bytes32\(deploymentChainId\)[\s\S]*?encoded\[12\] = bytes32\(uint256\(uint160\(address\(this\)\)\)\)[\s\S]*?encoded\[13\] = activationScheduleCommitment/,
     'finalized_burn_statement_missing_domain');
-  requirePattern(failures, burnIntent,
-    /BURN_INTENT_TYPEHASH[\s\S]*?burn\.domDomain[\s\S]*?burn\.validUntil[\s\S]*?block\.chainid,[\s\S]*?address\(this\)/,
-    'burn_intent_missing_domain');
   requirePattern(failures,nativeState,
     /encoded\.extend_from_slice\(&type_hash\);[\s\S]*?&self\.burn_id[\s\S]*?&self\.request_id[\s\S]*?&self\.recipient[\s\S]*?self\.amount\.to_be_bytes[\s\S]*?&dom_domain[\s\S]*?self\.valid_until\.to_be_bytes[\s\S]*?&self\.ethereum_chain_id[\s\S]*?&self\.reserve/,
     'rust_burn_intent_field_order_drift');
@@ -82,13 +81,13 @@ export function validateCrossDomainReplayBindings({
     /USDOMDomain\(uint32 domNetworkMagic,bytes32 domChainId,uint256 ethereumChainId,address reserve,address checkpointRegistry\)/,
     'dom_domain_schema_incomplete');
   requirePattern(failures, checkpointHash,
-    /CHECKPOINT_STATEMENT_TYPEHASH[\s\S]*?bridgeDomain[\s\S]*?domNetworkMagic[\s\S]*?NATIVE_STATE_VERSION[\s\S]*?TRANSITION_BATCH_VERSION[\s\S]*?block\.chainid,[\s\S]*?address\(this\),[\s\S]*?activationScheduleCommitment,[\s\S]*?checkpointConfigHash/,
+    /CHECKPOINT_STATEMENT_TYPEHASH[\s\S]*?bridgeDomain[\s\S]*?domNetworkMagic[\s\S]*?NATIVE_STATE_VERSION[\s\S]*?TRANSITION_BATCH_VERSION[\s\S]*?checkpoint\.totalIssued[\s\S]*?checkpoint\.totalBurned[\s\S]*?checkpoint\.issuanceClosed[\s\S]*?deploymentChainId,[\s\S]*?address\(this\),[\s\S]*?activationScheduleCommitment,[\s\S]*?checkpointConfigHash/,
     'checkpoint_statement_missing_generation_or_deployment');
   requirePattern(failures, checkpointStatement,
-    /V4_TYPE_STRING[\s\S]*?ethereum_chain_id[\s\S]*?registry[\s\S]*?activation_schedule_commitment[\s\S]*?checkpoint_config_hash/,
+    /V6_TYPE_STRING[\s\S]*?total_issued[\s\S]*?total_burned[\s\S]*?issuance_closed[\s\S]*?ethereum_chain_id[\s\S]*?registry[\s\S]*?activation_schedule_commitment[\s\S]*?checkpoint_config_hash/,
     'native_checkpoint_hash_missing_domain');
-  requirePattern(failures,checkpointStatement,
-    /encoded\[\.\.32\][\s\S]*?bridge_domain[\s\S]*?dom_network_magic[\s\S]*?CHECKPOINT_NATIVE_STATE_VERSION[\s\S]*?CHECKPOINT_TRANSITION_BATCH_VERSION[\s\S]*?previous_height[\s\S]*?previous_block[\s\S]*?previous_state_root[\s\S]*?previous_context_hash[\s\S]*?previous_total_difficulty[\s\S]*?value\.height[\s\S]*?value\.block[\s\S]*?value\.state_root[\s\S]*?value\.context_hash[\s\S]*?value\.total_difficulty[\s\S]*?confirmation_height[\s\S]*?confirmation_block[\s\S]*?confirmation_total_difficulty[\s\S]*?confirmation_timestamp[\s\S]*?ethereum_chain_id[\s\S]*?value\.registry[\s\S]*?activation_schedule_commitment[\s\S]*?checkpoint_config_hash/,
+  requirePattern(failures,checkpointV6Hash,
+    /encoded\[\.\.32\][\s\S]*?bridge_domain[\s\S]*?dom_network_magic[\s\S]*?CHECKPOINT_NATIVE_STATE_V6_VERSION[\s\S]*?CHECKPOINT_TRANSITION_BATCH_V5_VERSION[\s\S]*?previous_height[\s\S]*?previous_block[\s\S]*?previous_state_root[\s\S]*?previous_context_hash[\s\S]*?previous_total_difficulty[\s\S]*?v\.height[\s\S]*?v\.block[\s\S]*?v\.state_root[\s\S]*?v\.context_hash[\s\S]*?v\.total_difficulty[\s\S]*?self\.total_issued[\s\S]*?self\.total_burned[\s\S]*?self\.issuance_closed[\s\S]*?v\.confirmation_height[\s\S]*?v\.confirmation_block[\s\S]*?v\.confirmation_total_difficulty[\s\S]*?v\.confirmation_timestamp[\s\S]*?v\.ethereum_chain_id[\s\S]*?v\.registry[\s\S]*?v\.activation_schedule_commitment[\s\S]*?v\.checkpoint_config_hash/,
     'rust_checkpoint_field_order_drift');
 
   requirePattern(failures, depositFinality,

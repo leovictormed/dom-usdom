@@ -21,22 +21,26 @@ test('deployment, Safe and signing cores drop caller fds before child resolution
   }
   for(const name of ['sign-native-release-attestations.sh','sign-production-release-authorization.sh']) {
     const source=await readFile(path.join(scriptsDir,name),'utf8');
-    assert.ok(source.indexOf('exec {inherited_fd}>&-')<source.indexOf('exec bash'),`${name}: wrapper must isolate before exec`);
+    assert.ok(source.indexOf('exec {inherited_fd}>&-')<source.indexOf('exec /usr/bin/bash'),`${name}: wrapper must isolate before exec`);
+    assert.match(source,/unset BASH_ENV ENV CDPATH/);
+    assert.match(source,/exec \/usr\/bin\/bash --noprofile --norc/);
   }
 });
 
 test('stdin remains for explicit consent and Ledger selection only, then closes',async()=>{
   const deploy=await readFile(path.join(scriptsDir,'execute-mainnet-deployment.sh'),'utf8');
-  const deployLast=deploy.indexOf('Digite AUTORIZO TRANSMITIR DEPLOY MAINNET');
+  const deployLast=deploy.indexOf('Digite AUTORIZO TRANSMITIR DEPLOY INDICE $index TX $transaction_hash');
   const deployClose=deploy.indexOf('exec </dev/null',deployLast);
   assert.ok(deployLast>=0 && deployClose>deployLast);
   assert.doesNotMatch(deploy.slice(deployClose),/read -r -p/);
 
   const safe=await readFile(path.join(scriptsDir,'execute-recoverable-safe-recovery.sh'),'utf8');
-  const safeConsent=safe.indexOf('Digite AUTORIZO TRES SWAPOWNER SAFE MAINNET');
-  const safeClose=safe.indexOf('exec </dev/null',safeConsent);
-  assert.ok(safeConsent>=0 && safeClose>safeConsent);
-  assert.doesNotMatch(safe.slice(safeClose),/read -r -p/);
+  const safeClose=safe.indexOf('exec </dev/null');
+  const safeConsent=safe.indexOf('Digite AUTORIZO ASSINAR SWAPOWNER $role ENVELOPE $envelope_hash');
+  assert.ok(safeClose>=0 && safeConsent>safeClose);
+  for(const prompt of safe.matchAll(/read -r -p[^\n]+/g)) assert.match(prompt[0],/<\/dev\/tty$/);
+  assert.match(safe,/wallet address --ledger <\/dev\/tty/);
+  assert.match(safe,/prepare-ledger-eip1559-transaction\.mjs[\s\S]*wallet sign --no-hash "\$signing_hash" --ledger <\/dev\/tty[\s\S]*assemble-ledger-eip1559-transaction\.mjs/);
 
   for(const name of ['sign-release-authorizations.sh','sign-checkpoint-bootstrap-ratification.sh',
     'sign-recoverable-safe-recovery.sh']) {

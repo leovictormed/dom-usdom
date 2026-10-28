@@ -1,0 +1,18 @@
+Stage 1203 — bounded closed-pilot execution nonces
+Date: 2026-10-26
+
+Change
+- Deposit raw-transaction validation, redemption raw-transaction validation and dual-RPC nonce recovery now reject nonce strings longer than the uint64 decimal ceiling before BigInt conversion.
+- Existing canonical-decimal and exact uint64 checks remain in force.
+
+Security result
+- A damaged execution request or RPC-derived nonce cannot force arbitrary-size integer conversion before signing/publication validation.
+- Regressions cover 100,000-digit nonce inputs in all paths and exact 2^64 at both raw-transaction validators.
+- Signing and broadcast authorization behavior remains unchanged and fail closed.
+
+Validation
+- /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/closed-mainnet-deposit.test.mjs test/node/closed-mainnet-redemption.test.mjs test/node/pilot-nonce-recovery.test.mjs
+- Result: 11/11 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

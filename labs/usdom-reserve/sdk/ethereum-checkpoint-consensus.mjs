@@ -1,5 +1,6 @@
 import {keccak256,toUtf8Bytes} from 'ethers';
 import {createHash} from 'node:crypto';
+import {isIP} from 'node:net';
 import {parseStrictJson} from './strict-json.mjs';
 import {requireSecureHttpsTransportEnvironment} from './mainnet-preflight-rpc.mjs';
 
@@ -19,7 +20,9 @@ function object(value,label) {
   return value;
 }
 function decimal(value,bits,label) {
-  if(typeof value!=='string'||!/^(0|[1-9][0-9]*)$/.test(value)) {
+  const maxDigits={8:3,32:10,64:20,128:39,256:78}[bits];
+  if(maxDigits===undefined||typeof value!=='string'||value.length>maxDigits
+      ||!/^(0|[1-9][0-9]*)$/.test(value)) {
     throw new Error(`${label} must be a canonical decimal string`);
   }
   const parsed=BigInt(value);
@@ -39,6 +42,12 @@ function endpoint(value,label) {
   try { url=new URL(value); } catch { throw new Error(`${label} must be an absolute URL`); }
   if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash) {
     throw new Error(`${label} must be credential-free HTTPS without query or fragment`);
+  }
+  const hostname=url.hostname.toLowerCase();
+  const unbracketed=hostname.startsWith('[')&&hostname.endsWith(']')?hostname.slice(1,-1):hostname;
+  if(hostname.endsWith('.')||hostname==='localhost'||hostname.endsWith('.localhost')
+      ||hostname.endsWith('.local')||isIP(unbracketed)!==0||!hostname.includes('.')) {
+    throw new Error(`${label} must use a canonical public DNS hostname`);
   }
   url.pathname=url.pathname.replace(/\/+$/,'');
   return url;
@@ -66,7 +75,8 @@ function sourceCatalog(catalog) {
       ||new Set(rows.map(row=>row.originKeccak256)).size!==rows.length) {
     throw new Error('source catalog identities must be pairwise distinct');
   }
-  const sorted=[...rows].sort((left,right)=>left.operatorId.localeCompare(right.operatorId));
+  const sorted=[...rows].sort((left,right)=>
+    left.operatorId<right.operatorId?-1:left.operatorId>right.operatorId?1:0);
   if(rows.some((row,index)=>row.operatorId!==sorted[index].operatorId)) {
     throw new Error('source catalog rows must be sorted by operatorId');
   }
@@ -81,19 +91,28 @@ export function buildEthereumCheckpointSourceCatalog(sources) {
   if(!Array.isArray(sources)||sources.length<3||sources.length>5) {
     throw new Error('three to five independent Beacon API sources are required');
   }
+  const hostnames=[];
   const rows=sources.map((source,index)=>{
     if(!source||Object.keys(source).length!==2||typeof source.operatorId!=='string'
         ||!operatorPattern.test(source.operatorId)) throw new Error(`source ${index+1} is invalid`);
     const url=endpoint(source.url,`source ${index+1} URL`);
+    hostnames.push(url.hostname.toLowerCase());
     return {operatorId:source.operatorId,originKeccak256:keccak256(toUtf8Bytes(url.origin.toLowerCase()))};
-  }).sort((left,right)=>left.operatorId.localeCompare(right.operatorId));
+  }).sort((left,right)=>left.operatorId<right.operatorId?-1:left.operatorId>right.operatorId?1:0);
   const catalog={schema:ETHEREUM_CHECKPOINT_SOURCE_CATALOG_SCHEMA,sources:rows};
+  if(new Set(hostnames).size!==hostnames.length) {
+    throw new Error('Beacon API sources must use pairwise distinct public hostnames');
+  }
   sourceCatalog(catalog);
   return Object.freeze(catalog);
 }
 export async function requestBeaconJson(url,{fetchImpl=globalThis.fetch,timeoutMs=10_000,
   maxBytes=128*1024,environment=process.env}={}) {
   if(typeof fetchImpl!=='function') throw new Error('fetch implementation is unavailable');
+  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>120_000
+      ||!Number.isSafeInteger(maxBytes)||maxBytes<1||maxBytes>16*1024*1024) {
+    throw new Error('Beacon API transport bounds are invalid');
+  }
   requireSecureHttpsTransportEnvironment(environment);
   const target=endpoint(url,'Beacon API URL');
   const controller=new AbortController();
@@ -105,7 +124,9 @@ export async function requestBeaconJson(url,{fetchImpl=globalThis.fetch,timeoutM
     catch { throw new Error('Beacon API transport failed'); }
     if(!response||response.status!==200) throw new Error('Beacon API returned a non-200 response');
     const declared=response.headers?.get?.('content-length');
-    if(declared!==null&&declared!==undefined&&Number(declared)>maxBytes) {
+    if(declared!==null&&declared!==undefined
+        &&(!/^(?:0|[1-9][0-9]*)$/.test(declared)
+          ||declared.length>String(maxBytes).length||BigInt(declared)>BigInt(maxBytes))) {
       throw new Error('Beacon API response exceeds the size limit');
     }
     if(!response.body?.getReader) throw new Error('Beacon API response body is unavailable');
@@ -260,11 +281,13 @@ export async function collectEthereumCheckpointConsensus({sources,catalog,reques
       throw new Error(`source ${index+1} operatorId is invalid`);
     }
     const url=endpoint(source.url,`source ${index+1} URL`);
-    return {operatorId:source.operatorId,url,origin:url.origin.toLowerCase()};
+    return {operatorId:source.operatorId,url,origin:url.origin.toLowerCase(),
+      hostname:url.hostname.toLowerCase()};
   });
   if(new Set(normalized.map(value=>value.operatorId)).size!==normalized.length
-      ||new Set(normalized.map(value=>value.origin)).size!==normalized.length) {
-    throw new Error('Beacon API operators and HTTPS origins must be pairwise distinct');
+      ||new Set(normalized.map(value=>value.origin)).size!==normalized.length
+      ||new Set(normalized.map(value=>value.hostname)).size!==normalized.length) {
+    throw new Error('Beacon API operators, HTTPS origins and hostnames must be pairwise distinct');
   }
   const catalogRows=sourceCatalog(catalog);
   if(catalogRows.length!==normalized.length) throw new Error('source set does not match the fixed catalog');

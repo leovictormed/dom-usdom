@@ -10,6 +10,8 @@ import os
 import re
 import sys
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from durable_create_once import install_create_once
 
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -18,6 +20,19 @@ HEX40 = re.compile(r"^[0-9a-f]{40}$")
 
 def fail(message: str) -> None:
     raise ValueError(message)
+
+
+def strict_pairs(pairs: list[tuple[str, object]]) -> dict:
+    value: dict = {}
+    for key, item in pairs:
+        if key in value:
+            fail(f"duplicate JSON key {key!r}")
+        value[key] = item
+    return value
+
+
+def reject_json_float(value: str) -> object:
+    fail(f"JSON floating-point number is forbidden: {value}")
 
 
 def exact(value: object, fields: set[str], label: str) -> dict:
@@ -33,7 +48,8 @@ def load_direct(path: Path, root: Path, label: str) -> tuple[dict, str]:
     if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1:
         fail(f"{label} must be one direct regular file")
     raw = path.read_bytes()
-    return json.loads(raw), hashlib.sha256(raw).hexdigest()
+    return json.loads(raw, object_pairs_hook=strict_pairs, parse_float=reject_json_float), \
+        hashlib.sha256(raw).hexdigest()
 
 
 def hash_direct(path: Path, root: Path, label: str) -> str:
@@ -154,11 +170,8 @@ def main() -> int:
         encoded = json.dumps(result, indent=2, sort_keys=True) + "\n"
         if args.recipe:
             target = Path(args.recipe)
-            if target.exists() or target.is_symlink():
-                fail("handoff recipe already exists")
-            temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-            temporary.write_text(encoded, encoding="utf-8")
-            os.replace(temporary, target)
+            install_create_once(target,encoded.encode(),mode=0o600,maximum=2*1024*1024,
+                                private_parent=True,allow_equal=True)
         print(encoded, end="")
         return 0
     except (ValueError, OSError, json.JSONDecodeError) as error:

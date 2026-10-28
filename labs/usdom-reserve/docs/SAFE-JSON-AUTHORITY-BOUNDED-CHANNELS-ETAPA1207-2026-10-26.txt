@@ -1,0 +1,30 @@
+SAFE JSON AUTHORITY BOUNDED CHANNELS — STAGE 1207
+Date: 2026-10-26
+
+Finding
+=======
+
+Raw-transaction and receipt projectors produce the durable Safe deployment
+authority, but six executor call sites ran them directly. They lacked an outer
+process deadline, private stderr, size and encoding limits, and a uniform JSON
+boundary before byte comparison or create-once installation.
+
+Correction
+==========
+
+All six materializations now use one JSON-authority helper. It reattests Node
+and timeout, enforces a 120-second TERM/KILL deadline, captures private tmpfs
+stdout/stderr, requires fatal UTF-8 decoding, applies 1 MiB/64 KiB limits,
+reports only generic status on failure, requires empty stderr and mode 0600,
+then validates strict JSON before the caller consumes any bytes.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/environment/process tests: 12/12 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

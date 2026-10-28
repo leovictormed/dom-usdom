@@ -21,6 +21,7 @@ import {
   finalizedBurnAdapterConfigHash,
   finalizedBurnVerifierConfigHash,
 } from '../../sdk/verifier-config.mjs';
+import {PINNED_RISC0_MAINNET_V3} from '../../sdk/risc0-verifier-reference.mjs';
 
 const hash = byte => '0x' + byte.toString(16).padStart(2, '0').repeat(32);
 const zero = hash(0);
@@ -39,8 +40,9 @@ export function verifierConfigFixture() {
     proofSystem:FINALIZED_BURN_PROOF_SYSTEM,verifyingKeySha256:hash(12),trustedSetupRequired:true,
     trustedSetupTranscriptSha256:hash(19),provingProgramSha256:hash(13),sourceManifestSha256:hash(14),
     verifierArtifactSha256:hash(15),maxProofBytes:'260',minimumFinalityBeaconSlot:'12000000',
-    ethereumChainId:'1',riscZeroVerifier:'0x0000000000000000000000000000000000000010',
-    riscZeroVerifierCodeHash:hash(17),riscZeroVerifierSelector:FINALIZED_BURN_RISC0_GROTH16_V3_SELECTOR,
+    ethereumChainId:'1',riscZeroVerifier:PINNED_RISC0_MAINNET_V3.verifier_address,
+    riscZeroVerifierCodeHash:PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash,
+    riscZeroVerifierSelector:FINALIZED_BURN_RISC0_GROTH16_V3_SELECTOR,
     finalizedBurnGuestImageId:hash(18),journalSchemaHash:FINALIZED_BURN_RISC0_JOURNAL_SCHEMA_HASH,
   };
 }
@@ -88,11 +90,16 @@ test('verifier configuration deterministically commits every production proof bo
   }
   const setup={...fixture,trustedSetupTranscriptSha256:hash(30)};
   assert.notEqual(finalizedBurnVerifierConfigHash(setup).provingProgramConfigHash,result.provingProgramConfigHash);
-  for(const [field,value] of [
-    ['ethereumChainId','2'],['riscZeroVerifier','0x0000000000000000000000000000000000000011'],
-    ['riscZeroVerifierCodeHash',hash(31)],['finalizedBurnGuestImageId',hash(31)],
-  ]) assert.notEqual(finalizedBurnVerifierConfigHash({...fixture,[field]:value}).verifierConfigHash,
-    result.verifierConfigHash,field);
+  assert.notEqual(finalizedBurnVerifierConfigHash({...fixture,ethereumChainId:'2'}).verifierConfigHash,
+    result.verifierConfigHash,'ethereumChainId');
+  assert.notEqual(finalizedBurnVerifierConfigHash({...fixture,ethereumChainId:'2',
+    riscZeroVerifier:'0x0000000000000000000000000000000000000011'}).verifierConfigHash,
+  result.verifierConfigHash,'riscZeroVerifier');
+  assert.notEqual(finalizedBurnVerifierConfigHash({...fixture,ethereumChainId:'2',
+    riscZeroVerifierCodeHash:hash(31)}).verifierConfigHash,result.verifierConfigHash,
+  'riscZeroVerifierCodeHash');
+  assert.notEqual(finalizedBurnVerifierConfigHash({...fixture,finalizedBurnGuestImageId:hash(31)})
+    .verifierConfigHash,result.verifierConfigHash,'finalizedBurnGuestImageId');
 });
 
 test('verifier configuration rejects ambiguous, stale and incomplete manifests', () => {
@@ -110,6 +117,8 @@ test('verifier configuration rejects ambiguous, stale and incomplete manifests',
     {...fixture,ethereumChainId:'0'},
     {...fixture,riscZeroVerifier:'0x0000000000000000000000000000000000000000'},
     {...fixture,riscZeroVerifierCodeHash:zero},{...fixture,finalizedBurnGuestImageId:zero},
+    {...fixture,riscZeroVerifier:'0x0000000000000000000000000000000000000010'},
+    {...fixture,riscZeroVerifierCodeHash:hash(17)},
     {...fixture,riscZeroVerifierSelector:'0x01020304'},{...fixture,journalSchemaHash:hash(31)},
     {...fixture,trustedSetupRequired:false,trustedSetupTranscriptSha256:zero},
     {...fixture,trustedSetupRequired:false,trustedSetupTranscriptSha256:hash(16)},
@@ -150,11 +159,15 @@ test('finalized-burn adapter runtime is source-derived with every immutable patc
   assert.throws(()=>deriveFinalizedBurnAdapterArtifactBinding({artifact,sourceContents,adapterConfig,
     expectedConfigHash:hash(31)}),/config hash/);
   assert.match(result.runtimeCodeHash,/^0x[0-9a-f]{64}$/);
-  assert.equal(result.runtimeSize,1909);
+  assert.equal(result.runtimeSize,(artifact.deployedBytecode.object.length-2)/2);
   for(const [field,value] of [
     ['riscZeroVerifier','0x0000000000000000000000000000000000000011'],
     ['riscZeroVerifierCodeHash',hash(31)],['finalizedBurnGuestImageId',hash(31)],
     ['ethereumChainId','2'],
-  ]) assert.notEqual(deriveFinalizedBurnVerifierRuntimeCodeHash({artifact,
-    verifierConfig:{...fixture,[field]:value},sourceContents}).runtimeCodeHash,result.runtimeCodeHash,field);
+  ]) {
+    const changed={...fixture,[field]:value};
+    if(field==='riscZeroVerifier'||field==='riscZeroVerifierCodeHash') changed.ethereumChainId='2';
+    assert.notEqual(deriveFinalizedBurnVerifierRuntimeCodeHash({artifact,
+      verifierConfig:changed,sourceContents}).runtimeCodeHash,result.runtimeCodeHash,field);
+  }
 });

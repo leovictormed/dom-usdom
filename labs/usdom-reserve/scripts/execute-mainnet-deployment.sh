@@ -14,7 +14,7 @@ for fd_path in /proc/$$/fd/*; do
   exec {inherited_fd}>&-
 done
 # Do not let the operator's ambient toolchain, loader, proxy or debug settings
-# alter credential-bearing Node/Cast/Ledger children. USDOM inputs are exported
+# alter credential-bearing Node/Cast/OneKey children. USDOM inputs are exported
 # explicitly below; HOME is retained for hardware-wallet integration.
 unset LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH \
   NODE_OPTIONS NODE_PATH NODE_DEBUG NODE_DEBUG_NATIVE SSLKEYLOGFILE \
@@ -239,9 +239,20 @@ test -d "$evidence_directory"
 test ! -L "$evidence_directory"
 test "$(stat -c '%u' "$evidence_directory")" = "$(id -u)"
 test "$(stat -c '%a' "$evidence_directory")" = '700'
+relayer_envelope="$evidence_directory/contract-deployment-$index-relayer-envelope.json"
+relayer_external_raw="$evidence_directory/contract-deployment-$index-relayer-external-raw.txt"
 exec 9<"$evidence_directory"
 assert_flock_unchanged
 "$flock_bin" -n 9 || { printf '%s\n' 'Another deployment executor holds the evidence lock' >&2; exit 75; }
+test "$(realpath -e /proc/$$/fd/9)" = "$evidence_directory"
+evidence_parent_identity=$(stat -Lc '%d:%i:%u:%a' -- /proc/$$/fd/9)
+test "$evidence_parent_identity" = "$(stat -c '%d:%i:%u:%a' -- "$evidence_directory")"
+assert_evidence_parent() {
+  test "$(realpath -e "$evidence_directory")" = "$evidence_directory"
+  test "$(realpath -e /proc/$$/fd/9)" = "$evidence_directory"
+  test "$(stat -c '%d:%i:%u:%a' -- "$evidence_directory")" = "$evidence_parent_identity"
+  test "$(stat -Lc '%d:%i:%u:%a' -- /proc/$$/fd/9)" = "$evidence_parent_identity"
+}
 
 # Receipt and assembled evidence are retryable observations. Invalidate only
 # the current deployment's derived generation under the evidence lock before
@@ -249,15 +260,21 @@ assert_flock_unchanged
 # submission hash and finalized fee anchor remain immutable anti-replay data.
 for derived in "contract-deployment-$index-receipt.json" \
   "contract-deployment-$index-evidence.json"; do
+  assert_evidence_parent
   assert_node_unchanged
   "$node_bin" "$project/scripts/remove-private-file-durable.mjs" \
     "$evidence_directory/$derived"
 done
 assert_node_unchanged
 
-temporary=$(mktemp -d -p /dev/shm usdom-mainnet-deployment.XXXXXXXX)
-chmod 0700 "$temporary"
+temporary=$("$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+  mktemp -d -p /dev/shm usdom-mainnet-deployment.XXXXXXXX | /usr/bin/head -c 128)
+[[ $temporary =~ ^/dev/shm/usdom-mainnet-deployment\.[A-Za-z0-9]{8}$ ]]
+[[ -d $temporary && ! -L $temporary ]]
+test "$(stat -c '%u:%a' -- "$temporary")" = "$(id -u):700"
+temporary_identity=$(/usr/bin/stat -c '%u:%d:%i:%a' -- "$temporary")
 rpc_proxy_pid=''
+deployment_broadcast_state=clean
 stop_rpc_proxy() {
   [[ $rpc_proxy_pid =~ ^[0-9]+$ ]] || return 0
   kill -TERM -- "-$rpc_proxy_pid" 2>/dev/null || true
@@ -273,8 +290,20 @@ cleanup() {
   local status=${1:-$?}
   trap - EXIT HUP INT TERM
   stop_rpc_proxy
-  assert_node_unchanged &&
-    "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$temporary" || status=1
+  if [[ $deployment_broadcast_state != clean ]] && (( status != 0 )); then
+    printf '%s\n' 'Deployment transaction outcome requires exact-hash and finalized-nonce revalidation; do not sign or publish a replacement.' >&2
+    status=80
+  fi
+  if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' -- "$temporary" 2>/dev/null) == "$temporary_identity" ]] &&
+    assert_node_unchanged && assert_timeout_unchanged &&
+    "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+      "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+      "$temporary" > /dev/null 2> /dev/null &&
+    assert_node_unchanged && assert_timeout_unchanged && test ! -e "$temporary"; then
+    :
+  else
+    (( status != 0 )) || status=1
+  fi
   exit "$status"
 }
 trap 'cleanup $?' EXIT
@@ -289,18 +318,46 @@ assert_private_file() {
 }
 persist_new() {
   local source=$1 destination=$2 installed="$temporary/${2##*/}.installed"
+  local output="$temporary/${2##*/}.install.stdout" error="$temporary/${2##*/}.install.stderr" status
+  assert_evidence_parent
   test ! -e "$destination" && test ! -L "$destination"
   assert_node_unchanged
-  "$node_bin" scripts/install-private-file-new-stdin.mjs "$destination" < "$source"
+  assert_timeout_unchanged
+  if "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+    "$node_bin" scripts/install-private-file-new-stdin.mjs "$destination" \
+    < "$source" > "$output" 2> "$error"; then status=0; else status=$?; fi
+  assert_node_unchanged
+  "$node_bin" -e 'const fs=require("fs"),fatal=new TextDecoder("utf-8",{fatal:true});for(const file of process.argv.slice(1)){const bytes=fs.readFileSync(file);if(bytes.length>65536)process.exit(1);fatal.decode(bytes)}' \
+    "$output" "$error"
+  if ((status != 0)); then
+    printf 'Bounded private deployment installation failed with status %s\n' "$status" >&2
+    return "$status"
+  fi
+  test ! -s "$output"
+  test ! -s "$error"
   assert_private_file "$destination"
+  assert_evidence_parent
   snapshot "$destination" "$installed"
-  "$node_bin" -e 'const fs=require("fs");if(!fs.readFileSync(process.argv[1]).equals(fs.readFileSync(process.argv[2])))process.exit(1)' \
-    "$source" "$installed"
+  assert_cmp_unchanged; "$cmp_bin" -s "$source" "$installed"
 }
 snapshot() {
+  local source=$1 output=$2 error="$2.stderr" status
   assert_node_unchanged
-  "$node_bin" scripts/read-private-file-stdout.mjs "$1" > "$2"
-  chmod 0600 "$2"
+  assert_timeout_unchanged
+  if "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+    "$node_bin" scripts/read-private-file-stdout.mjs "$source" \
+    > "$output" 2> "$error"; then status=0; else status=$?; fi
+  assert_node_unchanged
+  "$node_bin" -e 'const fs=require("fs"),fatal=new TextDecoder("utf-8",{fatal:true});for(const [file,max] of [[process.argv[1],16777216],[process.argv[2],65536]]){const bytes=fs.readFileSync(file);if(bytes.length>max)process.exit(1);fatal.decode(bytes)}' \
+    "$output" "$error"
+  if ((status != 0)); then
+    printf 'Bounded private deployment snapshot failed with status %s\n' "$status" >&2
+    return "$status"
+  fi
+  test -s "$output"
+  test ! -s "$error"
+  assert_private_file "$output"
+  assert_private_file "$error"
 }
 read_canonical_line() {
   local file=$1 value extra fd
@@ -311,21 +368,82 @@ read_canonical_line() {
   [[ "$value" != *$'\r'* && "$value" != *$'\n'* ]]
   printf '%s\n' "$value"
 }
+run_jq_line_authority() {
+  local label=$1 output="$temporary/$1-jq-line.stdout" error="$temporary/$1-jq-line.stderr" status
+  shift
+  [[ $label =~ ^[A-Za-z0-9._-]+$ ]]
+  assert_jq_unchanged
+  assert_timeout_unchanged
+  if "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+    "$jq_bin" "$@" > "$output" 2> "$error"; then status=0; else status=$?; fi
+  assert_node_unchanged
+  "$node_bin" -e 'const fs=require("fs"),fatal=new TextDecoder("utf-8",{fatal:true});for(const file of process.argv.slice(1)){const bytes=fs.readFileSync(file);if(bytes.length>65536)process.exit(1);fatal.decode(bytes)}' \
+    "$output" "$error"
+  if ((status != 0)); then
+    printf 'Bounded mainnet deployment jq line failed with status %s\n' "$status" >&2
+    return "$status"
+  fi
+  test -s "$output"
+  test ! -s "$error"
+  read_canonical_line "$output"
+}
+run_jq_json_authority() {
+  local output=$1 error="$1.stderr" status
+  shift
+  assert_jq_unchanged
+  assert_timeout_unchanged
+  if "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+    "$jq_bin" "$@" > "$output" 2> "$error"; then status=0; else status=$?; fi
+  assert_jq_unchanged
+  assert_node_unchanged
+  "$node_bin" -e 'const fs=require("fs"),fatal=new TextDecoder("utf-8",{fatal:true});for(const [file,max] of [[process.argv[1],2097152],[process.argv[2],65536]]){const bytes=fs.readFileSync(file);if(bytes.length>max)process.exit(1);fatal.decode(bytes)}' \
+    "$output" "$error"
+  if ((status != 0)); then
+    printf 'Bounded mainnet deployment jq JSON failed with status %s\n' "$status" >&2
+    return "$status"
+  fi
+  test -s "$output"
+  test ! -s "$error"
+  assert_private_file "$output"
+  assert_private_file "$error"
+  run_node_empty_authority generated-jq-json scripts/check-private-strict-json-file.mjs "$output"
+}
+run_node_empty_authority() {
+  local label=$1 script=$2 output="$temporary/$1.stdout" error="$temporary/$1.stderr" status
+  shift 2
+  [[ $label =~ ^[A-Za-z0-9._-]+$ ]]
+  assert_node_unchanged
+  assert_timeout_unchanged
+  if "$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s \
+    "$node_bin" "$script" "$@" > "$output" 2> "$error"; then status=0; else status=$?; fi
+  assert_node_unchanged
+  "$node_bin" -e 'const fs=require("fs"),fatal=new TextDecoder("utf-8",{fatal:true});for(const file of process.argv.slice(1)){const bytes=fs.readFileSync(file);if(bytes.length>65536)process.exit(1);fatal.decode(bytes)}' \
+    "$output" "$error"
+  if ((status != 0)); then
+    printf 'Bounded mainnet deployment %s authority failed with status %s\n' "$label" "$status" >&2
+    return "$status"
+  fi
+  test ! -s "$output"
+  test ! -s "$error"
+}
 run_node_json_authority() {
   local output=$1 script=$2 error="$output.stderr" status
   shift 2
   assert_node_unchanged
   assert_timeout_unchanged
-  if "$timeout_bin" --signal=TERM 120s "$node_bin" "$script" "$@" > "$output" 2> "$error"; then
-    :
-  else
-    status=$?
+  if "$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s \
+    "$node_bin" "$script" "$@" > "$output" 2> "$error"; then status=0; else status=$?; fi
+  assert_node_unchanged
+  "$node_bin" -e 'const fs=require("fs"),fatal=new TextDecoder("utf-8",{fatal:true});for(const [file,max] of [[process.argv[1],2097152],[process.argv[2],65536]]){const bytes=fs.readFileSync(file);if(bytes.length>max)process.exit(1);fatal.decode(bytes)}' \
+    "$output" "$error"
+  if ((status != 0)); then
     printf 'Bounded authority helper failed with status %s\n' "$status" >&2
     return "$status"
   fi
+  test -s "$output"
   test ! -s "$error"
-  chmod 0600 "$output"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$output"
+  assert_private_file "$output"
+  run_node_empty_authority generated-json scripts/check-private-strict-json-file.mjs "$output"
 }
 canonical_quantity() {
   "$node_bin" scripts/check-ethereum-quantity.mjs "$@"
@@ -334,9 +452,8 @@ canonical_decimal() {
   "$node_bin" scripts/check-unsigned-decimal.mjs "$@"
 }
 project_receipt() {
-  chmod 0600 "$1"
-  "$node_bin" scripts/project-deployment-receipt.mjs "$1" > "$2"
-  chmod 0600 "$2"
+  assert_private_file "$1"
+  run_node_json_authority "$2" scripts/project-deployment-receipt.mjs "$1"
 }
 package_source=$(realpath -ms "$USDOM_MAINNET_DEPLOYMENT_PACKAGE")
 assert_private_file "$package_source"
@@ -425,7 +542,6 @@ run_node_json_authority "$transaction_initial" scripts/prepare-mainnet-deploymen
 "$node_bin" scripts/check-mainnet-deployment-ledger-handoff.mjs "$transaction_initial" "$index"
 from=$("$jq_bin" -er '.transaction.from' "$transaction_initial")
 nonce=$("$jq_bin" -er '.transaction.nonce' "$transaction_initial")
-data=$("$jq_bin" -er '.transaction.data' "$transaction_initial")
 deployment_name=$("$jq_bin" -er '.transaction.name' "$transaction_initial")
 expected=$("$jq_bin" -er '.transaction.expectedContract' "$transaction_initial")
 expected_runtime_hash=$("$jq_bin" -er '.transaction.expectedRuntimeCodeHash' "$transaction_initial")
@@ -439,14 +555,13 @@ evidence_file="$evidence_directory/contract-deployment-$index-evidence.json"
 # A nonce alone only proves that some transaction consumed each earlier slot.
 # Bind continuation/retry to the exact runtime at every preceding CREATE address.
 assert_prior_deployments_finalized() {
-  local endpoint=$1 prior=0 prior_address prior_runtime_hash prior_code prior_data prior_from prior_nonce
+  local endpoint=$1 prior=0 prior_address prior_runtime_hash prior_code prior_from prior_nonce
   local prior_hash_file prior_receipt_file prior_validation_file prior_raw_file prior_evidence_file prior_fee_anchor_file prior_hash prior_receipt_hash prior_receipt_block prior_receipt_height
   local prior_hash_snapshot prior_receipt_snapshot prior_validation_snapshot prior_raw_snapshot prior_evidence_snapshot prior_fee_anchor_snapshot
   local prior_tx prior_receipt prior_canonical prior_finalized prior_finalized_height prior_anchor prior_anchor_recheck prior_anchor_number prior_anchor_height prior_anchor_hash
   while (( prior < index )); do
     prior_address=$("$jq_bin" -er ".transactions[$prior].expectedContract" "$package_snapshot")
     prior_runtime_hash=$("$jq_bin" -er ".transactions[$prior].expectedRuntimeCodeHash" "$package_snapshot")
-    prior_data=$("$jq_bin" -er ".transactions[$prior].data" "$package_snapshot")
     prior_from=$("$jq_bin" -er ".transactions[$prior].from" "$package_snapshot")
     prior_nonce=$("$jq_bin" -er ".transactions[$prior].nonce" "$package_snapshot")
     prior_hash_file="$evidence_directory/contract-deployment-$prior-submission-hash.txt"
@@ -473,13 +588,15 @@ assert_prior_deployments_finalized() {
     snapshot "$prior_raw_file" "$prior_raw_snapshot"
     snapshot "$prior_evidence_file" "$prior_evidence_snapshot"
     snapshot "$prior_fee_anchor_file" "$prior_fee_anchor_snapshot"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$prior_receipt_snapshot"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$prior_receipt_snapshot"
     "$node_bin" scripts/check-deployment-evidence.mjs "$prior_receipt_snapshot" receipt
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$prior_validation_snapshot"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$prior_validation_snapshot"
     "$node_bin" scripts/check-deployment-evidence.mjs "$prior_validation_snapshot" raw
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$prior_evidence_snapshot"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$prior_evidence_snapshot"
     "$node_bin" scripts/check-deployment-evidence.mjs "$prior_evidence_snapshot"
     "$node_bin" scripts/check-deployment-evidence.mjs "$prior_fee_anchor_snapshot" anchor
+    "$node_bin" scripts/check-deployment-stage-link.mjs "$prior_validation_snapshot" \
+      "$prior_receipt_snapshot" "$prior_evidence_snapshot" "$prior_fee_anchor_snapshot"
     "$jq_bin" -e --arg index "$prior" --arg name "$("$jq_bin" -er ".transactions[$prior].name" "$package_snapshot")" \
       --arg package "$USDOM_PACKAGE_SHA256" --arg observation "$expected_observation_sha" \
       --arg observationHash "$package_observation_hash" '
@@ -530,15 +647,16 @@ assert_prior_deployments_finalized() {
       (.contractAddress|ascii_downcase) == ($expected|ascii_downcase)' "$prior_receipt_snapshot" >/dev/null
     prior_tx="$temporary/prior-$prior-transaction.json"
     rpc rpc eth_getTransactionByHash "$prior_hash" --rpc-url "$endpoint" > "$prior_tx"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$prior_tx"
-    "$jq_bin" -e --arg hash "$prior_hash" --arg from "$prior_from" --arg data "$prior_data" '
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$prior_tx"
+    "$jq_bin" -e --arg hash "$prior_hash" --arg from "$prior_from" --argjson prior "$prior" \
+      --slurpfile package "$package_snapshot" '
       (.hash|ascii_downcase) == $hash and (.from|ascii_downcase) == ($from|ascii_downcase) and
-      .to == null and (.input|ascii_downcase) == ($data|ascii_downcase) and
+      .to == null and (.input|ascii_downcase) == ($package[0].transactions[$prior].data|ascii_downcase) and
       (.value == "0x0" or .value == "0x00")' "$prior_tx" >/dev/null
     test "$(canonical_quantity "$("$jq_bin" -er '.nonce' "$prior_tx")")" = "$prior_nonce"
     prior_receipt="$temporary/prior-$prior-receipt.json"
     rpc rpc eth_getTransactionReceipt "$prior_hash" --rpc-url "$endpoint" > "$prior_receipt"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$prior_receipt"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$prior_receipt"
     project_receipt "$prior_receipt" "$temporary/prior-$prior-receipt.projected.json"
     assert_cmp_unchanged; "$cmp_bin" -s "$prior_receipt_snapshot" "$temporary/prior-$prior-receipt.projected.json"
     "$jq_bin" -e --arg hash "$prior_hash" --arg from "$prior_from" --arg expected "$prior_address" \
@@ -549,18 +667,18 @@ assert_prior_deployments_finalized() {
       (.blockHash|ascii_downcase) == $blockHash and .blockNumber == $blockNumber' "$prior_receipt" >/dev/null
     prior_canonical="$temporary/prior-$prior-canonical.json"
     rpc block "$prior_receipt_block" --json --rpc-url "$endpoint" > "$prior_canonical"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$prior_canonical"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$prior_canonical"
     test "$("$jq_bin" -er '.hash|ascii_downcase' "$prior_canonical")" = "$prior_receipt_hash"
     prior_finalized="$temporary/prior-$prior-finalized.json"
     rpc block finalized --json --rpc-url "$endpoint" > "$prior_finalized"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$prior_finalized"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$prior_finalized"
     prior_finalized_number=$("$jq_bin" -er '.number' "$prior_finalized")
     prior_finalized_height=$(canonical_quantity "$prior_finalized_number")
     canonical_quantity "$prior_receipt_block" "$prior_finalized_number" >/dev/null
     canonical_quantity "$prior_anchor_number" "$prior_finalized_number" >/dev/null
     prior_anchor="$temporary/prior-$prior-finalized-anchor.json"
     rpc block "$prior_anchor_number" --json --rpc-url "$endpoint" > "$prior_anchor"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$prior_anchor"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$prior_anchor"
     test "$("$jq_bin" -er '.number' "$prior_anchor")" = "$prior_anchor_number"
     test "$("$jq_bin" -er '.hash|ascii_downcase' "$prior_anchor")" = "$prior_anchor_hash"
     prior_code=$(rpc code "$prior_address" --block "$prior_anchor_number" --rpc-url "$endpoint")
@@ -568,7 +686,7 @@ assert_prior_deployments_finalized() {
     test "$("$cast_bin" keccak "$prior_code")" = "$prior_runtime_hash"
     prior_anchor_recheck="$temporary/prior-$prior-finalized-anchor.recheck.json"
     rpc block "$prior_anchor_number" --json --rpc-url "$endpoint" > "$prior_anchor_recheck"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$prior_anchor_recheck"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$prior_anchor_recheck"
     test "$("$jq_bin" -er '.number' "$prior_anchor_recheck")" = "$prior_anchor_number"
     test "$("$jq_bin" -er '.hash|ascii_downcase' "$prior_anchor_recheck")" = "$prior_anchor_hash"
     assert_cmp_unchanged; "$cmp_bin" -s "$prior_anchor" "$prior_anchor_recheck"
@@ -604,12 +722,13 @@ if [[ ! -e $raw_file ]]; then
     test "$(rpc code "$expected" --block finalized --rpc-url "$endpoint")" = '0x'
     test "$(rpc nonce "$expected" --block finalized --rpc-url "$endpoint")" = 0
     test "$(rpc nonce "$expected" --block pending --rpc-url "$endpoint")" = 0
-    estimate=$(canonical_decimal "$(rpc estimate --create "$data" --from "$from" --block finalized --rpc-url "$endpoint")" 16000000)
+    private_create_estimate=$("$node_bin" scripts/prepare-private-mainnet-create.mjs estimate "$transaction_initial")
+    estimate=$(canonical_decimal "$(printf '%s\n' "$private_create_estimate" | rpc rpc eth_estimateGas --raw --rpc-url "$endpoint" | "$jq_bin" -er .)" 16000000)
     "$node_bin" -e 'if(BigInt(process.argv[1])>16000000n)process.exit(1)' "$estimate"
     ((estimate > maximum_estimate)) && maximum_estimate=$estimate
     fee_block="$temporary/fee-block-$fee_source_index.json"
     rpc block finalized --json --rpc-url "$endpoint" > "$fee_block"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$fee_block"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$fee_block"
     observed_finalized_number=$("$jq_bin" -er '.number' "$fee_block")
     observed_finalized_hash=$("$jq_bin" -er '.hash|ascii_downcase' "$fee_block")
     canonical_quantity "$observed_finalized_number" >/dev/null
@@ -638,12 +757,7 @@ if [[ ! -e $raw_file ]]; then
   assert_node_unchanged
   assert_jq_unchanged
   assert_timeout_unchanged
-  observed_ledger_deployer=$("$timeout_bin" --foreground --signal=TERM --kill-after=5s 300s \
-    "$cast_bin" wallet address --ledger)
-  assert_cast_unchanged
-  assert_timeout_unchanged
-  test "$observed_ledger_deployer" = "$from"
-  gas_limit=$("$node_bin" scripts/plan-mainnet-deployment-gas.mjs "$deployment_name" "$data" "$maximum_estimate")
+  gas_limit=$("$node_bin" scripts/prepare-private-mainnet-create.mjs plan "$transaction_initial" "$maximum_estimate")
   [[ $gas_limit =~ ^[0-9]+$ ]]
   ((gas_limit > 0 && gas_limit <= 20000000))
   ((gas_limit * 2 <= minimum_block_gas_limit))
@@ -654,17 +768,27 @@ if [[ ! -e $raw_file ]]; then
     "$node_bin" -e 'if(BigInt(process.argv[1])<BigInt(process.argv[2])*BigInt(process.argv[3]))process.exit(1)' \
       "$balance" "$gas_limit" "$max_fee"
   done
-  printf 'Índice=%s Deployer=%s Nonce=%s Contrato=%s Gas=%s MaxFee=%s PriorityFee=%s\n' \
-    "$index" "$from" "$nonce" "$expected" "$gas_limit" "$max_fee" "$priority_fee"
+  review_initcode_hash=$("$node_bin" scripts/prepare-private-mainnet-create.mjs hash "$transaction_initial")
+  maximum_gas_cost=$("$node_bin" -e '
+    const [gasText,feeText]=process.argv.slice(1);
+    if(!/^(0|[1-9][0-9]*)$/.test(gasText)||!/^(0|[1-9][0-9]*)$/.test(feeText))process.exit(1);
+    const gas=BigInt(gasText),fee=BigInt(feeText),cost=gas*fee;
+    if(gas===0n||fee===0n||cost>600000000000000000n)process.exit(1);
+    process.stdout.write(cost.toString());
+  ' "$gas_limit" "$max_fee")
+  authorization_hash=$("$node_bin" -e 'const {keccak256,toUtf8Bytes}=require("ethers");const [index,deployer,nonce,contract,initcode,runtime,gas,fee,priority,cost,release,pkg,observation]=process.argv.slice(1);process.stdout.write(keccak256(toUtf8Bytes(`usdom-mainnet-deployment-sign-v1|action=CREATE|chainId=1|index=${index}|deployer=${deployer.toLowerCase()}|nonce=${nonce}|contract=${contract.toLowerCase()}|valueWei=0|initcodeHash=${initcode.toLowerCase()}|expectedRuntimeCodeHash=${runtime.toLowerCase()}|gasLimit=${gas}|maxFeePerGas=${fee}|maxPriorityFeePerGas=${priority}|maximumGasCostWei=${cost}|releaseConfigSha256=${release}|packageSha256=${pkg}|observationDocumentSha256=${observation}`)))' "$index" "$from" "$nonce" "$expected" "$review_initcode_hash" "$expected_runtime_hash" "$gas_limit" "$max_fee" "$priority_fee" "$maximum_gas_cost" "$release_config_sha256" "$USDOM_PACKAGE_SHA256" "$expected_observation_sha")
+  printf 'AUTHORIZE REVIEW action=CREATE chainId=1 index=%s deployer=%s nonce=%s contract=%s valueWei=0 initcodeHash=%s expectedRuntimeCodeHash=%s gasLimit=%s maxFeePerGas=%s priorityFeePerGas=%s maximumGasCostWei=%s releaseConfigSha256=%s packageSha256=%s observationDocumentSha256=%s authorizationHash=%s\n' \
+    "$index" "$from" "$nonce" "$expected" "$review_initcode_hash" "$expected_runtime_hash" "$gas_limit" "$max_fee" "$priority_fee" \
+    "$maximum_gas_cost" "$release_config_sha256" "$USDOM_PACKAGE_SHA256" "$expected_observation_sha" "$authorization_hash"
   assert_rpc_proxy_alive
   run_node_json_authority "$temporary/transaction.presign.json" \
     scripts/prepare-mainnet-deployment-transaction.mjs "$index"
   "$node_bin" scripts/check-mainnet-deployment-ledger-handoff.mjs \
     "$temporary/transaction.presign.json" "$index"
   assert_cmp_unchanged; "$cmp_bin" -s "$transaction_initial" "$temporary/transaction.presign.json"
-  read -r -p "Digite AUTORIZO ASSINAR DEPLOY MAINNET INDICE $index para assinar: " \
+  read -r -p "Digite AUTORIZO ASSINAR DEPLOY INDICE $index AUTH $authorization_hash: " \
     signing_authorization
-  test "$signing_authorization" = "AUTORIZO ASSINAR DEPLOY MAINNET INDICE $index"
+  test "$signing_authorization" = "AUTORIZO ASSINAR DEPLOY INDICE $index AUTH $authorization_hash"
   assert_cast_unchanged
   assert_node_unchanged
   assert_jq_unchanged
@@ -680,13 +804,14 @@ if [[ ! -e $raw_file ]]; then
     test "$(rpc code "$expected" --block finalized --rpc-url "$endpoint")" = '0x'
     test "$(rpc nonce "$expected" --block finalized --rpc-url "$endpoint")" = 0
     test "$(rpc nonce "$expected" --block pending --rpc-url "$endpoint")" = 0
-    presign_estimate=$(canonical_decimal "$(rpc estimate --create "$data" --from "$from" \
-      --block finalized --rpc-url "$endpoint")" 16000000)
+    private_create_estimate=$("$node_bin" scripts/prepare-private-mainnet-create.mjs estimate "$transaction_initial")
+    presign_estimate=$(canonical_decimal "$(printf '%s\n' "$private_create_estimate" | rpc rpc eth_estimateGas --raw \
+      --rpc-url "$endpoint" | "$jq_bin" -er .)" 16000000)
     "$node_bin" -e 'if(BigInt(process.argv[1])>16000000n)process.exit(1)' "$presign_estimate"
     ((presign_estimate > presign_maximum_estimate)) && presign_maximum_estimate=$presign_estimate
     presign_fee_block="$temporary/presign-fee-block-$presign_fee_source_index.json"
     rpc block finalized --json --rpc-url "$endpoint" > "$presign_fee_block"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$presign_fee_block"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$presign_fee_block"
     test "$("$jq_bin" -er '.number|ascii_downcase' "$presign_fee_block")" = "${finalized_anchor_number,,}"
     test "$("$jq_bin" -er '.hash|ascii_downcase' "$presign_fee_block")" = "$finalized_anchor_hash"
     presign_block_gas_limit=$(canonical_decimal \
@@ -702,7 +827,7 @@ if [[ ! -e $raw_file ]]; then
     presign_balances+=("$presign_balance")
     ((presign_fee_source_index += 1))
   done
-  presign_gas_limit=$("$node_bin" scripts/plan-mainnet-deployment-gas.mjs "$deployment_name" "$data" "$presign_maximum_estimate")
+  presign_gas_limit=$("$node_bin" scripts/prepare-private-mainnet-create.mjs plan "$transaction_initial" "$presign_maximum_estimate")
   [[ $presign_gas_limit =~ ^[0-9]+$ ]]
   presign_max_fee=$("$node_bin" -e 'let fee=BigInt(process.argv[1]);for(let i=0;i<12;i++)fee=(fee*9n+7n)/8n;fee+=2000000000n;if(fee>100000000000n)process.exit(1);process.stdout.write(String(fee))' "$presign_maximum_base")
   "$node_bin" -e 'if(BigInt(process.argv[1])*BigInt(process.argv[2])>600000000000000000n)process.exit(1)' "$presign_gas_limit" "$presign_max_fee"
@@ -716,22 +841,40 @@ if [[ ! -e $raw_file ]]; then
   done
   raw_draft="$temporary/raw-transaction.txt"
   assert_cast_unchanged
-  raw_command_output="$temporary/raw-command-output.txt"
-  rpc mktx --chain 1 --from "$from" --nonce "$nonce" --value 0 \
-    --gas-limit "$gas_limit" --gas-price "$max_fee" \
-    --priority-gas-price "$priority_fee" --ledger --rpc-url "$primary_rpc" \
-    --create "$data" > "$raw_command_output"
-  raw=$(read_canonical_line "$raw_command_output")
+  run_node_json_authority "$temporary/transaction.final-presign.json" \
+    scripts/prepare-mainnet-deployment-transaction.mjs "$index"
+  "$node_bin" scripts/check-mainnet-deployment-ledger-handoff.mjs \
+    "$temporary/transaction.final-presign.json" "$index"
+  assert_cmp_unchanged; "$cmp_bin" -s "$transaction_initial" "$temporary/transaction.final-presign.json"
+  prepared_create="$temporary/prepared-create.json"
+  "$node_bin" scripts/prepare-private-mainnet-create.mjs prepare "$transaction_initial" \
+    "$nonce" "$gas_limit" "$max_fee" "$priority_fee" >"$prepared_create"
+  assert_private_file "$prepared_create"
+  if [[ -e $relayer_envelope ]]; then
+    assert_private_file "$relayer_envelope"
+    assert_cmp_unchanged; "$cmp_bin" -s "$prepared_create" "$relayer_envelope"
+  else
+    persist_new "$prepared_create" "$relayer_envelope"
+  fi
+  if [[ ! -e $relayer_external_raw ]]; then
+    printf 'Gas-only relayer envelope prepared at %s; install its exact signed raw as %s and rerun.\n' \
+      "$relayer_envelope" "$relayer_external_raw" >&2
+    exit 78
+  fi
+  assert_private_file "$relayer_external_raw"
+  raw=$(read_canonical_line "$relayer_external_raw")
   [[ $raw =~ ^0x[0-9a-fA-F]+$ ]]
   printf '%s\n' "$raw" > "$raw_draft"
-  chmod 0600 "$raw_draft"
+  assert_private_file "$raw_draft"
   export USDOM_MAINNET_DEPLOYMENT_RAW_TRANSACTION=$raw_draft
   validation_draft="$temporary/raw-validation.json"
-  "$node_bin" scripts/check-mainnet-deployment-raw-transaction.mjs "$index" > "$validation_draft"
-  chmod 0600 "$validation_draft"
+  run_node_json_authority "$validation_draft" scripts/check-mainnet-deployment-raw-transaction.mjs "$index"
+  # An accepted external raw may already have been published independently.
+  # Every later failure is therefore unresolved and must never trigger signing again.
+  deployment_broadcast_state=signed-unresolved
   draft_maximum_cost=$("$jq_bin" -er '.maximumCost' "$validation_draft")
   "$node_bin" scripts/check-mainnet-deployment-sequence-cost.mjs "$index" "$draft_maximum_cost" >/dev/null
-  "$jq_bin" -n --arg index "$index" --arg name "$deployment_name" --arg chain "$chain_id" \
+  run_jq_json_authority "$temporary/finalized-anchor.json" -n --arg index "$index" --arg name "$deployment_name" --arg chain "$chain_id" \
     --arg package "$USDOM_PACKAGE_SHA256" --arg observation "$expected_observation_sha" \
     --arg observationHash "$package_observation_hash" --arg number "${finalized_anchor_number,,}" \
     --arg hash "$finalized_anchor_hash" --arg base "$maximum_base" --arg gas "$gas_limit" \
@@ -739,10 +882,8 @@ if [[ ! -e $raw_file ]]; then
     '{schema:"usdom-mainnet-deployment-fee-anchor-v1",index:$index,name:$name,chainId:$chain,
       packageSha256:$package,observationDocumentSha256:$observation,observationHash:$observationHash,
       finalizedBlockNumber:$number,finalizedBlockHash:$hash,
-      maximumBaseFeePerGas:$base,gasLimit:$gas,maxFeePerGas:$fee}' \
-    > "$temporary/finalized-anchor.json"
-  chmod 0600 "$temporary/finalized-anchor.json"
-  "$node_bin" scripts/check-deployment-evidence.mjs "$temporary/finalized-anchor.json" anchor
+      maximumBaseFeePerGas:$base,gasLimit:$gas,maxFeePerGas:$fee}'
+  run_node_empty_authority finalized-anchor scripts/check-deployment-evidence.mjs "$temporary/finalized-anchor.json" anchor
   persist_new "$temporary/finalized-anchor.json" "$anchor_file"
   persist_new "$raw_draft" "$raw_file"
   persist_new "$validation_draft" "$validation_file"
@@ -761,16 +902,16 @@ raw_snapshot="$temporary/raw.snapshot.txt"
 snapshot "$raw_file" "$raw_snapshot"
 export USDOM_MAINNET_DEPLOYMENT_RAW_TRANSACTION=$raw_snapshot
 validation_current="$temporary/raw-validation.current.json"
-"$node_bin" scripts/check-mainnet-deployment-raw-transaction.mjs "$index" > "$validation_current"
+run_node_json_authority "$validation_current" scripts/check-mainnet-deployment-raw-transaction.mjs "$index"
 transaction_hash=$("$jq_bin" -er '.transactionHash' "$validation_current")
+deployment_broadcast_state=signed-unresolved
 if [[ ! -e $validation_file ]]; then
-  chmod 0600 "$validation_current"
   persist_new "$validation_current" "$validation_file"
 fi
 if [[ ! -e $hash_file ]]; then
   printf '%s\n' "$transaction_hash" > "$temporary/hash.txt"
-  chmod 0600 "$temporary/hash.txt"
-  "$node_bin" scripts/check-deployment-submission-hash.mjs "$temporary/hash.txt" >/dev/null
+  assert_private_file "$temporary/hash.txt"
+  run_node_empty_authority submission-hash scripts/check-deployment-submission-hash.mjs "$temporary/hash.txt"
   persist_new "$temporary/hash.txt" "$hash_file"
 fi
 assert_private_file "$hash_file"
@@ -793,12 +934,17 @@ for endpoint in "${rpc_urls[@]}"; do
   seen_file="$temporary/prepublish-seen-$seen_index.json"
   rpc rpc eth_getTransactionByHash "$transaction_hash" --rpc-url "$endpoint" \
     > "$seen_file"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$seen_file"
-  "$jq_bin" -e --arg hash "$transaction_hash" \
-    '. == null or ((.hash|ascii_downcase) == ($hash|ascii_downcase))' "$seen_file" >/dev/null
-  if ! "$jq_bin" -e '. == null' "$seen_file" >/dev/null; then seen_any=true; fi
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$seen_file"
+  test "$(run_jq_line_authority "prepublish-seen-$seen_index-matches" -er \
+    --arg hash "$transaction_hash" \
+    '. == null or ((.hash|ascii_downcase) == ($hash|ascii_downcase))' "$seen_file")" = true
+  seen_null=$(run_jq_line_authority "prepublish-seen-$seen_index-null" -r \
+    '. == null' "$seen_file")
+  [[ $seen_null == true || $seen_null == false ]]
+  if [[ $seen_null == false ]]; then seen_any=true; fi
   ((seen_index+=1))
 done
+if [[ $seen_any == true ]]; then deployment_broadcast_state=observed; fi
 if [[ $seen_any == false ]]; then
   assert_rpc_proxy_alive
   run_node_json_authority "$temporary/transaction.prepublish.json" \
@@ -806,9 +952,9 @@ if [[ $seen_any == false ]]; then
   "$node_bin" scripts/check-mainnet-deployment-ledger-handoff.mjs \
     "$temporary/transaction.prepublish.json" "$index"
   assert_cmp_unchanged; "$cmp_bin" -s "$transaction_initial" "$temporary/transaction.prepublish.json"
-  read -r -p "Digite AUTORIZO TRANSMITIR DEPLOY MAINNET INDICE $index para transmitir: " \
+  read -r -p "Digite AUTORIZO TRANSMITIR DEPLOY INDICE $index TX $transaction_hash: " \
     transmission_authorization
-  test "$transmission_authorization" = "AUTORIZO TRANSMITIR DEPLOY MAINNET INDICE $index"
+  test "$transmission_authorization" = "AUTORIZO TRANSMITIR DEPLOY INDICE $index TX $transaction_hash"
   exec </dev/null
   assert_cast_unchanged
   assert_node_unchanged
@@ -832,8 +978,9 @@ if [[ $seen_any == false ]]; then
     test "$(rpc code "$expected" --block finalized --rpc-url "$endpoint")" = '0x'
     test "$(rpc nonce "$expected" --block finalized --rpc-url "$endpoint")" = 0
     test "$(rpc nonce "$expected" --block pending --rpc-url "$endpoint")" = 0
-    transmit_estimate=$(canonical_decimal "$(rpc estimate --create "$data" --from "$from" \
-      --block finalized --rpc-url "$endpoint")" 16000000)
+    private_create_estimate=$("$node_bin" scripts/prepare-private-mainnet-create.mjs estimate "$transaction_initial")
+    transmit_estimate=$(canonical_decimal "$(printf '%s\n' "$private_create_estimate" | rpc rpc eth_estimateGas --raw \
+      --rpc-url "$endpoint" | "$jq_bin" -er .)" 16000000)
     "$node_bin" -e 'if(BigInt(process.argv[1])>BigInt(process.argv[2]))process.exit(1)' \
       "$transmit_estimate" "$gas_limit"
     # The signed raw transaction and its immutable fee anchor may survive a
@@ -842,12 +989,12 @@ if [[ $seen_any == false ]]; then
     # to extend it and re-evaluate fees there.
     transmit_anchor_before="$temporary/transmit-anchor-before-$transmit_seen_index.json"
     rpc block "$finalized_anchor_number" --json --rpc-url "$endpoint" > "$transmit_anchor_before"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$transmit_anchor_before"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$transmit_anchor_before"
     test "$("$jq_bin" -er '.number' "$transmit_anchor_before")" = "$finalized_anchor_number"
     test "$("$jq_bin" -er '.hash|ascii_downcase' "$transmit_anchor_before")" = "$finalized_anchor_hash"
     transmit_fee_block="$temporary/transmit-fee-block-$transmit_seen_index.json"
     rpc block finalized --json --rpc-url "$endpoint" > "$transmit_fee_block"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$transmit_fee_block"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$transmit_fee_block"
     transmit_finalized_number=$("$jq_bin" -er '.number' "$transmit_fee_block")
     canonical_quantity "$finalized_anchor_number" "$transmit_finalized_number" >/dev/null
     transmit_base=$(canonical_quantity "$("$jq_bin" -er '.baseFeePerGas' "$transmit_fee_block")")
@@ -861,11 +1008,12 @@ if [[ $seen_any == false ]]; then
     transmit_seen_file="$temporary/transmit-seen-$transmit_seen_index.json"
     rpc rpc eth_getTransactionByHash "$transaction_hash" --rpc-url "$endpoint" \
       > "$transmit_seen_file"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$transmit_seen_file"
-    "$jq_bin" -e '. == null' "$transmit_seen_file" >/dev/null
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$transmit_seen_file"
+    test "$(run_jq_line_authority "transmit-seen-$transmit_seen_index-null" -er \
+      '. == null' "$transmit_seen_file")" = true
     transmit_anchor_after="$temporary/transmit-anchor-after-$transmit_seen_index.json"
     rpc block "$finalized_anchor_number" --json --rpc-url "$endpoint" > "$transmit_anchor_after"
-    "$node_bin" scripts/check-private-strict-json-file.mjs "$transmit_anchor_after"
+    run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$transmit_anchor_after"
     assert_cmp_unchanged; "$cmp_bin" -s "$transmit_anchor_before" "$transmit_anchor_after"
     ((transmit_seen_index+=1))
   done
@@ -875,12 +1023,14 @@ if [[ $seen_any == false ]]; then
   assert_cmp_unchanged; "$cmp_bin" -s "$validation_snapshot" "$temporary/validation.transmit.json"
   snapshot "$hash_file" "$temporary/hash.transmit.txt"
   assert_cmp_unchanged; "$cmp_bin" -s "$hash_snapshot" "$temporary/hash.transmit.txt"
-  IFS= read -r raw < "$raw_snapshot"
   assert_cast_unchanged
   assert_node_unchanged
   assert_jq_unchanged
   publish_output="$temporary/publish-output.txt"
-  rpc publish "$raw" --async --rpc-url "$primary_rpc" > "$publish_output"
+  assert_evidence_parent
+  deployment_broadcast_state=publishing
+  "$node_bin" scripts/publish-private-raw-transaction.mjs "$raw_snapshot" \
+    "$USDOM_MAINNET_PREFLIGHT_RPC_SOURCES_FILE" "$rpc_catalog" 0 > "$publish_output"
   published=$(read_canonical_line "$publish_output")
   test "${published,,}" = "${transaction_hash,,}"
 fi
@@ -890,7 +1040,7 @@ for source_index in "${!rpc_urls[@]}"; do
   endpoint=${rpc_urls[$source_index]}
   receipt="$temporary/receipt-$source_index.rpc.json"
   rpc receipt "$transaction_hash" --confirmations 2 --json --rpc-url "$endpoint" > "$receipt"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$receipt"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$receipt"
   "$jq_bin" -e --arg hash "$transaction_hash" --arg from "$from" --arg expected "$expected" '
     (.status == "0x1" or .status == "0x01") and .to == null and
     (.transactionHash|ascii_downcase) == ($hash|ascii_downcase) and
@@ -901,30 +1051,30 @@ for source_index in "${!rpc_urls[@]}"; do
   receipt_hash=$("$jq_bin" -er '.blockHash|ascii_downcase' "$receipt")
   finalized="$temporary/finalized-$source_index.json"
   rpc block finalized --json --rpc-url "$endpoint" > "$finalized"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$finalized"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$finalized"
   finalized_number=$("$jq_bin" -er '.number' "$finalized")
   finalized_height=$(canonical_quantity "$finalized_number")
   canonical_quantity "$receipt_number" "$finalized_number" >/dev/null
   canonical="$temporary/canonical-$source_index.json"
   rpc block "$receipt_number" --json --rpc-url "$endpoint" > "$canonical"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$canonical"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$canonical"
   canonical_hash=$("$jq_bin" -er '.hash|ascii_downcase' "$canonical")
   test "$canonical_hash" = "$receipt_hash"
   project_receipt "$receipt" "$temporary/receipt-$source_index.projected.json"
   receipt_recheck="$temporary/receipt-$source_index.recheck.json"
   rpc receipt "$transaction_hash" --confirmations 2 --json --rpc-url "$endpoint" > "$receipt_recheck"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$receipt_recheck"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$receipt_recheck"
   project_receipt "$receipt_recheck" "$temporary/receipt-$source_index.recheck.projected.json"
   assert_cmp_unchanged; "$cmp_bin" -s "$temporary/receipt-$source_index.projected.json" \
     "$temporary/receipt-$source_index.recheck.projected.json"
   finalized_recheck="$temporary/finalized-$source_index.recheck.json"
   rpc block finalized --json --rpc-url "$endpoint" > "$finalized_recheck"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$finalized_recheck"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$finalized_recheck"
   test "$("$jq_bin" -er '.hash|ascii_downcase' "$finalized_recheck")" = \
     "$("$jq_bin" -er '.hash|ascii_downcase' "$finalized")"
   canonical_recheck="$temporary/canonical-$source_index.recheck.json"
   rpc block "$receipt_number" --json --rpc-url "$endpoint" > "$canonical_recheck"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$canonical_recheck"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$canonical_recheck"
   canonical_hash_recheck=$("$jq_bin" -er '.hash|ascii_downcase' "$canonical_recheck")
   test "$canonical_hash_recheck" = "$canonical_hash"
   if ((source_index > 0)); then
@@ -951,7 +1101,7 @@ for source_index in "${!rpc_urls[@]}"; do
   endpoint=${rpc_urls[$source_index]}
   stable_receipt="$temporary/receipt-$source_index.stable.json"
   rpc receipt "$transaction_hash" --confirmations 2 --json --rpc-url "$endpoint" > "$stable_receipt"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$stable_receipt"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$stable_receipt"
   project_receipt "$stable_receipt" "$temporary/receipt-$source_index.stable.projected.json"
   assert_cmp_unchanged; "$cmp_bin" -s "$temporary/receipt-$source_index.projected.json" \
     "$temporary/receipt-$source_index.stable.projected.json"
@@ -960,13 +1110,13 @@ for source_index in "${!rpc_urls[@]}"; do
   stable_hash=$("$jq_bin" -er '.blockHash|ascii_downcase' "$stable_receipt")
   stable_finalized="$temporary/finalized-$source_index.stable.json"
   rpc block finalized --json --rpc-url "$endpoint" > "$stable_finalized"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$stable_finalized"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$stable_finalized"
   stable_finalized_number=$("$jq_bin" -er '.number' "$stable_finalized")
   stable_finalized_height=$(canonical_quantity "$stable_finalized_number")
   canonical_quantity "$stable_number" "$stable_finalized_number" >/dev/null
   stable_canonical="$temporary/canonical-$source_index.stable.json"
   rpc block "$stable_number" --json --rpc-url "$endpoint" > "$stable_canonical"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$stable_canonical"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$stable_canonical"
   stable_canonical_hash=$("$jq_bin" -er '.hash|ascii_downcase' "$stable_canonical")
   test "$stable_canonical_hash" = "$stable_hash"
   stable_code=$(rpc code "$expected" --block finalized --rpc-url "$endpoint")
@@ -995,7 +1145,7 @@ for source_index in "${!rpc_urls[@]}"; do
   endpoint=${rpc_urls[$source_index]}
   barrier_receipt="$temporary/barrier-receipt-$source_index.json"
   rpc receipt "$transaction_hash" --confirmations 2 --json --rpc-url "$endpoint" > "$barrier_receipt"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$barrier_receipt"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$barrier_receipt"
   project_receipt "$barrier_receipt" "$temporary/barrier-receipt-$source_index.projected.json"
   assert_cmp_unchanged; "$cmp_bin" -s "$temporary/receipt-0.projected.json" \
     "$temporary/barrier-receipt-$source_index.projected.json"
@@ -1004,11 +1154,11 @@ for source_index in "${!rpc_urls[@]}"; do
   barrier_hash=$("$jq_bin" -er '.blockHash|ascii_downcase' "$barrier_receipt")
   barrier_canonical="$temporary/barrier-canonical-$source_index.json"
   rpc block "$barrier_number" --json --rpc-url "$endpoint" > "$barrier_canonical"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$barrier_canonical"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$barrier_canonical"
   test "$("$jq_bin" -er '.hash|ascii_downcase' "$barrier_canonical")" = "$barrier_hash"
   barrier_finalized="$temporary/barrier-finalized-$source_index.json"
   rpc block finalized --json --rpc-url "$endpoint" > "$barrier_finalized"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$barrier_finalized"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$barrier_finalized"
   barrier_finalized_number=$("$jq_bin" -er '.number' "$barrier_finalized")
   barrier_finalized_height=$(canonical_quantity "$barrier_finalized_number")
   barrier_finalized_hash=$("$jq_bin" -er '.hash|ascii_downcase' "$barrier_finalized")
@@ -1022,7 +1172,7 @@ for source_index in "${!rpc_urls[@]}"; do
   fi
   barrier_anchor_before="$temporary/barrier-anchor-before-$source_index.json"
   rpc block "$barrier_finalized_number" --json --rpc-url "$endpoint" > "$barrier_anchor_before"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$barrier_anchor_before"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$barrier_anchor_before"
   test "$("$jq_bin" -er '.number' "$barrier_anchor_before")" = "$barrier_finalized_number"
   test "$("$jq_bin" -er '.hash|ascii_downcase' "$barrier_anchor_before")" = "$barrier_finalized_hash"
   barrier_code=$(rpc code "$expected" --block "$barrier_finalized_number" --rpc-url "$endpoint")
@@ -1036,7 +1186,7 @@ for source_index in "${!rpc_urls[@]}"; do
   fi
   barrier_anchor_after="$temporary/barrier-anchor-after-$source_index.json"
   rpc block "$barrier_finalized_number" --json --rpc-url "$endpoint" > "$barrier_anchor_after"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$barrier_anchor_after"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$barrier_anchor_after"
   test "$("$jq_bin" -er '.number' "$barrier_anchor_after")" = "$barrier_finalized_number"
   test "$("$jq_bin" -er '.hash|ascii_downcase' "$barrier_anchor_after")" = "$barrier_finalized_hash"
   assert_cmp_unchanged; "$cmp_bin" -s "$barrier_anchor_before" "$barrier_anchor_after"
@@ -1055,12 +1205,12 @@ for source_index in "${!rpc_urls[@]}"; do
   endpoint=${rpc_urls[$source_index]}
   barrier_finalized_recheck="$temporary/barrier-finalized-recheck-$source_index.json"
   rpc block finalized --json --rpc-url "$endpoint" > "$barrier_finalized_recheck"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$barrier_finalized_recheck"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$barrier_finalized_recheck"
   test "$("$jq_bin" -er '.number' "$barrier_finalized_recheck")" = "$final_barrier_number"
   test "$("$jq_bin" -er '.hash|ascii_downcase' "$barrier_finalized_recheck")" = "$final_barrier_hash"
   barrier_anchor_recheck="$temporary/barrier-anchor-recheck-$source_index.json"
   rpc block "$final_barrier_number" --json --rpc-url "$endpoint" > "$barrier_anchor_recheck"
-  "$node_bin" scripts/check-private-strict-json-file.mjs "$barrier_anchor_recheck"
+  run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$barrier_anchor_recheck"
   test "$("$jq_bin" -er '.number' "$barrier_anchor_recheck")" = "$final_barrier_number"
   test "$("$jq_bin" -er '.hash|ascii_downcase' "$barrier_anchor_recheck")" = "$final_barrier_hash"
   assert_cmp_unchanged; "$cmp_bin" -s "$temporary/barrier-anchor-after-$source_index.json" "$barrier_anchor_recheck"
@@ -1092,8 +1242,10 @@ evidence_draft="$temporary/deployment-evidence.json"
     receiptBlockNumber:$block,receiptBlockHash:$blockHash,
     finalizedBlockNumber:$finalizedBlock,finalizedBlockHash:$finalizedHash}' > "$evidence_draft"
 chmod 0600 "$evidence_draft"
-"$node_bin" scripts/check-private-strict-json-file.mjs "$evidence_draft"
+run_node_empty_authority strict-json scripts/check-private-strict-json-file.mjs "$evidence_draft"
 "$node_bin" scripts/check-deployment-evidence.mjs "$evidence_draft"
+"$node_bin" scripts/check-deployment-stage-link.mjs "$validation_snapshot" "$receipt_1" \
+  "$evidence_draft" "$anchor_snapshot"
 if [[ ! -e $evidence_file ]]; then
   persist_new "$evidence_draft" "$evidence_file"
 else
@@ -1112,6 +1264,8 @@ snapshot "$receipt_file" "$temporary/deployment-receipt.installed-final.json"
 assert_cmp_unchanged; "$cmp_bin" -s "$receipt_1" "$temporary/deployment-receipt.installed-final.json"
 snapshot "$evidence_file" "$temporary/deployment-evidence.installed-final.json"
 assert_cmp_unchanged; "$cmp_bin" -s "$evidence_draft" "$temporary/deployment-evidence.installed-final.json"
+assert_evidence_parent
 assert_rpc_proxy_alive
+deployment_broadcast_state=clean
 printf 'Deployment %s finalizado em %s fontes: %s\n' \
   "$index" "${#rpc_urls[@]}" "$transaction_hash"

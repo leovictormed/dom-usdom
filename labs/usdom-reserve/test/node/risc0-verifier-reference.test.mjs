@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
 import {
   PINNED_RISC0_MAINNET_V3,
   validateRiscZeroMainnetReference,
@@ -11,6 +13,12 @@ test('reviewed RISC Zero mainnet reference pins the direct immutable verifier',(
   assert.equal(result.verifier_contract_kind,'direct-immutable-verifier');
   assert.notEqual(result.verifier_address,result.router_address);
   assert.notEqual(result.verifier_address,result.emergency_stop_wrapper_address);
+});
+
+test('mainnet verifier reference hash-binds the trusted-setup authority',async()=>{
+  const bytes=await readFile(new URL('../../config/risc0-trusted-setup-authority-v1.json',import.meta.url));
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),
+    PINNED_RISC0_MAINNET_V3.trusted_setup_authority_sha256);
 });
 
 test('RISC Zero mainnet reference rejects every changed, missing or extra field',()=>{

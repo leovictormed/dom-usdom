@@ -12,7 +12,7 @@ import {
   toUtf8Bytes,
 } from 'ethers';
 import {BoundedMainnetPreflightProvider} from './mainnet-preflight-rpc.mjs';
-import {SAFE_CONTROL_SPECS} from './safe-control-deployment.mjs';
+import {SAFE_CONTROL_SPECS,SAFE_MAINNET_IDENTITY} from './safe-control-deployment.mjs';
 import {
   _safeControlObservationInternals,
   collectRecoverableSafeControlSnapshot,
@@ -26,7 +26,7 @@ export const SAFE_RECOVERY_TRANSACTION_PACKAGE_SCHEMA='usdom-safe-recovery-trans
 const ZERO_ADDRESS='0x0000000000000000000000000000000000000000';
 const SENTINEL='0x0000000000000000000000000000000000000001';
 const HASH=/^0x[0-9a-f]{64}$/;
-const SIGNATURE=/^0x[0-9a-fA-F]{130}$/;
+const SIGNATURE=/^0x[0-9a-f]{130}$/;
 const DOMAIN_TYPEHASH='0x47e79534a245952e8b16893a336b85a3d9ea9fa8c573f3d803afb92a79469218';
 const SAFE_TX_TYPEHASH='0xbb8310d486368db6bd6f849402fdd73ad53d316b5a4b2644ad6efe0f941286d8';
 const coder=AbiCoder.defaultAbiCoder();
@@ -39,6 +39,16 @@ const {canonicalJson,documentHash}=_safeControlObservationInternals;
 
 function fail(message) { throw new Error(message); }
 function sameAddress(left,right) { return getAddress(left)===getAddress(right); }
+function isReservedSafeOwner(value) {
+  // Ethereum mainnet currently reserves 0x01..0x11 for precompiles. They have
+  // empty code but cannot produce an ECDSA owner signature.
+  return BigInt(getAddress(value))<=0x11n;
+}
+function isPinnedSafeContract(value) {
+  const address=getAddress(value);
+  return ['factory','singleton','fallbackHandler']
+    .some(field=>address===getAddress(SAFE_MAINNET_IDENTITY[field]));
+}
 function exactKeys(value,keys,label) {
   if(!value||typeof value!=='object'||Array.isArray(value)
       || canonicalJson(Object.keys(value).sort())!==canonicalJson([...keys].sort())) {
@@ -48,12 +58,15 @@ function exactKeys(value,keys,label) {
 function normalizedTransitions(packageDocument,value) {
   exactKeys(value,SAFE_CONTROL_SPECS.map(({role})=>role),'recovery transitionsByRole');
   const allCurrent=Object.values(packageDocument.ownersByRole).flat().map(getAddress);
+  const controlSafes=packageDocument.controls.map(control=>getAddress(control.safe));
   const replacements=[]; const result={};
   for(const {role} of SAFE_CONTROL_SPECS) {
     exactKeys(value[role],['lostOwner','replacementOwner'],`${role} recovery transition`);
     const lost=getAddress(value[role].lostOwner),replacement=getAddress(value[role].replacementOwner);
     const owners=packageDocument.ownersByRole[role].map(getAddress);
-    if(!owners.includes(lost)||allCurrent.includes(replacement)||lost===replacement) {
+    if(!owners.includes(lost)||allCurrent.includes(replacement)||controlSafes.includes(replacement)
+        ||lost===replacement
+        ||isReservedSafeOwner(replacement)||isPinnedSafeContract(replacement)) {
       fail(`${role} recovery lost/replacement owner policy is invalid`);
     }
     replacements.push(replacement); result[role]={lostOwner:lost,replacementOwner:replacement};
@@ -196,7 +209,8 @@ export function validateRecoverableSafeRecoveryPlan(plan) {
       || !HASH.test(plan.packageHash)||!HASH.test(plan.baselineSnapshotHash)
       || !HASH.test(plan.planningSnapshotHash)||!HASH.test(plan.finalizedBlockHash)
       || !HASH.test(plan.planHash)
-      || !/^(0|[1-9][0-9]*)$/.test(plan.finalizedBlockNumber)) {
+      || !/^(0|[1-9][0-9]{0,19})$/.test(plan.finalizedBlockNumber)
+      || BigInt(plan.finalizedBlockNumber)>=(1n<<64n)) {
     fail('Safe recovery plan identity is invalid');
   }
   const unsigned={...plan}; delete unsigned.planHash;
@@ -218,6 +232,7 @@ export function validateRecoverableSafeRecoveryPlan(plan) {
         || !sameAddress(role.safe,role.safeTransaction.to)
         || !sameAddress(role.oldOwner,plan.transitionsByRole[role.role]?.lostOwner)
         || !sameAddress(role.newOwner,plan.transitionsByRole[role.role]?.replacementOwner)
+        || isReservedSafeOwner(role.newOwner)||isPinnedSafeContract(role.newOwner)
         || !sameAddress(swap.prevOwner,role.previousOwner)
         || !sameAddress(swap.oldOwner,role.oldOwner)||!sameAddress(swap.newOwner,role.newOwner)
         || role.safeTransaction.value!=='0'||role.safeTransaction.operation!=='0'
@@ -245,10 +260,10 @@ export function validateRecoverableSafeRecoveryPlan(plan) {
   if(new Set(plan.roles.map(role=>getAddress(role.safe))).size!==plan.roles.length) {
     fail('Safe recovery role addresses must be distinct');
   }
-  if(new Set(plannedOwners).size!==plannedOwners.length
-      ||new Set(plannedReplacements).size!==plannedReplacements.length
-      ||plannedReplacements.some(owner=>plannedOwners.includes(owner))) {
-    fail('Safe recovery owners must remain globally separated by role');
+  const plannedSafes=plan.roles.map(role=>getAddress(role.safe));
+  if(new Set(plannedReplacements).size!==plannedReplacements.length
+      ||plannedReplacements.some(owner=>plannedOwners.includes(owner)||plannedSafes.includes(owner))) {
+    fail('Safe recovery replacement owners must remain distinct from owners, roles and each other');
   }
   return plan;
 }
@@ -272,6 +287,9 @@ export function assembleRecoverableSafeRecoveryTransactions({plan,signatures}={}
         fail(`${role.role} signature must be a direct EIP-712 hardware signature`);
       }
       const parsed=Signature.from(entry.signature);
+      if(parsed.serialized!==entry.signature) {
+        fail(`${role.role} signature encoding is noncanonical`);
+      }
       const recovered=getAddress(recoverAddress(role.safeTxHash,parsed));
       if(!sameAddress(recovered,entry.signer)) fail(`${role.role} signature signer mismatch`);
       return {signer:recovered,signature:parsed.serialized};

@@ -1,0 +1,29 @@
+ETAPA 1298 — LIMITES PARA AQUISIÇÃO DO NONCE-BASE
+Data: 2026-10-26
+
+Problema
+
+Quando ainda não existe validação persistida, cada executor consulta o nonce
+pendente nos dois RPCs para fixar a sequência assinável. Essas quatro leituras,
+duas por executor, não tinham limite externo.
+
+Correção
+
+As consultas agora executam sob
+`timeout --foreground --signal=TERM --kill-after=5s 120s`. O nonce-base somente
+é atribuído depois que ambas terminam e produzem o mesmo valor. Timeout, falha
+ou divergência interrompe o fluxo antes de construir ou assinar a sequência.
+
+A retomada por nonce já persistido continua independente dessas consultas. A
+regressão distingue e exige duas aquisições iniciais limitadas, além das quatro
+leituras decisórias limitadas da retomada em cada executor.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 11/11 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 69/69 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

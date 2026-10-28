@@ -17,7 +17,7 @@ const statementBytes=551;
 const statementMagic=Buffer.from('UDCPST06','ascii');
 const groth16VerifierParameters=
   '73c457ba541936f0d907daf0c7253a39a9c5c427c225ba7709e44702d3c6eedc';
-const outerImageId='e59d68487386939b2ac379f04528acb6b3138697e17adfda3ad23ebe195af3df';
+const outerImageId='311d58dadcb97cac783e3ec0efe3c4570f42b944cbda1e48aeb56b055682257b';
 const proofIndexFields=Object.freeze([
   'schema','outer_receipt_index_path','outer_receipt_index_sha256','outer_image_id',
   'statement_hash','journal_digest','risc0_zkvm_version','receipt_kind',

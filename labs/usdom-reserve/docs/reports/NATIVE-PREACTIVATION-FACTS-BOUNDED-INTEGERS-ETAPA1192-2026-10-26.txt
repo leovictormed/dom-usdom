@@ -1,0 +1,14 @@
+Stage 1192 — native preactivation facts bounded integer parsing
+Date: 2026-10-26
+
+The assembler that combines authenticated DOM anchor output with ratified
+Ethereum policy still converted arbitrary-length decimal fields before applying
+their ABI width. It now enforces lexical ceilings for uint8, uint32, uint64,
+uint128 and uint256 before BigInt and retains exact numeric bounds.
+
+Adversarial tests reject 100,000-digit total-difficulty/challenge fields and
+exact 2^256 before conversion. The complete focused suite passes 4/4 with
+pinned Node 24.19.0; targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

@@ -1,0 +1,25 @@
+Etapa 1433 — fronteira do hasher no packager finalized-burn EVM
+
+Problema
+
+A criação, extensão opcional e verificação do catálogo crítico ainda chamavam
+`sha256sum` pelo PATH e sem deadline. Isso deixava uma janela de substituição da
+ferramenta e permitia que um hasher travado impedisse o cleanup.
+
+Correção
+
+O packager agora inclui sha256sum no inventário de ferramentas pinadas. As três
+operações usam exclusivamente `sha256sum_bin` por meio do timeout pinado, com TERM
+em 120 segundos e KILL após cinco. Hasher e timeout são reatestados antes da
+criação e da verificação; o hasher é reatestado novamente antes do launch da
+prova. O catálogo e os limites de tamanho existentes permanecem inalterados.
+
+Validação
+
+- Sintaxe shell: aprovada.
+- Boundary estrutural dos packagers EVM: 1/1 aprovado.
+- Foco operator-runbook finalized-burn EVM: 2/2 aprovado.
+- Inventário de publicação: 1/1 aprovado.
+- Nenhuma prova foi iniciada.
+
+Nenhuma rede, Ledger, assinatura, deploy, fundos, commit ou push foi executado.

@@ -26,6 +26,12 @@ import {requireRisc0RecursionArtifact} from '../sdk/risc0-recursion-artifact.mjs
 import {readDirectFile} from '../sdk/direct-project-file.mjs';
 import {writePrivateFileDurable,writePrivateJsonDurable} from '../sdk/durable-private-file.mjs';
 import {FINALIZED_BURN_EVM_SEAL_BYTES} from '../sdk/finalized-burn-submission.mjs';
+import {buildFinalizedBurnCapacityArtifactManifest} from '../sdk/finalized-burn-capacity-artifact-manifest.mjs';
+import {assertExecutableUnchanged,snapshotExecutablePath} from '../sdk/stable-executable.mjs';
+
+const CARGO='/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo';
+const ANVIL='/home/leonardov/.foundry/bin/anvil';
+const TIME='/usr/bin/time';
 
 process.umask(0o077);
 
@@ -116,16 +122,25 @@ async function latestSuccessfulProofRun() {
   return selectFinalizedBurnProofRun();
 }
 
-async function runCommand(command,args,{cwd,env=null,log}) {
+async function runCommand(command,args,{cwd,env=null,log,timeout=12*60*60*1000}) {
+  const executable=await snapshotExecutablePath(command);
   const output=await open(log,'w',0o600);
+  let child,timer;
   try {
-    const child=spawn(command,args,{cwd,env:env??process.env,stdio:['ignore',output.fd,output.fd]});
+    child=spawn(executable.path,args,{cwd,env:env??process.env,detached:true,
+      stdio:['ignore',output.fd,output.fd]});
+    timer=setTimeout(()=>{ try { process.kill(-child.pid,'SIGKILL'); } catch {} },timeout);
     const result=await new Promise((resolve,reject)=>{
       child.once('error',reject);
       child.once('close',(code,signal)=>resolve({code,signal}));
     });
     if(result.code!==0) fail(`${path.basename(command)} failed (${result.signal??result.code}); see ${log}`);
-  } finally { await output.close(); }
+  } finally {
+    clearTimeout(timer);
+    if(child?.exitCode===null) { try { process.kill(-child.pid,'SIGKILL'); } catch {} }
+    await output.close();
+    await assertExecutableUnchanged(executable);
+  }
 }
 
 function sanitizedProverEnvironment(extra={}) {
@@ -214,20 +229,22 @@ async function waitForAnvil(provider,child) {
 
 async function terminate(child) {
   if(child.exitCode!==null) return;
-  child.kill('SIGTERM');
+  try { process.kill(-child.pid,'SIGTERM'); } catch {}
   await Promise.race([
     new Promise(resolve=>child.once('close',resolve)),
     new Promise(resolve=>setTimeout(resolve,5000)),
   ]);
-  if(child.exitCode===null) child.kill('SIGKILL');
+  if(child.exitCode===null) { try { process.kill(-child.pid,'SIGKILL'); } catch {} }
 }
 
 async function verifyOnIsolatedEvm({observation,seal,runRoot,adapterArtifact}) {
   const port=await freePort();
   const anvilLog=await open(path.join(runRoot,'anvil.log'),'w',0o600);
-  const child=spawn(process.env.USDOM_ANVIL??'anvil',[
+  if(Object.hasOwn(process.env,'USDOM_ANVIL')) fail('USDOM_ANVIL override is forbidden');
+  const anvil=await snapshotExecutablePath(ANVIL);
+  const child=spawn(anvil.path,[
     '--host','127.0.0.1','--port',String(port),'--chain-id','1','--silent',
-  ],{stdio:['ignore',anvilLog.fd,anvilLog.fd]});
+  ],{detached:true,stdio:['ignore',anvilLog.fd,anvilLog.fd]});
   const provider=new JsonRpcProvider(`http://127.0.0.1:${port}`,1,{
     staticNetwork:true,cacheTimeout:-1,
   });
@@ -276,6 +293,7 @@ async function verifyOnIsolatedEvm({observation,seal,runRoot,adapterArtifact}) {
     provider.destroy();
     await terminate(child);
     await anvilLog.close();
+    await assertExecutableUnchanged(anvil);
   }
 }
 
@@ -357,7 +375,7 @@ function exact(value,keys,label) {
   }
 }
 
-async function proofArtifacts(tempLab) {
+export async function proofArtifacts(tempLab) {
   const receiptDirectory=path.join(tempLab,'evidence/finalized-burn-receipt');
   const proofDirectory=path.join(tempLab,'evidence/finalized-burn-evm-proof');
   const receiptPath=path.join(receiptDirectory,'finalized-burn-receipt.bin');
@@ -450,8 +468,16 @@ async function main() {
     const existingBytes=await directFile(existingReportPath,{maximum:1024*1024,privateMode:true});
     const existing=parseStrictJson(existingBytes.toString('utf8'),{label:'existing capacity report'});
     validateFinalizedBurnCapacityReport(existing,{riscZeroReference:PINNED_RISC0_MAINNET_V3});
+    const reportSha256=rawSha(existingBytes);
+    // A crash may occur after the immutable report is installed but before its
+    // completion marker. Reconcile that marker from the revalidated report;
+    // never announce an existing run as succeeded while status is stale.
+    await atomicJson(path.join(runRoot,'run-status.json'),{
+      schema:'usdom-finalized-burn-capacity-run-v1',status:'succeeded',runId:source.runId,
+      reportSha256,recordedAt:new Date().toISOString(),
+    });
     console.log(JSON.stringify({ok:true,status:'already-succeeded',runId:source.runId,
-      reportPath:existingReportPath,reportSha256:rawSha(existingBytes)},null,2));
+      reportPath:existingReportPath,reportSha256},null,2));
     return;
   } catch(error) {
     if(error?.code!=='ENOENT' && !String(error?.message??error).includes('unsafe capacity file')) throw error;
@@ -487,7 +513,7 @@ async function main() {
     environment:sanitizedProverEnvironment(),
   });
   const proverEnvironment=recursionArtifact.environment;
-  await runCommand('cargo',[
+  await runCommand(CARGO,[
     'test','--quiet','--release','--locked','-p','dom-usdom-finalized-burn-program',
     '--test','raw_checkpoint_positive','raw_ethereum_checkpoint_executes_udfinl04_end_to_end',
     '--','--exact',
@@ -499,7 +525,7 @@ async function main() {
       || rawSha(sourceBytes)!==FINALIZED_BURN_CAPACITY_INPUT_SHA256) {
     fail('regenerated capacity input differs from the frozen vector');
   }
-  await runCommand('cargo',[
+  await runCommand(CARGO,[
     'run','--quiet','--release','--locked','--manifest-path',path.join(repositoryRoot,'Cargo.toml'),
     '-p','dom-usdom-finalized-burn-proof-host','--bin','dom-usdom-plan-finalized-burn-proof',
   ],{cwd:tempLab,env:proverEnvironment,log:path.join(runRoot,'planner.log')});
@@ -512,8 +538,8 @@ async function main() {
     await writePrivateFileDurable(destination,bytes,{maximum:record.maximum});
   }
   await requireLocalCompressionCapacity();
-  await runCommand('/usr/bin/time',[
-    '-v','-o',path.join(runRoot,'packager-time.log'),'cargo','run','--quiet','--release','--locked',
+  await runCommand(TIME,[
+    '-v','-o',path.join(runRoot,'packager-time.log'),CARGO,'run','--quiet','--release','--locked',
     '--manifest-path',path.join(repositoryRoot,'Cargo.toml'),'-p',
     'dom-usdom-finalized-burn-proof-host','--features','prove','--bin',
     'dom-usdom-package-finalized-burn-evm-proof',
@@ -530,8 +556,11 @@ async function main() {
   const startedAt=BigInt(Math.floor(Date.parse(source.status.startedAt)/1000));
   if(startedAt<=0n) fail('source proof start time is invalid');
   const completedAt=BigInt(Math.floor(Date.now()/1000));
+  const artifactManifest=await buildFinalizedBurnCapacityArtifactManifest(runRoot,source.runId);
+  await atomicJson(path.join(runRoot,'artifact-manifest.json'),artifactManifest.manifest);
   const report={
     schema:FINALIZED_BURN_CAPACITY_REPORT_SCHEMA,runId:source.runId,
+    artifactManifestPath:'artifact-manifest.json',artifactManifestSha256:rawSha(artifactManifest.bytes),
     startedAt:startedAt.toString(),completedAt:completedAt.toString(),
     provingWallMilliseconds:metrics.provingWallMilliseconds,peakResidentKiB:metrics.peakResidentKiB,
     rayonWorkers:source.status.rayonWorkers,segmentLimitPo2:18,prover:'local',devMode:false,

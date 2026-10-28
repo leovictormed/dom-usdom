@@ -1,0 +1,78 @@
+ETAPA 1214 — checkpoint deployment-chain binding audit
+Date: 2026-10-26
+
+Scope
+-----
+
+Independent adversarial review of the production Solidity checkpoint registry
+and its tests, focused on a remaining identity or funds-safety risk relevant to
+an Ethereum mainnet deployment. No network, signing, deployment, funds, commit,
+push, Rust edit or long proof was performed.
+
+Finding
+-------
+
+The registry configuration and immutable RISC Zero verifier were bound to the
+Ethereum chain ID observed at deployment, but `checkpointStatementHash()` used
+the current `block.chainid` on every call. If the chain ID changed after a
+candidate was accepted, the public hash function stopped reproducing that
+candidate's authenticated statement even though `finalizeCheckpoint()` still
+correctly allowed the already-proved candidate to finalize. A new submission
+was eventually rejected by the verifier adapter, but only indirectly and after
+the registry had derived an identity from a different chain domain.
+
+This did not permit an unproved checkpoint under the current adapter. It was a
+real forensic and cross-domain consistency defect: an accepted statement's
+identity was mutable, monitoring could no longer recompute it, and admission
+relied on a downstream adapter check rather than the registry's own immutable
+domain.
+
+Correction
+----------
+
+`DOMCheckpointRegistry` now stores public immutable `deploymentChainId`.
+Checkpoint statements always encode that deployment identity. New candidate
+admission fails immediately with `ChainChanged` when the current chain differs.
+Finalization of a candidate proved before the drift remains available: a chain
+ID change cannot retroactively erase an authenticated consensus transition.
+Emergency halt and already-recorded checkpoint state are unchanged.
+
+Regression
+----------
+
+`testChainIdDriftPreservesStatementAndProvedCandidateButBlocksNewAdmission`
+proves all three required properties:
+
+1. the exact statement hash remains stable after a chain-ID drift;
+2. a higher-work replacement cannot be newly admitted and fails with
+   `ChainChanged`; and
+3. the candidate authenticated before the drift remains finalizable after its
+   challenge window.
+
+The existing replay test continues to prove separation across registry address,
+bridge domain and activation commitment. Canonical hash construction tests now
+use the deployment chain identity explicitly.
+
+Evidence
+--------
+
+- Focused registry regression: 3/3 passed.
+- Complete Foundry suite: 202/202 passed in 14 suites, 0 failed, 0 skipped.
+- Registry invariant campaign: 256 runs, 16,384 calls, 0 reverts; all three
+  invariants passed.
+- Proof-reserve and reserve invariant campaigns: each 256 runs and 16,384
+  calls, 0 reverts.
+- `forge build --sizes`: `DOMCheckpointRegistry` runtime 10,573 bytes,
+  EIP-170 margin 14,003 bytes; initcode 15,121 bytes, margin 34,031 bytes.
+- `USDOMProofReserve` remains 20,903 runtime bytes, EIP-170 margin 3,673 bytes;
+  this stage did not alter it.
+- Targeted `forge fmt` and `git diff --check` passed.
+
+Release impact
+--------------
+
+The Registry runtime/ABI and therefore its release artifact hashes changed.
+Release inventories and independently built production constants must be
+rematerialized only after the shared source tree is stable. This local audit is
+not a deployment authorization and does not claim that remaining operational or
+proof-evidence gates are complete.

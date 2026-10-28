@@ -1,0 +1,38 @@
+ETAPA 1237 — HANDSHAKE LIMITADO DE READINESS RPC NA RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema
+
+O executor de recuperação Safe lia o manifesto de readiness do proxy RPC por process
+substitution e revalidava-o diretamente com Node. Esses caminhos não tinham prazo ou
+limites de canais. As revalidações posteriores autenticavam o hash do manifesto, mas
+descartavam a saída e não comparavam integralmente a lista observada de endpoints com
+aquela fixada no início da cerimônia.
+
+Correção
+
+Foi criada `check_rpc_proxy_ready`, que:
+
+- reatesta Node e timeout antes da verificação;
+- aplica 30 segundos em foreground, TERM e KILL após cinco segundos;
+- captura stdout e stderr separadamente em arquivos privados;
+- limita cada canal a 64 KiB, com UTF-8 fatal;
+- exige sucesso, stdout não vazio e stderr vazio.
+
+A observação inicial agora é materializada em arquivo privado antes de `mapfile`. Toda
+chamada posterior de `assert_rpc_proxy_alive` materializa uma nova observação,
+autentica o hash esperado e exige igualdade byte a byte com a observação inicial por
+`cmp` pinado e reatestado. Assim, PID vivo ou hash isolado não bastam para alterar a
+autoridade de endpoints durante a cerimônia.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais, incluindo inventário de processos: 9/9 aprovados;
+- focais mais `operator-runbook`: 93/93 aprovados;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, assinatura, transmissão, implantação, fundo, Rust, Solidity,
+Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

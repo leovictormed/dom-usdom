@@ -1,0 +1,31 @@
+SAFE DEPLOYMENT PRIVATE-FILE TOOL AUTHORITY — STAGE 1190
+Date: 2026-10-26
+
+Finding
+=======
+
+Safe deployment used PATH-resolved `mktemp` to create its private tmpfs root
+and PATH-resolved `chmod` for sensitive snapshots and signed evidence. Because
+the fixed PATH contains a user-owned toolchain directory before system paths,
+late executable insertion could redirect file creation, weaken permissions or
+execute unattested code inside the ceremony.
+
+Correction
+==========
+
+Both tools now enter the same startup pin as Node, Cast and the other ceremony
+runtimes, including executable identity, parent-directory identity and SHA-256.
+The tmpfs directory is created only through the reattesting mktemp wrapper and
+every permission transition uses the reattesting chmod wrapper. No runtime
+private-file call resolves either tool by name.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/receipt/process tests: 7/7 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

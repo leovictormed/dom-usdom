@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
+const gen=readFileSync(new URL('../../scripts/generate-closed-mainnet-phase-command.sh',import.meta.url),'utf8');
+test('generated recovery uses only roster v3 producer and executor',()=>{assert.match(gen,/prepare-safe-recovery-roster-v3-step\.sh/);assert.match(gen,/execute-safe-recovery-roster-v3-step\.sh/);assert.doesNotMatch(gen,/safe-recovery-(?:transitions|plan|replacement-proofs|transactions)-v2|execute:recoverable-safe-recovery/);});
+test('generated commands contain no operator placeholders or obsolete hardware transaction signer',()=>{assert.doesNotMatch(gen,/YOUR_|CHANGE_ME|PLACEHOLDER|REPLACE_ME|\bTODO\b|\bTBD\b|--ledger|wallet address|wallet sign|prepare-ledger|assemble-ledger/iu);});
+test('audit names the two remaining obsolete raw transaction paths',()=>{const d=readFileSync(new URL('../../docs/FIRST-CLOSED-MAINNET-STATIC-AUDIT-ETAPA2342.md',import.meta.url),'utf8');assert.match(d,/execute-closed-mainnet-deposit\.sh:498-503/);assert.match(d,/execute-closed-mainnet-redemption\.sh:428-443/);assert.match(d,/status 78 tem signer/);});

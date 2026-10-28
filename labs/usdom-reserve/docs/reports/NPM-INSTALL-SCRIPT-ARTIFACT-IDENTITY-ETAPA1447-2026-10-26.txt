@@ -1,0 +1,19 @@
+Etapa 1447 — identidade exata de artefatos npm com install script
+Data: 2026-10-26
+
+Problema
+
+A allowlist de pacotes npm capazes de executar install scripts vinculava somente o caminho node_modules. Uma alteração do lock podia substituir versão e integrity do pacote no mesmo caminho, mantendo hasInstallScript=true, e ainda satisfazer a política.
+
+Correção
+
+- Cada entrada autorizada agora fixa conjuntamente caminho, versão exata e digest integrity completo.
+- O inventário observado coleta essa identidade somente após validar tipos, URL do registry, vínculo nome/versão do tarball e formato criptográfico do integrity.
+- Ausência, entrada adicional, mudança de caminho, versão ou digest falha fechada.
+- O projeto reserve mantém inventário vazio, preservando a proibição total de install scripts em sua árvore npm.
+
+O self-test aceita somente a identidade revisada e rejeita separadamente troca de versão, troca do digest e mudança do caminho executável.
+
+Validação: py_compile e self-test adversarial aprovados; política viva aprovada para 36 Cargo locks/15.017 entradas, 234 manifests e quatro npm locks/241 entradas; suíte Node focal 4/4.
+
+Nenhum inventário global foi rematerializado. Não houve rede, build pesado, assinatura, deploy, fundos, commit ou push.

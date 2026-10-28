@@ -2,14 +2,15 @@ import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {id,keccak256} from 'ethers';
+import {parseStrictJson} from './strict-json.mjs';
 
 const expected={
-  runtimeKeccak:'0xf6b3cdd39c88e23928767433fe5a54faabdf1304790fb42a1a7a241cf278342b',
-  creationKeccak:'0xb95c306e4596df0fd390f533d81fc0445453bf01d37a27ed2341bb5319c36340',
-  functionSha256:'d82c9dc40bb1f785a9cce1d80c2bae54405715b903f0a52a34e450824d413835',
-  eventSha256:'1d203fb79f594e3e32091b0b2f36f3f29493eef9752966c10833e6cf9a271f5c',
-  errorSha256:'d631218458e5e9db76db2d683ddcf13978e104ff543f5eb9a24640fb1736551e',
-  methodsSha256:'f52b7439508317453000d674bf8348003307873f81b90e895b14f045cdde5395',
+  runtimeKeccak:'0xe56a8bc29f0771c0e823d019a03b9b70bed1c02e490858e442349bc569a31e5a',
+  creationKeccak:'0xe1d7a96836967634facb3577577a5fee52545d6259c67d88fb7dc956b916be00',
+  functionSha256:'8680f0ca350842ec5f38e8fff4890341c8871d9c2df18e2c9a793d8407a175fc',
+  eventSha256:'4e0315a67bba8b9c6aae30fb51e1d2eb39055acc3ca5cb322d59870c68edfaf0',
+  errorSha256:'0fb57b1c51d526f480e6287a422bcb2e0225fce419e5faba66fca1952ea7e22c',
+  methodsSha256:'d97b96fc590357a8bbbec23876e737cc1f5120e755c8964c50f76b370fceae77',
 };
 
 function fail(message) { throw new Error(message); }
@@ -50,7 +51,8 @@ export function auditReserveArtifact(artifact,{root,sourceContents}={}) {
       ||settings?.optimizer?.enabled!==true||settings.optimizer.runs!==1||settings?.viaIR!==true
       ||settings?.metadata?.bytecodeHash!=='none') fail('reserve toolchain metadata drifted');
   let raw;
-  try { raw=JSON.parse(artifact.rawMetadata); } catch { fail('reserve raw metadata is malformed'); }
+  try { raw=parseStrictJson(artifact.rawMetadata,{label:'reserve raw metadata',maxBytes:4*1024*1024,maxDepth:128}); }
+  catch { fail('reserve raw metadata is malformed'); }
   // Foundry's parsed metadata removes solc's empty remapping context prefix.
   // Normalize only that documented representation difference.
   if(Array.isArray(raw?.settings?.remappings)) {
@@ -92,7 +94,7 @@ export function auditReserveArtifact(artifact,{root,sourceContents}={}) {
       ||Object.keys(artifact.deployedBytecode?.linkReferences??{}).length) fail('linked library reference present');
   const runtime=bytecode(artifact.deployedBytecode?.object,'reserve runtime');
   const creation=bytecode(artifact.bytecode?.object,'reserve creation bytecode');
-  if(runtime.length!==20_100||creation.length!==26_146) fail('canonical reserve bytecode size drifted');
+  if(runtime.length!==20_339||creation.length!==26_553) fail('canonical reserve bytecode size drifted');
   const astIds=immutableIds(artifact.ast),references=artifact.deployedBytecode?.immutableReferences;
   if(!references||[...astIds].some(value=>!(value in references))
       ||Object.keys(references).some(value=>!astIds.has(value))) fail('immutable reference set is incomplete');

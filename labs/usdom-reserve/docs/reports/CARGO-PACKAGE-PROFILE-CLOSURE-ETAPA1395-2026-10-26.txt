@@ -1,0 +1,27 @@
+Stage 1395 — Cargo package and profile closure
+Date: 2026-10-26
+
+Finding
+A manifest could add package include/exclude filters that make published source differ from the
+audited tree, or add a profile/package/build override that weakens overflow, panic or codegen
+settings without changing dependency pins.
+
+Correction
+- Closed package include/exclude filters across all 234 manifests. The only reviewed filter is
+  the vendored Helios exclusion of benches; any new package filtering fails closed.
+- Closed which manifests may define Cargo profiles to the four existing reviewed authorities;
+  a new nested manifest profile cannot silently alter compilation.
+- Root workspace resolver must remain version 2, edition 2021 and minimum Rust 1.75.
+- Root release remains opt-level 3, fat LTO, one codegen unit, panic abort and overflow checks;
+  release-validation must inherit release with debug 1, and dev keeps overflow checks.
+- Root profile package/build-override tables are forbidden so individual crates or build scripts
+  cannot bypass those settings.
+- Added adversarial rejection for new include filters and profile authorities.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No repository hash was frozen. No network, signing, deployment, funds, commit or push occurred.

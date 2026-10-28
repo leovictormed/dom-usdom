@@ -27,5 +27,5 @@ test("parallel verification work is bounded and rejoined by canonical slot", () 
   assert.match(source, /if private_spends > 1/);
   assert.match(source, /private_spends > MAX_PRIVATE_SPENDS_PER_ENVELOPE/);
   assert.match(source, /\.collect::<Vec<_>>\(\)/);
-  assert.match(source, /private_results\[index\]\.take\(\)/);
+  assert.match(source, /private_results[\s\S]*\.get_mut\(index\)[\s\S]*\.and_then\(Option::take\)/);
 });

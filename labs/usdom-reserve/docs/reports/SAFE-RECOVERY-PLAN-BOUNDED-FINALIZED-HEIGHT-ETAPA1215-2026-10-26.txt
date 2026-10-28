@@ -1,0 +1,17 @@
+Stage 1215 — bounded Safe-recovery plan finalized height
+Date: 2026-10-26
+
+Change
+- Persisted Safe recovery plans now require finalizedBlockNumber to be a canonical uint64 decimal.
+- The lexical width is capped before BigInt and exact 2^64 is rejected before the plan can feed signature assembly, envelope creation or execution validation.
+
+Security result
+- An internally rehashed recovery plan cannot carry an arbitrary-size or out-of-domain finalized height into downstream control-plane ceremonies.
+- Regressions reject a 100,000-digit finalized height and exact 2^64 after recomputing the document hash.
+- Existing plan hash, owner separation, typed-data and transaction-package gates remain unchanged.
+
+Validation
+- Broad Safe observation/recovery selection: 17/17 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Rust, Solidity, Cargo, Forge, real network, signing, deployment, funds, commit or push ran.

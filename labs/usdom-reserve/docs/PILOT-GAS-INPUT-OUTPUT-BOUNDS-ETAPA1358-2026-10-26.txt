@@ -1,0 +1,31 @@
+ETAPA 1358 — LIMITES DAS ENTRADAS DE GÁS
+Data: 2026-10-26
+
+Problema
+
+Quatro estimativas de gás e oito leituras de saldo nativo já tinham deadline e
+validações financeiras posteriores, mas ainda capturavam stdout sem teto antes
+dessas validações.
+
+Correção
+
+As doze leituras agora têm limite de 80 bytes e passam pelo parser comum de
+inteiro RPC canônico antes de qualquer cálculo. Depois disso permanecem os tetos
+de gas limit, max fee, custo por transação, orçamento agregado, igualdade entre
+dois RPCs e suficiência integral de ETH para o pior caso assinado.
+
+Os deadlines TERM/KILL de 120 segundos e `set -euo pipefail` fazem falha,
+timeout, excesso, forma numérica inválida, divergência de estimativa ou saldo
+insuficiente abortarem antes de assinatura ou publicação.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores e financiamento: 17/17 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 4/4 estimativas e 8/8 saldos nativos possuem deadline,
+  cap e parser canônico.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

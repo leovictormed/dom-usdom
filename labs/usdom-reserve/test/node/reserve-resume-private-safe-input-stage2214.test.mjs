@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {chmodSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {spawnSync} from 'node:child_process';
+import test from 'node:test';
+import {Interface,keccak256} from 'ethers';
+const root=path.resolve(import.meta.dirname,'../..'),node=process.execPath;
+const helper=path.join(root,'scripts/prepare-reserve-resume-private-safe-input.mjs');
+const governance='0x'+'11'.repeat(20),reserve='0x'+'22'.repeat(20),calldata='0xabcdef12';
+test('private Safe helper preserves exact calldata in hash and eth_call',t=>{
+  const directory=mkdtempSync(path.join(tmpdir(),'usdom-resume-safe-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
+  const file=path.join(directory,'calldata');writeFileSync(file,`${calldata}\n`,{mode:0o600});
+  const hash=spawnSync(node,[helper,'hash',file],{encoding:'utf8',cwd:root});
+  assert.equal(hash.status,0,hash.stderr);assert.equal(hash.stdout.trim(),keccak256(calldata));
+  const call=spawnSync(node,[helper,'call',file,governance,reserve,'7'],{encoding:'utf8',cwd:root});
+  assert.equal(call.status,0,call.stderr);const [request,block]=JSON.parse(call.stdout);assert.equal(request.to,governance);assert.equal(block,'latest');
+  const iface=new Interface(['function getTransactionHash(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,uint256) view returns (bytes32)']);
+  const decoded=iface.decodeFunctionData('getTransactionHash',request.data);assert.equal(decoded[0],reserve);assert.equal(decoded[2],calldata);assert.equal(decoded[9],7n);
+  writeFileSync(file,'0xabc\n',{mode:0o600});assert.notEqual(spawnSync(node,[helper,'hash',file],{cwd:root}).status,0);
+  writeFileSync(file,`${calldata}\n`,{mode:0o600});chmodSync(file,0o644);assert.notEqual(spawnSync(node,[helper,'hash',file],{cwd:root}).status,0);
+});

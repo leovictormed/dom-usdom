@@ -1,0 +1,36 @@
+ETAPA 1392 — LEITURA LIMITADA DOS HASHES DE IMPLANTAÇÃO
+Data: 2026-10-26
+
+Problema
+
+O recheck de autoridades do depósito carregava dois arquivos de hash com
+`tr -d '\n'` direto em command substitution. A leitura não tinha deadline,
+teto de stdout, confinamento do pathname ou snapshot pré/pós-leitura. Um
+arquivo alterado ou excessivo podia alimentar uma autoridade incoerente ou
+consumir memória antes das validações seguintes.
+
+Correção
+
+O novo `read_deployment_hash` aceita somente os dois pathnames fechados de
+submission hash da implantação. Exige arquivo regular e não symlink, captura
+identidade/metadados por `stat_run`, executa `tr` com deadline foreground
+TERM/KILL de 120 segundos e sentinel de 67 bytes, e reafirma o mesmo snapshot
+depois da leitura. O valor aceito é exatamente `0x` seguido por 64 hexadecimais
+minúsculos.
+
+O inventário também confirmou ausência de comandos diretos `curl`, `cp`, `mv`,
+`openssl`, `chown`, `chmod`, `cat`, `sed`, `awk`, `readlink`, `date` e `sleep`
+nos dois executores. As ocorrências textuais de “install” são chamadas ao
+instalador privado Node já limitado, não ao utilitário externo `install`.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Regressões focais: 15/15 aprovadas.
+- Suíte operacional ampla closed-mainnet/pilot/preflight: 100/100 aprovada.
+- Inventário: duas leituras operacionais pelo helper e uma única chamada `tr`
+  local, dentro do boundary; nenhuma leitura direta anterior permanece.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

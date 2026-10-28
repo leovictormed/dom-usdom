@@ -16,6 +16,8 @@ test('canonical unsigned decimal retains uint256 precision and rejects coercion 
   for(const value of ['', '-1','+1','01','1.0','1e3',(MAX_UINT256+1n).toString(),1,null]) {
     assert.throws(()=>canonicalUnsignedDecimal(value));
   }
+  assert.throws(()=>canonicalEthereumQuantity(`0x${'f'.repeat(100000)}`));
+  assert.throws(()=>canonicalUnsignedDecimal('9'.repeat(100000)));
 });
 
 test('quantity CLI compares uint64 values with BigInt and fails closed',()=>{

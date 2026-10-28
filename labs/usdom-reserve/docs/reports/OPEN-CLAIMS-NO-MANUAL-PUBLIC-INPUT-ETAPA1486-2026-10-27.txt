@@ -1,0 +1,14 @@
+Etapa 1486 — nenhuma entrada pública manual nas fases
+
+- Todos os prompts das fases e dos entrypoints Shell diretamente invocados
+  foram classificados. Somente senha/segredo com entrada oculta e frases
+  explícitas AUTORIZO/ASSINO/CONFIRMO são aceitas.
+- Quatro pausas que pediam Enter para conectar hardware foram removidas do
+  gerador. Pausas equivalentes foram removidas dos assinadores/recovery; a
+  chamada ao hardware começa após uma instrução em stderr.
+- A coleta de depósito não pede mais um JSON. Ela enumera os operadores do
+  catálogo fixo e solicita separadamente, em prompts ocultos, apenas os dois
+  endpoints RPC secretos de cada operador; o JSON é montado por jq pinado em
+  memória e nunca é editado pelo operador.
+- O checker integrado à proveniência rejeita prompt público, prompt de
+  navegação e editor manual de config. Nenhuma fase operacional foi executada.

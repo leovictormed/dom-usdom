@@ -1,0 +1,26 @@
+Etapa 1427 — fechamento da origem de registries Cargo
+Data: 2026-10-26
+
+Problema
+
+O checker aceitava qualquer source de lock iniciado por registry+, desde que houvesse um checksum hexadecimal. Um lock alterado poderia, portanto, substituir crates.io por um registry não revisado e ainda satisfazer a política. De modo semelhante, um manifest podia selecionar registry = "..." sem ser rejeitado.
+
+Correção
+
+- Entradas registry+ de Cargo.lock agora devem usar exatamente registry+https://github.com/rust-lang/crates.io-index.
+- O checksum SHA-256 canônico continua obrigatório.
+- Seletores registry em dependências normais, de build, desenvolvimento ou target-specific são rejeitados.
+- A validação de source foi isolada para que os casos adversariais cubram diretamente registry alternativo e ausência de checksum.
+
+Validação
+
+- python3 -m py_compile ../../scripts/check-release-dependency-policy.py
+- python3 ../../scripts/check-release-dependency-policy.py --self-test
+- python3 ../../scripts/check-release-dependency-policy.py
+- node --test test/node/production-implementation-claims.test.mjs
+
+Resultados: self-test adversarial aprovado; política viva aprovada para 36 Cargo locks/15.017 entradas, 234 manifests e quatro npm locks/241 entradas; suíte Node focal 4/4.
+
+Limites
+
+Nenhum inventário global foi rematerializado. Nenhuma rede, build pesado, assinatura, deploy, fundo, commit ou push foi executado.

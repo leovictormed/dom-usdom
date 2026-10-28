@@ -121,7 +121,8 @@ async function ensureArtifactHierarchy() {
 
 async function copyPrivateTree(source,destination,state={files:0,bytes:0n}) {
   await requireDirectory(source); await ensurePrivateDirectory(destination);
-  const entries=(await readdir(source,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name));
+  const entries=(await readdir(source,{withFileTypes:true}))
+    .sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   for(const entry of entries) {
     if(entry.name==='' || entry.name==='.' || entry.name==='..' || entry.name.includes('\0')) {
       fail('noncanonical finalized-burn source filename');
@@ -456,7 +457,9 @@ async function main() {
 
   const collected=await collectFinalizedBurnArtifacts(workRoot,{
     reserveConfiguration:configured.reserveConfiguration,
+    releaseConfigBytes:configured.releaseBytes,
     verifierConfiguration:configured.verifier,
+    verifierConfigBytes:configured.verifierBytes,
     releaseConfigSha256:configured.releaseConfigSha256,
     verifierManifestSha256:configured.verifierManifestSha256,
   });

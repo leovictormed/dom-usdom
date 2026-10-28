@@ -88,9 +88,12 @@ try {
     throw new Error('wallet custody, recovery, identity and native runtime do not reconcile');
   }
   const result=validateNativeReleaseAttestationSigningRequest({request,bundle,
+    bundleBytes:snapshots[1],
     bundleSha256:sha(snapshots[1]),releaseConfig,releaseEvidence,
     privacyVerifierConfigHash:validation.privacy_verifier_config_hash,
-    nativeRuntimeManifestSha256:manifestDocument.sha256,walletPublicIdentitySha256:identitySha});
+    nativeRuntimeManifestSha256:manifestDocument.sha256,walletPublicIdentitySha256:identitySha,
+    walletCustodyEvidenceSha256:sha(walletBytes[1]),
+    walletRecoveryEvidenceSha256:sha(walletBytes[2])});
   const [manifestAfter,...walletAfter]=await Promise.all([
     readDirectProjectFile(root,manifestDocument.path,{minimum:manifestBytes.length,
       maximum:manifestBytes.length,exactMode:0o600,label:'native runtime manifest'}),

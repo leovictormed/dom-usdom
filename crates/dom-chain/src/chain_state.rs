@@ -2175,10 +2175,29 @@ impl ChainState {
                 crate::native_usdom_v4::native_usdom_v4_undo_key(*block_hash),
                 None,
             );
+            for update in
+                crate::native_usdom_v4::native_usdom_v4_disconnected_package_deletion_updates(
+                    &self.store,
+                    *block_hash,
+                )?
+            {
+                consensus_overlay.insert(update.key, update.value);
+            }
         }
-        if let Some(update) = crate::native_usdom_v4::native_usdom_v4_undo_retention_update(
+        let promoted_prune_hash = new_tip_header
+            .height
+            .0
+            .checked_sub(crate::reorg::MAX_REORG_DEPTH)
+            .and_then(|prune_height| {
+                connect_blocks
+                    .iter()
+                    .find(|(_, block)| block.header.height.0 == prune_height)
+                    .map(|(block_hash, _)| *block_hash)
+            });
+        if let Some(update) = native_usdom_v4_reorg_retention_update(
             &self.store,
             new_tip_header.height.0,
+            promoted_prune_hash,
         )? {
             consensus_overlay.insert(update.key, update.value);
         }
@@ -2414,6 +2433,7 @@ impl ChainState {
         branch_targets.insert(ancestor, (ancestor_height, branch_state.root()));
         let mut promoted_checkpoint = self.checkpoint_floor;
         let mut consensus_overlay: BTreeMap<Vec<u8>, Option<Vec<u8>>> = BTreeMap::new();
+        let mut disconnected_sidecars = Vec::with_capacity(disconnect_blocks.len());
         for (block_hash, _) in &disconnect_blocks {
             let package_bytes = crate::load_persisted_usdom_v4_package(
                 &self.store,
@@ -2427,6 +2447,25 @@ impl ChainState {
                 )
             })?;
             let package = crate::UsdomV4BlockPackage::from_bytes(&package_bytes)?;
+            let witnesses =
+                crate::load_persisted_usdom_v2_execution_witnesses(&self.store, *block_hash)?
+                    .ok_or_else(|| {
+                        DomError::Internal(
+                            "disconnected native USDOM V2 witnesses are missing during rollback"
+                                .into(),
+                        )
+                    })?;
+            let sidecar =
+                crate::UsdomV2BlockSidecar::new(package.proof_envelope().clone(), witnesses)?;
+            disconnected_sidecars.push((*block_hash.as_bytes(), sidecar.to_bytes()?));
+            for update in
+                crate::native_usdom_v4::native_usdom_v2_disconnected_replay_deletion_updates(
+                    &self.store,
+                    *block_hash,
+                )?
+            {
+                consensus_overlay.insert(update.key, update.value);
+            }
             for burn in package.proof_envelope().public_burn_records()? {
                 consensus_overlay.insert(
                     crate::native_usdom_v4::v2_burn_archive_delete_key(burn.burn_id),
@@ -2660,7 +2699,7 @@ impl ChainState {
                 &kernel_updates,
                 &consensus_updates,
                 dom_store::ReorgSidecarChanges {
-                    inserts: &[],
+                    inserts: &disconnected_sidecars,
                     deletes: &promoted_sidecar_deletes,
                 },
             )?;
@@ -4356,6 +4395,64 @@ impl ChainState {
             }
         }
         Ok(())
+    }
+}
+
+/// Select the V1 undo that falls out of the rolling window in the canonical
+/// view produced by a pending reorganization. The store's height index still
+/// names the old branch until the atomic reorg transaction commits, so a
+/// prune height present in the promoted blocks must use that promoted hash.
+#[cfg(feature = "native-usdom-v4-poc")]
+fn native_usdom_v4_reorg_retention_update(
+    store: &DomStore,
+    new_tip_height: u64,
+    promoted_prune_hash: Option<Hash256>,
+) -> Result<Option<dom_store::ConsensusStateUpdate>, DomError> {
+    if new_tip_height
+        .checked_sub(crate::reorg::MAX_REORG_DEPTH)
+        .is_none()
+    {
+        return Ok(None);
+    }
+    if let Some(block_hash) = promoted_prune_hash {
+        return Ok(Some(dom_store::ConsensusStateUpdate {
+            key: crate::native_usdom_v4::native_usdom_v4_undo_key(block_hash),
+            value: None,
+        }));
+    }
+    crate::native_usdom_v4::native_usdom_v4_undo_retention_update(store, new_tip_height)
+}
+
+#[cfg(all(test, feature = "native-usdom-v4-poc"))]
+mod native_usdom_reorg_retention_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn promoted_branch_hash_wins_over_stale_canonical_height_index() {
+        let directory = TempDir::new().unwrap();
+        let store = DomStore::open_with_map_size(directory.path(), 64 << 20).unwrap();
+        let promoted = Hash256::from_bytes([0xA5; 32]);
+        let stale_canonical = Hash256::from_bytes([0x5A; 32]);
+        let prune_height = 1;
+
+        let update = native_usdom_v4_reorg_retention_update(
+            &store,
+            crate::reorg::MAX_REORG_DEPTH + prune_height,
+            Some(promoted),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            update.key,
+            crate::native_usdom_v4::native_usdom_v4_undo_key(promoted)
+        );
+        assert_ne!(
+            update.key,
+            crate::native_usdom_v4::native_usdom_v4_undo_key(stale_canonical)
+        );
+        assert_eq!(update.value, None);
     }
 }
 

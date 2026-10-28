@@ -576,6 +576,11 @@ fn raw_ethereum_checkpoint_executes_udfinl04_end_to_end() {
         + burn_witness_bytes.len()
         + checkpoint_witness_len;
     assert_eq!(bytes.len(), expected_input_len);
+    assert_eq!(bytes.len(), 64_815);
+    assert_eq!(
+        hex::encode(Sha256::digest(&bytes)),
+        "6128efcc1a95b331728bf2571cbfe22508599e7e3af17d3d611226c81f704789"
+    );
     assert_eq!(&bytes[..8], b"UDFINL04");
     let schedule_start = fixed_prefix_bytes;
     let statement_start = schedule_start + schedule_bytes.len();

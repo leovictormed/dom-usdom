@@ -1,0 +1,41 @@
+USDOM mainnet readiness — Stage 1363
+Date: 2026-10-26
+
+Finding
+=======
+
+The Solidity publication checker had hardened artifact and metadata-source
+ingress, but its compilation policy and artifact-selection authorities remained
+ordinary pathname reads. In particular, mainnet release evidence used native
+JSON parsing, so repeated artifact keys were silently resolved by last-key wins.
+A policy file could also be substituted between pathname resolution and read.
+
+Correction
+==========
+
+Foundry configuration, all production contract sources, compiled-runtime
+policy, publication ignore rules and source-manifest policy now cross bounded
+descriptor snapshots. Every path component uses dir_fd plus O_NOFOLLOW and each
+file must be regular, single-link, owner-controlled, bounded, stable during the
+read and still reachable through the captured inode. Text decoding is strict
+UTF-8.
+
+Mainnet release evidence now uses that same capture, strict JSON with duplicate
+key rejection, a 4 MiB ceiling and an object-type requirement before canonical
+artifact selection is evaluated.
+
+Validation
+==========
+
+- Adversarial self-test rejects duplicate release-evidence artifact authority.
+- Hardlinked production inputs fail at the descriptor policy boundary.
+- Solidity publication self-test and live checker passed.
+- Critical inventory passed for 256 sources.
+- Publication and reserve-artifact Node regressions passed 6/6.
+- Python compilation and git diff --check passed.
+
+Scope
+=====
+
+No manifest or provenance hash was frozen or regenerated. No network,
+deployment, signing, funds, production fact, commit or push occurred.

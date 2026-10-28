@@ -1,0 +1,33 @@
+ETAPA 1371 — BOUNDARY TIPADO PARA CAST CALL BYTES32
+Data: 2026-10-26
+
+Problema
+
+Seis pontos de chamada RPC com retorno `bytes32` tinham deadline, mas
+capturavam stdout sem teto e deixavam a forma ser controlada apenas pelas
+comparações posteriores. Eles vinculam a configuração da reserva, a declaração
+de queima e as chaves permanentes de dívida e requisição.
+
+Correção
+
+Todas as chamadas passam agora por `rpc_bytes32_call`, que aplica deadline
+foreground TERM/KILL de 120 segundos, teto sentinela de 68 bytes, exige um valor
+hexadecimal exato de 32 bytes e devolve forma minúscula canônica.
+
+As semânticas existentes continuam exigidas depois: configuração exata, slots
+zerados antes da fila, declaração/dívida não nulas após a prova e vínculo exato
+entre request e burn. Falha, timeout, excesso, truncatura/extensão, caracteres
+inválidos ou divergência abortam antes de assinatura, publicação ou evidência
+terminal.
+
+Validação offline
+
+- Sintaxe Bash do executor de resgate: aprovada.
+- Suíte focal de resgate e conservação: 8/8 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 6/6 sites com retorno bytes32 usam o boundary tipado;
+  nenhum retorno bytes32 permanece direto.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

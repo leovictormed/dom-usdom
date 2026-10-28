@@ -1,0 +1,35 @@
+Stage 1233 — bounded Ethereum block positions in finalized checkpoint reports
+Date: 2026-10-26
+
+Finding
+-------
+The finalized checkpoint report constrained timestamps to uint64 but accepted
+the receipt block and independent finalized-head block positions as uint256.
+Those values represent Ethereum chain positions and the surrounding checkpoint
+observation, preflight and health paths consistently treat them as uint64. The
+wider report domain could accept evidence that those authority paths reject.
+
+Correction
+----------
+The canonical report builder now requires the top-level receipt block, every
+independent source receipt block and every source finalized-head block to be
+canonical uint64. Existing nonzero, agreement, stable-head and release-binding
+checks remain intact.
+
+Adversarial regression
+----------------------
+New regressions independently replace each of the three block-position channels
+with exact 2^64 and prove rejection as outside uint64. The existing 100,000-digit
+test continues proving lexical rejection before BigInt conversion.
+
+Validation
+----------
+- Node syntax check: pass.
+- Finalized checkpoint report, collector and authenticated submission suites:
+  21/21 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

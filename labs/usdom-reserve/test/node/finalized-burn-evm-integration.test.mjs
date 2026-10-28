@@ -55,6 +55,14 @@ test('authenticated DOM burn package completes local deposit, queue and redempti
     const safeSingleton=await deploy('Mocks.sol/MockGovernance');
     const governance=await deploy('Mocks.sol/MockMutableSingletonControl',[await safeSingleton.getAddress()]);
     const guardian=await deploy('Mocks.sol/MockMutableSingletonControl',[await safeSingleton.getAddress()]);
+    await (await governance.setOwners(
+      '0x0000000000000000000000000000000000000101',
+      '0x0000000000000000000000000000000000000102',
+      '0x0000000000000000000000000000000000000103')).wait();
+    await (await guardian.setOwners(
+      '0x0000000000000000000000000000000000000201',
+      '0x0000000000000000000000000000000000000202',
+      '0x0000000000000000000000000000000000000203')).wait();
     const riscZero=await deploy('DOMFinalizedBurnRiscZeroVerifier.t.sol/MockRiscZeroVerifierV3',[
       FINALIZED_BURN_RISC0_GROTH16_V3_SELECTOR,
     ]);
@@ -75,7 +83,7 @@ test('authenticated DOM burn package completes local deposit, queue and redempti
       riscZeroVerifierSelector:FINALIZED_BURN_RISC0_GROTH16_V3_SELECTOR,
       finalizedBurnGuestImageId:FINALIZED_BURN_IMAGE_ID,
       provingProgramSha256:
-        '0x883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21',
+        '0xbf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511',
     });
     const adapter=await deploy('DOMFinalizedBurnRiscZeroVerifier.sol/DOMFinalizedBurnRiscZeroVerifier',[
       await riscZero.getAddress(),FINALIZED_BURN_IMAGE_ID,
@@ -89,7 +97,7 @@ test('authenticated DOM burn package completes local deposit, queue and redempti
       checkpointRegistry:await checkpointRegistry.getAddress(),domDomain,
       activationScheduleCommitment,governance:await governance.getAddress(),guardian:await guardian.getAddress(),
       withdrawalDelay:86400,governanceDelay:172800,maxOutstanding:100_000_000_000n,
-      outflowCapacity:2_000_000_000n,
+      outflowCapacity:2_000_000_000n,pilotRestricted:false,
     }]);
     const reserveConfiguration={
       ethereumChainId:'31337',reserve:await reserve.getAddress(),token:await token.getAddress(),
@@ -151,7 +159,7 @@ test('authenticated DOM burn package completes local deposit, queue and redempti
       input_path:'evidence/finalized-burn-proof-job/finalized-burn-input.bin',
       input_sha256:rawSha(sourceInput),statement_hash:statementHash.slice(2),
       program_path:'evidence/finalized-burn-guest/usdom-finalized-burn.elf',
-      program_sha256:'883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21',
+      program_sha256:'bf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511',
       image_id:FINALIZED_BURN_IMAGE_ID.slice(2),risc0_zkvm_version:'3.0.6',receipt_kind:'succinct',
       segment_limit_po2:18,receipt_file:'finalized-burn-receipt.bin',receipt_sha256:'37'.repeat(32),
       receipt_bytes:4096,relation_executed:true,receipt_verified:true,dev_mode:false,
@@ -175,6 +183,7 @@ test('authenticated DOM burn package completes local deposit, queue and redempti
     },null,2)+'\n');
     const submission=buildAuthenticatedFinalizedBurnSubmission({
       reserveConfiguration,verifierConfiguration,sourceIndex,sourceInput,receiptIndex,proofIndex,evmSeal,
+      releaseConfigSha256:'43'.repeat(32),
     });
     await (await riscZero.expect(
       evmSeal,FINALIZED_BURN_IMAGE_ID,sha256(statementHash),

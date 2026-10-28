@@ -1,0 +1,27 @@
+ETAPA 1555B — Phase 1 BN254 verificável e especialização exata
+
+Foi implementado um acumulador Powers-of-Tau BN254 iniciado apenas com geradores
+públicos. Cada participante altera tau, alpha e beta com escalares independentes
+obtidos de OsRng. A contribuição inclui prova Schnorr/Chaum-Pedersen de conhecimento
+ligada ao release, fingerprint do circuito, commitment de identidade, ordinal,
+hash do registro anterior e bytes completos antes/depois.
+
+O verificador recusa identidades, escalares unitários e mudanças estruturais. As
+sequências de potências são verificadas por combinações lineares Fiat-Shamir e um
+número constante de pairings. Testes alteram os pontos inicial, central e final.
+
+A especialização recompõe o SpendCircuit em Setup mode, usa as matrizes Arkworks
+exatas, padding Libsnark dos inputs, IFFT em grupo, H_i=(tau^n-1)tau^i,
+gamma=1 e delta inicial=1. A cadeia Phase 2 existente torna delta desconhecido.
+O teste release de tamanho real passou em 502,93 s: burn, transfer e mutações
+individuais dos nove inputs públicos.
+
+O transcript operacional exige no mínimo três commitments de identidade distintos,
+ordinais contínuos e cadeia exata de record/accumulator hashes. A segurança exige
+que ao menos um participante gere e apague honestamente tau/alpha/beta e que ao
+menos um participante Phase 2 apague delta. A implementação não transforma esse
+requisito em claim factual: a claim permanece falsa até a cerimônia externa real.
+
+O runner run-native-privacy-phase1-offline.sh permite máquinas offline separadas.
+Entropia nunca é argumento ou variável; apenas artefatos públicos canônicos são
+transferidos. Publicação local é create-once por hard link, com fsync e modo 0600.

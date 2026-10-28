@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use dom_core::{Hash256, NETWORK_MAGIC_MAINNET};
+use dom_core::{configured_genesis_hash_for_network_magic, Hash256, NETWORK_MAGIC_MAINNET};
 use dom_node::{
     native_usdom_config::{load_native_usdom_v4_node_bundle, sha256_hex},
     private_staging_directory::PrivateStagingDirectory,
@@ -147,7 +147,11 @@ fn run() -> anyhow::Result<()> {
         false,
     )?;
     let identity: NodeIdentity = serde_json::from_slice(&identity_bytes)?;
-    validate_node_identity(&identity)?;
+    validate_node_identity(
+        &identity,
+        *bundle.schedule.chain_id().as_bytes(),
+        *configured_genesis_hash_for_network_magic(NETWORK_MAGIC_MAINNET)?.as_bytes(),
+    )?;
     let tip_hash = decode_hex_array::<32>(&identity.tip_hash, "DOM tip hash")?;
     let tip_identifier = Hash256::from_bytes(tip_hash);
 
@@ -223,14 +227,20 @@ fn require_index(index: &Value, manifest_sha256: &str, witness: &[u8]) -> anyhow
     Ok(())
 }
 
-fn validate_node_identity(identity: &NodeIdentity) -> anyhow::Result<()> {
+fn validate_node_identity(
+    identity: &NodeIdentity,
+    expected_chain_id: [u8; 32],
+    expected_genesis_hash: [u8; 32],
+) -> anyhow::Result<()> {
     if identity.rpc_api_version != 1
         || identity.protocol_version == 0
         || identity.network != "mainnet"
         || identity.network_magic != format!("{NETWORK_MAGIC_MAINNET:08x}")
-        || decode_hex_array::<32>(&identity.chain_id, "DOM chain id")? == [0; 32]
-        || decode_hex_array::<32>(&identity.genesis_hash, "DOM genesis hash")? == [0; 32]
-        || decode_hex_array::<32>(&identity.tip_hash, "DOM tip hash")? == [0; 32]
+        || decode_hex_array::<32>(&identity.chain_id, "DOM chain id")? != expected_chain_id
+        || decode_hex_array::<32>(&identity.genesis_hash, "DOM genesis hash")?
+            != expected_genesis_hash
+        || identity.tip_height != 0
+        || decode_hex_array::<32>(&identity.tip_hash, "DOM tip hash")? != expected_genesis_hash
         || identity.max_scan_range == 0
     {
         anyhow::bail!("DOM node identity is not a valid mainnet snapshot");
@@ -394,5 +404,52 @@ fn main() {
     if let Err(_error) = run() {
         eprintln!("finalized-deposit registration failed");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_node_identity, NodeIdentity};
+    use dom_core::NETWORK_MAGIC_MAINNET;
+
+    fn identity(chain_id: [u8; 32], genesis_hash: [u8; 32]) -> NodeIdentity {
+        NodeIdentity {
+            rpc_api_version: 1,
+            protocol_version: 1,
+            network: "mainnet".into(),
+            network_magic: format!("{NETWORK_MAGIC_MAINNET:08x}"),
+            chain_id: hex::encode(chain_id),
+            genesis_hash: hex::encode(genesis_hash),
+            tip_height: 0,
+            tip_hash: hex::encode(genesis_hash),
+            max_scan_range: 256,
+        }
+    }
+
+    #[test]
+    fn node_identity_must_match_manifest_chain_id() {
+        let expected = [0x11; 32];
+        let genesis = [0x22; 32];
+        validate_node_identity(&identity(expected, genesis), expected, genesis).unwrap();
+
+        let error =
+            validate_node_identity(&identity([0x44; 32], genesis), expected, genesis).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("DOM node identity is not a valid mainnet snapshot"));
+
+        let error =
+            validate_node_identity(&identity(expected, [0x55; 32]), expected, genesis).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("DOM node identity is not a valid mainnet snapshot"));
+
+        let mut wrong_height = identity(expected, genesis);
+        wrong_height.tip_height = 1;
+        assert!(validate_node_identity(&wrong_height, expected, genesis).is_err());
+
+        let mut wrong_tip = identity(expected, genesis);
+        wrong_tip.tip_hash = "66".repeat(32);
+        assert!(validate_node_identity(&wrong_tip, expected, genesis).is_err());
     }
 }

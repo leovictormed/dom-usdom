@@ -2,6 +2,7 @@
 set -euo pipefail
 set +x
 unset BASH_XTRACEFD 2>/dev/null || true
+unset BASH_ENV ENV CDPATH
 for fd_path in /proc/$$/fd/*; do
   inherited_fd=${fd_path##*/}
   [[ "$inherited_fd" =~ ^[0-9]+$ ]] || exit 1
@@ -10,4 +11,4 @@ for fd_path in /proc/$$/fd/*; do
   exec {inherited_fd}>&-
 done
 if (($# != 0)); then printf '%s\n' 'Usage: npm run --silent sign:production-release-authorization' >&2; exit 64; fi
-exec bash scripts/sign-release-authorizations.sh release
+exec /usr/bin/bash --noprofile --norc scripts/sign-release-authorizations.sh release

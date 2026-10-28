@@ -1,0 +1,48 @@
+{
+  "schema": "usdom-onekey-electron-ble-package-authority-v1",
+  "status": "unconfigured",
+  "hardwareSigningApproved": false,
+  "runtimeTransport": "desktop-web-ble",
+  "packagePins": {
+    "platform": null,
+    "architecture": null,
+    "electronVersion": null,
+    "electronArtifactSha256": null,
+    "applicationArchiveSha256": null,
+    "unpackedInventorySha256": null,
+    "nativeBleHostPackage": null,
+    "nativeBleHostVersion": null,
+    "nativeBleHostIntegrity": null,
+    "lockfileSha256": null,
+    "buildTool": null,
+    "buildToolVersion": null,
+    "buildCommandSha256": null,
+    "sourceCommit": null,
+    "provenanceSha256": null,
+    "codeSigningIdentity": null
+  },
+  "gates": {
+    "packagedArtifactVerified": false,
+    "electronRuntimeArtifactPinned": false,
+    "applicationArchiveVerified": false,
+    "unpackedNativeInventoryVerified": false,
+    "nativeBleHostPinned": false,
+    "reproducibleBuildVerified": false,
+    "provenanceVerified": false,
+    "codeSigningVerified": false,
+    "blePairingAndPermissionsVerified": false,
+    "deviceIdentityAndReconnectVerified": false,
+    "firmwareAllowlistVerified": false,
+    "addressOnDeviceVerified": false,
+    "eip1559PhysicalSigningVerified": false,
+    "eip712PhysicalSigningVerified": false,
+    "rejectionCancellationDisconnectReconnectVerified": false,
+    "physicalCeremonyApproved": false
+  },
+  "forbiddenFallbacks": [
+    "usb",
+    "http",
+    "web",
+    "emulator"
+  ]
+}

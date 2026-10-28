@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {mkdtemp,rm,writeFile,unlink} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {buildFinalizedBurnCapacityArtifactManifest} from '../../sdk/finalized-burn-capacity-artifact-manifest.mjs';
 import {
   FINALIZED_BURN_CAPACITY_IMAGE_ID,FINALIZED_BURN_CAPACITY_INPUT_BYTES,
   FINALIZED_BURN_CAPACITY_INPUT_SHA256,FINALIZED_BURN_CAPACITY_PROGRAM_SHA256,
@@ -13,6 +17,7 @@ import {PINNED_RISC0_MAINNET_V3} from '../../sdk/risc0-verifier-reference.mjs';
 const report=()=>{
  const value=({
   schema:FINALIZED_BURN_CAPACITY_REPORT_SCHEMA,runId:'20261022T043544Z-1676533',
+  artifactManifestPath:'artifact-manifest.json',artifactManifestSha256:'09'.repeat(32),
   startedAt:'1792643744',completedAt:'1792647344',provingWallMilliseconds:'3540000',
   peakResidentKiB:'2097152',rayonWorkers:1,segmentLimitPo2:18,prover:'local',
   devMode:false,receiptKind:'groth16',receiptVerified:true,risc0ZkvmVersion:'3.0.6',mines:false,
@@ -63,6 +68,20 @@ test('finalized-burn capacity report binds a real non-release proof measurement'
   assert(Object.isFrozen(validated.observationSourceIds));
 });
 
+test('capacity EVM receipt rejects oversized decimal evidence before numeric conversion',()=>{
+  const value=report();
+  const input={transactionHash:value.isolatedEvmTransactionHash,
+    blockHash:value.isolatedEvmBlockHash,blockNumber:value.isolatedEvmBlockNumber,
+    adapter:value.isolatedEvmAdapter,adapterRuntimeCodeHash:value.adapterRuntimeCodeHash,
+    adapterVerifierConfigHash:value.adapterVerifierConfigHash,statementHash:value.statementHash,
+    evmSealSha256:value.evmSealSha256,adapterVerificationGas:value.adapterVerificationGas};
+  for(const field of ['blockNumber','adapterVerificationGas']) {
+    assert.throws(()=>finalizedBurnIsolatedEvmReceiptCommitment({
+      ...input,[field]:'9'.repeat(100000),
+    }),/canonical unsigned decimal/);
+  }
+});
+
 test('finalized-burn capacity report rejects semantic substitutions',()=>{
   const mutations=[
     value=>{value.extra=true;},
@@ -100,4 +119,17 @@ test('finalized-burn capacity report rejects semantic substitutions',()=>{
     mutate(value);
     assert.throws(()=>validate(value));
   }
+});
+
+test('capacity manifest fails closed when the preserved run graph is removed or corrupted',async()=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'usdom-finalized-capacity-'));
+ try {
+  await writeFile(path.join(root,'proof.bin'),Buffer.from('proof'),{mode:0o600});
+  const before=await buildFinalizedBurnCapacityArtifactManifest(root,'20261027T120000Z-1');
+  await writeFile(path.join(root,'proof.bin'),Buffer.from('corrupt'),{mode:0o600});
+  const after=await buildFinalizedBurnCapacityArtifactManifest(root,'20261027T120000Z-1');
+  assert.equal(before.bytes.equals(after.bytes),false);
+  await unlink(path.join(root,'proof.bin'));
+  await assert.rejects(buildFinalizedBurnCapacityArtifactManifest(root,'20261027T120000Z-1'),/empty/);
+ } finally { await rm(root,{recursive:true,force:true}); }
 });

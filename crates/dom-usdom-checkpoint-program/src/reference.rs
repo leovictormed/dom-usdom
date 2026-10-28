@@ -198,6 +198,8 @@ impl CheckpointProgramPolicy {
         let span = checkpoint_interval
             .checked_add(confirmation_depth)
             .ok_or(CheckpointProgramError::InvalidPolicy)?;
+        let empty_state =
+            NativeUsdomState::new(bridge).map_err(|_| CheckpointProgramError::InvalidPolicy)?;
         if dom_genesis_hash == Hash256::ZERO
             || checkpoint_interval == 0
             || checkpoint_interval > 360
@@ -206,10 +208,11 @@ impl CheckpointProgramPolicy {
             || span > MAX_CONTEXT_SPAN
             || schedule.network_magic() == 0
             || schedule.chain_id() != derive_chain_id(schedule.network_magic(), &dom_genesis_hash)
-            || NativeUsdomState::new(bridge)
-                .map_err(|_| CheckpointProgramError::InvalidPolicy)?
-                .state_root()
-                != schedule.empty_state_root()
+            || empty_state.state_root() != schedule.empty_state_root()
+            || empty_state.total_issued() != 0
+            || empty_state.total_burned() != 0
+            || empty_state.issuance_closure().is_some()
+            || empty_state.is_gracefully_shutdown()
         {
             return Err(CheckpointProgramError::InvalidPolicy);
         }
@@ -956,6 +959,15 @@ mod tests {
         let policy = CheckpointProgramPolicy::new(schedule, bridge(), genesis, 360, 30)
             .expect("program policy");
         assert_eq!(policy.span(), 390);
+        let activation_state = NativeUsdomState::new(bridge()).expect("empty activation state");
+        assert_eq!(
+            policy.schedule().empty_state_root(),
+            activation_state.state_root()
+        );
+        assert_eq!(activation_state.total_issued(), 0);
+        assert_eq!(activation_state.total_burned(), 0);
+        assert!(activation_state.issuance_closure().is_none());
+        assert!(!activation_state.is_gracefully_shutdown());
         assert_eq!(
             CheckpointProgramPolicy::new(
                 schedule,
@@ -975,7 +987,6 @@ mod tests {
             Err(CheckpointProgramError::InvalidPolicy)
         );
 
-        let activation_state = NativeUsdomState::new(bridge()).unwrap();
         let v2_schedule = NativeUsdomV2ActivationSchedule::new(
             NETWORK_MAGIC_REGTEST,
             chain_id,

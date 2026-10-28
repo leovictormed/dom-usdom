@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.37;
 
-import {IDOMFinalizedBurnVerifier} from "./USDOMProofReserve.sol";
+import {IDOMFinalizedBurnVerifier} from "./IDOMFinalizedBurnVerifier.sol";
 import {IRiscZeroVerifierV3} from "./IRiscZeroVerifierV3.sol";
 
 /// @title Immutable RISC Zero verifier adapter for finalized native USDOM burns

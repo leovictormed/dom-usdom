@@ -1,0 +1,26 @@
+Stage 1468 — current UDFINL04 positive execution evidence
+Date: 2026-10-27
+
+The prior stage-273 evidence was historical UDFINL03 evidence and did not
+execute the rebuilt recursive UDFINL04 guest. Two independent generations by
+the current raw-checkpoint test produced identical canonical inputs: 64,815
+bytes, SHA-256 6128efcc1a95b331728bf2571cbfe22508599e7e3af17d3d611226c81f704789.
+The 33-byte difference from the intermediate 64,782-byte expectation is exact:
+CheckpointStatementV6 adds the 32-byte economic totals and one closure flag to
+V4.
+
+The current ProgramBinary bf320218.../ImageID f0d9c982... executed that input
+successfully. The exact checkpoint-outer claim was supplied with RISC Zero's
+ExecutorEnv::add_assumption(ReceiptClaim) as an unresolved execution claim:
+outer ImageID 311d58da... and journal 735fbcd6.... This is an execution-only
+benchmark and is deliberately not evidence that the recursive receipt has been
+cryptographically proved. The separate recursive receipt flags remain false.
+
+Observed result: exit 0, finalized-burn journal c0461e1c..., 581,398,127 user
+cycles, 590 segments, 589 segments at po2 20. The checker now parses unique
+exact fields, rejects duplicate/contradictory fields, binds the reviewed
+harness source and rejects FakeReceipt. The canonical vector test, checker and
+four implementation-claim tests pass.
+
+No network mainnet operation, mining, signing, deployment, funds, commit or
+push occurred.

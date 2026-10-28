@@ -1,0 +1,31 @@
+SAFE DEPLOYMENT RUNTIME PATH CONFINEMENT — STAGE 1194
+Date: 2026-10-26
+
+Finding
+=======
+
+Safe deployment needed user-local Node and Foundry directories during tool
+discovery, then retained those writable directories in PATH for the complete
+credential-bearing ceremony. Even pinned-tool predicates internally use basic
+utilities such as stat, realpath, dirname, sha256sum and cut. A late executable
+inserted ahead of `/usr/bin` could therefore subvert reattestation itself.
+
+Correction
+==========
+
+Immediately after every ceremony-specific tool has an authenticated absolute
+pathname, runtime PATH is reduced to `/usr/bin:/bin`. Node, Cast, jq, timeout,
+cmp, setsid, flock, sleep, mktemp and chmod continue through their already
+pinned absolute paths. A remaining basename use was removed with native shell
+suffix expansion, avoiding another runtime lookup.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/environment/receipt/process tests: 10/10 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

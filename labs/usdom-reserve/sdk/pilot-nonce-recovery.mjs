@@ -3,7 +3,8 @@ export function classifyPilotNonce(expected,finalizedA,pendingA,finalizedB,pendi
   expectedHash='',observedHashA='',observedHashB='') {
   for(const [label,value] of [['expected',expected],['finalizedA',finalizedA],['pendingA',pendingA],
     ['finalizedB',finalizedB],['pendingB',pendingB]]) {
-    if(typeof value!=='string'||!/^(0|[1-9][0-9]*)$/.test(value)||BigInt(value)>2n**64n-1n) {
+    if(typeof value!=='string'||value.length>20||!/^(0|[1-9][0-9]*)$/.test(value)
+        ||BigInt(value)>2n**64n-1n) {
       throw new Error(`${label} nonce is not canonical uint64`);
     }
   }

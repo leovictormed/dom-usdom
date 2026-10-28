@@ -1,0 +1,23 @@
+{
+  "schema": "usdom-mainnet-preflight-rpc-catalog-v2",
+  "sources": [
+    {
+      "operatorId": "operator-1",
+      "providerId": "provider-1",
+      "infrastructureId": "origin-4ddd4e4d3f7c1886",
+      "tlsPolicy": "node-default-ca-hostname-expiry-origin-pinned-v1",
+      "clientPolicy": "ethereum-execution-client-stable-v1",
+      "clockPolicy": "utc-wall-clock-sane-v1",
+      "originKeccak256": "0x4ff478b3a706d53f3e315ebcc684a602faf11c9c865a1f83433c362b708166e2"
+    },
+    {
+      "operatorId": "operator-2",
+      "providerId": "provider-2",
+      "infrastructureId": "origin-078ddbb63a6abd3c",
+      "tlsPolicy": "node-default-ca-hostname-expiry-origin-pinned-v1",
+      "clientPolicy": "ethereum-execution-client-stable-v1",
+      "clockPolicy": "utc-wall-clock-sane-v1",
+      "originKeccak256": "0x9d2ece91fcb817ec5ccf0ceaec0c91ac03d312fc0b23ed35bd33e70dbd02a041"
+    }
+  ]
+}

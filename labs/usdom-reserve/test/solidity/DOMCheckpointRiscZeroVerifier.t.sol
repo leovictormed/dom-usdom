@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.37;
 
-import {DOMCheckpointRegistry, IDOMCheckpointVerifier} from "../../contracts/DOMCheckpointRegistry.sol";
+import {DOMCheckpointRegistry} from "../../contracts/DOMCheckpointRegistry.sol";
+import {IDOMCheckpointVerifier} from "../../contracts/IDOMCheckpointVerifier.sol";
 import {DOMCheckpointRiscZeroVerifier} from "../../contracts/DOMCheckpointRiscZeroVerifier.sol";
 import {IRiscZeroVerifierV3} from "../../contracts/IRiscZeroVerifierV3.sol";
-import {TestBase} from "./TestBase.sol";
+import {TestBase, Vm} from "./TestBase.sol";
 import {MockGovernance} from "./Mocks.sol";
 
 contract MockCheckpointRiscZeroVerifierV3 is IRiscZeroVerifierV3 {
@@ -63,6 +64,31 @@ contract DirtyPaddingCheckpointRiscZeroSelector {
     }
 }
 
+contract MutableCheckpointSelectorEncodingVerifier {
+    uint8 private mode;
+
+    function setMode(uint8 value) external {
+        mode = value;
+    }
+
+    fallback() external {
+        if (msg.sig != IRiscZeroVerifierV3.SELECTOR.selector) return;
+        uint8 current = mode;
+        assembly ("memory-safe") {
+            switch current
+            case 1 {
+                mstore(0, or(shl(224, 0x73c457ba), 1))
+                return(0, 32)
+            }
+            case 2 { return(0, 0x100000) }
+            default {
+                mstore(0, shl(224, 0x73c457ba))
+                return(0, 32)
+            }
+        }
+    }
+}
+
 contract NonemptyReturnCheckpointRiscZeroVerifierV3 is IRiscZeroVerifierV3 {
     bytes4 public constant override SELECTOR = 0x73c457ba;
 
@@ -95,6 +121,8 @@ contract GasBurningCheckpointRiscZeroVerifierV3 is IRiscZeroVerifierV3 {
 
 contract DOMCheckpointRiscZeroVerifierTest is TestBase {
     bytes32 internal constant IMAGE_ID = keccak256("DOM checkpoint RISC Zero guest ImageID");
+    bytes32 internal constant CURRENT_OUTER_IMAGE_ID =
+        0x311d58dadcb97cac783e3ec0efe3c4570f42b944cbda1e48aeb56b055682257b;
     bytes32 internal constant STATEMENT = keccak256("DOM checkpoint statement");
     bytes4 internal constant SELECTOR = 0x73c457ba;
 
@@ -130,6 +158,36 @@ contract DOMCheckpointRiscZeroVerifierTest is TestBase {
         assertEq(uint256(uint32(adapter.verifierSelector())), uint256(uint32(SELECTOR)));
         assertEq(adapter.RISC_ZERO_VERIFIER_GAS_LIMIT(), 4_500_000);
         assertEq(adapter.PROOF_ACCEPTED(), keccak256("DOM_CHECKPOINT_PROOF_V3"));
+    }
+
+    function testMainnetDirectVerifierPinMatchesReviewedV301ReferenceAndCurrentOuterImage() public view {
+        assertEq(adapter.MAINNET_RISC_ZERO_VERIFIER(), 0x2a098988600d87650Fb061FfAff08B97149Fa84D);
+        assertEq(
+            adapter.MAINNET_RISC_ZERO_VERIFIER_CODE_HASH(),
+            0xfe03c66078969d097f867351171b4639d726c8376c35022675ed44cbbcbaa720
+        );
+        assertEq(uint256(uint32(adapter.RISC_ZERO_GROTH16_V3_SELECTOR())), uint256(uint32(SELECTOR)));
+        assertEq(adapter.EVM_PROOF_BYTES(), 260);
+        assertEq(CURRENT_OUTER_IMAGE_ID, 0x311d58dadcb97cac783e3ec0efe3c4570f42b944cbda1e48aeb56b055682257b);
+    }
+
+    function testMainnetConstructorRejectsArbitraryVerifierAndAcceptsExactPinnedAddressAndRuntime() public {
+        vm.chainId(1);
+        vm.expectRevert(DOMCheckpointRiscZeroVerifier.InvalidConfiguration.selector);
+        new DOMCheckpointRiscZeroVerifier(IRiscZeroVerifierV3(address(riscZero)), IMAGE_ID);
+
+        address pinned = adapter.MAINNET_RISC_ZERO_VERIFIER();
+        vm.etch(pinned, address(riscZero).code);
+        vm.expectRevert(DOMCheckpointRiscZeroVerifier.InvalidConfiguration.selector);
+        new DOMCheckpointRiscZeroVerifier(IRiscZeroVerifierV3(pinned), IMAGE_ID);
+
+        installPinnedRiscZeroMainnetVerifier(pinned, adapter.MAINNET_RISC_ZERO_VERIFIER_CODE_HASH());
+        DOMCheckpointRiscZeroVerifier mainnetAdapter =
+            new DOMCheckpointRiscZeroVerifier(IRiscZeroVerifierV3(pinned), IMAGE_ID);
+        assertEq(address(mainnetAdapter.riscZeroVerifier()), pinned);
+        assertEq(mainnetAdapter.riscZeroVerifierCodeHash(), adapter.MAINNET_RISC_ZERO_VERIFIER_CODE_HASH());
+        assertEq(mainnetAdapter.deploymentChainId(), 1);
+        assertEq(uint256(uint32(mainnetAdapter.verifierSelector())), uint256(uint32(SELECTOR)));
     }
 
     function testUpstreamVerifierCannotConsumeUnboundedRegistryGas() public {
@@ -225,6 +283,21 @@ contract DOMCheckpointRiscZeroVerifierTest is TestBase {
         adapter.verifyDOMCheckpoint(STATEMENT, proof);
     }
 
+    function testRejectsRuntimeDirtySelectorPaddingAndReturnBombWithoutCodeHashChange() public {
+        MutableCheckpointSelectorEncodingVerifier mutableVerifier = new MutableCheckpointSelectorEncodingVerifier();
+        DOMCheckpointRiscZeroVerifier bounded =
+            new DOMCheckpointRiscZeroVerifier(IRiscZeroVerifierV3(address(mutableVerifier)), IMAGE_ID);
+        bytes memory proof = seal(keccak256("mutable checkpoint selector response"));
+
+        mutableVerifier.setMode(1);
+        vm.expectRevert(DOMCheckpointRiscZeroVerifier.VerifierChanged.selector);
+        bounded.verifyDOMCheckpoint(STATEMENT, proof);
+
+        mutableVerifier.setMode(2);
+        vm.expectRevert(DOMCheckpointRiscZeroVerifier.VerifierChanged.selector);
+        bounded.verifyDOMCheckpoint(STATEMENT, proof);
+    }
+
     function testConstructorRejectsMissingCodeZeroImageMissingSelectorReturnBombAndWrongSelector() public {
         vm.expectRevert(DOMCheckpointRiscZeroVerifier.InvalidConfiguration.selector);
         new DOMCheckpointRiscZeroVerifier(IRiscZeroVerifierV3(address(0x1234)), IMAGE_ID);
@@ -305,6 +378,11 @@ contract DOMCheckpointRiscZeroRegistryIntegrationTest is TestBase {
         bytes memory proof =
             abi.encodePacked(SELECTOR, new bytes(7 * 32), keccak256("checkpoint Groth16 proof fixture"));
         bytes32 statementHash = registry.checkpointStatementHash(checkpoint);
+        assertEq(registry.activationEmptyStateRoot(), checkpoint.previousStateRoot);
+        assertEq(registry.latestStateRoot(), checkpoint.previousStateRoot);
+        assertEq(registry.latestTotalIssued(), 0);
+        assertEq(registry.latestTotalBurned(), 0);
+        assertFalse(registry.latestIssuanceClosed());
         riscZero.expect(proof, IMAGE_ID, sha256(abi.encodePacked(statementHash)));
 
         registry.submitCheckpointCandidate(checkpoint, proof);
@@ -317,5 +395,32 @@ contract DOMCheckpointRiscZeroRegistryIntegrationTest is TestBase {
         }
         assertEq(selected, statementHash);
         assertEq(registry.verifierConfigHash(), adapter.verifierConfigHash());
+
+        vm.warp(block.timestamp + 2 days);
+        vm.recordLogs();
+        registry.finalizeCheckpoint();
+        assertEq(registry.previousTotalIssued(), 0);
+        assertEq(registry.previousTotalBurned(), 0);
+        assertEq(registry.latestTotalIssued(), checkpoint.totalIssued);
+        assertEq(registry.latestTotalBurned(), checkpoint.totalBurned);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 checkpointSignature = keccak256("Checkpoint(bytes32,uint32,uint64,bytes32,bytes32,bytes32)");
+        uint256 checkpointEvents;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] != checkpointSignature) continue;
+            ++checkpointEvents;
+            assertEq(logs[i].emitter, address(registry));
+            assertEq(logs[i].topics.length, 3);
+            assertEq(logs[i].topics[1], keccak256("DOM checkpoint RISC Zero domain"));
+            assertEq(logs[i].topics[2], bytes32(uint256(0xA1B2C3D4)));
+            (uint64 height, bytes32 blockHash, bytes32 stateRoot) = abi.decode(logs[i].data, (uint64, bytes32, bytes32));
+            assertEq(height, checkpoint.height);
+            assertEq(blockHash, checkpoint.blockHash);
+            assertEq(stateRoot, checkpoint.stateRoot);
+        }
+        assertEq(checkpointEvents, 1);
+        assertEq(registry.latestHeight(), checkpoint.height);
+        assertEq(registry.latestBlock(), checkpoint.blockHash);
+        assertEq(registry.latestStateRoot(), checkpoint.stateRoot);
     }
 }

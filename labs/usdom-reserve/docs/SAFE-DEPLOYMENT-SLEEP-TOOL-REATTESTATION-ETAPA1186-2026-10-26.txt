@@ -1,0 +1,30 @@
+SAFE DEPLOYMENT SLEEP TOOL REATTESTATION — STAGE 1186
+Date: 2026-10-26
+
+Finding
+=======
+
+The Safe executor fixed its PATH and pinned its principal runtimes, but invoked
+`sleep` by name during proxy startup, proxy shutdown and finalized-target
+polling. The fixed PATH includes a user-owned Node toolchain directory before
+system directories. A late `sleep` insertion there could therefore execute
+unattested code inside a credential-bearing ceremony.
+
+Correction
+==========
+
+`sleep` is now pinned with the shared executable, parent-directory and SHA-256
+policy at startup. Every one of its three runtime call sites uses a wrapper
+that immediately reattests the complete identity before executing the saved
+absolute pathname. The general tool barrier also includes sleep.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/receipt/process tests: 7/7 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

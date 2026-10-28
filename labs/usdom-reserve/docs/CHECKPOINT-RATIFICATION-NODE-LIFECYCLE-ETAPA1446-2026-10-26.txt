@@ -1,0 +1,9 @@
+Etapa 1446 — lifecycle Node da ratificação de checkpoint
+
+Oito sites operacionais ainda chamavam Node sem deadline: snapshots privados,
+validações, releituras e instalações imutáveis. Todos agora passam por um helper
+que reatesta Node e timeout, aplica TERM em 120 segundos e KILL após cinco, e
+reatesta Node ao retornar. O snapshot mantém sua pós-condição 0600.
+
+Nova regressão e suítes relacionadas passam 12/12. Sintaxe e diff-check passam.
+Nenhuma rede, Ledger, assinatura, deploy, fundos, commit ou push foi executado.

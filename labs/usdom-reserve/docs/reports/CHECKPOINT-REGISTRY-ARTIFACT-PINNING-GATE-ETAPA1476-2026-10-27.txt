@@ -1,0 +1,45 @@
+CHECKPOINT REGISTRY ARTIFACT PINNING GATE — ETAPA 1476
+Date: 2026-10-27
+
+Finding
+
+The artifact derivation itself was already fail-closed: it verifies compiler
+settings and every source hash from compiler metadata, derives runtime and
+constructor-complete initcode from the same source-verified artifact, derives
+the registry configuration from exact release fields, and requires the three
+identities to agree before materializing a release.  Readiness independently
+recomputes configuration and compares compiled runtime/initcode hashes with the
+release.
+
+One gate wiring defect remained.  The checked-in requirement
+`production_checkpoint_registry_artifacts_pinned` was false but was absent from
+the readiness mandatory-key list.  Consequently it did not produce its own
+stable requirement blocker.  The concrete compiled/release checks still failed
+closed, but the declared production assurance was not independently enforced.
+
+Correction
+
+- Both closed-mainnet and real-funds readiness now require
+  `production_checkpoint_registry_artifacts_pinned`.
+- The independent checkpoint-proof requirement regression includes this key.
+- A focused readiness regression proves that declaring the key true cannot
+  replace a source-verified compiled runtime, matching initcode or recomputed
+  registry configuration.
+- Production-release-core regressions now reject a substituted registry config
+  hash and substituted runtime/initcode identities after materialization.
+
+The production claim remains false.  It depends on a ratified, fully configured
+release whose exact source-verified registry runtime, constructor initcode and
+configuration hash have been materialized and accepted.  The current release
+template deliberately has null deployment-specific fields and the Solidity
+production constants remain zero.
+
+Validation
+
+- production-release-core.test.mjs: 3 passed, 0 failed.
+- focused artifact-declaration readiness regression: 1 passed, 0 failed.
+- independent checkpoint requirements regression: passed.
+- git diff --check: passed.
+
+No deployment, network access, signing, funds, manifest modification, commit or
+push occurred.

@@ -1,0 +1,2523 @@
+{
+  "inputs": {
+    "(disabled):fs": {
+      "bytes": 0,
+      "imports": []
+    },
+    "electron/onekey-ble/blocked-module.mjs": {
+      "bytes": 263,
+      "imports": [],
+      "format": "esm"
+    },
+    "electron/onekey-ble/renderer.mjs": {
+      "bytes": 2764,
+      "imports": [
+        {
+          "path": "node_modules/@onekeyfe/hd-common-connect-sdk/dist/index.js",
+          "kind": "import-statement",
+          "original": "@onekeyfe/hd-common-connect-sdk"
+        }
+      ],
+      "format": "esm"
+    },
+    "node_modules/@noble/hashes/_assert.js": {
+      "bytes": 1638,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/@noble/hashes/_blake2.js": {
+      "bytes": 4904,
+      "imports": [
+        {
+          "path": "node_modules/@noble/hashes/_assert.js",
+          "kind": "require-call",
+          "original": "./_assert.js"
+        },
+        {
+          "path": "node_modules/@noble/hashes/utils.js",
+          "kind": "require-call",
+          "original": "./utils.js"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/@noble/hashes/_sha2.js": {
+      "bytes": 4588,
+      "imports": [
+        {
+          "path": "node_modules/@noble/hashes/_assert.js",
+          "kind": "require-call",
+          "original": "./_assert.js"
+        },
+        {
+          "path": "node_modules/@noble/hashes/utils.js",
+          "kind": "require-call",
+          "original": "./utils.js"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/@noble/hashes/_u64.js": {
+      "bytes": 3752,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/@noble/hashes/blake2b.js": {
+      "bytes": 7983,
+      "imports": [
+        {
+          "path": "node_modules/@noble/hashes/_blake2.js",
+          "kind": "require-call",
+          "original": "./_blake2.js"
+        },
+        {
+          "path": "node_modules/@noble/hashes/_u64.js",
+          "kind": "require-call",
+          "original": "./_u64.js"
+        },
+        {
+          "path": "node_modules/@noble/hashes/utils.js",
+          "kind": "require-call",
+          "original": "./utils.js"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/@noble/hashes/blake2s.js": {
+      "bytes": 5494,
+      "imports": [
+        {
+          "path": "node_modules/@noble/hashes/_blake2.js",
+          "kind": "require-call",
+          "original": "./_blake2.js"
+        },
+        {
+          "path": "node_modules/@noble/hashes/_u64.js",
+          "kind": "require-call",
+          "original": "./_u64.js"
+        },
+        {
+          "path": "node_modules/@noble/hashes/utils.js",
+          "kind": "require-call",
+          "original": "./utils.js"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/@noble/hashes/crypto.js": {
+      "bytes": 243,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/@noble/hashes/sha256.js": {
+      "bytes": 5280,
+      "imports": [
+        {
+          "path": "node_modules/@noble/hashes/_sha2.js",
+          "kind": "require-call",
+          "original": "./_sha2.js"
+        },
+        {
+          "path": "node_modules/@noble/hashes/utils.js",
+          "kind": "require-call",
+          "original": "./utils.js"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/@noble/hashes/sha3.js": {
+      "bytes": 8089,
+      "imports": [
+        {
+          "path": "node_modules/@noble/hashes/_assert.js",
+          "kind": "require-call",
+          "original": "./_assert.js"
+        },
+        {
+          "path": "node_modules/@noble/hashes/_u64.js",
+          "kind": "require-call",
+          "original": "./_u64.js"
+        },
+        {
+          "path": "node_modules/@noble/hashes/utils.js",
+          "kind": "require-call",
+          "original": "./utils.js"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/@noble/hashes/utils.js": {
+      "bytes": 6966,
+      "imports": [
+        {
+          "path": "node_modules/@noble/hashes/crypto.js",
+          "kind": "require-call",
+          "original": "@noble/hashes/crypto"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/@onekeyfe/hd-common-connect-sdk/dist/index.js": {
+      "bytes": 28334,
+      "imports": [
+        {
+          "path": "node_modules/@onekeyfe/hd-core/dist/index.js",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-core"
+        },
+        {
+          "path": "node_modules/@onekeyfe/hd-shared/dist/index.js",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-shared"
+        },
+        {
+          "path": "electron/onekey-ble/blocked-module.mjs",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-transport-http"
+        },
+        {
+          "path": "node_modules/@onekeyfe/hd-transport-web-device/dist/index.js",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-transport-web-device"
+        },
+        {
+          "path": "electron/onekey-ble/blocked-module.mjs",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-transport-lowlevel"
+        },
+        {
+          "path": "electron/onekey-ble/blocked-module.mjs",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-transport-emulator"
+        },
+        {
+          "path": "electron/onekey-ble/blocked-module.mjs",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-transport-usb"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/@onekeyfe/hd-core/dist/index.js": {
+      "bytes": 2036222,
+      "imports": [
+        {
+          "path": "node_modules/@onekeyfe/hd-shared/dist/index.js",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-shared"
+        },
+        {
+          "path": "node_modules/@noble/hashes/sha256.js",
+          "kind": "require-call",
+          "original": "@noble/hashes/sha256"
+        },
+        {
+          "path": "node_modules/@noble/hashes/utils.js",
+          "kind": "require-call",
+          "original": "@noble/hashes/utils"
+        },
+        {
+          "path": "node_modules/semver/index.js",
+          "kind": "require-call",
+          "original": "semver"
+        },
+        {
+          "path": "node_modules/@onekeyfe/hd-transport/dist/index.js",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-transport"
+        },
+        {
+          "path": "electron/onekey-ble/blocked-module.mjs",
+          "kind": "require-call",
+          "original": "axios"
+        },
+        {
+          "path": "node_modules/lodash/lodash.js",
+          "kind": "require-call",
+          "original": "lodash"
+        },
+        {
+          "path": "node_modules/bytebuffer/dist/bytebuffer.js",
+          "kind": "require-call",
+          "original": "bytebuffer"
+        },
+        {
+          "path": "node_modules/@noble/hashes/blake2s.js",
+          "kind": "require-call",
+          "original": "@noble/hashes/blake2s"
+        },
+        {
+          "path": "node_modules/bignumber.js/bignumber.js",
+          "kind": "require-call",
+          "original": "bignumber.js"
+        },
+        {
+          "path": "node_modules/jszip/dist/jszip.min.js",
+          "kind": "require-call",
+          "original": "jszip"
+        },
+        {
+          "path": "node_modules/buffer/index.js",
+          "kind": "require-call",
+          "original": "buffer"
+        },
+        {
+          "path": "node_modules/jpeg-js/index.js",
+          "kind": "require-call",
+          "original": "jpeg-js"
+        },
+        {
+          "path": "node_modules/@noble/hashes/sha3.js",
+          "kind": "require-call",
+          "original": "@noble/hashes/sha3"
+        },
+        {
+          "path": "node_modules/@noble/hashes/blake2b.js",
+          "kind": "require-call",
+          "original": "@noble/hashes/blake2b"
+        },
+        {
+          "path": "node_modules/@onekeyfe/hd-core/package.json",
+          "kind": "require-call",
+          "original": "../package.json"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/@onekeyfe/hd-core/package.json": {
+      "bytes": 1409,
+      "imports": []
+    },
+    "node_modules/@onekeyfe/hd-shared/dist/index.js": {
+      "bytes": 38755,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/@onekeyfe/hd-transport-web-device/dist/index.js": {
+      "bytes": 80318,
+      "imports": [
+        {
+          "path": "node_modules/@onekeyfe/hd-transport/dist/index.js",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-transport"
+        },
+        {
+          "path": "node_modules/@onekeyfe/hd-shared/dist/index.js",
+          "kind": "require-call",
+          "original": "@onekeyfe/hd-shared"
+        },
+        {
+          "path": "node_modules/bytebuffer/dist/bytebuffer.js",
+          "kind": "require-call",
+          "original": "bytebuffer"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/@onekeyfe/hd-transport/dist/index.js": {
+      "bytes": 128493,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/light.js",
+          "kind": "require-call",
+          "original": "protobufjs/light"
+        },
+        {
+          "path": "node_modules/long/src/long.js",
+          "kind": "require-call",
+          "original": "long"
+        },
+        {
+          "path": "node_modules/bytebuffer/dist/bytebuffer.js",
+          "kind": "require-call",
+          "original": "bytebuffer"
+        },
+        {
+          "path": "node_modules/buffer/index.js",
+          "kind": "require-call",
+          "original": "buffer"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/base64-js/index.js": {
+      "bytes": 3932,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/bignumber.js/bignumber.js": {
+      "bytes": 89684,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/buffer/index.js": {
+      "bytes": 58353,
+      "imports": [
+        {
+          "path": "node_modules/base64-js/index.js",
+          "kind": "require-call",
+          "original": "base64-js"
+        },
+        {
+          "path": "node_modules/ieee754/index.js",
+          "kind": "require-call",
+          "original": "ieee754"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/bytebuffer/dist/bytebuffer.js": {
+      "bytes": 157129,
+      "imports": [
+        {
+          "path": "node_modules/bytebuffer/node_modules/long/dist/long.js",
+          "kind": "require-call",
+          "original": "long"
+        },
+        {
+          "path": "<runtime>",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/bytebuffer/node_modules/long/dist/long.js": {
+      "bytes": 39757,
+      "imports": [
+        {
+          "path": "<runtime>",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/ieee754/index.js": {
+      "bytes": 2154,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/jpeg-js/index.js": {
+      "bytes": 136,
+      "imports": [
+        {
+          "path": "node_modules/jpeg-js/lib/encoder.js",
+          "kind": "require-call",
+          "original": "./lib/encoder"
+        },
+        {
+          "path": "node_modules/jpeg-js/lib/decoder.js",
+          "kind": "require-call",
+          "original": "./lib/decoder"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/jpeg-js/lib/decoder.js": {
+      "bytes": 40593,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/jpeg-js/lib/encoder.js": {
+      "bytes": 22120,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/jszip/dist/jszip.min.js": {
+      "bytes": 97781,
+      "imports": [
+        {
+          "path": "<runtime>",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/lodash/lodash.js": {
+      "bytes": 545945,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/long/src/long.js": {
+      "bytes": 40100,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/light.js": {
+      "bytes": 91,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/index-light.js",
+          "kind": "require-call",
+          "original": "./src/index-light"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/node_modules/long/umd/index.js": {
+      "bytes": 50994,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/converter.js": {
+      "bytes": 14771,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/enum.js",
+          "kind": "require-call",
+          "original": "./enum"
+        },
+        {
+          "path": "node_modules/protobufjs/src/types.js",
+          "kind": "require-call",
+          "original": "./types"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/decoder.js": {
+      "bytes": 11680,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/enum.js",
+          "kind": "require-call",
+          "original": "./enum"
+        },
+        {
+          "path": "node_modules/protobufjs/src/types.js",
+          "kind": "require-call",
+          "original": "./types"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/encoder.js": {
+      "bytes": 5403,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/enum.js",
+          "kind": "require-call",
+          "original": "./enum"
+        },
+        {
+          "path": "node_modules/protobufjs/src/types.js",
+          "kind": "require-call",
+          "original": "./types"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/enum.js": {
+      "bytes": 8016,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/object.js",
+          "kind": "require-call",
+          "original": "./object"
+        },
+        {
+          "path": "node_modules/protobufjs/src/namespace.js",
+          "kind": "require-call",
+          "original": "./namespace"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/field.js": {
+      "bytes": 16192,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/object.js",
+          "kind": "require-call",
+          "original": "./object"
+        },
+        {
+          "path": "node_modules/protobufjs/src/enum.js",
+          "kind": "require-call",
+          "original": "./enum"
+        },
+        {
+          "path": "node_modules/protobufjs/src/types.js",
+          "kind": "require-call",
+          "original": "./types"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/index-light.js": {
+      "bytes": 3635,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/index-minimal.js",
+          "kind": "require-call",
+          "original": "./index-minimal"
+        },
+        {
+          "path": "node_modules/protobufjs/src/encoder.js",
+          "kind": "require-call",
+          "original": "./encoder"
+        },
+        {
+          "path": "node_modules/protobufjs/src/decoder.js",
+          "kind": "require-call",
+          "original": "./decoder"
+        },
+        {
+          "path": "node_modules/protobufjs/src/verifier.js",
+          "kind": "require-call",
+          "original": "./verifier"
+        },
+        {
+          "path": "node_modules/protobufjs/src/converter.js",
+          "kind": "require-call",
+          "original": "./converter"
+        },
+        {
+          "path": "node_modules/protobufjs/src/object.js",
+          "kind": "require-call",
+          "original": "./object"
+        },
+        {
+          "path": "node_modules/protobufjs/src/namespace.js",
+          "kind": "require-call",
+          "original": "./namespace"
+        },
+        {
+          "path": "node_modules/protobufjs/src/root.js",
+          "kind": "require-call",
+          "original": "./root"
+        },
+        {
+          "path": "node_modules/protobufjs/src/enum.js",
+          "kind": "require-call",
+          "original": "./enum"
+        },
+        {
+          "path": "node_modules/protobufjs/src/type.js",
+          "kind": "require-call",
+          "original": "./type"
+        },
+        {
+          "path": "node_modules/protobufjs/src/field.js",
+          "kind": "require-call",
+          "original": "./field"
+        },
+        {
+          "path": "node_modules/protobufjs/src/oneof.js",
+          "kind": "require-call",
+          "original": "./oneof"
+        },
+        {
+          "path": "node_modules/protobufjs/src/mapfield.js",
+          "kind": "require-call",
+          "original": "./mapfield"
+        },
+        {
+          "path": "node_modules/protobufjs/src/service.js",
+          "kind": "require-call",
+          "original": "./service"
+        },
+        {
+          "path": "node_modules/protobufjs/src/method.js",
+          "kind": "require-call",
+          "original": "./method"
+        },
+        {
+          "path": "node_modules/protobufjs/src/message.js",
+          "kind": "require-call",
+          "original": "./message"
+        },
+        {
+          "path": "node_modules/protobufjs/src/wrappers.js",
+          "kind": "require-call",
+          "original": "./wrappers"
+        },
+        {
+          "path": "node_modules/protobufjs/src/types.js",
+          "kind": "require-call",
+          "original": "./types"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/index-minimal.js": {
+      "bytes": 913,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/writer.js",
+          "kind": "require-call",
+          "original": "./writer"
+        },
+        {
+          "path": "node_modules/protobufjs/src/writer_buffer.js",
+          "kind": "require-call",
+          "original": "./writer_buffer"
+        },
+        {
+          "path": "node_modules/protobufjs/src/reader.js",
+          "kind": "require-call",
+          "original": "./reader"
+        },
+        {
+          "path": "node_modules/protobufjs/src/reader_buffer.js",
+          "kind": "require-call",
+          "original": "./reader_buffer"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/minimal.js",
+          "kind": "require-call",
+          "original": "./util/minimal"
+        },
+        {
+          "path": "node_modules/protobufjs/src/rpc.js",
+          "kind": "require-call",
+          "original": "./rpc"
+        },
+        {
+          "path": "node_modules/protobufjs/src/roots.js",
+          "kind": "require-call",
+          "original": "./roots"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/mapfield.js": {
+      "bytes": 4902,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/field.js",
+          "kind": "require-call",
+          "original": "./field"
+        },
+        {
+          "path": "node_modules/protobufjs/src/types.js",
+          "kind": "require-call",
+          "original": "./types"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/message.js": {
+      "bytes": 3904,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/util/minimal.js",
+          "kind": "require-call",
+          "original": "./util/minimal"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/method.js": {
+      "bytes": 5575,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/object.js",
+          "kind": "require-call",
+          "original": "./object"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/namespace.js": {
+      "bytes": 19666,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/object.js",
+          "kind": "require-call",
+          "original": "./object"
+        },
+        {
+          "path": "node_modules/protobufjs/src/field.js",
+          "kind": "require-call",
+          "original": "./field"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        },
+        {
+          "path": "node_modules/protobufjs/src/oneof.js",
+          "kind": "require-call",
+          "original": "./oneof"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/object.js": {
+      "bytes": 12866,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/oneof.js",
+          "kind": "require-call",
+          "original": "./oneof"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/oneof.js": {
+      "bytes": 6705,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/object.js",
+          "kind": "require-call",
+          "original": "./object"
+        },
+        {
+          "path": "node_modules/protobufjs/src/field.js",
+          "kind": "require-call",
+          "original": "./field"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/reader.js": {
+      "bytes": 26588,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/util/minimal.js",
+          "kind": "require-call",
+          "original": "./util/minimal"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/reader_buffer.js": {
+      "bytes": 1839,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/reader.js",
+          "kind": "require-call",
+          "original": "./reader"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/minimal.js",
+          "kind": "require-call",
+          "original": "./util/minimal"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/root.js": {
+      "bytes": 14457,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/namespace.js",
+          "kind": "require-call",
+          "original": "./namespace"
+        },
+        {
+          "path": "node_modules/protobufjs/src/field.js",
+          "kind": "require-call",
+          "original": "./field"
+        },
+        {
+          "path": "node_modules/protobufjs/src/enum.js",
+          "kind": "require-call",
+          "original": "./enum"
+        },
+        {
+          "path": "node_modules/protobufjs/src/oneof.js",
+          "kind": "require-call",
+          "original": "./oneof"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/roots.js": {
+      "bytes": 471,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/rpc.js": {
+      "bytes": 1204,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/rpc/service.js",
+          "kind": "require-call",
+          "original": "./rpc/service"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/rpc/service.js": {
+      "bytes": 4925,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/util/minimal.js",
+          "kind": "require-call",
+          "original": "../util/minimal"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/service.js": {
+      "bytes": 6394,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/namespace.js",
+          "kind": "require-call",
+          "original": "./namespace"
+        },
+        {
+          "path": "node_modules/protobufjs/src/method.js",
+          "kind": "require-call",
+          "original": "./method"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        },
+        {
+          "path": "node_modules/protobufjs/src/rpc.js",
+          "kind": "require-call",
+          "original": "./rpc"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/type.js": {
+      "bytes": 24334,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/namespace.js",
+          "kind": "require-call",
+          "original": "./namespace"
+        },
+        {
+          "path": "node_modules/protobufjs/src/enum.js",
+          "kind": "require-call",
+          "original": "./enum"
+        },
+        {
+          "path": "node_modules/protobufjs/src/oneof.js",
+          "kind": "require-call",
+          "original": "./oneof"
+        },
+        {
+          "path": "node_modules/protobufjs/src/field.js",
+          "kind": "require-call",
+          "original": "./field"
+        },
+        {
+          "path": "node_modules/protobufjs/src/mapfield.js",
+          "kind": "require-call",
+          "original": "./mapfield"
+        },
+        {
+          "path": "node_modules/protobufjs/src/service.js",
+          "kind": "require-call",
+          "original": "./service"
+        },
+        {
+          "path": "node_modules/protobufjs/src/message.js",
+          "kind": "require-call",
+          "original": "./message"
+        },
+        {
+          "path": "node_modules/protobufjs/src/reader.js",
+          "kind": "require-call",
+          "original": "./reader"
+        },
+        {
+          "path": "node_modules/protobufjs/src/writer.js",
+          "kind": "require-call",
+          "original": "./writer"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        },
+        {
+          "path": "node_modules/protobufjs/src/encoder.js",
+          "kind": "require-call",
+          "original": "./encoder"
+        },
+        {
+          "path": "node_modules/protobufjs/src/decoder.js",
+          "kind": "require-call",
+          "original": "./decoder"
+        },
+        {
+          "path": "node_modules/protobufjs/src/verifier.js",
+          "kind": "require-call",
+          "original": "./verifier"
+        },
+        {
+          "path": "node_modules/protobufjs/src/converter.js",
+          "kind": "require-call",
+          "original": "./converter"
+        },
+        {
+          "path": "node_modules/protobufjs/src/wrappers.js",
+          "kind": "require-call",
+          "original": "./wrappers"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/types.js": {
+      "bytes": 5535,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util.js": {
+      "bytes": 7646,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/util/minimal.js",
+          "kind": "require-call",
+          "original": "./util/minimal"
+        },
+        {
+          "path": "node_modules/protobufjs/src/roots.js",
+          "kind": "require-call",
+          "original": "./roots"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/codegen.js",
+          "kind": "require-call",
+          "original": "./util/codegen"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/fetch.js",
+          "kind": "require-call",
+          "original": "./util/fetch"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/path.js",
+          "kind": "require-call",
+          "original": "./util/path"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/patterns.js",
+          "kind": "require-call",
+          "original": "./util/patterns"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/fs.js",
+          "kind": "require-call",
+          "original": "./util/fs"
+        },
+        {
+          "path": "node_modules/protobufjs/src/type.js",
+          "kind": "require-call",
+          "original": "./type"
+        },
+        {
+          "path": "node_modules/protobufjs/src/enum.js",
+          "kind": "require-call",
+          "original": "./enum"
+        },
+        {
+          "path": "node_modules/protobufjs/src/root.js",
+          "kind": "require-call",
+          "original": "./root"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/aspromise.js": {
+      "bytes": 1540,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/base64.js": {
+      "bytes": 4047,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/codegen.js": {
+      "bytes": 4341,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/util/patterns.js",
+          "kind": "require-call",
+          "original": "./patterns"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/eventemitter.js": {
+      "bytes": 2262,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/fetch.js": {
+      "bytes": 3833,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/util/aspromise.js",
+          "kind": "require-call",
+          "original": "./aspromise"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/fs.js",
+          "kind": "require-call",
+          "original": "./fs"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/float.js": {
+      "bytes": 11113,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/fs.js": {
+      "bytes": 256,
+      "imports": [
+        {
+          "path": "(disabled):fs",
+          "kind": "require-call",
+          "original": "fs"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/longbits.js": {
+      "bytes": 5438,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/minimal.js": {
+      "bytes": 15104,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/util/aspromise.js",
+          "kind": "require-call",
+          "original": "./aspromise"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/base64.js",
+          "kind": "require-call",
+          "original": "./base64"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/eventemitter.js",
+          "kind": "require-call",
+          "original": "./eventemitter"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/float.js",
+          "kind": "require-call",
+          "original": "./float"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/utf8.js",
+          "kind": "require-call",
+          "original": "./utf8"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/pool.js",
+          "kind": "require-call",
+          "original": "./pool"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/longbits.js",
+          "kind": "require-call",
+          "original": "./longbits"
+        },
+        {
+          "path": "node_modules/protobufjs/node_modules/long/umd/index.js",
+          "kind": "require-call",
+          "original": "long"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/path.js": {
+      "bytes": 2946,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/patterns.js": {
+      "bytes": 538,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/pool.js": {
+      "bytes": 1190,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/util/utf8.js": {
+      "bytes": 4816,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/verifier.js": {
+      "bytes": 6425,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/enum.js",
+          "kind": "require-call",
+          "original": "./enum"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util.js",
+          "kind": "require-call",
+          "original": "./util"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/wrappers.js": {
+      "bytes": 3823,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/message.js",
+          "kind": "require-call",
+          "original": "./message"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/minimal.js",
+          "kind": "require-call",
+          "original": "./util/minimal"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/writer.js": {
+      "bytes": 20037,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/util/minimal.js",
+          "kind": "require-call",
+          "original": "./util/minimal"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/protobufjs/src/writer_buffer.js": {
+      "bytes": 2328,
+      "imports": [
+        {
+          "path": "node_modules/protobufjs/src/writer.js",
+          "kind": "require-call",
+          "original": "./writer"
+        },
+        {
+          "path": "node_modules/protobufjs/src/util/minimal.js",
+          "kind": "require-call",
+          "original": "./util/minimal"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/classes/comparator.js": {
+      "bytes": 3631,
+      "imports": [
+        {
+          "path": "node_modules/semver/internal/parse-options.js",
+          "kind": "require-call",
+          "original": "../internal/parse-options"
+        },
+        {
+          "path": "node_modules/semver/internal/re.js",
+          "kind": "require-call",
+          "original": "../internal/re"
+        },
+        {
+          "path": "node_modules/semver/functions/cmp.js",
+          "kind": "require-call",
+          "original": "../functions/cmp"
+        },
+        {
+          "path": "node_modules/semver/internal/debug.js",
+          "kind": "require-call",
+          "original": "../internal/debug"
+        },
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "./semver"
+        },
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "./range"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/classes/range.js": {
+      "bytes": 15647,
+      "imports": [
+        {
+          "path": "node_modules/semver/internal/lrucache.js",
+          "kind": "require-call",
+          "original": "../internal/lrucache"
+        },
+        {
+          "path": "node_modules/semver/internal/parse-options.js",
+          "kind": "require-call",
+          "original": "../internal/parse-options"
+        },
+        {
+          "path": "node_modules/semver/classes/comparator.js",
+          "kind": "require-call",
+          "original": "./comparator"
+        },
+        {
+          "path": "node_modules/semver/internal/debug.js",
+          "kind": "require-call",
+          "original": "../internal/debug"
+        },
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "./semver"
+        },
+        {
+          "path": "node_modules/semver/internal/re.js",
+          "kind": "require-call",
+          "original": "../internal/re"
+        },
+        {
+          "path": "node_modules/semver/internal/constants.js",
+          "kind": "require-call",
+          "original": "../internal/constants"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/classes/semver.js": {
+      "bytes": 9891,
+      "imports": [
+        {
+          "path": "node_modules/semver/internal/debug.js",
+          "kind": "require-call",
+          "original": "../internal/debug"
+        },
+        {
+          "path": "node_modules/semver/internal/constants.js",
+          "kind": "require-call",
+          "original": "../internal/constants"
+        },
+        {
+          "path": "node_modules/semver/internal/re.js",
+          "kind": "require-call",
+          "original": "../internal/re"
+        },
+        {
+          "path": "node_modules/semver/internal/parse-options.js",
+          "kind": "require-call",
+          "original": "../internal/parse-options"
+        },
+        {
+          "path": "node_modules/semver/internal/identifiers.js",
+          "kind": "require-call",
+          "original": "../internal/identifiers"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/clean.js": {
+      "bytes": 205,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/parse.js",
+          "kind": "require-call",
+          "original": "./parse"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/cmp.js": {
+      "bytes": 961,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/eq.js",
+          "kind": "require-call",
+          "original": "./eq"
+        },
+        {
+          "path": "node_modules/semver/functions/neq.js",
+          "kind": "require-call",
+          "original": "./neq"
+        },
+        {
+          "path": "node_modules/semver/functions/gt.js",
+          "kind": "require-call",
+          "original": "./gt"
+        },
+        {
+          "path": "node_modules/semver/functions/gte.js",
+          "kind": "require-call",
+          "original": "./gte"
+        },
+        {
+          "path": "node_modules/semver/functions/lt.js",
+          "kind": "require-call",
+          "original": "./lt"
+        },
+        {
+          "path": "node_modules/semver/functions/lte.js",
+          "kind": "require-call",
+          "original": "./lte"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/coerce.js": {
+      "bytes": 2004,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        },
+        {
+          "path": "node_modules/semver/functions/parse.js",
+          "kind": "require-call",
+          "original": "./parse"
+        },
+        {
+          "path": "node_modules/semver/internal/re.js",
+          "kind": "require-call",
+          "original": "../internal/re"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/compare-build.js": {
+      "bytes": 281,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/compare-loose.js": {
+      "bytes": 132,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "./compare"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/compare.js": {
+      "bytes": 170,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/diff.js": {
+      "bytes": 1423,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/parse.js",
+          "kind": "require-call",
+          "original": "./parse.js"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/eq.js": {
+      "bytes": 126,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "./compare"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/gt.js": {
+      "bytes": 124,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "./compare"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/gte.js": {
+      "bytes": 127,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "./compare"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/inc.js": {
+      "bytes": 478,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/lt.js": {
+      "bytes": 124,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "./compare"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/lte.js": {
+      "bytes": 127,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "./compare"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/major.js": {
+      "bytes": 136,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/minor.js": {
+      "bytes": 136,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/neq.js": {
+      "bytes": 128,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "./compare"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/parse.js": {
+      "bytes": 331,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/patch.js": {
+      "bytes": 136,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/prerelease.js": {
+      "bytes": 234,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/parse.js",
+          "kind": "require-call",
+          "original": "./parse"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/rcompare.js": {
+      "bytes": 132,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "./compare"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/rsort.js": {
+      "bytes": 163,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/compare-build.js",
+          "kind": "require-call",
+          "original": "./compare-build"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/satisfies.js": {
+      "bytes": 247,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "../classes/range"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/sort.js": {
+      "bytes": 161,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/compare-build.js",
+          "kind": "require-call",
+          "original": "./compare-build"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/truncate.js": {
+      "bytes": 1021,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/parse.js",
+          "kind": "require-call",
+          "original": "./parse"
+        },
+        {
+          "path": "node_modules/semver/internal/constants.js",
+          "kind": "require-call",
+          "original": "../internal/constants"
+        },
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/functions/valid.js": {
+      "bytes": 176,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/parse.js",
+          "kind": "require-call",
+          "original": "./parse"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/index.js": {
+      "bytes": 2691,
+      "imports": [
+        {
+          "path": "node_modules/semver/internal/re.js",
+          "kind": "require-call",
+          "original": "./internal/re"
+        },
+        {
+          "path": "node_modules/semver/internal/constants.js",
+          "kind": "require-call",
+          "original": "./internal/constants"
+        },
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "./classes/semver"
+        },
+        {
+          "path": "node_modules/semver/internal/identifiers.js",
+          "kind": "require-call",
+          "original": "./internal/identifiers"
+        },
+        {
+          "path": "node_modules/semver/functions/parse.js",
+          "kind": "require-call",
+          "original": "./functions/parse"
+        },
+        {
+          "path": "node_modules/semver/functions/valid.js",
+          "kind": "require-call",
+          "original": "./functions/valid"
+        },
+        {
+          "path": "node_modules/semver/functions/clean.js",
+          "kind": "require-call",
+          "original": "./functions/clean"
+        },
+        {
+          "path": "node_modules/semver/functions/inc.js",
+          "kind": "require-call",
+          "original": "./functions/inc"
+        },
+        {
+          "path": "node_modules/semver/functions/diff.js",
+          "kind": "require-call",
+          "original": "./functions/diff"
+        },
+        {
+          "path": "node_modules/semver/functions/major.js",
+          "kind": "require-call",
+          "original": "./functions/major"
+        },
+        {
+          "path": "node_modules/semver/functions/minor.js",
+          "kind": "require-call",
+          "original": "./functions/minor"
+        },
+        {
+          "path": "node_modules/semver/functions/patch.js",
+          "kind": "require-call",
+          "original": "./functions/patch"
+        },
+        {
+          "path": "node_modules/semver/functions/prerelease.js",
+          "kind": "require-call",
+          "original": "./functions/prerelease"
+        },
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "./functions/compare"
+        },
+        {
+          "path": "node_modules/semver/functions/rcompare.js",
+          "kind": "require-call",
+          "original": "./functions/rcompare"
+        },
+        {
+          "path": "node_modules/semver/functions/compare-loose.js",
+          "kind": "require-call",
+          "original": "./functions/compare-loose"
+        },
+        {
+          "path": "node_modules/semver/functions/compare-build.js",
+          "kind": "require-call",
+          "original": "./functions/compare-build"
+        },
+        {
+          "path": "node_modules/semver/functions/sort.js",
+          "kind": "require-call",
+          "original": "./functions/sort"
+        },
+        {
+          "path": "node_modules/semver/functions/rsort.js",
+          "kind": "require-call",
+          "original": "./functions/rsort"
+        },
+        {
+          "path": "node_modules/semver/functions/gt.js",
+          "kind": "require-call",
+          "original": "./functions/gt"
+        },
+        {
+          "path": "node_modules/semver/functions/lt.js",
+          "kind": "require-call",
+          "original": "./functions/lt"
+        },
+        {
+          "path": "node_modules/semver/functions/eq.js",
+          "kind": "require-call",
+          "original": "./functions/eq"
+        },
+        {
+          "path": "node_modules/semver/functions/neq.js",
+          "kind": "require-call",
+          "original": "./functions/neq"
+        },
+        {
+          "path": "node_modules/semver/functions/gte.js",
+          "kind": "require-call",
+          "original": "./functions/gte"
+        },
+        {
+          "path": "node_modules/semver/functions/lte.js",
+          "kind": "require-call",
+          "original": "./functions/lte"
+        },
+        {
+          "path": "node_modules/semver/functions/cmp.js",
+          "kind": "require-call",
+          "original": "./functions/cmp"
+        },
+        {
+          "path": "node_modules/semver/functions/coerce.js",
+          "kind": "require-call",
+          "original": "./functions/coerce"
+        },
+        {
+          "path": "node_modules/semver/functions/truncate.js",
+          "kind": "require-call",
+          "original": "./functions/truncate"
+        },
+        {
+          "path": "node_modules/semver/classes/comparator.js",
+          "kind": "require-call",
+          "original": "./classes/comparator"
+        },
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "./classes/range"
+        },
+        {
+          "path": "node_modules/semver/functions/satisfies.js",
+          "kind": "require-call",
+          "original": "./functions/satisfies"
+        },
+        {
+          "path": "node_modules/semver/ranges/to-comparators.js",
+          "kind": "require-call",
+          "original": "./ranges/to-comparators"
+        },
+        {
+          "path": "node_modules/semver/ranges/max-satisfying.js",
+          "kind": "require-call",
+          "original": "./ranges/max-satisfying"
+        },
+        {
+          "path": "node_modules/semver/ranges/min-satisfying.js",
+          "kind": "require-call",
+          "original": "./ranges/min-satisfying"
+        },
+        {
+          "path": "node_modules/semver/ranges/min-version.js",
+          "kind": "require-call",
+          "original": "./ranges/min-version"
+        },
+        {
+          "path": "node_modules/semver/ranges/valid.js",
+          "kind": "require-call",
+          "original": "./ranges/valid"
+        },
+        {
+          "path": "node_modules/semver/ranges/outside.js",
+          "kind": "require-call",
+          "original": "./ranges/outside"
+        },
+        {
+          "path": "node_modules/semver/ranges/gtr.js",
+          "kind": "require-call",
+          "original": "./ranges/gtr"
+        },
+        {
+          "path": "node_modules/semver/ranges/ltr.js",
+          "kind": "require-call",
+          "original": "./ranges/ltr"
+        },
+        {
+          "path": "node_modules/semver/ranges/intersects.js",
+          "kind": "require-call",
+          "original": "./ranges/intersects"
+        },
+        {
+          "path": "node_modules/semver/ranges/simplify.js",
+          "kind": "require-call",
+          "original": "./ranges/simplify"
+        },
+        {
+          "path": "node_modules/semver/ranges/subset.js",
+          "kind": "require-call",
+          "original": "./ranges/subset"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/internal/constants.js": {
+      "bytes": 873,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/semver/internal/debug.js": {
+      "bytes": 240,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/semver/internal/identifiers.js": {
+      "bytes": 525,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/semver/internal/lrucache.js": {
+      "bytes": 802,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/semver/internal/parse-options.js": {
+      "bytes": 338,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/semver/internal/re.js": {
+      "bytes": 8139,
+      "imports": [
+        {
+          "path": "node_modules/semver/internal/constants.js",
+          "kind": "require-call",
+          "original": "./constants"
+        },
+        {
+          "path": "node_modules/semver/internal/debug.js",
+          "kind": "require-call",
+          "original": "./debug"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/gtr.js": {
+      "bytes": 231,
+      "imports": [
+        {
+          "path": "node_modules/semver/ranges/outside.js",
+          "kind": "require-call",
+          "original": "./outside"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/intersects.js": {
+      "bytes": 224,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "../classes/range"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/ltr.js": {
+      "bytes": 227,
+      "imports": [
+        {
+          "path": "node_modules/semver/ranges/outside.js",
+          "kind": "require-call",
+          "original": "./outside"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/max-satisfying.js": {
+      "bytes": 593,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        },
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "../classes/range"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/min-satisfying.js": {
+      "bytes": 591,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        },
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "../classes/range"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/min-version.js": {
+      "bytes": 1514,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        },
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "../classes/range"
+        },
+        {
+          "path": "node_modules/semver/functions/gt.js",
+          "kind": "require-call",
+          "original": "../functions/gt"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/outside.js": {
+      "bytes": 2204,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/semver.js",
+          "kind": "require-call",
+          "original": "../classes/semver"
+        },
+        {
+          "path": "node_modules/semver/classes/comparator.js",
+          "kind": "require-call",
+          "original": "../classes/comparator"
+        },
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "../classes/range"
+        },
+        {
+          "path": "node_modules/semver/functions/satisfies.js",
+          "kind": "require-call",
+          "original": "../functions/satisfies"
+        },
+        {
+          "path": "node_modules/semver/functions/gt.js",
+          "kind": "require-call",
+          "original": "../functions/gt"
+        },
+        {
+          "path": "node_modules/semver/functions/lt.js",
+          "kind": "require-call",
+          "original": "../functions/lt"
+        },
+        {
+          "path": "node_modules/semver/functions/lte.js",
+          "kind": "require-call",
+          "original": "../functions/lte"
+        },
+        {
+          "path": "node_modules/semver/functions/gte.js",
+          "kind": "require-call",
+          "original": "../functions/gte"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/simplify.js": {
+      "bytes": 1355,
+      "imports": [
+        {
+          "path": "node_modules/semver/functions/satisfies.js",
+          "kind": "require-call",
+          "original": "../functions/satisfies.js"
+        },
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "../functions/compare.js"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/subset.js": {
+      "bytes": 7478,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "../classes/range.js"
+        },
+        {
+          "path": "node_modules/semver/classes/comparator.js",
+          "kind": "require-call",
+          "original": "../classes/comparator.js"
+        },
+        {
+          "path": "node_modules/semver/functions/satisfies.js",
+          "kind": "require-call",
+          "original": "../functions/satisfies.js"
+        },
+        {
+          "path": "node_modules/semver/functions/compare.js",
+          "kind": "require-call",
+          "original": "../functions/compare.js"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/to-comparators.js": {
+      "bytes": 282,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "../classes/range"
+        }
+      ],
+      "format": "cjs"
+    },
+    "node_modules/semver/ranges/valid.js": {
+      "bytes": 326,
+      "imports": [
+        {
+          "path": "node_modules/semver/classes/range.js",
+          "kind": "require-call",
+          "original": "../classes/range"
+        }
+      ],
+      "format": "cjs"
+    }
+  },
+  "outputs": {
+    "electron/onekey-ble/renderer.bundle.mjs": {
+      "imports": [],
+      "exports": [],
+      "entryPoint": "electron/onekey-ble/renderer.mjs",
+      "inputs": {
+        "node_modules/@onekeyfe/hd-shared/dist/index.js": {
+          "bytesInOutput": 38710
+        },
+        "node_modules/@noble/hashes/_assert.js": {
+          "bytesInOutput": 1819
+        },
+        "node_modules/@noble/hashes/crypto.js": {
+          "bytesInOutput": 316
+        },
+        "node_modules/@noble/hashes/utils.js": {
+          "bytesInOutput": 5468
+        },
+        "node_modules/@noble/hashes/_sha2.js": {
+          "bytesInOutput": 3757
+        },
+        "node_modules/@noble/hashes/sha256.js": {
+          "bytesInOutput": 4648
+        },
+        "node_modules/semver/internal/constants.js": {
+          "bytesInOutput": 771
+        },
+        "node_modules/semver/internal/debug.js": {
+          "bytesInOutput": 344
+        },
+        "node_modules/semver/internal/re.js": {
+          "bytesInOutput": 5169
+        },
+        "node_modules/semver/internal/parse-options.js": {
+          "bytesInOutput": 464
+        },
+        "node_modules/semver/internal/identifiers.js": {
+          "bytesInOutput": 693
+        },
+        "node_modules/semver/classes/semver.js": {
+          "bytesInOutput": 9869
+        },
+        "node_modules/semver/functions/parse.js": {
+          "bytesInOutput": 488
+        },
+        "node_modules/semver/functions/valid.js": {
+          "bytesInOutput": 305
+        },
+        "node_modules/semver/functions/clean.js": {
+          "bytesInOutput": 334
+        },
+        "node_modules/semver/functions/inc.js": {
+          "bytesInOutput": 634
+        },
+        "node_modules/semver/functions/diff.js": {
+          "bytesInOutput": 1288
+        },
+        "node_modules/semver/functions/major.js": {
+          "bytesInOutput": 242
+        },
+        "node_modules/semver/functions/minor.js": {
+          "bytesInOutput": 242
+        },
+        "node_modules/semver/functions/patch.js": {
+          "bytesInOutput": 242
+        },
+        "node_modules/semver/functions/prerelease.js": {
+          "bytesInOutput": 371
+        },
+        "node_modules/semver/functions/compare.js": {
+          "bytesInOutput": 277
+        },
+        "node_modules/semver/functions/rcompare.js": {
+          "bytesInOutput": 253
+        },
+        "node_modules/semver/functions/compare-loose.js": {
+          "bytesInOutput": 263
+        },
+        "node_modules/semver/functions/compare-build.js": {
+          "bytesInOutput": 422
+        },
+        "node_modules/semver/functions/sort.js": {
+          "bytesInOutput": 274
+        },
+        "node_modules/semver/functions/rsort.js": {
+          "bytesInOutput": 278
+        },
+        "node_modules/semver/functions/gt.js": {
+          "bytesInOutput": 233
+        },
+        "node_modules/semver/functions/lt.js": {
+          "bytesInOutput": 233
+        },
+        "node_modules/semver/functions/eq.js": {
+          "bytesInOutput": 235
+        },
+        "node_modules/semver/functions/neq.js": {
+          "bytesInOutput": 239
+        },
+        "node_modules/semver/functions/gte.js": {
+          "bytesInOutput": 238
+        },
+        "node_modules/semver/functions/lte.js": {
+          "bytesInOutput": 238
+        },
+        "node_modules/semver/functions/cmp.js": {
+          "bytesInOutput": 1216
+        },
+        "node_modules/semver/functions/coerce.js": {
+          "bytesInOutput": 1634
+        },
+        "node_modules/semver/functions/truncate.js": {
+          "bytesInOutput": 1230
+        },
+        "node_modules/semver/internal/lrucache.js": {
+          "bytesInOutput": 932
+        },
+        "node_modules/semver/classes/range.js": {
+          "bytesInOutput": 13028
+        },
+        "node_modules/semver/classes/comparator.js": {
+          "bytesInOutput": 3716
+        },
+        "node_modules/semver/functions/satisfies.js": {
+          "bytesInOutput": 392
+        },
+        "node_modules/semver/ranges/to-comparators.js": {
+          "bytesInOutput": 348
+        },
+        "node_modules/semver/ranges/max-satisfying.js": {
+          "bytesInOutput": 714
+        },
+        "node_modules/semver/ranges/min-satisfying.js": {
+          "bytesInOutput": 713
+        },
+        "node_modules/semver/ranges/min-version.js": {
+          "bytesInOutput": 1699
+        },
+        "node_modules/semver/ranges/valid.js": {
+          "bytesInOutput": 352
+        },
+        "node_modules/semver/ranges/outside.js": {
+          "bytesInOutput": 2054
+        },
+        "node_modules/semver/ranges/gtr.js": {
+          "bytesInOutput": 259
+        },
+        "node_modules/semver/ranges/ltr.js": {
+          "bytesInOutput": 259
+        },
+        "node_modules/semver/ranges/intersects.js": {
+          "bytesInOutput": 356
+        },
+        "node_modules/semver/ranges/simplify.js": {
+          "bytesInOutput": 1415
+        },
+        "node_modules/semver/ranges/subset.js": {
+          "bytesInOutput": 5380
+        },
+        "node_modules/semver/index.js": {
+          "bytesInOutput": 2545
+        },
+        "node_modules/protobufjs/src/util/aspromise.js": {
+          "bytesInOutput": 1063
+        },
+        "node_modules/protobufjs/src/util/base64.js": {
+          "bytesInOutput": 3005
+        },
+        "node_modules/protobufjs/src/util/eventemitter.js": {
+          "bytesInOutput": 1380
+        },
+        "node_modules/protobufjs/src/util/float.js": {
+          "bytesInOutput": 7990
+        },
+        "node_modules/protobufjs/src/util/utf8.js": {
+          "bytesInOutput": 3945
+        },
+        "node_modules/protobufjs/src/util/pool.js": {
+          "bytesInOutput": 663
+        },
+        "node_modules/protobufjs/src/util/longbits.js": {
+          "bytesInOutput": 3628
+        },
+        "node_modules/protobufjs/node_modules/long/umd/index.js": {
+          "bytesInOutput": 32633
+        },
+        "node_modules/protobufjs/src/util/minimal.js": {
+          "bytesInOutput": 7597
+        },
+        "node_modules/protobufjs/src/writer.js": {
+          "bytesInOutput": 13316
+        },
+        "node_modules/protobufjs/src/writer_buffer.js": {
+          "bytesInOutput": 1977
+        },
+        "node_modules/protobufjs/src/reader.js": {
+          "bytesInOutput": 19430
+        },
+        "node_modules/protobufjs/src/reader_buffer.js": {
+          "bytesInOutput": 1219
+        },
+        "node_modules/protobufjs/src/rpc/service.js": {
+          "bytesInOutput": 2590
+        },
+        "node_modules/protobufjs/src/rpc.js": {
+          "bytesInOutput": 167
+        },
+        "node_modules/protobufjs/src/roots.js": {
+          "bytesInOutput": 177
+        },
+        "node_modules/protobufjs/src/index-minimal.js": {
+          "bytesInOutput": 702
+        },
+        "node_modules/protobufjs/src/util/patterns.js": {
+          "bytesInOutput": 654
+        },
+        "node_modules/protobufjs/src/util/codegen.js": {
+          "bytesInOutput": 2999
+        },
+        "(disabled):fs": {
+          "bytesInOutput": 60
+        },
+        "node_modules/protobufjs/src/util/fs.js": {
+          "bytesInOutput": 292
+        },
+        "node_modules/protobufjs/src/util/fetch.js": {
+          "bytesInOutput": 1903
+        },
+        "node_modules/protobufjs/src/util/path.js": {
+          "bytesInOutput": 2760
+        },
+        "node_modules/protobufjs/src/namespace.js": {
+          "bytesInOutput": 11039
+        },
+        "node_modules/protobufjs/src/mapfield.js": {
+          "bytesInOutput": 2693
+        },
+        "node_modules/protobufjs/src/method.js": {
+          "bytesInOutput": 3089
+        },
+        "node_modules/protobufjs/src/service.js": {
+          "bytesInOutput": 4794
+        },
+        "node_modules/protobufjs/src/message.js": {
+          "bytesInOutput": 1466
+        },
+        "node_modules/protobufjs/src/decoder.js": {
+          "bytesInOutput": 7972
+        },
+        "node_modules/protobufjs/src/verifier.js": {
+          "bytesInOutput": 4715
+        },
+        "node_modules/protobufjs/src/converter.js": {
+          "bytesInOutput": 11770
+        },
+        "node_modules/protobufjs/src/wrappers.js": {
+          "bytesInOutput": 2315
+        },
+        "node_modules/protobufjs/src/type.js": {
+          "bytesInOutput": 14725
+        },
+        "node_modules/protobufjs/src/root.js": {
+          "bytesInOutput": 8825
+        },
+        "node_modules/protobufjs/src/util.js": {
+          "bytesInOutput": 4714
+        },
+        "node_modules/protobufjs/src/types.js": {
+          "bytesInOutput": 2818
+        },
+        "node_modules/protobufjs/src/field.js": {
+          "bytesInOutput": 8643
+        },
+        "node_modules/protobufjs/src/oneof.js": {
+          "bytesInOutput": 4010
+        },
+        "node_modules/protobufjs/src/object.js": {
+          "bytesInOutput": 8504
+        },
+        "node_modules/protobufjs/src/enum.js": {
+          "bytesInOutput": 4739
+        },
+        "node_modules/protobufjs/src/encoder.js": {
+          "bytesInOutput": 4265
+        },
+        "node_modules/protobufjs/src/index-light.js": {
+          "bytesInOutput": 1621
+        },
+        "node_modules/protobufjs/light.js": {
+          "bytesInOutput": 159
+        },
+        "node_modules/long/src/long.js": {
+          "bytesInOutput": 23177
+        },
+        "node_modules/bytebuffer/node_modules/long/dist/long.js": {
+          "bytesInOutput": 19273
+        },
+        "node_modules/bytebuffer/dist/bytebuffer.js": {
+          "bytesInOutput": 93136
+        },
+        "node_modules/base64-js/index.js": {
+          "bytesInOutput": 3692
+        },
+        "node_modules/ieee754/index.js": {
+          "bytesInOutput": 2472
+        },
+        "node_modules/buffer/index.js": {
+          "bytesInOutput": 57009
+        },
+        "node_modules/@onekeyfe/hd-transport/dist/index.js": {
+          "bytesInOutput": 130768
+        },
+        "electron/onekey-ble/blocked-module.mjs": {
+          "bytesInOutput": 666
+        },
+        "node_modules/lodash/lodash.js": {
+          "bytesInOutput": 224125
+        },
+        "node_modules/@noble/hashes/_blake2.js": {
+          "bytesInOutput": 5424
+        },
+        "node_modules/@noble/hashes/_u64.js": {
+          "bytesInOutput": 3461
+        },
+        "node_modules/@noble/hashes/blake2s.js": {
+          "bytesInOutput": 5090
+        },
+        "node_modules/bignumber.js/bignumber.js": {
+          "bytesInOutput": 50114
+        },
+        "node_modules/jszip/dist/jszip.min.js": {
+          "bytesInOutput": 151160
+        },
+        "node_modules/jpeg-js/lib/encoder.js": {
+          "bytesInOutput": 24484
+        },
+        "node_modules/jpeg-js/lib/decoder.js": {
+          "bytesInOutput": 40669
+        },
+        "node_modules/jpeg-js/index.js": {
+          "bytesInOutput": 227
+        },
+        "node_modules/@noble/hashes/sha3.js": {
+          "bytesInOutput": 7240
+        },
+        "node_modules/@noble/hashes/blake2b.js": {
+          "bytesInOutput": 7105
+        },
+        "node_modules/@onekeyfe/hd-core/package.json": {
+          "bytesInOutput": 1679
+        },
+        "node_modules/@onekeyfe/hd-core/dist/index.js": {
+          "bytesInOutput": 2285589
+        },
+        "node_modules/@onekeyfe/hd-transport-web-device/dist/index.js": {
+          "bytesInOutput": 75580
+        },
+        "node_modules/@onekeyfe/hd-common-connect-sdk/dist/index.js": {
+          "bytesInOutput": 27337
+        },
+        "electron/onekey-ble/renderer.mjs": {
+          "bytesInOutput": 3076
+        }
+      },
+      "bytes": 3590390
+    }
+  }
+}

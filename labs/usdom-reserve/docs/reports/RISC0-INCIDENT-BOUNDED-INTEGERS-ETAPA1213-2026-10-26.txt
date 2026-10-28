@@ -1,0 +1,18 @@
+Stage 1213 — bounded RISC Zero incident integers and pilot publication revalidation
+Date: 2026-10-26
+
+Changes
+- RISC Zero incident-response snapshot integers now apply lexical ceilings for uint64 and uint256 before BigInt, retaining exact range enforcement.
+- The pilot gas-funding static assertion now identifies the actual private publication helper and proves the second funding check precedes it. The requirement was preserved; the stale former `cast publish` marker was replaced after publication moved to the hardened helper.
+
+Security result
+- A response snapshot cannot force arbitrary-size conversion through chain, queue-epoch or resume-time fields.
+- Pilot deposit and redemption scripts are again statically proven to recheck funding before their current publication boundary.
+- Regressions reject a 100,000-digit queue epoch and exact 2^64.
+
+Validation
+- Broad focused selection: pilot funding/cost, RISC Zero health and incident response.
+- Result: 18/18 pass, including the isolated local response drill and both executor-order assertions.
+- Node syntax and targeted git diff --check pass.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

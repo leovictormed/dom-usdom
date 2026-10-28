@@ -20,14 +20,60 @@ class ReleaseDependencyPolicyTest(unittest.TestCase):
                        "NPM_INSTALL_SCRIPT_ALLOWLIST", "branch|tag", "unsafe"):
             self.assertIn(marker,text)
 
+    def test_reviewed_build_script_inventory_is_exact(self):
+        spec=importlib.util.spec_from_file_location("release_dependency_policy_build_scripts",SCRIPT)
+        module=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        reviewed=dict(module.CARGO_BUILD_SCRIPT_ALLOWLIST)
+        self.assertEqual(
+            reviewed["crates/dom-rpc/build.rs"],
+            "8962aed292be3a5bbf0a324bea72b0c25530fce2c3415742e3144f54e55d369c")
+        module.validate_build_script_hashes(dict(reviewed),reviewed)
+        changed=dict(reviewed)
+        changed["crates/dom-rpc/build.rs"]="0"*64
+        with self.assertRaisesRegex(SystemExit,"identities differ"):
+            module.validate_build_script_hashes(changed,reviewed)
+        added=dict(reviewed);added["unreviewed/build.rs"]="1"*64
+        with self.assertRaisesRegex(SystemExit,"identities differ"):
+            module.validate_build_script_hashes(added,reviewed)
+
+    def test_build_scripts_cannot_spawn_path_selected_tools(self):
+        spec=importlib.util.spec_from_file_location("release_dependency_policy_build_exec",SCRIPT)
+        module=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.validate_build_script_execution('fn main() { println!("ok"); }',"safe/build.rs")
+        with self.assertRaisesRegex(SystemExit,"ambient child process"):
+            module.validate_build_script_execution(
+                'use std::process::Command; fn main(){ Command::new("git").status(); }',
+                "unsafe/build.rs")
+
     def test_generated_trees_are_pruned_before_dependency_parsing(self):
         spec=importlib.util.spec_from_file_location("release_dependency_policy",SCRIPT)
         module=importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
-            (root/"Cargo.lock").write_text("version = 4\n")
-            (root/"Cargo.toml").write_text("[package]\nname='root'\nversion='0.1.0'\n")
+            (root/"Cargo.lock").write_text("version = 4\npackage = []\n")
+            (root/"Cargo.toml").write_text("""[package]
+name='root'
+version='0.1.0'
+[workspace]
+resolver='2'
+[workspace.package]
+edition='2021'
+rust-version='1.75'
+[profile.release]
+opt-level=3
+lto='fat'
+codegen-units=1
+panic='abort'
+overflow-checks=true
+[profile.release-validation]
+inherits='release'
+debug=1
+[profile.dev]
+overflow-checks=true
+""")
             for generated in ("target","node_modules",".git"):
                 hidden=root/generated/"deep"
                 hidden.mkdir(parents=True)
@@ -36,8 +82,11 @@ class ReleaseDependencyPolicyTest(unittest.TestCase):
             original=module.ROOT
             module.ROOT=root
             try:
-                self.assertEqual(module.cargo_locks(),(1,0))
-                self.assertEqual(module.cargo_manifests(),1)
+                self.assertEqual(module.cargo_locks(),(1,0,set()))
+                manifests=module.release_files("Cargo.toml",frozenset({".git","node_modules","target"}))
+                self.assertEqual(manifests,[root/"Cargo.toml"])
+                parsed=module.strict_toml(manifests[0].read_text(),"Cargo.toml")
+                self.assertEqual(parsed["workspace"]["resolver"],"2")
             finally:
                 module.ROOT=original
 

@@ -20,11 +20,77 @@ use dom_rpc::{
 #[cfg(feature = "native-usdom-v4-poc")]
 use dom_rpc::{
     UsdomV2CandidateSubmissionV1, UsdomV4HistoryAnchorV1, UsdomV4HistoryBlockV1,
-    UsdomV4HistoryContinuationV1, UsdomV4HistoryTransitionV1, MAX_USDOM_V4_HISTORY_BLOCKS_V1,
-    USDOM_V4_HISTORY_RESPONSE_SOFT_LIMIT_BYTES_V1,
+    UsdomV4HistoryContinuationV1, UsdomV4HistoryTransitionV1, UsdomV4IssuancePairStateV1,
+    MAX_USDOM_V4_HISTORY_BLOCKS_V1, USDOM_V4_HISTORY_RESPONSE_SOFT_LIMIT_BYTES_V1,
 };
 use dom_serialization::{DomDeserialize, DomSerialize};
 use std::sync::Arc;
+
+#[cfg(feature = "native-usdom-v4-poc")]
+fn issuance_status_scan_window(
+    first_v4_height: u64,
+    tip_height: u64,
+    has_canonical_issuance: bool,
+) -> Result<Option<(u64, u64)>, RpcError> {
+    // Consumed deposits are append-only in canonical native state (and are
+    // removed only when the introducing block is disconnected). Therefore an
+    // absent canonical issuance cannot have a canonical inclusion. Avoid
+    // authenticating up to 256 persisted blocks for attacker-selected absent
+    // deposit identifiers while retaining the chain/runtime snapshot locks.
+    if !has_canonical_issuance {
+        return Ok(None);
+    }
+    if first_v4_height > tip_height {
+        return Err(RpcError::Internal(
+            "canonical native USDOM issuance exists before v4 activation".into(),
+        ));
+    }
+    let scanned_from = first_v4_height.max(
+        tip_height
+            .saturating_sub(dom_rpc::MAX_USDOM_V4_ISSUANCE_STATUS_BLOCKS_V1.saturating_sub(1)),
+    );
+    Ok(Some((scanned_from, tip_height)))
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+fn effective_issuance_queue_state(
+    pool_contains_exact_pair: bool,
+    has_canonical_issuance: bool,
+) -> bool {
+    // Canonical consumption permanently makes every queued candidate for the
+    // same deposit stale. Cleanup follows canonical ingress asynchronously, so
+    // report the effective state machine rather than exposing that transient
+    // implementation detail as `queued && consumed`.
+    pool_contains_exact_pair && !has_canonical_issuance
+}
+
+#[cfg(feature = "native-usdom-v4-poc")]
+fn issuance_pair_state(
+    queued: bool,
+    consumed: bool,
+    canonical_inclusion: bool,
+    history_truncated: bool,
+) -> Result<UsdomV4IssuancePairStateV1, RpcError> {
+    if (queued && consumed)
+        || (canonical_inclusion && !consumed)
+        || (history_truncated && !consumed)
+    {
+        return Err(RpcError::Internal(
+            "incoherent native USDOM issuance reconciliation state".into(),
+        ));
+    }
+    Ok(if canonical_inclusion {
+        UsdomV4IssuancePairStateV1::Canonical
+    } else if consumed && history_truncated {
+        UsdomV4IssuancePairStateV1::HistoryTruncated
+    } else if consumed {
+        UsdomV4IssuancePairStateV1::CandidateMismatch
+    } else if queued {
+        UsdomV4IssuancePairStateV1::Queued
+    } else {
+        UsdomV4IssuancePairStateV1::Absent
+    })
+}
 
 #[cfg(feature = "native-usdom-v4-poc")]
 const _: () = {
@@ -111,6 +177,13 @@ impl NodeHandle for NodeHandleImpl {
         })
     }
 
+    fn is_shutting_down(&self) -> bool {
+        // Critical supervised task failures trip the same long-lived token as
+        // an explicit shutdown, so readiness becomes false before the RPC
+        // listener finishes draining.
+        self.0.task_supervisor.is_shutdown()
+    }
+
     fn submit_usdom_v4_private_transfer_v1(&self, payload: Vec<u8>) -> UsdomV4TransferSubmitFuture {
         let node = Arc::clone(&self.0);
         Box::pin(async move {
@@ -145,7 +218,7 @@ impl NodeHandle for NodeHandleImpl {
                     .as_secs();
                 let candidate_id = node
                     .submit_native_usdom_v4_mining_envelope(
-                        &envelope_bytes,
+                        envelope_bytes,
                         dom_core::Timestamp(now),
                     )
                     .await
@@ -210,7 +283,7 @@ impl NodeHandle for NodeHandleImpl {
                     .as_secs();
                 let candidate_id = node
                     .submit_native_usdom_v4_mining_envelope(
-                        &envelope_bytes,
+                        envelope_bytes,
                         dom_core::Timestamp(now),
                     )
                     .await
@@ -261,7 +334,7 @@ impl NodeHandle for NodeHandleImpl {
                     .as_secs();
                 let candidate_id = node
                     .submit_native_usdom_v4_mining_envelope(
-                        &envelope_bytes,
+                        envelope_bytes,
                         dom_core::Timestamp(now),
                     )
                     .await
@@ -334,8 +407,11 @@ impl NodeHandle for NodeHandleImpl {
             }
 
             let candidate_id = dom_core::Hash256::from_bytes(request.candidate_id);
-            let queued = runtime.has_queued_issuance_candidate(candidate_id, &request.deposit_id);
             let issuance = runtime.state().issuance(&request.deposit_id);
+            let queued = effective_issuance_queue_state(
+                runtime.has_queued_issuance_candidate(candidate_id, &request.deposit_id),
+                issuance.is_some(),
+            );
             let issuance_commitment = issuance
                 .map(|record| {
                     dom_usdom_state::TransitionCommitmentProjection::Issue {
@@ -352,73 +428,74 @@ impl NodeHandle for NodeHandleImpl {
                     ))
                 })?;
 
-            let scan_width = dom_rpc::MAX_USDOM_V4_ISSUANCE_STATUS_BLOCKS_V1;
-            let scanned_to = identity.current_tip.height;
-            let scanned_from = runtime
-                .activation_schedule()
-                .first_v4_height()
-                .max(scanned_to.saturating_sub(scan_width.saturating_sub(1)));
+            let tip_height = identity.current_tip.height;
+            let first_v4_height = runtime.activation_schedule().first_v4_height();
+            let scan_window =
+                issuance_status_scan_window(first_v4_height, tip_height, issuance.is_some())?;
             let mut inclusion = None;
-            if scanned_from <= scanned_to {
-                for height in scanned_from..=scanned_to {
-                    let block_hash = chain
-                        .store
-                        .get_hash_at_height(height)
-                        .map_err(|error| RpcError::Internal(error.to_string()))?
-                        .ok_or_else(|| {
-                            RpcError::CanonicalGap(format!(
-                                "canonical block missing at height {height}"
-                            ))
-                        })?;
-                    let history = dom_chain::load_authenticated_usdom_v4_history_block(
-                        &chain.store,
-                        chain.network_magic,
-                        runtime.bridge_identity().dom_domain,
-                        dom_core::Hash256::from_bytes(block_hash),
-                    )
-                    .map_err(|error| {
-                        RpcError::CanonicalGap(format!(
-                            "authenticated native USDOM history failed at height {height}: {error}"
-                        ))
-                    })?;
-                    if history.candidate_id != candidate_id {
-                        continue;
-                    }
-                    for (index, transition) in history.transitions.iter().enumerate() {
-                        let dom_usdom_state::TransitionCommitmentProjection::Issue {
-                            record, ..
-                        } = &transition.projection
-                        else {
-                            continue;
-                        };
-                        if record.deposit_id != request.deposit_id {
-                            continue;
-                        }
-                        let transition_index = u32::try_from(index).map_err(|_| {
-                            RpcError::Internal(
-                                "native USDOM issuance transition index overflow".into(),
-                            )
-                        })?;
-                        let transition_commitment = transition
-                            .projection
-                            .consensus_commitment()
-                            .map_err(|error| {
-                                RpcError::Internal(format!(
-                                    "authenticated issuance projection is invalid: {error}"
+            if let Some((scanned_from, scanned_to)) = scan_window {
+                if scanned_from <= scanned_to {
+                    for height in scanned_from..=scanned_to {
+                        let block_hash = chain
+                            .store
+                            .get_hash_at_height(height)
+                            .map_err(|error| RpcError::Internal(error.to_string()))?
+                            .ok_or_else(|| {
+                                RpcError::CanonicalGap(format!(
+                                    "canonical block missing at height {height}"
                                 ))
                             })?;
-                        if inclusion
-                            .replace(dom_rpc::UsdomV4IssuanceInclusionV1 {
-                                height,
-                                block_hash,
-                                transition_index,
-                                transition_commitment: *transition_commitment.as_bytes(),
-                            })
-                            .is_some()
-                        {
-                            return Err(RpcError::Internal(
-                                "issuance candidate appears more than once canonically".into(),
-                            ));
+                        let history = dom_chain::load_authenticated_usdom_v4_history_block(
+                            &chain.store,
+                            chain.network_magic,
+                            runtime.bridge_identity().dom_domain,
+                            dom_core::Hash256::from_bytes(block_hash),
+                        )
+                        .map_err(|error| {
+                            RpcError::CanonicalGap(format!(
+                            "authenticated native USDOM history failed at height {height}: {error}"
+                        ))
+                        })?;
+                        if history.candidate_id != candidate_id {
+                            continue;
+                        }
+                        for (index, transition) in history.transitions.iter().enumerate() {
+                            let dom_usdom_state::TransitionCommitmentProjection::Issue {
+                                record,
+                                ..
+                            } = &transition.projection
+                            else {
+                                continue;
+                            };
+                            if record.deposit_id != request.deposit_id {
+                                continue;
+                            }
+                            let transition_index = u32::try_from(index).map_err(|_| {
+                                RpcError::Internal(
+                                    "native USDOM issuance transition index overflow".into(),
+                                )
+                            })?;
+                            let transition_commitment = transition
+                                .projection
+                                .consensus_commitment()
+                                .map_err(|error| {
+                                    RpcError::Internal(format!(
+                                        "authenticated issuance projection is invalid: {error}"
+                                    ))
+                                })?;
+                            if inclusion
+                                .replace(dom_rpc::UsdomV4IssuanceInclusionV1 {
+                                    height,
+                                    block_hash,
+                                    transition_index,
+                                    transition_commitment: *transition_commitment.as_bytes(),
+                                })
+                                .is_some()
+                            {
+                                return Err(RpcError::Internal(
+                                    "issuance candidate appears more than once canonically".into(),
+                                ));
+                            }
                         }
                     }
                 }
@@ -430,15 +507,24 @@ impl NodeHandle for NodeHandleImpl {
                     ));
                 }
             }
+            let history_truncated = scan_window.is_some_and(|(from, _)| from > first_v4_height);
+            let pair_state = issuance_pair_state(
+                queued,
+                issuance.is_some(),
+                inclusion.is_some(),
+                history_truncated,
+            )?;
             Ok(UsdomV4IssuanceStatusV1 {
                 schema_version: 1,
+                pair_state,
                 identity,
                 queued,
                 consumed: issuance.is_some(),
                 issuance_commitment,
                 inclusion,
-                scanned_from,
-                scanned_to,
+                history_truncated,
+                scanned_from: scan_window.map(|(from, _)| from),
+                scanned_to: scan_window.map(|(_, to)| to),
             })
         }
     }
@@ -476,8 +562,8 @@ impl NodeHandle for NodeHandleImpl {
                     .as_secs();
                 let candidate_id = node
                     .submit_native_usdom_v2_mining_candidate(
-                        &envelope,
-                        &witnesses,
+                        envelope,
+                        witnesses,
                         dom_core::Timestamp(now),
                     )
                     .await
@@ -676,6 +762,7 @@ impl NodeHandle for NodeHandleImpl {
             };
             Ok(UsdomV4PrivateTransferScanV1 {
                 schema_version: 1,
+                transition_id: request.transition_id,
                 identity,
                 request_anchor: request.anchor,
                 scanned_from: request.start_height,
@@ -2325,6 +2412,8 @@ pub(crate) fn scan_to_clamped(from: u64, to: u64, tip: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "native-usdom-v4-poc")]
+    use super::{effective_issuance_queue_state, issuance_pair_state, issuance_status_scan_window};
     use super::{ClosedMainnetMineOneRequestV1, NodeHandle, NodeHandleImpl};
     use crate::node::DomNode;
     use dom_config::NodeConfig;
@@ -2346,6 +2435,64 @@ mod tests {
     use std::sync::{atomic::Ordering, Arc};
 
     const TEST_LMDB_MAP_SIZE: usize = 64 << 20; // 64 MiB
+
+    #[cfg(feature = "native-usdom-v4-poc")]
+    #[test]
+    fn issuance_status_skips_history_for_absent_canonical_deposit() {
+        assert_eq!(issuance_status_scan_window(1, 300, false).unwrap(), None);
+        assert_eq!(
+            issuance_status_scan_window(1, 300, true).unwrap(),
+            Some((45, 300))
+        );
+        assert!(matches!(
+            issuance_status_scan_window(400, 300, true),
+            Err(RpcError::Internal(message))
+                if message.contains("before v4 activation")
+        ));
+    }
+
+    #[cfg(feature = "native-usdom-v4-poc")]
+    #[test]
+    fn canonical_issuance_supersedes_transient_or_competing_queue_entry() {
+        assert!(effective_issuance_queue_state(true, false));
+        assert!(!effective_issuance_queue_state(false, false));
+        assert!(!effective_issuance_queue_state(true, true));
+        assert!(!effective_issuance_queue_state(false, true));
+    }
+
+    #[cfg(feature = "native-usdom-v4-poc")]
+    #[test]
+    fn issuance_pair_state_distinguishes_truncated_history_from_exact_confirmation() {
+        use dom_rpc::UsdomV4IssuancePairStateV1 as PairState;
+
+        assert_eq!(
+            issuance_pair_state(false, false, false, false).unwrap(),
+            PairState::Absent
+        );
+        assert_eq!(
+            issuance_pair_state(true, false, false, false).unwrap(),
+            PairState::Queued
+        );
+        assert_eq!(
+            issuance_pair_state(false, true, true, false).unwrap(),
+            PairState::Canonical
+        );
+        assert_eq!(
+            issuance_pair_state(false, true, false, false).unwrap(),
+            PairState::CandidateMismatch
+        );
+        assert_eq!(
+            issuance_pair_state(false, true, false, true).unwrap(),
+            PairState::HistoryTruncated
+        );
+        for incoherent in [
+            issuance_pair_state(true, true, false, false),
+            issuance_pair_state(false, false, true, false),
+            issuance_pair_state(false, false, false, true),
+        ] {
+            assert!(matches!(incoherent, Err(RpcError::Internal(_))));
+        }
+    }
 
     #[cfg(feature = "native-usdom-v4-poc")]
     #[test]

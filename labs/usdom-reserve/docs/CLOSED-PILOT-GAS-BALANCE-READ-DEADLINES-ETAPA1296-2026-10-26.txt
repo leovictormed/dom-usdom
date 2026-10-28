@@ -1,0 +1,29 @@
+ETAPA 1296 — LIMITES PARA LEITURAS DE SALDO DE GÁS
+Data: 2026-10-26
+
+Problema
+
+Os executores verificam o saldo nativo nos dois RPCs antes da assinatura e
+novamente antes da publicação. As oito leituras `cast balance`, quatro por
+executor, não tinham limite externo e podiam bloquear a cerimônia.
+
+Correção
+
+Todas essas leituras agora executam sob
+`timeout --foreground --signal=TERM --kill-after=5s 120s`. Timeout ou falha em
+qualquer provedor interrompe o script antes da verificação financeira e,
+conforme a fase, antes da assinatura ou da publicação.
+
+A exigência de concordância dual-RPC e de cobertura integral do custo máximo
+permanece inalterada. A regressão exige exatamente quatro leituras limitadas em
+cada executor e mantém o inventário total das consultas de saldo.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 13/13 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 68/68 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

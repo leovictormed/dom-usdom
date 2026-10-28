@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import {getAddress,verifyTypedData} from 'ethers';
+import {writeReleaseFailure} from '../sdk/pilot-safe-diagnostics.mjs';
+import {getAddress,Signature,verifyTypedData} from 'ethers';
 import {readDirectFile} from '../sdk/direct-project-file.mjs';
 import {parseStrictJson} from '../sdk/strict-json.mjs';
 import {canonicalOwnersByRole,SAFE_CONTROL_SPECS,RECOVERABLE_SAFE_CONTROL_SCHEMA}
@@ -30,7 +31,7 @@ try{
   const packageDocument=await load('USDOM_SAFE_PACKAGE','Safe package',4*1024*1024);
   const bundle=await load('USDOM_SAFE_HARDWARE_CUSTODY_PROOFS','hardware custody proofs',2*1024*1024);
   if(packageDocument.schema!==RECOVERABLE_SAFE_CONTROL_SCHEMA||packageDocument.ethereumChainId!=='1'
-      ||packageDocument.threshold!=='2'||!Array.isArray(packageDocument.controls)||packageDocument.controls.length!==3) fail('Safe package identity is invalid');
+      ||packageDocument.threshold!=='2'||!Array.isArray(packageDocument.controls)||packageDocument.controls.length!==4) fail('Safe package identity is invalid');
   const owners=canonicalOwnersByRole(packageDocument.ownersByRole);
   const packageHash=_safeControlObservationInternals.documentHash(packageDocument);
   exact(bundle,['schema','ethereumChainId','packageHash','ownersByRole','proofs'],'custody proof bundle');
@@ -41,7 +42,7 @@ try{
     const proofSet=bundle.ownersByRole[role].map(value=>getAddress(value).toLowerCase()).sort();
     if(JSON.stringify(packageSet)!==JSON.stringify(proofSet)) fail(`${role} custody owner set mismatch`);
   }
-  if(!Array.isArray(bundle.proofs)||bundle.proofs.length!==9) fail('custody bundle must contain nine proofs');
+  if(!Array.isArray(bundle.proofs)||bundle.proofs.length!==12) fail('custody bundle must contain twelve proofs');
   for(let roleIndex=0;roleIndex<SAFE_CONTROL_SPECS.length;roleIndex++){
     const role=SAFE_CONTROL_SPECS[roleIndex].role;
     const control=packageDocument.controls.find(value=>value?.role===role);
@@ -63,10 +64,14 @@ try{
       exact(proof.typedData.message,['role','slot','owner','packageHash'],`${role}/${slot} message`);
       if(proof.typedData.message.role!==role||proof.typedData.message.slot!==slot||proof.typedData.message.packageHash!==packageHash) fail(`${role}/${slot} message binding mismatch`);
       sameAddress(proof.typedData.message.owner,owner,`${role}/${slot} message owner`);
-      if(typeof proof.signature!=='string'||!/^0x[0-9A-Fa-f]{130}$/.test(proof.signature)) fail(`${role}/${slot} signature is invalid`);
+      if(typeof proof.signature!=='string'||!/^0x[0-9a-f]{130}$/.test(proof.signature)) fail(`${role}/${slot} signature is invalid`);
+      let canonicalSignature;
+      try { canonicalSignature=Signature.from(proof.signature).serialized; }
+      catch { fail(`${role}/${slot} signature is invalid`); }
+      if(canonicalSignature!==proof.signature) fail(`${role}/${slot} signature is noncanonical`);
       const recovered=verifyTypedData(proof.typedData.domain,{SafeOwnerCustodyProof:custodyTypes},proof.typedData.message,proof.signature);
       sameAddress(recovered,owner,`${role}/${slot} recovered signer`);
     }
   }
-  process.stdout.write(`${JSON.stringify({schema:'usdom-safe-owner-hardware-custody-proof-check/v1',valid:true,packageHash,proofCount:9})}\n`);
-}catch(error){process.stderr.write(`Hardware custody proof validation failed: ${error instanceof Error?error.message:String(error)}\n`);process.exitCode=1;}
+  process.stdout.write(`${JSON.stringify({schema:'usdom-safe-owner-hardware-custody-proof-check/v1',valid:true,packageHash,proofCount:12})}\n`);
+}catch(error){writeReleaseFailure('check-safe-owner-hardware-custody-proofs',error);process.exitCode=1;}

@@ -39,7 +39,7 @@ try {
   const fixedBytes=await readFixedInputs();
   const [releaseEvidence,releaseConfig,request]=fixedBytes.slice(0,3).map(
     (bytes,index)=>parseJson(bytes,fixedInputs[index][0]));
-  if(request.schema!=='usdom-native-release-attestation-requests/v2'
+  if(request.schema!=='usdom-native-release-attestation-requests/v3'
       || JSON.stringify(Object.keys(request.requests??{}).sort())!==JSON.stringify([...names].sort())) {
     throw new Error('native release-attestation request schema or set is invalid');
   }

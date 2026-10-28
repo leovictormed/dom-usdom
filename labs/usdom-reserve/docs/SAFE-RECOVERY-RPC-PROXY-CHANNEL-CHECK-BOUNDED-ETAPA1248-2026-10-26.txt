@@ -1,0 +1,36 @@
+ETAPA 1248 — VERIFICAÇÃO LIMITADA DOS CANAIS DO PROXY RPC
+Data: 2026-10-26
+
+Problema
+
+O processo do proxy RPC já tinha ciclo de vida limitado e seus canais eram
+inspecionados repetidamente, mas o próprio verificador Node rodava diretamente. Uma
+falha no verificador podia bloquear o polling ou emitir saída não controlada. Node
+também não era reatestado imediatamente antes do lançamento do proxy.
+
+Correção
+
+`check_rpc_proxy_channels`, no executor de recuperação Safe, agora:
+
+- aceita somente os modos fixos `bounded` e `empty`;
+- reatesta Node e timeout;
+- executa o verificador por até 10 segundos em foreground, com TERM e KILL após dois;
+- captura stdout e stderr do verificador em arquivos privados;
+- continua limitando cada canal do proxy a 64 KiB com UTF-8 fatal e, após readiness,
+  exige ambos vazios;
+- exige que o próprio verificador termine com status zero e canais vazios.
+
+Node, setsid e timeout são reatestados imediatamente antes do lançamento do proxy,
+com timeout por último para preservar a fronteira estrutural do filho limitado.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais de ambiente, processo, pinning e paridade: 9/9 aprovados;
+- focais mais `operator-runbook`: 93/93 aprovados;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

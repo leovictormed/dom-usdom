@@ -1,0 +1,47 @@
+USDOM mainnet readiness — Stage 1352
+Date: 2026-10-26
+
+Finding
+=======
+
+The critical publication graph contained four incomplete source nodes. Together
+they reached six real local dependencies that were absent from criticalSources:
+the deposit evidence checker, ledger-address and transaction-hash output
+validators, private-RPC capability and envelope validators, and the finalized
+deposit issuance validator. Omitting them allowed release behavior to depend on
+files outside the source snapshot authority.
+
+After those edges were closed, validation exposed five stale repository hashes.
+All five files were Git-clean canonical sources. Three Cargo manifests differed
+from the stored hashes only because the old pins included an extra trailing blank
+line. The native USDOM v4 source and Ethereum finality historical test pins
+predated their committed workspace contents.
+
+Correction
+==========
+
+All six legitimate dependencies were inserted into the sorted critical source
+inventory. The five Git-clean repository source hashes were rematerialized from
+their exact current bytes, and the verify-only build policy was rebound to the
+resulting canonical repository closure commitment. No active uncommitted Rust
+source was added to or repinned by this stage.
+
+The fail-closed mechanisms remain intact: the checker recursively derives Cargo
+path and compile-resource closure, verifies every repository pin, detects local
+JavaScript, shell, Python and explicit project-path dependencies, and rejects an
+incomplete graph before publication.
+
+Validation
+==========
+
+- Inventory-only gate: 256 critical sources accepted as direct, bounded,
+  secret-free and inventory-bound.
+- Publication boundary focal test: 2/2 passed.
+- Artifact/runtime/release related suite: 27/27 passed.
+- git diff --check passed for the affected inventory, policy and documentation.
+
+Scope
+=====
+
+No Rust source was edited. No network, deployment, signing, funds, production
+fact, commit or push occurred.

@@ -1,0 +1,37 @@
+Stage 1274 — authenticated pilot receipt-prefix recovery
+Date: 2026-10-26
+
+Finding
+-------
+A partial deposit receipt list was classified as resumable before its nonce,
+canonical-chain result and two-source finality count were checked. Prepared and
+partial states also did not universally bind the observed pending nonce to the
+base nonce plus the number of known transactions. A foreign transaction or
+reorged partial receipt could therefore be described as safe to resume.
+
+Correction
+----------
+Every existing deposit and redemption receipt now forms an exact three-field,
+ordered prefix. Each nonce must equal base plus its index. A receipt is either
+canonical with exactly two finalized sources, or pending recheck with canonical
+null and zero finalized sources. The pending account nonce must equal base plus
+prefix length before any phase status is returned, including an empty prefix.
+
+Adversarial regression
+----------------------
+Regressions reject a foreign first nonce, gaps, injected receipt fields,
+canonical false, incomplete finalized quorum, inconsistent pending markers and
+pending nonces consumed beyond the authenticated prefix. A well-formed pending
+receipt remains classified as finality-recheck-required.
+
+Validation
+----------
+- Pilot DAG SDK Node syntax check: pass.
+- Pilot DAG, evidence, command generation, finality restart, receipt-cost,
+  deposit/redemption executors and terminal financial suites: 16/16 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

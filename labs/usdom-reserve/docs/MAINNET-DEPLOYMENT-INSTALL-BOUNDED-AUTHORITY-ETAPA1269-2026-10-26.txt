@@ -1,0 +1,33 @@
+ETAPA 1269 — AUTORIDADE LIMITADA PARA INSTALAÇÃO PRIVADA DO DEPLOY
+Data: 2026-10-26
+
+Problema
+
+A instalação create-once dos artefatos duráveis do deploy chamava o instalador Node
+sem prazo e sem capturar os canais. A comparação pós-instalação também abria os dois
+arquivos por um processo Node sem limite. Um subprocesso travado podia reter a
+cerimônia após a produção de um artefato sensível.
+
+Correção
+
+O instalador agora roda com Node e timeout reatestados sob prazo de 30 segundos em
+foreground, TERM e KILL após cinco segundos. stdout e stderr são capturados e
+validados como UTF-8 estrito com teto de 64 KiB; ambos devem estar vazios e o status
+deve ser zero. O destino continua obrigado a ser arquivo regular privado, modo
+0600, owner corrente e link count um.
+
+Depois da gravação, o executor relê o destino pela fronteira de snapshot limitada e
+compara os bytes com `cmp` pinado, reatestado na mesma instrução. Isso remove a
+segunda leitura Node sem limite e mantém a verificação exata do conteúdo instalado.
+
+Validação local
+
+- `bash -n scripts/execute-mainnet-deployment.sh`: aprovado;
+- suíte focal incluindo paridade de autoridades: 20/20 aprovada;
+- suíte operacional e de implantação ampliada: 106/106 aprovada;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

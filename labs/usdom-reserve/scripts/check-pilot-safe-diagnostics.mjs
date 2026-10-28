@@ -25,7 +25,7 @@ let releaseEntrypoints=0;
 for(const name of fs.readdirSync(path.join(root,'scripts')).filter(name=>name.endsWith('.mjs'))) {
   const source=fs.readFileSync(path.join(root,'scripts',name),'utf8');
   if(forbidden.test(source)||/error\s*:\s*String\(error/.test(source)
-      ||/throw new Error\([^\n]*(?:\.stderr|\.stdout)/.test(source)) {
+      ||/throw new Error\([^;\n]*(?:\.stderr|\.stdout)/.test(source)) {
     throw new Error(`release entrypoint exposes untrusted diagnostic material: ${name}`);
   }
   if(source.includes('writeReleaseFailure(')) releaseEntrypoints++;

@@ -302,9 +302,10 @@ impl ConstraintSynthesizer<Fr> for SpendCircuit {
     }
 }
 
-#[cfg(test)]
 pub(crate) mod tests_support {
+    #[cfg(test)]
     use ark_r1cs_std::{alloc::AllocVar, R1CSVar};
+    #[cfg(test)]
     use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystem};
 
     use super::*;
@@ -370,6 +371,23 @@ pub(crate) mod tests_support {
             ],
             outputs: [output, OutputWitness::default()],
         }
+    }
+
+    pub(crate) fn valid_transfer_circuit() -> SpendCircuit {
+        let mut circuit = valid_burn_circuit();
+        circuit.outputs[0].value = circuit.inputs[0].value;
+        circuit.statement.output_notes[0] = NoteOpening {
+            chain: circuit.statement.chain,
+            origin: NOTE_ORIGIN_PRIVATE,
+            value: circuit.outputs[0].value,
+            owner: circuit.outputs[0].owner,
+            rho: circuit.outputs[0].rho,
+        }
+        .commitment()
+        .unwrap();
+        circuit.statement.burn_amount = 0;
+        circuit.statement.effect = Scalar::ZERO;
+        circuit
     }
 
     #[test]

@@ -23,6 +23,22 @@ test('strict JSON rejects direct and escape-equivalent duplicate keys',()=>{
  assert.throws(()=>parseStrictJson('{"outer":{"hash":"a","hash":"b"}}'),/duplicate object key "hash"/);
 });
 
+test('strict JSON rejects lossy integers, negative zero and unpaired surrogates',()=>{
+ for(const source of ['9007199254740992','-9007199254740992','-0','"\\ud800"','"\\udfff"',
+  '{"\\ud800":1}']) assert.throws(()=>parseStrictJson(source),SyntaxError);
+ assert.equal(parseStrictJson('9007199254740991'),Number.MAX_SAFE_INTEGER);
+ assert.equal(parseStrictJson('"\\ud83d\\ude00"'),'😀');
+});
+
+test('strict JSON rejects lossy and noncanonical decimal or exponent spellings',()=>{
+ for(const source of ['0.10000000000000001','1.0','1e0','1E+21','-0.0']) {
+  assert.throws(()=>parseStrictJson(source),/number is not canonically representable/);
+ }
+ for(const [source,expected] of [['0.1',0.1],['1e+21',1e21],['1.25',1.25]]) {
+  assert.equal(parseStrictJson(source),expected);
+ }
+});
+
 test('strict JSON byte boundary rejects invalid UTF-8 and escaped duplicate keys',()=>{
  assert.throws(()=>parseStrictJsonBytes(Buffer.from([
   0x7b,0x22,0x78,0x22,0x3a,0x22,0xff,0x22,0x7d,
@@ -41,7 +57,7 @@ test('strict JSON rejects malformed, ambiguous and resource-exhausting input',()
  assert.throws(()=>parseStrictJson('{"a":1}',{maxBytes:4}),/input exceeds 4 bytes/);
 });
 
-test('configuration CLI rejects duplicate keys before semantic validation',async()=>{
+test('configuration CLI rejects duplicate keys with a redacted public diagnostic',async()=>{
  const directory=await mkdtemp(path.join(os.tmpdir(),'usdom-strict-json-'));
  try {
   const candidate=path.join(directory,'duplicate.json');
@@ -50,7 +66,14 @@ test('configuration CLI rejects duplicate keys before semantic validation',async
    cwd:root,encoding:'utf8',timeout:10_000,
   });
   assert.equal(run.status,1);
-  assert.match(run.stderr,/duplicate object key "ethereumChainId"/);
+  assert.equal(run.stdout,'');
+  assert.deepEqual(JSON.parse(run.stderr),{
+   schema:'usdom-release-safe-diagnostic/v1',ok:false,
+   operation:'check-configuration',code:'RELEASE_OPERATION_REJECTED',
+  });
+  assert.equal(run.stderr.includes('duplicate object key'),false);
+  assert.equal(run.stderr.includes('ethereumChainId'),false);
+  assert.equal(run.stderr.includes('31337'),false);
  } finally {
   await rm(directory,{recursive:true,force:true});
  }

@@ -21,7 +21,10 @@ test('GNU time metrics are parsed into canonical bounded values',()=>{
 test('resource metrics reject failures, missing fields and unbounded values',()=>{
   for(const value of [
     log({status:'1'}),log({elapsed:'0:00'}),log({elapsed:'31:00:00:00'}),
+    log({elapsed:'1:60.00'}),log({elapsed:'1.5:00'}),log({elapsed:'0:00.0001'}),
+    log({elapsed:`${'9'.repeat(10000)}:00.00`}),
     log({resident:'0'}),log({resident:String(64*1024*1024+1)}),
+    log({resident:'9'.repeat(10000)}),
     log().replace('Maximum resident set size (kbytes):','resident:'),
     'x'.repeat(64*1024+1),null,
   ]) assert.throws(()=>parseProverResourceMetrics(value));

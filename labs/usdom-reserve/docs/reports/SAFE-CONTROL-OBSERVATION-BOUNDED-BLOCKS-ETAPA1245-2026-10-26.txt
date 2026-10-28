@@ -1,0 +1,35 @@
+Stage 1245 — uint64 finalized block authority in Safe control evidence
+Date: 2026-10-26
+
+Finding
+-------
+Safe control snapshots and recovery transaction evidence used a lexically
+bounded uint256 parser for finalized Ethereum block positions. Live collection
+originates from safe JavaScript block numbers and adjacent recovery modules use
+uint64, so persisted evidence admitted a wider block domain than its authority
+and downstream pipeline.
+
+Correction
+----------
+The common decimal reader now accepts an explicit width while preserving
+uint256 for Safe nonces. Baseline finalized blocks, recovery after-snapshot
+blocks and each recovery receipt block are required to be canonical uint64
+before any comparison. Existing hashes, monotonicity, receipt range, role state
+and recovery transaction bindings remain unchanged.
+
+Adversarial regression
+----------------------
+Recovery-report regressions inject both 100,000-digit values and exact 2^64
+into after-snapshot and receipt block channels, rebuild the document hashes, and
+prove rejection by the semantic validator rather than merely hash mismatch.
+
+Validation
+----------
+- Node syntax check: pass.
+- Safe observation, recovery plan, envelope and execution suites: 17/17 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

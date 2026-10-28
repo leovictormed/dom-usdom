@@ -35,7 +35,8 @@ try {
   const finalizedAnchor=await withReleaseAuthorizationProviders(sources,providers=>
     collectReleaseAuthorizationAnchor({providers,releaseConfig,sources}));
   const request=buildCheckpointBootstrapRatificationSigningRequest({releaseEvidence,releaseConfig,
-    checkpointConsensus,nativeFacts,finalizedAnchor,inputDocuments:{
+    releaseEvidenceBytes:bytes[0],releaseConfigBytes:bytes[1],checkpointConsensus,
+    checkpointConsensusBytes:bytes[2],nativeFacts,nativeFactsBytes:bytes[3],finalizedAnchor,inputDocuments:{
       releaseEvidenceSha256:sha(bytes[0]),releaseConfigSha256:sha(bytes[1]),
       checkpointConsensusSha256:sha(bytes[2]),nativeFactsSha256:sha(bytes[3]),
     }});

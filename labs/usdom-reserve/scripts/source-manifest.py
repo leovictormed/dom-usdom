@@ -27,6 +27,10 @@ EXCLUDED_DIRECTORIES = {
     "out-fork",
 }
 EXCLUDED_FILES = {
+    ".node-test-last.log",
+    ".readiness-last.err",
+    ".readiness-last.json",
+    "config/mainnet-preflight-rpc-catalog.json",
     "config/mainnet-release-evidence.unconfigured.json",
     "config/operator-intent.json",
     "docs/CONTINUATION-STATE.md",
@@ -39,18 +43,23 @@ def included_files(root: Path = ROOT, manifest: Path = MANIFEST) -> list[Path]:
     for path in root.rglob("*"):
         relative = path.relative_to(root)
         top = relative.parts[0]
-        if (
+        excluded = (
             top in EXCLUDED_DIRECTORIES
             or "__pycache__" in relative.parts[:-1]
             or top == "results"
             or top.startswith("results-stage")
-        ):
+        )
+        mode = path.lstat().st_mode
+        if excluded:
+            excluded_root = root / top
+            excluded_mode = excluded_root.lstat().st_mode
+            if stat.S_ISLNK(excluded_mode) or not stat.S_ISDIR(excluded_mode):
+                raise SystemExit(f"excluded source class must be a direct directory: {top}")
             continue
         if relative.as_posix() in EXCLUDED_FILES:
             continue
         if path == manifest:
             continue
-        mode = path.lstat().st_mode
         if stat.S_ISLNK(mode):
             raise SystemExit(f"symbolic link is forbidden in source manifest scope: {relative!s}")
         if stat.S_ISDIR(mode):
@@ -136,6 +145,15 @@ def digest(relative: Path, root: Path = ROOT) -> str:
     return hashlib.sha256(direct_bytes(relative, root)).hexdigest()
 
 
+def digest_snapshot(paths: list[Path], root: Path = ROOT) -> dict[str, str]:
+    """Read a complete set twice so a post-read mutation cannot form a hybrid pass."""
+    first = {path.as_posix(): digest(path, root) for path in paths}
+    second = {path.as_posix(): digest(path, root) for path in paths}
+    if first != second:
+        raise SystemExit("source snapshot changed between descriptor-bound passes")
+    return first
+
+
 def write_manifest(content: str, root: Path = ROOT, manifest: Path = MANIFEST) -> None:
     relative = manifest.relative_to(root)
     if len(relative.parts) != 1:
@@ -173,7 +191,8 @@ def write_manifest(content: str, root: Path = ROOT, manifest: Path = MANIFEST) -
 
 
 def render_paths(paths: list[Path], root: Path = ROOT, manifest: Path = MANIFEST) -> str:
-    rendered = "".join(f"{digest(path, root)}  {path.as_posix()}\n" for path in paths)
+    snapshot = digest_snapshot(paths, root)
+    rendered = "".join(f"{snapshot[path.as_posix()]}  {path.as_posix()}\n" for path in paths)
     if included_files(root, manifest) != paths:
         raise SystemExit("source manifest path set changed while hashing")
     return rendered
@@ -204,8 +223,9 @@ def verify(root: Path = ROOT, manifest: Path = MANIFEST, *, quiet: bool = False)
         missing = sorted(set(expected_names) - set(names))
         extra = sorted(set(names) - set(expected_names))
         raise SystemExit(f"source manifest path set/order mismatch: missing={missing}, extra={extra}")
+    snapshot = digest_snapshot([Path(name) for name in names], root)
     for expected_digest, name in parsed:
-        actual = digest(Path(name), root)
+        actual = snapshot[name]
         if actual != expected_digest:
             raise SystemExit(f"source manifest digest mismatch: {name}")
     if [path.as_posix() for path in included_files(root, manifest)] != expected_names:
@@ -237,6 +257,8 @@ def self_test() -> None:
         production_requirements.write_text("{}\n", encoding="utf-8")
         release_evidence = root / "config" / "mainnet-release-evidence.unconfigured.json"
         release_evidence.write_text("{}\n", encoding="utf-8")
+        preflight_catalog = root / "config" / "mainnet-preflight-rpc-catalog.json"
+        preflight_catalog.write_text("{}\n", encoding="utf-8")
         operator_intent = root / "config" / "operator-intent.json"
         operator_intent.write_text("{}\n", encoding="utf-8")
         evidence = root / "evidence" / "attestation.json"
@@ -248,13 +270,41 @@ def self_test() -> None:
         continuation = root / "docs" / "CONTINUATION-STATE.md"
         continuation.write_text("mutable operational checkpoint\n", encoding="utf-8")
         assert continuation.relative_to(root) not in included_files(root, manifest)
+        assert preflight_catalog.relative_to(root) not in included_files(root, manifest)
         assert release_evidence.relative_to(root) not in included_files(root, manifest)
         assert operator_intent.relative_to(root) not in included_files(root, manifest)
         assert evidence.relative_to(root) not in included_files(root, manifest)
         assert cached_bytecode.relative_to(root) not in included_files(root, manifest)
         assert production_requirements.relative_to(root) in included_files(root, manifest)
+        for reserved in ("results-stage-production.sh", "out"):
+            candidate = root / reserved
+            candidate.write_text("production source\n", encoding="utf-8")
+            expect_failure(lambda: included_files(root, manifest),
+                           "excluded source class must be a direct directory")
+            candidate.unlink()
+        evidence.unlink()
+        evidence.parent.rmdir()
+        evidence.parent.write_text("production source\n", encoding="utf-8")
+        expect_failure(lambda: included_files(root, manifest),
+                       "excluded source class must be a direct directory")
+        evidence.parent.unlink()
+        evidence.parent.mkdir()
+        evidence.write_text("{}\n", encoding="utf-8")
         manifest.write_text(render(root, manifest), encoding="utf-8")
         verify(root, manifest, quiet=True)
+
+        original_digest = digest
+        calls = 0
+        def mutate_between_passes(relative: Path, snapshot_root: Path = root) -> str:
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                (root / "a.txt").write_text("changed between passes\n", encoding="utf-8")
+            return original_digest(relative, snapshot_root)
+        with patch.object(sys.modules[__name__], "digest", side_effect=mutate_between_passes):
+            expect_failure(lambda: digest_snapshot([Path("a.txt"), Path("docs/b.txt")], root),
+                           "snapshot changed")
+        (root / "a.txt").write_text("a\n", encoding="utf-8")
 
         saved_manifest = root / "saved-manifest"
         manifest.rename(saved_manifest)

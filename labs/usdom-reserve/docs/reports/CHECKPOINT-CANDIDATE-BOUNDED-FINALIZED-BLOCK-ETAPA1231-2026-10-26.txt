@@ -1,0 +1,36 @@
+Stage 1231 — bounded finalized block authority in checkpoint candidate observation
+Date: 2026-10-26
+
+Finding
+-------
+The checkpoint candidate observer accepted finalized Ethereum block numbers across
+the full uint256 domain. Ethereum block positions consumed by the release and
+preflight paths are uint64 authority values. The wider observer domain could
+therefore admit an observation that the surrounding finalized-snapshot pipeline
+must reject.
+
+Correction
+----------
+The observer now requires `finalizedBlockNumber` to be canonical uint64 before
+any later use. This preserves fail-closed behavior and aligns candidate
+observation with the bounded finalized block domain already enforced by the
+mainnet preflight and health observers.
+
+Adversarial regression
+----------------------
+The checkpoint submission suite now proves rejection, with the exact
+`finalized_block_number_invalid` blocker, of both a 100,000-digit decimal value
+and exact 2^64. The large input also proves that lexical bounds are applied
+before numeric conversion.
+
+Validation
+----------
+- Node syntax check: pass.
+- Checkpoint submission, finalized-event collection and finalized-event report
+  suites: 20/20 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

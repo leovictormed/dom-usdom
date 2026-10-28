@@ -13,15 +13,19 @@ test('pilot budget enforces exact transaction, phase and aggregate ceilings',()=
     {depositMaximumCosts:[],redemptionMaximumCosts:[r,r,r]},
     {depositMaximumCosts:['01'],redemptionMaximumCosts:[]},
     {depositMaximumCosts:['0'],redemptionMaximumCosts:[]},
+    {depositMaximumCosts:['9'.repeat(100000)],redemptionMaximumCosts:[]},
+    {depositMaximumCosts:[1],redemptionMaximumCosts:[]},
   ]) assert.throws(()=>validateClosedMainnetPilotBudget(value));
 });
 test('both executors enforce cumulative budget before signing and broadcast',()=>{
   for(const name of ['deposit','redemption']) {
     const source=readFileSync(new URL(`../../scripts/execute-closed-mainnet-${name}.sh`,import.meta.url),'utf8');
+    assert.equal((source.match(/timeout --foreground --signal=TERM --kill-after=5s 120s \\\n\s+node scripts\/check-closed-mainnet-pilot-budget\.mjs/g)??[]).length,1);
+    assert.equal((source.match(/node scripts\/check-closed-mainnet-pilot-budget\.mjs/g)??[]).length,1);
     const proposed=source.indexOf('check_pilot_budget "$proposed_cost"');
-    const signing=source.indexOf(`AUTORIZO ASSINAR ${name==='deposit'?'DEPOSITO':'RESGATE'} MAINNET`);
+    const signing=source.indexOf(`AUTORIZO ASSINAR ${name==='deposit'?'DEPOSITO':'RESGATE'} ETAPA`);
     assert.ok(proposed>0&&proposed<signing);
-    const publish=source.indexOf(`AUTORIZO TRANSMITIR ${name==='deposit'?'DEPOSITO':'RESGATE'} MAINNET`);
+    const publish=source.indexOf(`AUTORIZO TRANSMITIR ${name==='deposit'?'DEPOSITO':'RESGATE'} ETAPA`);
     assert.ok(source.lastIndexOf('check_pilot_budget',publish)<publish);
   }
 });

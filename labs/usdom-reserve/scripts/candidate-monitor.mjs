@@ -6,7 +6,7 @@ import {constants as fsConstants} from 'node:fs';
 import {createHash,randomBytes} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import {getAddress, keccak256, TypedDataEncoder} from 'ethers';
+import {Contract, getAddress, keccak256, TypedDataEncoder} from 'ethers';
 import {readDirectFile} from '../sdk/direct-project-file.mjs';
 import {writePrivateJsonDurable} from '../sdk/durable-private-file.mjs';
 import {parseStrictJson,parseStrictJsonBytes} from '../sdk/strict-json.mjs';
@@ -30,8 +30,11 @@ const hash = value => {
 };
 const uint = value => {
   assert.equal(typeof value, 'string', 'integers must be decimal strings');
+  assert(value.length <= 78, 'integer exceeds uint256 lexical bound');
   assert.match(value, /^(0|[1-9][0-9]*)$/, 'noncanonical integer');
-  return BigInt(value);
+  const parsed=BigInt(value);
+  assert(parsed < (1n<<256n), 'integer exceeds uint256');
+  return parsed;
 };
 function exactKeys(value, expected, label) {
   assert(value && typeof value === 'object' && !Array.isArray(value), `${label} must be an object`);
@@ -473,7 +476,7 @@ export async function monitorOnce({reserve, guardian, sources, ethereumSources, 
       sourceIds: sources.map(s => s.id).sort(), ethereumSources:ethereumSources.map(source=>({
         operatorId:source.operatorId,providerId:source.providerId,
         infrastructureId:source.infrastructureId,originKeccak256:lower(source.originKeccak256),
-      })).sort((a,b)=>a.operatorId.localeCompare(b.operatorId)),
+      })).sort((a,b)=>a.operatorId<b.operatorId?-1:a.operatorId>b.operatorId?1:0),
       confirmations,maxNoProgressMs,minimumCycleIntervalMs};
     let state; let checkpointError; let loadedState=false;
     try {
@@ -609,9 +612,9 @@ export async function monitorOnce({reserve, guardian, sources, ethereumSources, 
         'Ethereum event cursor changed or RPC sources disagree during monitoring');
     };
 
-    let queued; let certificates; let released; let epoch;
+    let queued; let certificates; let released; let epoch; let reserveState;
     try {
-      [queued, certificates, released, epoch] = await Promise.all([
+      [queued, certificates, released, epoch,reserveState] = await Promise.all([
         range?consensusEvents(ethereumViews,'WithdrawalQueued',
           ['burnId','requestId','digest','readyAt','expiresAt'],range.first,range.last):[],
         range?consensusEvents(ethereumViews,'WithdrawalCertificate',['burnId','certificate'],
@@ -620,7 +623,24 @@ export async function monitorOnce({reserve, guardian, sources, ethereumSources, 
           ['burnId','requestId','recipient','amount','height','blockHash','epoch'],range.first,range.last):[],
         consensusContractRead(ethereumViews,'current epoch',
           contract=>contract.currentEpoch({blockTag:ethereum.number})),
+        consensusContractRead(ethereumViews,'reserve solvency and outflow state',async contract=>{
+          const blockTag=ethereum.number;
+          const tokenAddress=await contract.token({blockTag});
+          const token=new Contract(tokenAddress,
+            ['function balanceOf(address) view returns (uint256)'],contract.runner);
+          return Promise.all([
+            contract.totalDeposited({blockTag}),contract.totalReleased({blockTag}),
+            contract.outstanding({blockTag}),token.balanceOf(address,{blockTag}),
+            contract.outflowCapacity({blockTag}),contract.availableOutflow({blockTag}),
+            contract.paused({blockTag}),contract.recoveryRequired({blockTag}),
+          ]);
+        }),
       ]);
+      const [deposited,totalReleased,outstanding,reserveBalance,outflowCapacity,availableOutflow]=reserveState;
+      if(totalReleased>deposited||outstanding!==deposited-totalReleased
+        ||reserveBalance<outstanding||availableOutflow>outflowCapacity) {
+        return await halt('reserve accounting or solvency invariant violated',true,epoch);
+      }
       const certs = new Map();
       for (const event of certificates) {
         const burn = Object.fromEntries(fields.map(f => [f, event.args.certificate[f]]));
@@ -709,6 +729,9 @@ export async function monitorOnce({reserve, guardian, sources, ethereumSources, 
       // paused, so a large historical import can advance one durable bounded
       // chunk per cycle without granting authority to resume.
       return {status:'indexing',from:range.first,to:range.last,head:ethereum.number};
+    }
+    if(reserveState[6]) {
+      return {status:'paused',emergency:reserveState[7],reason:'reserve already paused'};
     }
     return {status: 'healthy', height: view.height, queued: queued.length, paid: released.length};
   } finally {

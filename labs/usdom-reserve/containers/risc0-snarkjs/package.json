@@ -1,0 +1,8 @@
+{
+  "name": "usdom-risc0-snarkjs-toolchain",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "snarkjs": "0.7.6"
+  }
+}

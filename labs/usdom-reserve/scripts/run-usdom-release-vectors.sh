@@ -9,3 +9,4 @@ fi
 
 "$here/run-randomx-cache-release-vector.sh"
 "$here/run-checkpoint-390-release-vector.sh"
+"$here/run-native-privacy-production-release-vector.sh"

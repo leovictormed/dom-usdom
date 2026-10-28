@@ -1,0 +1,24 @@
+Etapa 1438 — fronteira de captura no packager checkpoint-outer
+
+Problema
+
+O helper que copia entradas privadas para o snapshot chamava o Node pinado, mas
+sem reatestação junto ao uso e sem deadline. Uma troca da ferramenta depois do
+pin inicial ou um leitor travado poderia comprometer a captura ou impedir cleanup.
+
+Correção
+
+Cada captura agora reatesta Node e timeout imediatamente antes da leitura, executa
+o leitor autenticado pelo timeout pinado com TERM em 120 segundos e KILL após
+cinco, reatesta Node ao terminar e somente então aceita o destino pela pós-condição
+de arquivo privado direto, owner atual, modo 0600 e link count 1.
+
+Validação
+
+- Sintaxe shell: aprovada.
+- Boundary estrutural dos packagers: 1/1 aprovado.
+- Foco operator-runbook checkpoint-outer: 1/1 aprovado.
+- Temporários privados e inventário de publicação: 2/2 aprovados.
+- Nenhuma prova foi iniciada.
+
+Nenhuma rede, Ledger, assinatura, deploy, fundos, commit ou push foi executado.

@@ -1,0 +1,25 @@
+ETAPA 1561B — workflow offline completo Phase 1/Phase 2
+
+O runner offline agora retoma publicações interrompidas apenas quando o artefato
+create-once existente tem owner, modo, nlink e SHA idênticos. Divergência é
+recusada. Phase 1 e Phase 2 produzem artefatos canônicos, extraem readback e
+verificam antes da publicação. A Phase 2 passou a exigir prova real de conhecimento
+Schnorr/Chaum-Pedersen do delta, vinculada ao release, circuito, commitment de
+identidade, ordinal e predecessor.
+
+A transferência por mídia valida assinatura da identidade, hashes de artefato e
+acumulador e usa instalação privada durável new-or-equal. A montagem de transcript
+consome registros assinados em ordem, calcula o hash final e somente finaliza após
+assinaturas unânimes. O instalador continua create-once e a preparação da atestação
+nativa agora exige e relê estavelmente o receipt da VK, reconciliando config hash,
+VK, transcript e no mínimo três participantes.
+
+O gerador de comandos produz uma linha Shell completa, com paths absolutos, pin do
+binário e todos os bindings públicos; não inclui segredo, seed ou placeholder. A
+entropia permanece dentro de OsRng no host offline. A segurança requer ao menos um
+apagamento honesto em cada fase; as atestações sociais não substituem PoK/equações.
+
+Evidência: teste release Phase 2 com PoK, provas reais e mutações passou 1/1 em
+266,11 s. Suítes offline/transcript/plano passaram 11/11 e depois os focais do
+workflow passaram; sintaxe Node/Bash, rustfmt e diff-check passaram. Nenhuma rede,
+deploy, fundo, push ou rematerialização de manifest foi executada.

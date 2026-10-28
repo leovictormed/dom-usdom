@@ -1,0 +1,16 @@
+Etapa 1451 — identidade integral de manifests npm desbloqueados
+Data: 2026-10-26
+
+Problema
+
+Os dois package.json OpenZeppelin vendorizados não possuem lock adjacente e eram excepcionados apenas por nome e versão. Campos adicionais, inclusive scripts, poderiam mudar sem invalidar essa classificação.
+
+Correção
+
+- Cada exceção fixa nome, versão e SHA-256 dos bytes completos do manifest.
+- O hash usa o mesmo snapshot UTF-8 obtido pelo leitor descriptor-safe, bounded, O_NOFOLLOW, owner/mode/nlink.
+- Mudanças semânticas ou apenas de bytes/canonicalização falham fechadas; isso inclui scripts inseridos mantendo nome e versão.
+
+Regressões rejeitam mudança de versão, adição de install script e remoção do newline final. py_compile, self-test, política viva e suíte Node focal 4/4 foram aprovados.
+
+Nenhum inventário global foi rematerializado. Não houve rede, build pesado, assinatura, deploy, fundos, commit ou push.

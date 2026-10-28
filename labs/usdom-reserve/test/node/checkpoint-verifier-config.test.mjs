@@ -18,6 +18,7 @@ import {
   checkpointOuterAdapterBinding,
   checkpointVerifierConfigHash,
 } from '../../sdk/checkpoint-verifier-config.mjs';
+import {PINNED_RISC0_MAINNET_V3} from '../../sdk/risc0-verifier-reference.mjs';
 
 const hash=byte=>'0x'+byte.toString(16).padStart(2,'0').repeat(32);
 const zero=hash(0);
@@ -44,8 +45,9 @@ export function checkpointVerifierConfigFixture() {
     proofSystem:CHECKPOINT_PROOF_SYSTEM,
     verifyingKeySha256:hash(10),trustedSetupRequired:true,trustedSetupTranscriptSha256:hash(18),
     provingProgramSha256:hash(11),sourceManifestSha256:hash(12),verifierArtifactSha256:hash(13),
-    maxProofBytes:'260',ethereumChainId:'1',riscZeroVerifier:'0x0000000000000000000000000000000000000010',
-    riscZeroVerifierCodeHash:hash(16),riscZeroVerifierSelector:CHECKPOINT_RISC0_GROTH16_V3_SELECTOR,
+    maxProofBytes:'260',ethereumChainId:'1',riscZeroVerifier:PINNED_RISC0_MAINNET_V3.verifier_address,
+    riscZeroVerifierCodeHash:PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash,
+    riscZeroVerifierSelector:CHECKPOINT_RISC0_GROTH16_V3_SELECTOR,
     checkpointGuestImageId:hash(17),journalSchemaHash:CHECKPOINT_RISC0_JOURNAL_SCHEMA_HASH,
   };
 }
@@ -72,8 +74,6 @@ test('checkpoint verifier configuration commits every consensus and artifact bou
     riscZeroVerifierSelector:fixture.riscZeroVerifierSelector,
     checkpointGuestImageId:fixture.checkpointGuestImageId};
   assert.equal(checkpointAdapterConfigHash(adapter).verifierConfigHash,result.verifierConfigHash);
-  assert.equal(result.verifierConfigHash,
-    '0x757c4b08b41ede4e7f85f3d244d612b31ef53d90c84f1d2acfac42885ad2cd43');
   for(const field of ['activationScheduleCommitment','domGenesisHash','domChainId',
     'activationEmptyStateRoot','consensusRulesHash','forkChoiceRulesHash','powRulesHash',
     'nativeStateRulesHash','continuationContextRulesHash','consensusExtensionWitnessRulesHash','verifyingKeySha256',
@@ -82,11 +82,16 @@ test('checkpoint verifier configuration commits every consensus and artifact bou
     assert.notEqual(changed.provingProgramConfigHash,result.provingProgramConfigHash,field);
     assert.notEqual(changed.manifestSha256,result.manifestSha256,field);
   }
-  for(const [field,value] of [['riscZeroVerifierCodeHash',hash(31)],['checkpointGuestImageId',hash(31)],
-    ['ethereumChainId','2'],['riscZeroVerifier','0x0000000000000000000000000000000000000011']]) {
-    assert.notEqual(checkpointVerifierConfigHash({...fixture,[field]:value}).verifierConfigHash,
-      result.verifierConfigHash,field);
-  }
+  assert.notEqual(checkpointVerifierConfigHash({...fixture,ethereumChainId:'2'}).verifierConfigHash,
+    result.verifierConfigHash,'ethereumChainId');
+  assert.notEqual(checkpointVerifierConfigHash({...fixture,ethereumChainId:'2',
+    riscZeroVerifierCodeHash:hash(31)}).verifierConfigHash,result.verifierConfigHash,
+  'riscZeroVerifierCodeHash');
+  assert.notEqual(checkpointVerifierConfigHash({...fixture,ethereumChainId:'2',
+    riscZeroVerifier:'0x0000000000000000000000000000000000000011'}).verifierConfigHash,
+  result.verifierConfigHash,'riscZeroVerifier');
+  assert.notEqual(checkpointVerifierConfigHash({...fixture,checkpointGuestImageId:hash(31)})
+    .verifierConfigHash,result.verifierConfigHash,'checkpointGuestImageId');
   for(const [field,value] of [['domNetworkMagic','1146047794'],['firstV4Height','100001'],
     ['challengePeriod','172801']]) {
     assert.notEqual(checkpointVerifierConfigHash({...fixture,[field]:value}).provingProgramConfigHash,
@@ -149,6 +154,8 @@ test('checkpoint verifier configuration rejects ambiguity and unsupported polici
     {...fixture,maxProofBytes:'261'},
     {...fixture,ethereumChainId:'0'},
     {...fixture,riscZeroVerifier:'0x0000000000000000000000000000000000000000'},
+    {...fixture,riscZeroVerifier:'0x0000000000000000000000000000000000000010'},
+    {...fixture,riscZeroVerifierCodeHash:hash(16)},
     {...fixture,riscZeroVerifierSelector:'0x01020304'},
     {...fixture,journalSchemaHash:hash(20)},
     {...fixture,proofSystem:'groth16-bn254-v1'},{...fixture,proofSystem:'Groth16 BN254'},
@@ -160,7 +167,7 @@ test('checkpoint verifier configuration rejects ambiguity and unsupported polici
   assert.throws(()=>checkpointVerifierConfigHash(missing),/exact/);
 });
 
-test('stale checkpoint adapter artifact is rejected after V6/V4 source changes',async()=>{
+test('checkpoint adapter artifact rejects source bytes that differ from compiler metadata',async()=>{
   const artifact=JSON.parse(await readFile(new URL(
     '../../out/DOMCheckpointRiscZeroVerifier.sol/DOMCheckpointRiscZeroVerifier.json',import.meta.url,
   ),'utf8'));
@@ -169,15 +176,19 @@ test('stale checkpoint adapter artifact is rejected after V6/V4 source changes',
   for(const source of Object.keys(artifact.metadata.sources)) {
     sourceContents[source]=await readFile(new URL(source,root));
   }
+  const changedSourceContents={...sourceContents};
+  const changedSource=Object.keys(artifact.metadata.sources)[0];
+  changedSourceContents[changedSource]=Buffer.concat([sourceContents[changedSource],Buffer.from('\n')]);
   const fixture=checkpointVerifierConfigFixture();
   assert.throws(()=>deriveCheckpointVerifierRuntimeCodeHash({artifact,
-    verifierConfig:fixture,sourceContents}),/artifact source hash mismatch/);
+    verifierConfig:fixture,sourceContents:changedSourceContents}),/artifact source hash mismatch/);
   const adapterConfig={
     ethereumChainId:fixture.ethereumChainId,riscZeroVerifier:fixture.riscZeroVerifier,
     riscZeroVerifierCodeHash:fixture.riscZeroVerifierCodeHash,
     riscZeroVerifierSelector:fixture.riscZeroVerifierSelector,
     checkpointGuestImageId:fixture.checkpointGuestImageId,
   };
-  assert.throws(()=>deriveCheckpointAdapterRuntimeCodeHash({artifact,sourceContents,adapterConfig}),
+  assert.throws(()=>deriveCheckpointAdapterRuntimeCodeHash({artifact,
+    sourceContents:changedSourceContents,adapterConfig}),
     /artifact source hash mismatch/);
 });

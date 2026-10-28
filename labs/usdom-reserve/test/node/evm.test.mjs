@@ -72,6 +72,14 @@ test('SDK, source-derived runtimes and deployed EVM behavior agree exactly', {ti
  const safeSingleton=await deploy('Mocks.sol/MockGovernance');
  const proofGovernance=await deploy('Mocks.sol/MockMutableSingletonControl',[await safeSingleton.getAddress()]);
  const proofGuardian=await deploy('Mocks.sol/MockMutableSingletonControl',[await safeSingleton.getAddress()]);
+ await (await proofGovernance.setOwners(
+  '0x0000000000000000000000000000000000000101',
+  '0x0000000000000000000000000000000000000102',
+  '0x0000000000000000000000000000000000000103')).wait();
+ await (await proofGuardian.setOwners(
+  '0x0000000000000000000000000000000000000201',
+  '0x0000000000000000000000000000000000000202',
+  '0x0000000000000000000000000000000000000203')).wait();
  const shutdownRegistry=await deploy('Mocks.sol/MockGracefulShutdownRegistry',[
   domDomain,activationScheduleCommitment,
  ]);
@@ -79,7 +87,7 @@ test('SDK, source-derived runtimes and deployed EVM behavior agree exactly', {ti
   await token.getAddress(),await verifier.getAddress(),await shutdownRegistry.getAddress(),
   domDomain,activationScheduleCommitment,
   await proofGovernance.getAddress(),await proofGuardian.getAddress(),
-  86400,172800,100000000000n,2000000000n,
+  86400,172800,100000000000n,2000000000n,true,
  ]]);
  const proofReserveAddress=await proofReserve.getAddress();
  const proofReserveArtifact=await artifact('USDOMProofReserve.sol/USDOMProofReserve');

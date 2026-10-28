@@ -31,6 +31,15 @@ test('assembler rejects cross-network, cadence drift and unknown fields',()=>{
   assert.throws(()=>assembleNativePreActivationFacts({anchor:{...anchor,extra:true},policy}));
 });
 
+test('assembler rejects oversized decimal facts before numeric conversion',()=>{
+  assert.throws(()=>assembleNativePreActivationFacts({anchor:{...anchor,
+    activationPredecessorTotalDifficulty:'9'.repeat(100000)},policy}),/canonical decimal/);
+  assert.throws(()=>assembleNativePreActivationFacts({anchor,policy:{...policy,
+    checkpointChallengePeriodSeconds:'9'.repeat(100000)}}),/canonical decimal/);
+  assert.throws(()=>assembleNativePreActivationFacts({anchor:{...anchor,
+    activationPredecessorTotalDifficulty:(1n<<256n).toString()},policy}),/uint256/);
+});
+
 test('fixed offline materializer locks the node and cannot publish or authorize',()=>{
   const wrapper=new URL('../../scripts/materialize-native-preactivation-facts.sh',import.meta.url);
   const exporter=new URL('../../scripts/export-dom-preactivation-anchor.sh',import.meta.url);
@@ -46,7 +55,15 @@ test('fixed offline materializer locks the node and cannot publish or authorize'
   assert.match(nodeSource,/flock -n 8/);
   assert.match(exportSource,/--bin dom-usdom-export-preactivation-anchor/);
   assert.match(exportSource,/--max-span 390/);
-  assert.match(source,/install-release-config-stdin\.mjs/);
+  assert.match(exportSource,/install-private-file-immutable-stdin\.mjs" "\$anchor"/);
+  assert.doesNotMatch(exportSource,/mv -T/);
+  assert.match(exportSource,/pin_runtime_tool node/);
+  assert.match(source,/replace-locked-source-stdin\.mjs/);
+  assert.match(source,/"\$previous_sha256" "\$parent_device" "\$parent_inode" "\$python3_bin" "\$python3_sha256"/);
+  assert.match(source,/pin_tool python3/);
+  assert.match(source,/stat -Lc '%u:%a:%h' "\$target"/);
+  assert.equal((source.match(/cmp -s "\$temporary_facts" "\$target"/g)??[]).length,3);
+  assert.match(source,/sync -f "\$target"; sync -f "\$project\/config"\ncmp -s "\$temporary_facts" "\$target"/);
   for(const forbidden of ['git push','cast send','eth_sendRawTransaction','productionReady = true',
     'realFundsAuthorized = true','--private-key','--mnemonic']) {
     assert.equal(source.includes(forbidden)||exportSource.includes(forbidden),false);

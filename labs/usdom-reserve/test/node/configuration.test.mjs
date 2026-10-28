@@ -36,6 +36,9 @@ test('Safe owner commitment canonicalizes order and rejects ambiguous owner sets
  assert.equal(safeOwnersCommitment(owners),safeOwnersCommitment([...owners].reverse()));
  assert.throws(()=>safeOwnersCommitment(owners.slice(0,2)),/exactly three/);
  assert.throws(()=>safeOwnersCommitment([owners[0],owners[0],owners[2]]),/distinct/);
+ assert.throws(()=>safeOwnersCommitment([
+  '0x0000000000000000000000000000000000000011',owners[1],owners[2],
+ ]),/reserved precompile/);
 });
 test('missing production configuration is rejected',async()=>{
  const config=JSON.parse(await readFile(new URL('../../config/production.unconfigured.json',import.meta.url),'utf8'));
@@ -81,10 +84,10 @@ test('proof-reserve tooling cannot declare Ethereum mainnet ready before a ratif
  assert.throws(()=>validateProofConfiguration({...mainnet,productionReady:true}),/cannot assert production readiness/);
 });
 test('proof-reserve deployment commitment binds every immutable release field',()=>{
- const expected='0x94c07dd41ae21ae82155f03557da9e9242d54fe3dfb544f42f1475f33a2c7e84';
+ const expected='0x778f289a27db5dbbe83d53fd9e37c55332808f7c4f248fcb8f76e14ffd6a9505';
  const result=proofReserveDeploymentConfigHash(deploymentFixture());
  assert.equal(result.identityHash,'0x69c6713e2e6e23c18f23465289dcde809c181f69451fbea7dbe124256c79e1f5');
- assert.equal(result.policyHash,'0x3185e841c8953089d224c176ba77159bf0b48c1cf8ca715c5e522bdfaea59149');
+ assert.equal(result.policyHash,'0xff4c7cfca1cd4ba256c556660c14d5656c0d6659120b0078a0831ce54394c791');
  assert.equal(result.reserveConfigHash,expected);
  assert.match(result.reservePreActivationConfigHash,/^0x[0-9a-f]{64}$/);
  const {activationScheduleCommitment: _activation,...preActivationInput}=deploymentFixture();

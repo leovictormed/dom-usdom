@@ -10,9 +10,10 @@ use dom_chain::{
     native_usdom_v2_activation_updates, native_usdom_v4_activation_updates,
     native_usdom_v4_activation_updates_for_schedule, native_usdom_v4_regtest_activation_schedule,
     restore_persisted_usdom_v2_state_for_schedule, restore_persisted_usdom_v4_state,
-    rewind_persisted_usdom_v4_state_to_ancestor, ChainState, ConnectResult,
-    NativeUsdomV2ActivationSchedule, NativeUsdomV2Runtime, NativeUsdomV4ActivationSchedule,
-    NativeUsdomV4Runtime, UsdomV2ExecutionWitnesses, UsdomV4BlockPackage, UsdomV4ProofEnvelope,
+    rewind_persisted_usdom_v2_state_to_ancestor, rewind_persisted_usdom_v4_state_to_ancestor,
+    ChainState, ConnectResult, NativeUsdomV2ActivationSchedule, NativeUsdomV2Runtime,
+    NativeUsdomV4ActivationSchedule, NativeUsdomV4Runtime, UsdomV2ExecutionWitnesses,
+    UsdomV4BlockPackage, UsdomV4ProofEnvelope,
 };
 use dom_consensus::block::ProofOfWork;
 use dom_consensus::{
@@ -733,6 +734,67 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             .unwrap(),
         UsdomV4ProofEnvelope::empty().to_bytes().unwrap()
     );
+    // Restart restoration must bind the tip marker and chain-tip pointer to
+    // the canonical height index, not merely to a valid persisted package.
+    chain
+        .store
+        .apply_reorg_with_consensus_state(
+            second_v4_hash.as_bytes(),
+            &[(2, Some(*retained_side_two.as_bytes()))],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+    assert!(restore_persisted_usdom_v4_state(
+        &chain.store,
+        NETWORK_MAGIC_REGTEST,
+        bridge(),
+        second_v4_hash,
+    )
+    .is_err());
+    chain
+        .store
+        .apply_reorg_with_consensus_state(
+            second_v4_hash.as_bytes(),
+            &[(2, Some(*second_v4_hash.as_bytes()))],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+
+    // Every intermediate V1 block traversed by rewind must still occupy its
+    // declared canonical height. A valid undo/header chain alone is not enough
+    // when the persisted height index has diverged.
+    chain
+        .store
+        .apply_reorg_with_consensus_state(
+            second_v4_hash.as_bytes(),
+            &[(1, Some(*retained_side_two.as_bytes()))],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+    assert!(rewind_persisted_usdom_v4_state_to_ancestor(
+        &chain.store,
+        NETWORK_MAGIC_REGTEST,
+        bridge(),
+        second_v4_hash,
+        canonical.hash,
+    )
+    .is_err());
+    chain
+        .store
+        .apply_reorg_with_consensus_state(
+            second_v4_hash.as_bytes(),
+            &[(1, Some(*first_v4_hash.as_bytes()))],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
 
     let side_three = mine_v4_child(
         &side_two,
@@ -896,6 +958,18 @@ fn chainstate_direct_extension_validates_and_commits_native_state_with_block() {
             .unwrap(),
         UsdomV4ProofEnvelope::empty().to_bytes().unwrap()
     );
+    assert!(
+        load_persisted_usdom_v4_package(&chain.store, NETWORK_MAGIC_REGTEST, second_v4_hash,)
+            .unwrap()
+            .is_some()
+    );
+    let mut disconnected_package_meta = b"usdom-v4/package/meta/".to_vec();
+    disconnected_package_meta.extend_from_slice(second_v4_hash.as_bytes());
+    assert!(chain
+        .store
+        .get_consensus_state(&disconnected_package_meta)
+        .unwrap()
+        .is_none());
     assert_eq!(
         restore_persisted_usdom_v4_state(
             &chain.store,
@@ -1720,6 +1794,85 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
     assert_eq!(reopened.tip_height, BlockHeight(2));
 
     let canonical_second_hash = reopened.tip_hash;
+    let mut second_record_key = b"usdom-v2/block/".to_vec();
+    second_record_key.extend_from_slice(canonical_second_hash.as_bytes());
+    let original_second_record = reopened
+        .store
+        .get_consensus_state(&second_record_key)
+        .unwrap()
+        .unwrap();
+    let mut parent_substituted_record = original_second_record.clone();
+    // UDV2BLK2 magic/version/schedule/block occupy 74 bytes. Repointing this
+    // empty-state record directly at the activation parent used to let rewind
+    // skip the real first V2 block because only record-local roots were read.
+    parent_substituted_record[74..106].copy_from_slice(canonical.hash.as_bytes());
+    reopened
+        .store
+        .apply_reorg_with_consensus_state(
+            canonical_second_hash.as_bytes(),
+            &[],
+            &[],
+            &[],
+            &[ConsensusStateUpdate {
+                key: second_record_key.clone(),
+                value: Some(parent_substituted_record),
+            }],
+        )
+        .unwrap();
+    assert!(rewind_persisted_usdom_v2_state_to_ancestor(
+        &reopened.store,
+        canonical_second_hash,
+        caller_state,
+        canonical.hash,
+        v2_schedule,
+    )
+    .is_err());
+    reopened
+        .store
+        .apply_reorg_with_consensus_state(
+            canonical_second_hash.as_bytes(),
+            &[],
+            &[],
+            &[],
+            &[ConsensusStateUpdate {
+                key: second_record_key,
+                value: Some(original_second_record),
+            }],
+        )
+        .unwrap();
+
+    // Rewind must authenticate the terminal ancestor itself. Corrupting only
+    // its canonical-height entry used to go unnoticed because the loop stopped
+    // immediately after following the authenticated child parent.
+    reopened
+        .store
+        .apply_reorg_with_consensus_state(
+            canonical_second_hash.as_bytes(),
+            &[(1, Some(*canonical_second_hash.as_bytes()))],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+    assert!(rewind_persisted_usdom_v2_state_to_ancestor(
+        &reopened.store,
+        canonical_second_hash,
+        caller_state,
+        first_hash,
+        v2_schedule,
+    )
+    .is_err());
+    reopened
+        .store
+        .apply_reorg_with_consensus_state(
+            canonical_second_hash.as_bytes(),
+            &[(1, Some(*first_hash.as_bytes()))],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+
     let (side_two, side_two_hash) = (0x90..=0xff)
         .find_map(|discriminator| {
             let candidate = mine_v2_empty_child(
@@ -1758,6 +1911,16 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
         ConnectResult::SideChain
     );
     assert_eq!(reopened.tip_hash, canonical_second_hash);
+    // A zero-step rewind must not let a persisted side-chain identity masquerade
+    // as a canonical ancestor merely because `canonical_tip == ancestor`.
+    assert!(rewind_persisted_usdom_v2_state_to_ancestor(
+        &reopened.store,
+        side_two_hash,
+        caller_state,
+        side_two_hash,
+        v2_schedule,
+    )
+    .is_err());
     assert_eq!(
         load_persisted_usdom_v4_package(&reopened.store, NETWORK_MAGIC_REGTEST, side_two_hash,)
             .unwrap()
@@ -1911,6 +2074,23 @@ fn candidate_v2_direct_ingress_persists_replays_and_continues_after_restart() {
         .unwrap(),
         second_package
     );
+    // A disconnected canonical V2 block must move its bounded recovery data
+    // into the pruneable sidecar relation instead of retaining canonical
+    // replay keys forever after it leaves the height index.
+    assert!(reopened
+        .store
+        .get_block_sidecar(canonical_second_hash.as_bytes())
+        .unwrap()
+        .is_some());
+    for prefix in [
+        b"usdom-v4/package/meta/".as_slice(),
+        b"usdom-v2/witness/meta/".as_slice(),
+        b"usdom-v2/block/".as_slice(),
+    ] {
+        let mut key = prefix.to_vec();
+        key.extend_from_slice(canonical_second_hash.as_bytes());
+        assert!(reopened.store.get_consensus_state(&key).unwrap().is_none());
+    }
     assert_eq!(
         restore_persisted_usdom_v2_state_for_schedule(
             &reopened.store,

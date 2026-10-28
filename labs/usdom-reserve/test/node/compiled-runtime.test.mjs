@@ -1,13 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {
   deriveCheckpointRegistryArtifactBinding,
   deriveCheckpointRegistryInitcodeHash,
   deriveCheckpointRegistryRuntimeCodeHash,
+  deriveCheckpointVerifierInitcodeHash,
+  deriveFinalizedBurnVerifierInitcodeHash,
   deriveReserveArtifactBinding,
   deriveReserveInitcodeHash,
   deriveReserveRuntimeCodeHash,
+  validateImmutablePatchManifest,
 } from '../../sdk/compiled-runtime.mjs';
 import {checkpointRegistryConfigHash} from '../../sdk/checkpoint-registry.mjs';
 import {proofReserveDeploymentConfigHash,safeOwnersCommitment} from '../../sdk/configuration.mjs';
@@ -16,10 +20,14 @@ const address=n=>'0x'+n.toString(16).padStart(40,'0');
 const hash=n=>'0x'+n.toString(16).padStart(64,'0');
 const artifactUrl=new URL('../../out/USDOMProofReserve.sol/USDOMProofReserve.json',import.meta.url);
 const registryArtifactUrl=new URL('../../out/DOMCheckpointRegistry.sol/DOMCheckpointRegistry.json',import.meta.url);
+const finalizedAdapterArtifactUrl=new URL(
+  '../../out/DOMFinalizedBurnRiscZeroVerifier.sol/DOMFinalizedBurnRiscZeroVerifier.json',import.meta.url);
+const checkpointAdapterArtifactUrl=new URL(
+  '../../out/DOMCheckpointRiscZeroVerifier.sol/DOMCheckpointRiscZeroVerifier.json',import.meta.url);
 const rootUrl=new URL('../../',import.meta.url);
 
 function release() {
-  return {token:address(1),tokenCodeHash:hash(2),verifier:address(3),verifierCodeHash:hash(4),
+  return {ethereumChainId:'1',token:address(1),tokenCodeHash:hash(2),verifier:address(3),verifierCodeHash:hash(4),
     verifierConfigHash:hash(5),reserveConfigHash:hash(6),domDomain:hash(7),
     checkpointRegistry:address(41),checkpointRegistryRuntimeCodeHash:hash(42),
     checkpointRegistryConfigHash:hash(43),
@@ -84,19 +92,26 @@ async function loadRegistryBuild() {
 test('source-verified immutable patching deterministically derives deployed reserve runtime',async()=>{
   const {artifact,sourceContents}=await loadBuild();
   const config=release();
+  assert.equal(createHash('sha256').update(JSON.stringify(artifact.abi)).digest('hex'),
+    '0a7e8319fe688d770b2dc4030cbf0f6c0103fb18cdef77034eba3b0bba90828d');
   const derived=deriveReserveRuntimeCodeHash({artifact,releaseConfig:config,sourceContents});
   assert.ok(artifact.abi.some(item=>item.type==='function'&&item.name==='pendingQueueSnapshot'));
-  assert.ok(artifact.abi.some(item=>item.type==='function'&&item.name==='pendingBurnPage'));
+  assert.ok(!artifact.abi.some(item=>item.type==='function'&&item.name==='pendingBurnPage'));
+  for(const name of ['ETHEREUM_USDT_CODE_HASH','SAFE_MAINNET_SINGLETON','SAFE_MAINNET_SINGLETON_CODE_HASH',
+    'SAFE_MAINNET_PROXY_CODE_HASH','BN254_SCALAR_FIELD','PROOF_ACCEPTED','RESERVE_IDENTITY_TYPEHASH',
+    'CONTROL_PLANE_IDENTITY_TYPEHASH','RESERVE_POLICY_TYPEHASH','RESERVE_CONFIG_TYPEHASH',
+    'BURN_STATEMENT_TYPEHASH']) {
+    assert.ok(!artifact.abi.some(item=>item.type==='function'&&item.name===name),name);
+  }
   for(const name of ['totalProvedDebtAmount','depositsClosed','gracefullyShutdown']) {
     assert.ok(artifact.abi.some(item=>item.type==='function'&&item.name===name),name);
   }
-  assert.equal(derived.runtimeCodeHash,'0x4caa392f8579cf64d68802609a9e54e094e4a493e409543ecfc84edbd7263202');
+  assert.equal(derived.runtimeCodeHash,'0x1af6fd31057ccf89fffe6f8516dd62a14f2ae72e4d354c5b52a32abacafcdb6f');
   assert.notEqual(derived.runtimeCodeHash,'0x1d2a2b4b2e8cfffc96dee68d2cdf9d4f822f36f8a50707f3b7f2c8b005682498');
-  assert.equal(derived.runtimeSize,20100);
-  assert.equal(derived.immutableReferenceCount,68);
-  assert.equal(derived.immutablePatchManifest.length,23);
+  assert.equal(derived.runtimeSize,20339);
+  assert.equal(validateImmutablePatchManifest(derived),derived);
   assert.equal(derived.immutablePatchManifestHash,
-    '0x98b3d7d62f0e1e1e07e1da2834d400900fa4a8eba5584f090018478d8292c425');
+    '0xf1df0406083ffae66007d300d676c0301ce2e8f773bddc3c4e213c38675dccdf');
   const derivedBytes=Buffer.from(derived.runtimeBytecode.slice(2),'hex');
   for(const entry of derived.immutablePatchManifest) {
     assert.match(entry.encoded,/^0x[0-9a-f]{64}$/);
@@ -107,26 +122,45 @@ test('source-verified immutable patching deterministically derives deployed rese
         `${entry.name} at ${offset}`);
     }
   }
+  const missingReference=structuredClone(derived);
+  missingReference.immutableReferenceCount++;
+  assert.throws(()=>validateImmutablePatchManifest(missingReference),/cover every reference/);
+  const overlappingManifest=structuredClone(derived);
+  overlappingManifest.immutablePatchManifest[1].locations[0]=
+    overlappingManifest.immutablePatchManifest[0].locations[0];
+  assert.throws(()=>validateImmutablePatchManifest(overlappingManifest),/overlap|location/);
+  const noncanonicalValue=structuredClone(derived);
+  noncanonicalValue.immutablePatchManifest[0].encoded=
+    noncanonicalValue.immutablePatchManifest[0].encoded.toUpperCase();
+  assert.throws(()=>validateImmutablePatchManifest(noncanonicalValue),/noncanonical/);
+  const detachedRuntime=structuredClone(derived);
+  const detachedBytes=Buffer.from(detachedRuntime.runtimeBytecode.slice(2),'hex');
+  detachedBytes[detachedRuntime.immutablePatchManifest[0].locations[0]]^=1;
+  detachedRuntime.runtimeBytecode=`0x${detachedBytes.toString('hex')}`;
+  assert.throws(()=>validateImmutablePatchManifest(detachedRuntime),/differs from runtime/);
+  const detachedHash=structuredClone(derived);
+  detachedHash.immutablePatchManifestHash='0x'+'11'.repeat(32);
+  assert.throws(()=>validateImmutablePatchManifest(detachedHash),/hash mismatch/);
   assert.equal(derived.sourceCount,Object.keys(artifact.metadata.sources).length);
   assert.match(derived.compilerVersion,/^0\.8\.37\+commit\./);
   const initcode=deriveReserveInitcodeHash({artifact,releaseConfig:config,sourceContents});
-  assert.equal(initcode.initcodeHash,'0xa9d466335ea9eda3010202cf52125b7fb96e6494e8b8e5db5fcd0ecd35309784');
+  assert.equal(initcode.initcodeHash,'0xb3c81c6722c478fb14fab86be9c36a10f861aa5c1417570ff2719d9550745599');
   assert.notEqual(initcode.initcodeHash,'0xe4719f8fd72f041494b0ce88f4f51321e4d882b248e3ff02a3cefe88162b9fe0');
-  assert.equal(initcode.initcodeSize,26498);
+  assert.equal(initcode.initcodeSize,26937);
   assert.equal(initcode.sourceCount,derived.sourceCount);
   const creationBytes=Buffer.from(artifact.bytecode.object.slice(2),'hex');
   const constructorBytes=Buffer.from(initcode.initcode.slice(2+creationBytes.length*2),'hex');
-  assert.equal(constructorBytes.length,11*32);
+  assert.equal(constructorBytes.length,12*32);
   const word=index=>constructorBytes.subarray(index*32,(index+1)*32).toString('hex');
   const addressWord=value=>'0'.repeat(24)+value.slice(2).toLowerCase();
   const uintWord=value=>BigInt(value).toString(16).padStart(64,'0');
   assert.deepEqual([word(0),word(1),word(2),word(3),word(4),word(5),word(6),
-    word(7),word(8),word(9),word(10)],[
+    word(7),word(8),word(9),word(10),word(11)],[
     addressWord(config.token),addressWord(config.verifier),addressWord(config.checkpointRegistry),
     config.domDomain.slice(2),config.activationScheduleCommitment.slice(2),
     addressWord(config.governance),addressWord(config.guardian),uintWord(config.withdrawalDelaySeconds),
     uintWord(config.governanceDelaySeconds),uintWord(config.maxOutstandingBaseUnits),
-    uintWord(config.outflowCapacityBaseUnitsPerDay),
+    uintWord(config.outflowCapacityBaseUnitsPerDay),uintWord(1),
   ]);
 
   const mutations={token:address(12),tokenCodeHash:hash(12),verifier:address(13),verifierCodeHash:hash(13),
@@ -182,6 +216,18 @@ test('source-verified immutable patching deterministically derives deployed rese
     [constructor.inputs[0].components[1],constructor.inputs[0].components[0]];
   assert.throws(()=>deriveReserveInitcodeHash({artifact:constructorDrift,releaseConfig:config,sourceContents}),
     /constructor tuple order or type drifted/);
+  const extraRemapping=structuredClone(artifact);
+  extraRemapping.metadata.settings.remappings.push('contracts/=malicious/');
+  assert.throws(()=>deriveReserveRuntimeCodeHash({artifact:extraRemapping,
+    releaseConfig:config,sourceContents}),/unexpected OpenZeppelin remapping/);
+  const optimizerDetails=structuredClone(artifact);
+  optimizerDetails.metadata.settings.optimizer.details={peephole:false};
+  assert.throws(()=>deriveReserveRuntimeCodeHash({artifact:optimizerDetails,
+    releaseConfig:config,sourceContents}),/unexpected optimizer configuration/);
+  const extraCompilerSetting=structuredClone(artifact);
+  extraCompilerSetting.metadata.settings.debug={revertStrings:'strip'};
+  assert.throws(()=>deriveReserveRuntimeCodeHash({artifact:extraCompilerSetting,
+    releaseConfig:config,sourceContents}),/unexpected Solidity compiler settings schema/);
 
   const settingsMutations=[
     a=>{a.metadata.compiler.version='0.8.36+commit.4a9f1e15';},
@@ -217,10 +263,10 @@ test('source-verified immutable patching derives checkpoint registry runtime and
   const config=registryRelease();
   const runtime=deriveCheckpointRegistryRuntimeCodeHash({artifact,releaseConfig:config,sourceContents});
   const initcode=deriveCheckpointRegistryInitcodeHash({artifact,releaseConfig:config,sourceContents});
-  assert.equal(runtime.runtimeCodeHash,'0x0df35fbfe5d5742ff906a993e68c69d09ba2c1943878c52ae9cb43b61a1dac65');
-  assert.equal(runtime.runtimeSize,10163);
-  assert.equal(initcode.initcodeHash,'0x5b6088c2f0aeb727f77fe3fd9cd8022749837675231014269ebbd0d5e1550fd7');
-  assert.equal(initcode.initcodeSize,15058);
+  assert.equal(runtime.runtimeCodeHash,'0xae3b2b927cd5d882f9995727f5f0610286909956c87c217f699e7ad2fbbe0a46');
+  assert.equal(runtime.runtimeSize,10675);
+  assert.equal(initcode.initcodeHash,'0xba2c507d68c72b893fe1c61ee5947bc7b9ccaf65d301d8833c1775ac238392ba');
+  assert.equal(initcode.initcodeSize,15802);
   assert.equal(runtime.sourceCount,Object.keys(artifact.metadata.sources).length);
   assert.equal(initcode.sourceCount,runtime.sourceCount);
   const binding=deriveCheckpointRegistryArtifactBinding({artifact,releaseConfig:config,sourceContents});
@@ -263,6 +309,12 @@ test('source-verified immutable patching derives checkpoint registry runtime and
     checkpointDomNetworkMagic:1n<<32n},sourceContents}),/range/);
   assert.throws(()=>deriveCheckpointRegistryInitcodeHash({artifact,releaseConfig:{...config,
     checkpointInitialHeight:1n<<64n},sourceContents}),/range/);
+  const constructorDrift=structuredClone(artifact);
+  const constructor=constructorDrift.abi.find(item=>item.type==='constructor');
+  [constructor.inputs[0].components[0],constructor.inputs[0].components[1]]=
+    [constructor.inputs[0].components[1],constructor.inputs[0].components[0]];
+  assert.throws(()=>deriveCheckpointRegistryInitcodeHash({artifact:constructorDrift,
+    releaseConfig:config,sourceContents}),/constructor tuple order or type drifted/);
   const wrongTarget=structuredClone(artifact);
   wrongTarget.metadata.settings.compilationTarget={'contracts/USDOMProofReserve.sol':'USDOMProofReserve'};
   assert.throws(()=>deriveCheckpointRegistryRuntimeCodeHash({artifact:wrongTarget,releaseConfig:config,sourceContents}),
@@ -272,4 +324,37 @@ test('source-verified immutable patching derives checkpoint registry runtime and
   const staleSources={...sourceContents,'contracts/DOMCheckpointRegistry.sol':new Uint8Array([1])};
   assert.throws(()=>deriveCheckpointRegistryArtifactBinding({artifact,releaseConfig:config,
     sourceContents:staleSources}),/source hash mismatch/);
+});
+
+test('RISC Zero adapter initcode derivation rejects constructor ABI drift before configuration use',async()=>{
+  for(const [url,derive] of [
+    [finalizedAdapterArtifactUrl,deriveFinalizedBurnVerifierInitcodeHash],
+    [checkpointAdapterArtifactUrl,deriveCheckpointVerifierInitcodeHash],
+  ]) {
+    const artifact=JSON.parse(await readFile(url,'utf8'));
+    const constructor=artifact.abi.find(item=>item.type==='constructor');
+    [constructor.inputs[0],constructor.inputs[1]]=[constructor.inputs[1],constructor.inputs[0]];
+    assert.throws(()=>derive({artifact,verifierConfig:undefined}),/constructor ABI order or type drifted/);
+  }
+});
+
+test('RISC Zero adapter binding rejects proof, journal and immutable getter ABI drift',async()=>{
+  for(const [url,derive,proofFunction] of [
+    [finalizedAdapterArtifactUrl,deriveFinalizedBurnVerifierInitcodeHash,'verifyFinalizedBurn'],
+    [checkpointAdapterArtifactUrl,deriveCheckpointVerifierInitcodeHash,'verifyDOMCheckpoint'],
+  ]) {
+    const original=JSON.parse(await readFile(url,'utf8'));
+    const mutations=[
+      artifact=>{artifact.abi.find(item=>item.type==='function'&&item.name===proofFunction).outputs=[];},
+      artifact=>{artifact.abi.find(item=>item.type==='function'&&item.name==='journalDigest').inputs[0].type='bytes';},
+      artifact=>{artifact.abi.find(item=>item.type==='function'&&item.name==='verifierConfigHash').outputs[0].type='bytes4';},
+      artifact=>{artifact.abi.find(item=>item.type==='function'&&item.name==='verifierSelector').stateMutability='pure';},
+      artifact=>{artifact.abi.push(structuredClone(artifact.abi.find(
+        item=>item.type==='function'&&item.name===proofFunction)));},
+    ];
+    for(const mutate of mutations) {
+      const artifact=structuredClone(original); mutate(artifact);
+      assert.throws(()=>derive({artifact,verifierConfig:undefined}),/ABI drifted/);
+    }
+  }
 });

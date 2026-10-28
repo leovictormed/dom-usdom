@@ -9,9 +9,11 @@ publish = false
 
 [dependencies]
 ark-bn254 = { version = "=0.5.0", default-features = false, features = ["curve"] }
+ark-ec = { version = "=0.5.0", default-features = false }
 ark-crypto-primitives = { version = "=0.5.0", default-features = false, features = ["sponge", "r1cs"] }
 ark-ff = { version = "=0.5.0", default-features = false }
 ark-groth16 = { version = "=0.5.0", default-features = false }
+ark-poly = { version = "=0.5.0", default-features = false }
 ark-r1cs-std = { version = "=0.5.0", default-features = false }
 ark-relations = { version = "=0.5.1", default-features = false }
 ark-serialize = { version = "=0.5.0", default-features = false }
@@ -19,7 +21,8 @@ dom-core.workspace = true
 sha2 = { version = "0.10", default-features = false }
 thiserror.workspace = true
 zeroize.workspace = true
+rand = "0.8.6"
+hex.workspace = true
 
 [dev-dependencies]
-hex.workspace = true
 rand = "0.8.6"

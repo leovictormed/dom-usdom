@@ -74,6 +74,21 @@ pub struct StaticCheckpointTrustPolicy {
 }
 
 impl StaticCheckpointTrustPolicy {
+    /// Beacon weak-subjectivity root pinned by this immutable policy.
+    pub fn trusted_checkpoint(&self) -> B256 {
+        self.trusted_checkpoint
+    }
+
+    /// Ethereum consensus genesis root pinned by this immutable policy.
+    pub fn ethereum_genesis_validators_root(&self) -> B256 {
+        self.ethereum_genesis_validators_root
+    }
+
+    /// Fork schedule pinned by this immutable policy.
+    pub fn forks(&self) -> &EthereumForks {
+        &self.forks
+    }
+
     fn materialize(&self, max_current_slot: u64) -> CheckpointTrustPolicy {
         CheckpointTrustPolicy {
             trusted_checkpoint: self.trusted_checkpoint,

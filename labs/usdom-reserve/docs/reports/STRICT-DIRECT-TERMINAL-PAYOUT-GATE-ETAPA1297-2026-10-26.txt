@@ -1,0 +1,36 @@
+Stage 1297 — strict direct terminal-payout evidence gate
+Date: 2026-10-26
+
+Finding
+-------
+The terminal payout evidence CLI used unbounded readFileSync and JSON.parse for
+the finalized baseline, execution candidate and private redemption package. It
+checked only whether each pathname was a symlink, leaving hardlink/nonregular
+ambiguity, invalid UTF-8 replacement, duplicate keys and oversized inputs at the
+durable completion boundary.
+
+Correction
+----------
+All three files are now snapshotted through readDirectFile with regular-file,
+link and stability checks and a 4-MiB cap. parseStrictJsonBytes applies explicit
+byte, depth, node, string, object and array limits. Baseline SHA-256 is computed
+over the exact snapshotted bytes. Failures use the redacted pilot diagnostic
+envelope and never emit a successful marker.
+
+Adversarial regression
+----------------------
+A behavioral test creates a canonical private three-file graph and verifies the
+CLI emits exactly `ok`. Replacing execution with duplicate-schema-key bytes is
+rejected with nonzero status, empty stdout and no injected-value disclosure.
+
+Validation
+----------
+- Terminal payout CLI Node syntax check: pass.
+- Financial evidence/conservation, pilot DAG/evidence, redemption and broad
+  operator suites: 100/100 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

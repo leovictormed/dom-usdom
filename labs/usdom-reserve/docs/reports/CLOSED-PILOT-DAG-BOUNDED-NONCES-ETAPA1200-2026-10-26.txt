@@ -1,0 +1,18 @@
+Stage 1200 — bounded closed-pilot DAG nonces
+Date: 2026-10-26
+
+Change
+- The offline closed-mainnet pilot DAG now limits base, receipt and pending nonces to canonical uint64 values before BigInt conversion.
+- Deposit and redemption base nonces additionally reserve their full three-transaction and two-transaction ranges inside uint64.
+
+Security result
+- Durable pilot artifacts cannot force arbitrary-size nonce conversion or describe a transaction sequence whose derived nonce overflows the Ethereum nonce domain.
+- Regressions reject a 100,000-digit base nonce, exact uint64 receipt overflow and base nonces that leave insufficient room for each complete phase.
+- This local reconciliation hardening does not authorize signing, broadcast or funds.
+
+Validation
+- /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/closed-mainnet-pilot-dag.test.mjs
+- Result: 3/3 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

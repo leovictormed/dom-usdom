@@ -1,0 +1,37 @@
+Stage 1249 — bounded private input for the Ledger clear-signing verifier
+Date: 2026-10-26
+
+Finding
+-------
+The local Ledger capability verifier read its raw transaction with an unbounded
+pathname-based synchronous read and converted the nonce without a lexical or
+integer-width bound. It also accepted noncanonical raw-file framing and did not
+bound calldata before transaction comparison.
+
+Correction
+----------
+The verifier now validates a canonical decimal uint64 nonce before conversion,
+canonical nonzero addresses and at most 128 KiB of lowercase byte calldata. It
+reads the signed transaction through the direct private-file boundary with a
+256 KiB ceiling, exact mode 0600 and canonical lowercase newline framing before
+decoding. Existing chain, signer, destination, fee, gas, value, access-list and
+signature checks remain unchanged.
+
+Adversarial regression
+----------------------
+The verifier regression proves nonce width/lexical checks precede file access,
+the raw input uses the bounded direct-file reader, calldata is bounded and the
+former unbounded synchronous read is absent. Existing direct-input suites cover
+indirect, unsafe-mode and oversized files.
+
+Validation
+----------
+- Node syntax check: pass.
+- Ledger probe, direct operational input, direct project file and stable
+  executable suites: 23/23 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No device operation, production fact, Rust, Solidity, Cargo, Forge, real
+network, signature, deployment, funds, commit or push operation was performed.

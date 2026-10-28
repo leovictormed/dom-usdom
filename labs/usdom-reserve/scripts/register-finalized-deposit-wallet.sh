@@ -159,6 +159,7 @@ for private in "$RECOVERY" "$PUBLIC_IDENTITY" "$KEYSTORE_CREDENTIAL" "$KEYSTORE_
 done
 SECRET_DIRECTORY=$(mktemp -d -p /dev/shm usdom-wallet-register.XXXXXXXX)
 chmod 0700 -- "$SECRET_DIRECTORY"
+SECRET_DIRECTORY_IDENTITY=$(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY")
 RECOVERY_PASSWORD_FILE="$SECRET_DIRECTORY/recovery-password"
 STATE_PASSWORD_FILE="$SECRET_DIRECTORY/state-password"
 NODE_IDENTITY="$SECRET_DIRECTORY/node-identity"
@@ -168,9 +169,19 @@ cleanup() {
   trap - EXIT HUP INT TERM
   unset recovery_password
   if [[ "$SECRET_DIRECTORY" == /dev/shm/usdom-wallet-register.* \
-    && -d "$SECRET_DIRECTORY" && ! -L "$SECRET_DIRECTORY" ]]; then
-    assert_node_unchanged &&
-      "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$SECRET_DIRECTORY" || status=1
+    && $(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY" 2>/dev/null) == "$SECRET_DIRECTORY_IDENTITY" ]]; then
+    if assert_node_unchanged &&
+      run_pinned_timeout --foreground --signal=TERM --kill-after=5s 30s \
+        "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+        "$SECRET_DIRECTORY" > /dev/null 2> /dev/null &&
+      assert_node_unchanged && assert_runtime_tool timeout && test ! -e "$SECRET_DIRECTORY"; then
+      :
+    else
+      status=1
+    fi
+  else
+    # Do not remove a replacement for the private registration directory.
+    status=1
   fi
   exit "$status"
 }

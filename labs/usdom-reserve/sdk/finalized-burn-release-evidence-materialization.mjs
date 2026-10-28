@@ -29,9 +29,12 @@ export function prepareFinalizedBurnReleaseEvidenceMaterialization({
   }
   const reportContent=JSON.stringify(validated,null,2)+'\n';
   const sha256=createHash('sha256').update(reportContent).digest('hex');
-  const updated={...evidence,realFinalizedEndToEndReport:{
-    path:FINALIZED_BURN_E2E_EVIDENCE_PATH,sha256,
-  }};
+  const document={path:FINALIZED_BURN_E2E_EVIDENCE_PATH,sha256};
+  const current=evidence.realFinalizedEndToEndReport;
+  if(current!==null && JSON.stringify(current)!==JSON.stringify(document)) {
+    throw new Error('release evidence already binds a different finalized-burn E2E report');
+  }
+  const updated={...evidence,realFinalizedEndToEndReport:document};
   return Object.freeze({report:Object.freeze({...validated}),reportContent,sha256,
     evidence:Object.freeze(updated),evidenceContent:JSON.stringify(updated,null,2)+'\n'});
 }

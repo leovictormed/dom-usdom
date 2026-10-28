@@ -52,17 +52,17 @@ function inventory(sources) {
 
 test("all Rust USDOM cryptographic constructions remain inventoried and domain literals unique", () => {
   const sources = rustSources();
-  assert.equal(sources.length, 59);
+  assert.equal(sources.length, 63);
   const { calls, domains } = inventory(sources);
   assert.deepEqual(calls, {
-    "Sha256::new(": 4,
+    "Sha256::new(": 8,
     "Keccak256::new(": 10,
-    "Sha256::digest(": 4,
-    "Keccak256::digest(": 14,
-    "blake2b_256_tagged(": 34,
+    "Sha256::digest(": 5,
+    "Keccak256::digest(": 18,
+    "blake2b_256_tagged(": 33,
     "blake2b_256(": 5,
   });
-  assert.equal(domains.length, 48);
+  assert.equal(domains.length, 52);
   assert.equal(new Set(domains).size, domains.length, "a DOM hash-domain literal was reused");
 });
 

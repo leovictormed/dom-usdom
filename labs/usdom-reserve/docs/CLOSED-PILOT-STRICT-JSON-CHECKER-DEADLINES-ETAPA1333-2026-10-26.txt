@@ -1,0 +1,28 @@
+ETAPA 1333 — LIMITES DE TODAS AS VALIDAÇÕES JSON PRIVADAS
+Data: 2026-10-26
+
+Problema
+
+Relatórios, respostas RPC, candidatos de validação e evidências terminais já
+passavam pelo checker de JSON estrito, porém as nove invocações desse subprocesso
+não possuíam deadline próprio.
+
+Correção
+
+Todas as chamadas de `check-private-strict-json-file.mjs` agora executam sob
+deadline foreground TERM/KILL de 120 segundos: cinco no depósito e quatro no
+resgate. Não resta invocação direta do checker nos dois executores.
+
+Timeout, falha, arquivo não direto, permissão inválida, excesso de tamanho,
+profundidade/estrutura excessiva, duplicidade ou JSON malformado encerram o gate
+em tempo finito.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 17/17 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 74/74 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

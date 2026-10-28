@@ -131,6 +131,7 @@ if [[ ! -c /dev/tpmrm0 || ! -r /dev/tpmrm0 || ! -w /dev/tpmrm0 ]]; then
 fi
 SECRET_DIRECTORY=$(mktemp -d -p /dev/shm usdom-wallet-observe.XXXXXXXX)
 chmod 0700 -- "$SECRET_DIRECTORY"
+SECRET_DIRECTORY_IDENTITY=$(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY")
 RECOVERY_PASSWORD_FILE="$SECRET_DIRECTORY/recovery-password"
 STATE_PASSWORD_FILE="$SECRET_DIRECTORY/state-password"
 IDENTITY_FILE="$SECRET_DIRECTORY/node-identity"
@@ -141,9 +142,19 @@ cleanup() {
   trap - EXIT HUP INT TERM
   unset recovery_password
   if [[ "$SECRET_DIRECTORY" == /dev/shm/usdom-wallet-observe.* \
-    && -d "$SECRET_DIRECTORY" && ! -L "$SECRET_DIRECTORY" ]]; then
-    assert_node_unchanged &&
-      "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$SECRET_DIRECTORY" || status=1
+    && $(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY" 2>/dev/null) == "$SECRET_DIRECTORY_IDENTITY" ]]; then
+    if assert_node_unchanged &&
+      run_pinned_timeout --foreground --signal=TERM --kill-after=5s 30s \
+        "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+        "$SECRET_DIRECTORY" > /dev/null 2> /dev/null &&
+      assert_node_unchanged && assert_runtime_tool timeout && test ! -e "$SECRET_DIRECTORY"; then
+      :
+    else
+      status=1
+    fi
+  else
+    # A replaced path is outside this observation's cleanup authority.
+    status=1
   fi
   exit "$status"
 }
@@ -207,8 +218,12 @@ input_commitment=$(fixed_input_commitment)
 # The registered state is the durable source; observed state is derived. Make
 # the prior derived generation durably absent before password entry or RPC.
 assert_node_unchanged
-"$NODE_BIN" "$LAB_ROOT/scripts/remove-private-directory-durable.mjs" "$OBSERVED_STATE"
+run_pinned_timeout --foreground --signal=TERM --kill-after=5s 30s \
+  "$NODE_BIN" "$LAB_ROOT/scripts/remove-private-directory-durable.mjs" "$OBSERVED_STATE" \
+  > /dev/null 2> /dev/null
 assert_node_unchanged
+assert_runtime_tool timeout
+test ! -e "$OBSERVED_STATE"
 if [[ ! -t 0 || ! -t 2 ]]; then
   printf '%s\n' 'Finalized-deposit observation requires an interactive terminal.' >&2
   exit 2

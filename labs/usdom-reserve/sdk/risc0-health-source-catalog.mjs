@@ -41,7 +41,7 @@ function body(value) {
   }
   const sources=value.sources.map(identity);
   if(JSON.stringify(sources)!==JSON.stringify([...sources].sort(
-    (left,right)=>left.sourceId.localeCompare(right.sourceId)))) {
+    (left,right)=>left.sourceId<right.sourceId?-1:left.sourceId>right.sourceId?1:0))) {
     fail('health source catalog must be sorted by source identity');
   }
   for(const [field,label] of [['sourceId','source identities'],['operatorId','operator identities'],

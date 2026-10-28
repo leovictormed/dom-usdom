@@ -1,0 +1,16 @@
+Stage 1188 — EIP-1271 collector bounded quantities
+Date: 2026-10-26
+
+The common Ethereum quantity helpers validated canonical syntax before BigInt
+but did not bound lexical length first. The finalized EIP-1271 collector also
+parsed raw RPC chain, block and timestamp quantities directly. Decimal and hex
+helpers now derive a lexical ceiling from the configured maximum before
+conversion. The collector applies uint256 to chain ID, uint64 to finalized
+height/timestamp, and requires an exact bytes32 finalized hash.
+
+Adversarial tests reject 100,000-digit decimal and hex quantities before
+BigInt. Quantity, native-attestation and release-authorization suites pass
+18/18 with pinned Node 24.19.0; targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

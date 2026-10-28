@@ -52,6 +52,13 @@ test('rejects duplicate operator identity or HTTPS origin',async()=>{
     {...sources[1],url:sources[0].url},sources[2]],request:responder()}),/pairwise distinct/);
   await assert.rejects(()=>collectEthereumCheckpointConsensus({sources:[...sources.slice(0,2),
     {operatorId:'operator-3',url:'http:\/\/beacon3.example'}],request:responder()}),/credential-free HTTPS/);
+  await assert.rejects(()=>collectEthereumCheckpointConsensus({sources:[
+    {operatorId:'operator-1',url:'https://shared.example:443/api'},
+    {operatorId:'operator-2',url:'https://shared.example:444/api'},sources[2]],
+  }),/hostnames must be pairwise distinct/);
+  assert.throws(()=>buildEthereumCheckpointSourceCatalog([
+    {operatorId:'operator-1',url:'https://127.0.0.1:443/api'},sources[1],sources[2]],
+  ),/public DNS hostname/);
 });
 
 test('rejects free labels or origins outside the fixed public catalog',async()=>{
@@ -77,6 +84,19 @@ test('rejects wrong network, optimistic or noncanonical observations',async()=>{
     ...header,execution_optimistic:true}})}),/unsafe/);
   await assert.rejects(()=>collectEthereumCheckpointConsensus({sources,request:responder({headerValue:{
     ...header,data:{...header.data,canonical:false}}})}),/not canonical/);
+});
+
+test('rejects oversized Beacon decimals before numeric conversion',async()=>{
+  const oversized={...finality,data:{...finality.data,finalized:{
+    ...finality.data.finalized,epoch:'9'.repeat(100000),
+  }}};
+  await assert.rejects(()=>collectEthereumCheckpointConsensus({sources,
+    request:responder({finalityBySource:new Map([['1',oversized]])})}),/canonical decimal/);
+  const overflow={...finality,data:{...finality.data,finalized:{
+    ...finality.data.finalized,epoch:(1n<<64n).toString(),
+  }}};
+  await assert.rejects(()=>collectEthereumCheckpointConsensus({sources,
+    request:responder({finalityBySource:new Map([['1',overflow]])})}),/uint64/);
 });
 
 test('rejects source disagreement and checkpoints that move during observation',async()=>{
@@ -127,6 +147,12 @@ test('bounded HTTP reader rejects oversized and malformed responses',async()=>{
     assert.doesNotMatch(String(error?.message),/secret|private/);
     return true;
   });
+  for(const options of [{maxBytes:Infinity},{maxBytes:0},{timeoutMs:Infinity},{timeoutMs:0}]) {
+    await assert.rejects(()=>requestBeaconJson('https://beacon.example/test',{
+      ...options,environment:{},fetchImpl:async()=>new Response('{}')}),/transport bounds/);
+  }
+  await assert.rejects(()=>requestBeaconJson('https://127.0.0.1/test',{
+    environment:{},fetchImpl:async()=>new Response('{}')}),/public DNS hostname/);
 });
 
 test('requires a Rust-compatible bootstrap bound to the exact checkpoint',async()=>{

@@ -20,7 +20,7 @@ test("parallel proof verification restores canonical envelope order before state
   assert.match(native, /entries\s*\.par_iter\(\)/);
   assert.match(native, /\.collect::<Vec<_>>\(\)/);
   assert.match(native, /for \(index, entry\) in entries\.iter\(\)\.enumerate\(\)/);
-  assert.match(native, /private_results\[index\]\.take\(\)/);
+  assert.match(native, /private_results[\s\S]*\.get_mut\(index\)[\s\S]*\.and_then\(Option::take\)/);
   assert.match(native, /apply_batch\([\s\S]*&verified\.transitions/);
 });
 

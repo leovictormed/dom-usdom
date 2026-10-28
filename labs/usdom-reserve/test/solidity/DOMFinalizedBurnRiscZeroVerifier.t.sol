@@ -5,13 +5,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {DOMFinalizedBurnRiscZeroVerifier} from "../../contracts/DOMFinalizedBurnRiscZeroVerifier.sol";
 import {DOMCheckpointRiscZeroVerifier} from "../../contracts/DOMCheckpointRiscZeroVerifier.sol";
-import {IDOMCheckpointVerifier} from "../../contracts/DOMCheckpointRegistry.sol";
+import {IDOMCheckpointVerifier} from "../../contracts/IDOMCheckpointVerifier.sol";
 import {IRiscZeroVerifierV3} from "../../contracts/IRiscZeroVerifierV3.sol";
-import {
-    IDOMFinalizedBurnVerifier,
-    IDOMGracefulShutdownRegistry,
-    USDOMProofReserve
-} from "../../contracts/USDOMProofReserve.sol";
+import {IDOMFinalizedBurnVerifier} from "../../contracts/IDOMFinalizedBurnVerifier.sol";
+import {IDOMGracefulShutdownRegistry, USDOMProofReserve} from "../../contracts/USDOMProofReserve.sol";
 import {TestBase} from "./TestBase.sol";
 import {HostileToken, MockGovernance, MockGracefulShutdownRegistry} from "./Mocks.sol";
 
@@ -71,6 +68,31 @@ contract DirtyPaddingSelectorVerifier {
     }
 }
 
+contract MutableSelectorEncodingVerifier {
+    uint8 private mode;
+
+    function setMode(uint8 value) external {
+        mode = value;
+    }
+
+    fallback() external {
+        if (msg.sig != IRiscZeroVerifierV3.SELECTOR.selector) return;
+        uint8 current = mode;
+        assembly ("memory-safe") {
+            switch current
+            case 1 {
+                mstore(0, or(shl(224, 0x73c457ba), 1))
+                return(0, 32)
+            }
+            case 2 { return(0, 0x100000) }
+            default {
+                mstore(0, shl(224, 0x73c457ba))
+                return(0, 32)
+            }
+        }
+    }
+}
+
 contract NonemptyReturnRiscZeroVerifierV3 is IRiscZeroVerifierV3 {
     bytes4 public constant override SELECTOR = 0x73c457ba;
 
@@ -102,7 +124,7 @@ contract GasBurningRiscZeroVerifierV3 is IRiscZeroVerifierV3 {
 }
 
 contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
-    bytes32 internal constant IMAGE_ID = 0x2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea;
+    bytes32 internal constant IMAGE_ID = 0xf0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae;
     bytes32 internal constant STATEMENT = keccak256("finalized USDOM burn statement");
     bytes4 internal constant SELECTOR = 0x73c457ba;
 
@@ -139,6 +161,36 @@ contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
         assertEq(adapter.RISC_ZERO_VERIFIER_GAS_LIMIT(), 4_500_000);
     }
 
+    function testMainnetDirectVerifierPinMatchesReviewedV301Reference() public view {
+        assertEq(adapter.MAINNET_RISC_ZERO_VERIFIER(), 0x2a098988600d87650Fb061FfAff08B97149Fa84D);
+        assertEq(
+            adapter.MAINNET_RISC_ZERO_VERIFIER_CODE_HASH(),
+            0xfe03c66078969d097f867351171b4639d726c8376c35022675ed44cbbcbaa720
+        );
+        assertEq(uint256(uint32(adapter.RISC_ZERO_GROTH16_V3_SELECTOR())), uint256(uint32(SELECTOR)));
+        assertEq(adapter.EVM_PROOF_BYTES(), 260);
+        assertEq(adapter.imageId(), IMAGE_ID);
+    }
+
+    function testMainnetConstructorRejectsArbitraryVerifierAndAcceptsExactPinnedAddressAndRuntime() public {
+        vm.chainId(1);
+        vm.expectRevert(DOMFinalizedBurnRiscZeroVerifier.InvalidConfiguration.selector);
+        new DOMFinalizedBurnRiscZeroVerifier(IRiscZeroVerifierV3(address(riscZero)), IMAGE_ID);
+
+        address pinned = adapter.MAINNET_RISC_ZERO_VERIFIER();
+        vm.etch(pinned, address(riscZero).code);
+        vm.expectRevert(DOMFinalizedBurnRiscZeroVerifier.InvalidConfiguration.selector);
+        new DOMFinalizedBurnRiscZeroVerifier(IRiscZeroVerifierV3(pinned), IMAGE_ID);
+
+        installPinnedRiscZeroMainnetVerifier(pinned, adapter.MAINNET_RISC_ZERO_VERIFIER_CODE_HASH());
+        DOMFinalizedBurnRiscZeroVerifier mainnetAdapter =
+            new DOMFinalizedBurnRiscZeroVerifier(IRiscZeroVerifierV3(pinned), IMAGE_ID);
+        assertEq(address(mainnetAdapter.riscZeroVerifier()), pinned);
+        assertEq(mainnetAdapter.riscZeroVerifierCodeHash(), adapter.MAINNET_RISC_ZERO_VERIFIER_CODE_HASH());
+        assertEq(mainnetAdapter.deploymentChainId(), 1);
+        assertEq(uint256(uint32(mainnetAdapter.verifierSelector())), uint256(uint32(SELECTOR)));
+    }
+
     function testUpstreamVerifierCannotConsumeUnboundedCallerGas() public {
         GasBurningRiscZeroVerifierV3 burner = new GasBurningRiscZeroVerifierV3();
         DOMFinalizedBurnRiscZeroVerifier bounded =
@@ -159,15 +211,17 @@ contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
         assertEq(adapter.verifyFinalizedBurn(STATEMENT, proof), adapter.PROOF_ACCEPTED());
     }
 
-    function testIdenticalReceiptInputsCannotMergeBurnAndCheckpointAdapterCapabilities() public {
+    function testSameImageAllowsReceiptReuseSoDeploymentMustRejectCapabilityCollision() public {
         DOMCheckpointRiscZeroVerifier checkpointAdapter =
             new DOMCheckpointRiscZeroVerifier(IRiscZeroVerifierV3(address(riscZero)), IMAGE_ID);
         bytes memory proof = seal(keccak256("shared raw receipt fixture"));
         bytes32 digest = sha256(abi.encodePacked(STATEMENT));
         riscZero.expect(proof, IMAGE_ID, digest);
 
-        // The raw RISC Zero tuple can be identical, but each adapter exposes a
-        // distinct configuration namespace, ABI and caller capability.
+        // This deliberately reproduces the dangerous configuration: ABI and
+        // acceptance-magic separation do not stop one cryptographic receipt
+        // from satisfying both adapters when their ImageIDs collide. Mainnet
+        // package construction and preflight therefore reject that collision.
         assertEq(adapter.journalDigest(STATEMENT), checkpointAdapter.journalDigest(STATEMENT));
         assertTrue(adapter.VERIFIER_CONFIG_TYPEHASH() != checkpointAdapter.VERIFIER_CONFIG_TYPEHASH());
         assertTrue(adapter.verifierConfigHash() != checkpointAdapter.verifierConfigHash());
@@ -242,6 +296,21 @@ contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
         adapter.verifyFinalizedBurn(STATEMENT, proof);
     }
 
+    function testRejectsRuntimeDirtySelectorPaddingAndReturnBombWithoutCodeHashChange() public {
+        MutableSelectorEncodingVerifier mutableVerifier = new MutableSelectorEncodingVerifier();
+        DOMFinalizedBurnRiscZeroVerifier bounded =
+            new DOMFinalizedBurnRiscZeroVerifier(IRiscZeroVerifierV3(address(mutableVerifier)), IMAGE_ID);
+        bytes memory proof = seal(keccak256("mutable selector response"));
+
+        mutableVerifier.setMode(1);
+        vm.expectRevert(DOMFinalizedBurnRiscZeroVerifier.VerifierChanged.selector);
+        bounded.verifyFinalizedBurn(STATEMENT, proof);
+
+        mutableVerifier.setMode(2);
+        vm.expectRevert(DOMFinalizedBurnRiscZeroVerifier.VerifierChanged.selector);
+        bounded.verifyFinalizedBurn(STATEMENT, proof);
+    }
+
     function testConstructorRejectsMissingCodeZeroImageMissingSelectorAndWrongParameters() public {
         vm.expectRevert(DOMFinalizedBurnRiscZeroVerifier.InvalidConfiguration.selector);
         new DOMFinalizedBurnRiscZeroVerifier(IRiscZeroVerifierV3(address(0x1234)), IMAGE_ID);
@@ -268,7 +337,7 @@ contract DOMFinalizedBurnRiscZeroVerifierTest is TestBase {
 }
 
 contract DOMFinalizedBurnRiscZeroReserveIntegrationTest is TestBase {
-    bytes32 internal constant IMAGE_ID = 0x2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea;
+    bytes32 internal constant IMAGE_ID = 0xf0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae;
     bytes4 internal constant SELECTOR = 0x73c457ba;
     bytes32 internal constant DOMAIN = keccak256("DOM RISC Zero reserve integration domain");
     bytes32 internal constant ACTIVATION = keccak256("DOM RISC Zero activation schedule");
@@ -296,7 +365,8 @@ contract DOMFinalizedBurnRiscZeroReserveIntegrationTest is TestBase {
                 withdrawalDelay: 1 days,
                 governanceDelay: 2 days,
                 maxOutstanding: 100_000e6,
-                outflowCapacity: 2_000e6
+                outflowCapacity: 2_000e6,
+                pilotRestricted: false
             })
         );
 

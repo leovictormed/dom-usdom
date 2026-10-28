@@ -3,6 +3,7 @@ import {validateRiscZeroMainnetReference} from './risc0-verifier-reference.mjs';
 
 const hashPattern=/^0x[0-9a-fA-F]{64}$/;
 const canonicalUintPattern=/^(0|[1-9][0-9]*)$/;
+const uint64Max=(1n<<64n)-1n;
 const zeroHash='0x'+'00'.repeat(32);
 const ethereumMainnetGenesis=
   '0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3';
@@ -48,7 +49,9 @@ export function assessRiscZeroMainnetHealth({reference,observation,standalone=tr
     add(blockers,'risc0_wrong_genesis','health observation is not canonical Ethereum mainnet');
   }
   if(typeof observation?.finalizedBlockNumber!=='string'
-      || !canonicalUintPattern.test(observation.finalizedBlockNumber)) {
+      || observation.finalizedBlockNumber.length>20
+      || !canonicalUintPattern.test(observation.finalizedBlockNumber)
+      || BigInt(observation.finalizedBlockNumber)>uint64Max) {
     add(blockers,'risc0_finalized_block_number_invalid','finalized block number is invalid');
   }
   if(!hashPattern.test(observation?.finalizedBlockHash??'')

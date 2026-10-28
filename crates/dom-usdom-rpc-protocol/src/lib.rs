@@ -130,16 +130,15 @@ pub fn candidate_id_v1(
         u32::try_from(envelope.len()).map_err(|_| CandidateSubmissionCodecError::LengthOverflow)?;
     let witnesses_len = u32::try_from(witnesses.len())
         .map_err(|_| CandidateSubmissionCodecError::LengthOverflow)?;
-    let capacity = 8usize
-        .checked_add(envelope.len())
-        .and_then(|value| value.checked_add(witnesses.len()))
-        .ok_or(CandidateSubmissionCodecError::LengthOverflow)?;
-    let mut identity = Vec::with_capacity(capacity);
-    identity.extend_from_slice(&envelope_len.to_be_bytes());
-    identity.extend_from_slice(envelope);
-    identity.extend_from_slice(&witnesses_len.to_be_bytes());
-    identity.extend_from_slice(witnesses);
-    Ok(*dom_crypto::hash::blake2b_256_tagged(CANDIDATE_ID_TAG_V1, &identity).as_bytes())
+    // Hash the canonical identity framing incrementally. Building a second
+    // contiguous envelope+witness allocation here amplified each bounded RPC
+    // submission by up to roughly 12 MiB before pool-capacity rejection.
+    let mut hasher = dom_crypto::hash::DomHasher::new(CANDIDATE_ID_TAG_V1);
+    hasher.update(&envelope_len.to_be_bytes());
+    hasher.update(envelope);
+    hasher.update(&witnesses_len.to_be_bytes());
+    hasher.update(witnesses);
+    Ok(*hasher.finalize().as_bytes())
 }
 
 fn validate_component_lengths(
@@ -189,6 +188,23 @@ mod tests {
         ] {
             assert!(decode_candidate_submission_v1(&invalid).is_err());
         }
+    }
+
+    #[test]
+    fn incremental_candidate_identity_matches_canonical_contiguous_framing() {
+        let envelope = [0x31, 0x32, 0x33];
+        let witnesses = [0x41, 0x42];
+        let mut canonical = Vec::new();
+        canonical.extend_from_slice(&(envelope.len() as u32).to_be_bytes());
+        canonical.extend_from_slice(&envelope);
+        canonical.extend_from_slice(&(witnesses.len() as u32).to_be_bytes());
+        canonical.extend_from_slice(&witnesses);
+        let expected = dom_crypto::hash::blake2b_256_tagged(CANDIDATE_ID_TAG_V1, &canonical);
+
+        assert_eq!(
+            candidate_id_v1(&envelope, &witnesses).unwrap(),
+            *expected.as_bytes()
+        );
     }
 
     #[test]

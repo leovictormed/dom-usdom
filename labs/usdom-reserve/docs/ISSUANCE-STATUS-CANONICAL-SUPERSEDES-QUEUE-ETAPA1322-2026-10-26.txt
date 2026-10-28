@@ -1,0 +1,41 @@
+Stage 1322 — canonical issuance supersedes queued status
+Date: 2026-10-26
+
+Finding
+
+The authenticated issuance-status endpoint reported raw volatile-pool
+residency as `queued`. Canonical block ingress and exact-candidate cleanup are
+separate operations, and a competing candidate for the same deposit can also
+remain in the bounded pool until template revalidation. During either interval
+the endpoint could return `queued=true` and `consumed=true` for the same
+deposit. Canonical state has already made that queued candidate permanently
+inapplicable, so this exposed an implementation race as an incoherent operator
+state and could lead receipt-recovery automation to keep waiting for a
+candidate that can never be included.
+
+Correction
+
+`queued` now represents effective queue state. It is true only when the pool
+contains the exact candidate/deposit pair and canonical native state has not
+consumed that deposit. Once canonical consumption is visible under the same
+chain/runtime snapshot, it supersedes transient cleanup lag and competing pool
+residency. The independent `consumed`, `issuance_commitment` and authenticated
+`inclusion` fields retain their existing meanings.
+
+Evidence
+
+- Focused dom-node unit regression covers all four pool-residency/canonical-
+  consumption combinations: 1 passed, 0 failed.
+- The native_usdom_v4_runtime integration target compiles successfully with
+  `--no-run`; no integration test or mining was started.
+- Targeted rustfmt and git diff --check pass.
+- No RandomX mining, network, wallet, signature, deployment, funds, commit or
+  push occurred.
+
+Residual boundary
+
+An inclusion older than the retained 256-block status window is intentionally
+reported as consumed with its canonical issuance commitment but without a
+recent inclusion location. A future archival lookup must use an authenticated
+persistent index or proof archive rather than an unbounded scan under consensus
+locks.

@@ -39,7 +39,7 @@ export async function readDirectFile(target,{minimum=0,maximum=DEFAULT_MAXIMUM_B
       throw new Error(`${label} parent is not a safe direct directory`);
     }
     handle=await open(path.join(descriptorDirectory,basename),
-      constants.O_RDONLY|constants.O_NOFOLLOW);
+      constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
     const directoryBeforeRead=await directoryHandle.stat({bigint:true});
     const namedDirectory=await open(directory,
       constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);

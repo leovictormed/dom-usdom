@@ -1,0 +1,44 @@
+CHECKPOINT REGISTRY POSITIVE EVENT GATE — ETAPA 1474
+Date: 2026-10-27
+
+Classification
+
+`production_checkpoint_registry_positive_finalized_event_vector=false` is an
+operational evidence gate, not missing registry or adapter code.  A production
+vector requires the current checkpoint-outer guest receipt, its Groth16 EVM
+seal, deployment with the release-pinned adapter/configuration, successful
+candidate submission, expiration of the challenge period, finalization, and
+the exact canonical Checkpoint event.  Those proof and deployment artifacts do
+not exist yet, so the production claim remains false.
+
+Code and binding reviewed
+
+- DOMCheckpointRiscZeroVerifier binds the direct RISC Zero v3.0.1 mainnet
+  verifier address, runtime code hash, selector 0x73c457ba, 260-byte seal,
+  raw 32-byte statement journal and immutable guest ImageID.
+- checkpointOuterAdapterBinding rejects an ImageID different from the selected
+  outer guest and binds journal schema, accepted capability and adapter config.
+- The current outer guest candidate ImageID is
+  311d58dadcb97cac783e3ec0efe3c4570f42b944cbda1e48aeb56b055682257b.
+
+Focused improvement and validation
+
+The Solidity adapter test now freezes the reviewed mainnet verifier identity
+and current outer ImageID.  Its registry integration path now continues beyond
+candidate selection: it expires the challenge window, finalizes the candidate,
+requires exactly one canonical
+Checkpoint(bytes32,uint32,uint64,bytes32,bytes32,bytes32) event with the exact
+domain, network magic, height, block and state root, and verifies the finalized
+registry state.
+
+Command:
+  forge test --match-path test/solidity/DOMCheckpointRiscZeroVerifier.t.sol
+Result:
+  11 passed, 0 failed, 0 skipped.
+
+This local vector uses a strict mock of the upstream receipt verifier and proves
+the adapter-to-final-event wiring.  It does not claim that a production receipt
+or a mainnet event exists and does not promote the production gate.
+
+No deployment, public network access, signing, funds, long proof, manifest
+change, commit or push occurred.

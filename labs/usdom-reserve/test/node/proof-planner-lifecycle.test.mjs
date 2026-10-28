@@ -20,6 +20,12 @@ test('finite proof planning and export cargo children have a hard deadline',()=>
     const script=fileURLToPath(new URL(`../../scripts/${name}`,import.meta.url));
     assert.equal(spawnSync('bash',['-n',script]).status,0,name);
     const source=readFileSync(script,'utf8');
+    assert.match(source,/pin_runtime_tool cargo/);
+    assert.match(source,/cargo\(\) \{ assert_runtime_tool cargo; "\$cargo_bin" "\$@"; \}/);
+    if(name!=='plan-authenticated-finalized-burn.sh' && name.startsWith('plan-authenticated-')) {
+      assert.match(source,/pin_runtime_tool jq/);
+      assert.match(source,/jq\(\) \{ assert_runtime_tool jq; "\$jq_bin" "\$@"; \}/);
+    }
     assert.equal((source.match(/cargo run /g)??[]).length,1,name);
     assert.match(source,/timeout --signal=TERM --kill-after=30s 3600s \\\n+  cargo run /,name);
     assert.doesNotMatch(source,/^cargo run /m,name);

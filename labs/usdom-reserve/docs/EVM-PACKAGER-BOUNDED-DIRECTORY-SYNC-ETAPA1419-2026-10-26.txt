@@ -1,0 +1,31 @@
+ETAPA 1419 — BARREIRA SYNC AUTENTICADA DOS PACKAGERS EVM
+Data: 2026-10-26
+
+Problema
+
+Os dois packagers dependem de `sync -d OUTPUT_DIR` para tornar durável a ordem
+crash-safe: invalidar o índice antigo, publicar receipt/seal e somente então
+publicar o índice novo. As chamadas eram diretas pelo PATH, sem reatestação,
+deadline ou confirmação de que o diretório continuava sendo o mesmo objeto.
+
+Correção
+
+`sync` foi incluído no conjunto pinado de ambos os scripts. O novo
+`sync_output_directory` exige diretório real e não symlink, captura identidade,
+UID, modo e link count antes da barreira, e reatesta `sync` e `timeout`.
+
+A chamada usa `sync_bin` e `timeout_bin` autenticados com deadline foreground
+TERM/KILL de 120 segundos. `sync` é reatestado depois, e os metadados estáveis
+do diretório precisam coincidir com o snapshot anterior. As duas barreiras de
+cada packager agora usam exclusivamente o helper; chamadas diretas não restam.
+
+Validação offline
+
+- Sintaxe Bash dos dois packagers: aprovada.
+- Regressões focais e integração leve, sem geração de prova: 9/9 aprovadas.
+- Inventário exige sync pinado, reatestação, deadline, identidade pré/pós e
+  exatamente duas chamadas operacionais por packager.
+- `git diff --check`: aprovado.
+
+Nenhuma prova pesada, rede externa, Ledger, assinatura, deploy, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

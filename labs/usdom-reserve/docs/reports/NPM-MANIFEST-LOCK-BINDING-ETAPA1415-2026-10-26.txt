@@ -1,0 +1,27 @@
+Stage 1415 — npm manifest-to-lock binding
+Date: 2026-10-26
+
+Finding
+The lock graph could be internally valid while stale or disconnected from the adjacent
+package.json actually used by npm. Root lifecycle scripts could also execute during install
+without appearing in package-lock install-script metadata.
+
+Correction
+- Read each adjacent package.json through the same descriptor-safe, bounded, strict duplicate-key
+  rejecting boundary as its lock.
+- Bind manifest name/version exactly to packages[""] name/version.
+- Bind dependencies, devDependencies, optionalDependencies and peerDependencies exactly and with
+  typed non-empty string entries between manifest and lock root.
+- Require the manifest scripts object to contain only non-empty string commands.
+- Forbid root preinstall, install, postinstall and prepare lifecycle hooks; these execute during
+  install and are separate from dependency hasInstallScript flags.
+- Adversarial coverage rejects identity drift, dependency-range drift, section type drift,
+  install lifecycle injection and script command type drift.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No global inventory was rematerialized. No network, signing, deployment, funds, commit or push occurred.

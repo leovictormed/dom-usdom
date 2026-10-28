@@ -1,0 +1,18 @@
+Stage 1197 — bounded production-core integers
+Date: 2026-10-26
+
+Change
+- Production preactivation and final release materializers now apply lexical decimal ceilings for every supported uint32, uint64 and uint256 field before BigInt conversion.
+- Existing exact ABI-width checks remain authoritative after conversion.
+
+Security result
+- Authenticated native-fact inputs cannot cause arbitrary-size integer conversion while deriving production configuration pins.
+- Both materialization phases reject a 100,000-digit total difficulty before conversion and the exact uint64 overflow boundary.
+- No release flag or production fact was changed by this local validation hardening.
+
+Validation
+- /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/production-release-core.test.mjs test/node/production-preactivation-core.test.mjs
+- Result: 6/6 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

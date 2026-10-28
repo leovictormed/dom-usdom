@@ -22,7 +22,7 @@ test('Foundry child gets an isolated offline deterministic boundary',()=>{
   '/compiler/solc-0.8.37');
  assert.deepEqual(args,['build','contracts/A.sol','--root','/src','--offline','--no-auto-detect',
   '--use','/compiler/solc-0.8.37','--evm-version','cancun','--optimize','--optimizer-runs','1','--via-ir','--force','--out',
-  '/tmp/out','--cache-path','/tmp/cache','--ignored-error-codes','6335','-D','warnings']);
+  '/tmp/out','--cache-path','/tmp/cache','--extra-output','storageLayout','--ignored-error-codes','6335','-D','warnings']);
 });
 
 test('production artifact metadata binds exact solc and code-generation settings',()=>{

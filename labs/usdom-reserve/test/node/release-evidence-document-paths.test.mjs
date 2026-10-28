@@ -21,6 +21,9 @@ test('release evidence traversal rejects malformed, duplicate, deep and oversize
   assert.throws(()=>collectReleaseEvidenceDocumentPaths({bad:{
     path:'../outside.json',sha256:hash('a'),
   }}),/malformed document/);
+  assert.throws(()=>collectReleaseEvidenceDocumentPaths({bad:{
+    path:'evidence/uncommitted.json',sha256:hash('0'),
+  }}),/malformed document/);
   for(const path of ['config/production-requirements.json','out/arbitrary.json',
     'evidence/report\nforged.json','evidence/réport.json']) {
     assert.throws(()=>collectReleaseEvidenceDocumentPaths({bad:{path,sha256:hash('a')}}),
@@ -30,6 +33,10 @@ test('release evidence traversal rejects malformed, duplicate, deep and oversize
     first:{path:'evidence/x.json',sha256:hash('a')},
     second:{path:'evidence/x.json',sha256:hash('b')},
   }),/duplicate document paths/);
+  assert.throws(()=>collectReleaseEvidenceDocumentPaths({
+    first:{path:'evidence/x.json',sha256:hash('a')},
+    second:{path:'evidence/y.json',sha256:hash('a')},
+  }),/duplicate document content/);
   const deep={}; let cursor=deep;
   for(let index=0;index<10;index++) cursor=cursor.next={};
   assert.throws(()=>collectReleaseEvidenceDocumentPaths(deep),/depth bound/);

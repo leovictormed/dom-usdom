@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+import {writeReleaseFailure} from '../sdk/pilot-safe-diagnostics.mjs';import {readFileSync} from 'node:fs';
+import {readDirectFile} from '../sdk/direct-project-file.mjs';import {parseStrictJsonBytes} from '../sdk/strict-json.mjs';import {assembleLedgerEip1559Transaction} from '../sdk/ledger-eip1559-transaction.mjs';
+try{if(process.argv.length!==3)throw new Error('one prepared transaction file is required');const prepared=parseStrictJsonBytes(await readDirectFile(process.argv[2],{minimum:2,maximum:1024*1024,exactMode:0o600}),{label:'prepared ledger transaction'}),signature=readFileSync(0,'utf8').trim();process.stdout.write(assembleLedgerEip1559Transaction(prepared,signature)+'\n');}catch(error){writeReleaseFailure('assemble-ledger-eip1559-transaction',error);process.exitCode=1;}

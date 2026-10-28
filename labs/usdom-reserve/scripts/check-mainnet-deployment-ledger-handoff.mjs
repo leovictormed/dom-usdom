@@ -26,7 +26,8 @@ try {
     label:'reviewed mainnet deployment package',maxBytes:8*1024*1024,maxDepth:32}));
   validateMainnetDeploymentLedgerHandoff({
     handoff:parseStrictJsonBytes(handoffBytes,{label:'deployment Ledger handoff',
-      maxBytes:8*1024*1024,maxDepth:32}),packageValue,index:Number(process.argv[3]),packageSha256,
+      maxBytes:8*1024*1024,maxDepth:32}),packageValue,packageBytes,index:Number(process.argv[3]),
+    packageSha256,
   });
 } catch(error) {
   writeReleaseFailure('check-mainnet-deployment-ledger-handoff',error);

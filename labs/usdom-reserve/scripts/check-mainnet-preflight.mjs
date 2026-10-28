@@ -10,6 +10,7 @@ import {BoundedMainnetPreflightProvider,matchMainnetPreflightRpcSources,
   validateMainnetPreflightClientIdentity,validateMainnetPreflightTimeConsensus}
   from '../sdk/mainnet-preflight-rpc.mjs';
 import {rpcConsensusEvidence} from '../sdk/rpc-consensus-evidence.mjs';
+import {canonicalEthereumQuantity,MAX_UINT256} from '../sdk/ethereum-quantity.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const phase=process.argv[2];
@@ -135,13 +136,20 @@ const reserveAbi=[
   'function guardianOwnersCommitment() view returns (bytes32)','function withdrawalDelay() view returns (uint64)',
   'function governanceDelay() view returns (uint64)','function maxOutstanding() view returns (uint64)',
   'function outflowCapacity() view returns (uint64)','function paused() view returns (bool)',
+  'function pilotRestrictedDeployment() view returns (bool)',
+  'function permissionlessDeposits() view returns (bool)',
+  'function pilotDepositConsumed() view returns (bool)',
+  'function authorizedPilotDeposit() view returns (bytes32)',
+  'function authorizedPilotSnapshot() view returns (bytes32)',
+  'function authorizedPilotValidUntil() view returns (uint64)',
+  'function pilotAuthorizationGeneration() view returns (uint64)',
+  'function permissionlessDepositsReadyAt() view returns (uint64)',
   'function depositsClosed() view returns (bool)','function gracefullyShutdown() view returns (bool)',
   'function controlPlaneHealthy() view returns (bool)',
   'function queueEpoch() view returns (uint64)','function resumeReadyAt() view returns (uint64)',
   'function totalDeposited() view returns (uint256)','function totalReleased() view returns (uint256)',
   'function totalProvedDebtAmount() view returns (uint256)',
   'function pendingQueueSnapshot() view returns (uint64 epoch,uint256 count,uint256 amount,bytes32 firstBurnId,bytes32 lastBurnId)',
-  'function pendingBurnPage(uint64 expectedQueueEpoch,bytes32 cursor,uint256 maximum) view returns (bytes32[] burnIds,bytes32 nextCursor)',
   'function outstanding() view returns (uint256)','function unreservedCollateral() view returns (uint256)',
   'function availableOutflow() view returns (uint256)',
 ];
@@ -206,13 +214,20 @@ async function observe(releaseConfig,riscZeroReference,rpcSource) {
   const collectedBeforeMs=Date.now();
   const provider=new BoundedMainnetPreflightProvider(rpcSource.url);
   try {
-  const [chainId,genesis,finalized,clientIdentity]=await Promise.all([
-    provider.send('eth_chainId',[]).then(BigInt),provider.send('eth_getBlockByNumber',['0x0',false]),
+  const [chainIdRaw,genesis,finalized,clientIdentity]=await Promise.all([
+    provider.send('eth_chainId',[]),provider.send('eth_getBlockByNumber',['0x0',false]),
     provider.send('eth_getBlockByNumber',['finalized',false]),
     provider.send('web3_clientVersion',[]).then(value=>
       validateMainnetPreflightClientIdentity(value,rpcSource.clientPolicy)),
   ]);
-  if (!genesis?.hash || !finalized?.hash || !/^0x[0-9a-fA-F]+$/.test(finalized.number??'')) {
+  let chainId,finalizedBlockNumber;
+  try {
+    chainId=canonicalEthereumQuantity(chainIdRaw,{maximum:MAX_UINT256});
+    finalizedBlockNumber=canonicalEthereumQuantity(finalized?.number);
+    canonicalEthereumQuantity(finalized?.timestamp);
+  } catch { throw new Error('RPC did not return canonical bounded quantities'); }
+  if (chainId!=='1'||!genesis?.hash||!finalized?.hash
+      ||!/^0x[0-9a-fA-F]{64}$/.test(finalized.hash)) {
     throw new Error('RPC did not return a canonical finalized block');
   }
   const {tag:finalizedTag}=provider.pinFinalizedSnapshot(finalized.number,finalized.hash);
@@ -297,8 +312,8 @@ async function observe(releaseConfig,riscZeroReference,rpcSource) {
       return [role,{address:handler,codeHash:await codeHash(provider,handler,finalizedTag)}];
     }),
   ));
-  const observation={chainId:chainId.toString(),genesisBlockHash:genesis.hash,
-    finalizedBlockNumber:BigInt(finalized.number).toString(),
+  const observation={chainId,genesisBlockHash:genesis.hash,
+    finalizedBlockNumber,
     finalizedBlockHash:finalized.hash,deployerNonce:deployerNonce.toString(),
     checkpointRegistryDeployerNonce:checkpointRegistryDeployerNonce.toString(),
     codeHashes:{reserve:reserveCodeHash,token:tokenCodeHash,verifier:verifierCodeHash,
@@ -388,7 +403,10 @@ async function observe(releaseConfig,riscZeroReference,rpcSource) {
       'governanceImplementation','governanceImplementationCodeHash','governanceOwnersCommitment',
       'guardian','guardianCodeHash','guardianImplementation','guardianImplementationCodeHash',
       'guardianOwnersCommitment','withdrawalDelay','governanceDelay',
-      'maxOutstanding','outflowCapacity','paused','depositsClosed','gracefullyShutdown','resumeReadyAt',
+      'maxOutstanding','outflowCapacity','paused','pilotRestrictedDeployment','permissionlessDeposits',
+      'pilotDepositConsumed','authorizedPilotDeposit','authorizedPilotSnapshot',
+      'authorizedPilotValidUntil','pilotAuthorizationGeneration','permissionlessDepositsReadyAt',
+      'depositsClosed','gracefullyShutdown','resumeReadyAt',
       'totalDeposited','totalReleased','outstanding',
       'unreservedCollateral','availableOutflow','totalProvedDebtAmount','controlPlaneHealthy'];
     const [values,pendingQueue]=await Promise.all([
@@ -473,7 +491,10 @@ if (!['predeployment','postdeployment','authority-recheck'].includes(phase) || p
       throw new Error('mainnet preflight inputs changed during observation');
     }
     await assertDeploymentEvidenceUnchanged(deploymentEvidence);
-    console.log(JSON.stringify({...report,observation,rpcConsensus:rpcConsensusEvidence(rpcSources)},null,2));
+    console.log(JSON.stringify({...report,
+      collectionStartedAtMs:Math.min(...collected.map(value=>value.timeSample.collectedBeforeMs)),
+      collectionCompletedAtMs:Math.max(...collected.map(value=>value.timeSample.collectedAfterMs)),
+      observation,rpcConsensus:rpcConsensusEvidence(rpcSources)},null,2));
     if (!report.ready) process.exitCode=1;
   } catch(error) {
     writePilotFailure('mainnet-preflight',error);

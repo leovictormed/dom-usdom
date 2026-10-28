@@ -1,0 +1,10 @@
+Etapa 1452 — cleanup bounded do bootstrap TPM
+
+A varredura encontrou o diretório mais sensível ainda com cleanup Node sem
+deadline: o bootstrap TPM contém senha de recuperação e estado de keystore.
+Agora a remoção usa timeout pinado com TERM em 30 segundos e KILL após cinco,
+reatesta Node antes e depois, suprime output e exige ausência. Falhas são
+fail-closed e preservam o status original quando a limpeza funciona.
+
+Regressões de cleanup, credenciais, ambiente e lifecycle passam 9/9. Sintaxe e
+diff-check passam. Nenhuma rede, assinatura, deploy, fundos, commit ou push ocorreu.

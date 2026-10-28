@@ -43,5 +43,9 @@ test('all proof-to-Ethereum create-once artifact/sidecar pairs are crash-retryab
     assert.match(source,item.recovery,`${item.name}: authenticated crash retry missing`);
     assert.match(source,item.sidecarReadback,`${item.name}: sidecar readback missing`);
     assert.match(source,item.completionReadback,`${item.name}: completion readback missing`);
+    if(item.name==='checkpoint finalized transaction reference') {
+      assert.match(source,/TEMPORARY_IDENTITY=\$\(\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$TEMPORARY"\)/);
+      assert.match(source,/\/usr\/bin\/stat -c '%u:%d:%i:%a' -- "\$TEMPORARY" 2>\/dev\/null\) == "\$TEMPORARY_IDENTITY"/);
+    }
   }
 });

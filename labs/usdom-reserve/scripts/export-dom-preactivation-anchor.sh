@@ -6,7 +6,7 @@ if (($# != 0)); then
   printf '%s\n' 'Usage: npm run --silent export:dom-preactivation-anchor' >&2
   exit 64
 fi
-for command in stat realpath mktemp flock sync cmp cargo sha256sum awk dirname id; do command -v "$command" >/dev/null; done
+for command in stat realpath mktemp flock sync cmp cargo sha256sum awk dirname id node cut; do command -v "$command" >/dev/null; done
 pin_cargo() {
   cargo_bin=$(realpath "$(command -v cargo)")
   [[ -x $cargo_bin && -f $cargo_bin && ! -L $cargo_bin ]]
@@ -34,6 +34,9 @@ assert_cargo_unchanged() {
 }
 pin_cargo
 project=$(realpath "$(dirname "$0")/..")
+source "$project/scripts/pinned-shell-tool-functions.sh"
+pin_runtime_tool node
+node() { assert_runtime_tool node; "$node_bin" "$@"; }
 repository=$(realpath "$project/../..")
 test "$PWD" = "$project"
 node_root="$HOME/.local/share/dom-usdom/mainnet-node"
@@ -64,8 +67,8 @@ if [[ -e "$anchor" ]]; then
     exit 1
   }
 else
-  mv -T -- "$temporary" "$anchor"
-  temporary=''
+  node "$project/scripts/install-private-file-immutable-stdin.mjs" "$anchor" < "$temporary"
 fi
+cmp -s "$temporary" "$anchor"
 sync -f "$anchor"; sync -f "$evidence_directory"
 cat -- "$anchor"

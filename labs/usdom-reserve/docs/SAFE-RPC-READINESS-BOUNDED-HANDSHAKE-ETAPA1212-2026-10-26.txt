@@ -1,0 +1,31 @@
+SAFE RPC READINESS BOUNDED HANDSHAKE — STAGE 1212
+Date: 2026-10-26
+
+Finding
+=======
+
+The private RPC readiness checker authenticates the loopback capabilities used
+by the complete Safe ceremony, but initial discovery ran through an unbounded
+process substitution and later liveness checks discarded direct checker output.
+Neither call path had an outer deadline or private bounded channels.
+
+Correction
+==========
+
+Readiness now uses a dedicated helper with reattested Node and timeout, a
+30-second TERM/KILL deadline, private stdout/stderr, fatal UTF-8 decoding and
+64 KiB limits. Success requires empty stderr. Initial lines are read from the
+private result file without process substitution. Every later liveness check
+validates the pinned readiness digest and byte-compares its complete output to
+the initial observation, preserving endpoint order and capability identity.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused proxy/runtime-secret/Safe/environment/process tests: 17/17 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

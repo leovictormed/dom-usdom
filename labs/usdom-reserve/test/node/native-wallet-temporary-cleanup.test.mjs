@@ -18,6 +18,9 @@ test('native wallet passphrase cleanup is pinned, recursive and status preservin
   assert.match(source,/trap 'cleanup 130' INT/);
   assert.match(source,/trap 'cleanup 143' TERM/);
   assert.match(source,/unset PASSPHRASE_FIRST PASSPHRASE_SECOND/);
+  assert.match(source,/SECRET_DIRECTORY_IDENTITY=\$\(stat -c '%u:%d:%i:%a' "\$SECRET_DIRECTORY"\)/);
+  assert.match(source,/stat -c '%u:%d:%i:%a' "\$SECRET_DIRECTORY" 2>\/dev\/null\) == "\$SECRET_DIRECTORY_IDENTITY"/);
+  assert.match(source,/# Do not erase a pathname that was replaced after collecting passphrases\.[\s\S]*status=1/);
   assert.match(source,/assert_node_unchanged\n"\$NODE_BIN" "\$SCRIPT_DIRECTORY\/install-private-file-immutable-stdin\.mjs"/);
 });
 

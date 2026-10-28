@@ -23,6 +23,9 @@ contract MockMutableSingletonControl {
     address private safeGuard;
     address private fallbackHandler;
     uint8 private ownersReturnMode;
+    uint8 private thresholdReturnMode;
+    uint8 private modulesReturnMode;
+    uint8 private storageReturnMode;
 
     constructor(address initialSingleton) {
         singleton = initialSingleton;
@@ -43,12 +46,25 @@ contract MockMutableSingletonControl {
         if (ownersReturnMode == 1) revert("owners unavailable");
         if (ownersReturnMode != 0) {
             uint256 size = ownersReturnMode == 2 ? 159 : ownersReturnMode == 3 ? 161 : 0x100000;
+            uint8 mode = ownersReturnMode;
             assembly ("memory-safe") {
                 mstore(0, 32)
                 mstore(32, 3)
                 mstore(64, 0x101)
                 mstore(96, 0x102)
                 mstore(128, 0x103)
+                if eq(mode, 5) {
+                    mstore(0, 64)
+                    size := 160
+                }
+                if eq(mode, 6) {
+                    mstore(32, 2)
+                    size := 160
+                }
+                if eq(mode, 7) {
+                    mstore(64, or(shl(160, 1), 0x101))
+                    size := 160
+                }
                 return(0, size)
             }
         }
@@ -59,11 +75,43 @@ contract MockMutableSingletonControl {
         ownersReturnMode = replacement;
     }
 
+    function setThresholdReturnMode(uint8 replacement) external {
+        thresholdReturnMode = replacement;
+    }
+
+    function setModulesReturnMode(uint8 replacement) external {
+        modulesReturnMode = replacement;
+    }
+
+    function setStorageReturnMode(uint8 replacement) external {
+        storageReturnMode = replacement;
+    }
+
     function getThreshold() external view returns (uint256) {
+        uint8 mode = thresholdReturnMode;
+        if (mode != 0) {
+            uint256 value = safeThreshold;
+            uint256 size = mode == 1 ? 31 : mode == 2 ? 33 : 0x100000;
+            assembly ("memory-safe") {
+                mstore(0, value)
+                return(0, size)
+            }
+        }
         return safeThreshold;
     }
 
     function getModulesPaginated(address, uint256) external view returns (address[] memory modules, address next) {
+        uint8 mode = modulesReturnMode;
+        if (mode != 0) {
+            uint256 size = mode == 1 ? 95 : mode == 2 ? 97 : mode == 3 ? 0x100000 : 96;
+            assembly ("memory-safe") {
+                mstore(0, 64)
+                mstore(32, 1)
+                mstore(64, 0)
+                if eq(mode, 4) { mstore(0, 32) }
+                return(0, size)
+            }
+        }
         if (module == address(0)) return (new address[](0), address(1));
         modules = new address[](1);
         modules[0] = module;
@@ -81,6 +129,12 @@ contract MockMutableSingletonControl {
 
     function setOwner(uint256 index, address replacement) external {
         owners[index] = replacement;
+    }
+
+    function setOwners(address first, address second, address third) external {
+        owners[0] = first;
+        owners[1] = second;
+        owners[2] = third;
     }
 
     function setModule(address replacement) external {
@@ -109,6 +163,21 @@ contract MockMutableSingletonControl {
                 mstore(add(result, 32), current)
             }
         }
+        uint8 mode = storageReturnMode;
+        if (mode != 0) {
+            bytes32 value;
+            assembly ("memory-safe") {
+                value := mload(add(result, 32))
+            }
+            uint256 size = mode == 1 ? 95 : mode == 2 ? 97 : mode == 3 ? 0x100000 : 96;
+            assembly ("memory-safe") {
+                mstore(0, 32)
+                mstore(32, 32)
+                mstore(64, value)
+                if eq(mode, 4) { mstore(32, 31) }
+                return(0, size)
+            }
+        }
     }
 
     function execute(address target, bytes calldata data) external returns (bytes memory) {
@@ -134,7 +203,8 @@ contract HostileToken is ERC20 {
         BalanceReturnBomb,
         ShortReturn,
         TrailingReturn,
-        GasGrief
+        GasGrief,
+        ResidualAllowance
     }
     Mode public mode;
     address public blocked;
@@ -143,34 +213,79 @@ contract HostileToken is ERC20 {
     bool public callbackSucceeded;
     bytes4 public callbackError;
     uint8 public tokenDecimals = 6;
-    bool public paused;
-    bool public deprecated;
-    address public upgradedAddress;
-    uint256 public basisPointsRate;
-    uint256 public maximumFee;
+    bool private pausedValue;
+    bool private deprecatedValue;
+    address private upgradedAddressValue;
+    uint256 private basisPointsRateValue;
+    uint256 private maximumFeeValue;
     bool public failPolicy;
+    bytes4 private policyReturnSelector;
+    uint8 private policyReturnMode;
 
     function isBlackListed(address who) external view returns (bool) {
         require(!failPolicy, "policy unavailable");
-        return blocked != address(0) && who == blocked;
+        return _policyWord(blocked != address(0) && who == blocked ? bytes32(uint256(1)) : bytes32(0)) != bytes32(0);
     }
 
     function setPolicy(bool paused_, bool deprecated_, uint256 rate, uint256 fee, bool fail_) external {
-        paused = paused_;
-        deprecated = deprecated_;
-        basisPointsRate = rate;
-        maximumFee = fee;
+        pausedValue = paused_;
+        deprecatedValue = deprecated_;
+        basisPointsRateValue = rate;
+        maximumFeeValue = fee;
         failPolicy = fail_;
     }
 
     function setUpgradedAddress(address value) external {
-        upgradedAddress = value;
+        upgradedAddressValue = value;
+    }
+
+    function setPolicyReturnMode(bytes4 selector, uint8 value) external {
+        policyReturnSelector = selector;
+        policyReturnMode = value;
+    }
+
+    function paused() external view returns (bool) {
+        return _policyWord(pausedValue ? bytes32(uint256(1)) : bytes32(0)) != bytes32(0);
+    }
+
+    function deprecated() external view returns (bool) {
+        return _policyWord(deprecatedValue ? bytes32(uint256(1)) : bytes32(0)) != bytes32(0);
+    }
+
+    function upgradedAddress() external view returns (address) {
+        return address(uint160(uint256(_policyWord(bytes32(uint256(uint160(upgradedAddressValue)))))));
+    }
+
+    function basisPointsRate() external view returns (uint256) {
+        return uint256(_policyWord(bytes32(basisPointsRateValue)));
+    }
+
+    function maximumFee() external view returns (uint256) {
+        return uint256(_policyWord(bytes32(maximumFeeValue)));
+    }
+
+    function _policyWord(bytes32 value) private view returns (bytes32) {
+        uint8 selectedMode = policyReturnMode;
+        if (msg.sig == policyReturnSelector && selectedMode != 0) {
+            if (selectedMode == 5) {
+                assembly {
+                    for {} 1 {} {}
+                }
+            }
+            uint256 size = selectedMode == 1 ? 31 : selectedMode == 2 ? 33 : selectedMode == 3 ? 0x100000 : 32;
+            if (selectedMode == 4) value = bytes32(uint256(2));
+            assembly ("memory-safe") {
+                mstore(0, value)
+                return(0, size)
+            }
+        }
+        return value;
     }
 
     constructor() ERC20("Hostile test token", "HOSTILE") {}
 
     function decimals() public view override returns (uint8) {
-        return tokenDecimals;
+        return uint8(uint256(_policyWord(bytes32(uint256(tokenDecimals)))));
     }
 
     function setDecimals(uint8 value) external {
@@ -205,7 +320,11 @@ contract HostileToken is ERC20 {
                 return(0, 0x100000)
             }
         }
-        return super.balanceOf(account);
+        return uint256(_policyWord(bytes32(super.balanceOf(account))));
+    }
+
+    function allowance(address owner, address spender) public view override returns (uint256) {
+        return uint256(_policyWord(bytes32(super.allowance(owner, spender))));
     }
 
     function transfer(address to, uint256 amount) public override returns (bool) {
@@ -215,7 +334,7 @@ contract HostileToken is ERC20 {
     }
 
     function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
-        _spendAllowance(from, msg.sender, amount);
+        if (mode != Mode.ResidualAllowance) _spendAllowance(from, msg.sender, amount);
         if (mode != Mode.Lie) _transfer(from, to, amount);
         _callback();
         return _returnValue();
@@ -277,12 +396,14 @@ contract HostileToken is ERC20 {
 contract MockGracefulShutdownRegistry {
     bytes32 public immutable bridgeDomain;
     bytes32 public immutable activationScheduleCommitment;
-    bytes32 public checkpointConfigHash = keccak256("mock checkpoint registry configuration");
-    bool public halted;
-    bool public gracefullyShutdown;
-    bool public latestIssuanceClosed;
-    uint128 public latestTotalIssued;
-    uint128 public latestTotalBurned;
+    bytes32 private checkpointConfigHashValue = keccak256("mock checkpoint registry configuration");
+    bool private haltedValue;
+    bool private gracefullyShutdownValue;
+    bool private latestIssuanceClosedValue;
+    uint128 private latestTotalIssuedValue;
+    uint128 private latestTotalBurnedValue;
+    bytes4 private hostileSelector;
+    uint8 private returnMode;
 
     constructor(bytes32 domain, bytes32 activation) {
         bridgeDomain = domain;
@@ -290,17 +411,59 @@ contract MockGracefulShutdownRegistry {
     }
 
     function setTerminal(uint128 issued, uint128 burned, bool issuanceClosed, bool shutdown) external {
-        latestTotalIssued = issued;
-        latestTotalBurned = burned;
-        latestIssuanceClosed = issuanceClosed;
-        gracefullyShutdown = shutdown;
+        latestTotalIssuedValue = issued;
+        latestTotalBurnedValue = burned;
+        latestIssuanceClosedValue = issuanceClosed;
+        gracefullyShutdownValue = shutdown;
     }
 
     function setHalted(bool value) external {
-        halted = value;
+        haltedValue = value;
     }
 
     function setCheckpointConfigHash(bytes32 value) external {
-        checkpointConfigHash = value;
+        checkpointConfigHashValue = value;
+    }
+
+    function setReturnMode(bytes4 selector, uint8 mode) external {
+        hostileSelector = selector;
+        returnMode = mode;
+    }
+
+    function checkpointConfigHash() external view returns (bytes32) {
+        return _word(checkpointConfigHashValue);
+    }
+
+    function halted() external view returns (bool) {
+        return _word(haltedValue ? bytes32(uint256(1)) : bytes32(0)) != bytes32(0);
+    }
+
+    function gracefullyShutdown() external view returns (bool) {
+        return _word(gracefullyShutdownValue ? bytes32(uint256(1)) : bytes32(0)) != bytes32(0);
+    }
+
+    function latestIssuanceClosed() external view returns (bool) {
+        return _word(latestIssuanceClosedValue ? bytes32(uint256(1)) : bytes32(0)) != bytes32(0);
+    }
+
+    function latestTotalIssued() external view returns (uint128) {
+        return uint128(uint256(_word(bytes32(uint256(latestTotalIssuedValue)))));
+    }
+
+    function latestTotalBurned() external view returns (uint128) {
+        return uint128(uint256(_word(bytes32(uint256(latestTotalBurnedValue)))));
+    }
+
+    function _word(bytes32 value) private view returns (bytes32) {
+        uint8 mode = returnMode;
+        if (msg.sig == hostileSelector && mode != 0) {
+            uint256 size = mode == 1 ? 31 : mode == 2 ? 33 : mode == 3 ? 0x100000 : 32;
+            if (mode == 4) value = bytes32(uint256(2));
+            assembly ("memory-safe") {
+                mstore(0, value)
+                return(0, size)
+            }
+        }
+        return value;
     }
 }

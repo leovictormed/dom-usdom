@@ -1,5 +1,9 @@
+import {getAddress} from 'ethers';
 import {checkpointRegistryConfigHash} from './checkpoint-registry.mjs';
 import {proofReserveDeploymentConfigHash,safeOwnersCommitment} from './configuration.mjs';
+import {activationSchedule} from './activation-schedule.mjs';
+import {deriveDomDomain} from './preactivation-policy.mjs';
+import {SAFE_MAINNET_IDENTITY} from './safe-control-deployment.mjs';
 
 export const NATIVE_RELEASE_FACTS_SCHEMA='usdom-native-release-facts-v1';
 const factFields=Object.freeze([
@@ -24,7 +28,9 @@ function hash(value,label) {
   return value.toLowerCase();
 }
 function decimal(value,bits,label) {
-  if(typeof value!=='string'||!/^(0|[1-9][0-9]*)$/.test(value)) {
+  const maxDigits={32:10,64:20,256:78}[bits];
+  if(maxDigits===undefined||typeof value!=='string'||value.length>maxDigits
+      ||!/^(0|[1-9][0-9]*)$/.test(value)) {
     throw new Error(`${label} must be a canonical decimal string`);
   }
   const parsed=BigInt(value);
@@ -54,11 +60,17 @@ function requireAtomicPins(target,fields,label) {
  * artifact validation happens before this pure reconciliation boundary. */
 export function materializeProductionReleaseCore({releaseConfig,nativeFacts,
   finalizedBurnVerifier,checkpointVerifier,reserveArtifact,checkpointRegistryArtifact,
-  deferReserveArtifact=false,deferCheckpointRegistryArtifact=false}) {
+  deferReserveArtifact=false,deferCheckpointRegistryArtifact=false,
+  completeTechnicalProduction=false}) {
   if(!releaseConfig||typeof releaseConfig!=='object'||Array.isArray(releaseConfig)
-      ||releaseConfig.ethereumChainId!=='1'||releaseConfig.productionReady!==false
+      ||releaseConfig.ethereumChainId!=='1'
+      ||(releaseConfig.productionReady!==false
+        &&!(completeTechnicalProduction===true&&releaseConfig.productionReady===true))
       ||releaseConfig.realFundsAuthorized!==false) {
     throw new Error('release core requires the unapproved Ethereum mainnet template');
+  }
+  if(typeof completeTechnicalProduction!=='boolean') {
+    throw new Error('technical production transition mode is invalid');
   }
   exact(nativeFacts,factFields,'native release facts');
   if(nativeFacts.schema!==NATIVE_RELEASE_FACTS_SCHEMA) throw new Error('unsupported native release facts schema');
@@ -66,6 +78,50 @@ export function materializeProductionReleaseCore({releaseConfig,nativeFacts,
   const checkpoint=identity(checkpointVerifier,'checkpoint verifier');
   const governanceOwnersCommitment=safeOwnersCommitment(releaseConfig.governanceOwners);
   const guardianOwnersCommitment=safeOwnersCommitment(releaseConfig.guardianOwners);
+  // Each Safe is independently valid with three owners, but reusing an owner
+  // across roles collapses the intended control-plane separation. Refuse that
+  // state before deriving or pinning any production artifact rather than
+  // relying on the later readiness report to discover it.
+  const allOwners=[...releaseConfig.governanceOwners,...releaseConfig.guardianOwners,
+    ...releaseConfig.checkpointGuardianOwners].map(owner=>owner.toLowerCase());
+  if(new Set(allOwners).size!==9) {
+    throw new Error('production Safe owners must be globally distinct');
+  }
+  const operationalFields=[
+    'token','reserve','verifier','checkpointRegistry','checkpointVerifier',
+    'governance','guardian','checkpointGuardian',
+  ];
+  const operationalAddresses=operationalFields
+    .map(field=>getAddress(releaseConfig[field]).toLowerCase());
+  const configuredContracts=new Set(operationalAddresses);
+  if(configuredContracts.size!==operationalAddresses.length) {
+    throw new Error('production contract roles must use distinct addresses');
+  }
+  const implementationFields=['governanceImplementation','guardianImplementation',
+    'checkpointGuardianImplementation'];
+  const implementationAddresses=implementationFields
+    .map(field=>getAddress(releaseConfig[field]).toLowerCase());
+  const pinnedSingleton=getAddress(SAFE_MAINNET_IDENTITY.singleton).toLowerCase();
+  if(implementationAddresses.some(address=>address!==pinnedSingleton)
+      ||implementationFields.some(field=>
+        String(releaseConfig[`${field}CodeHash`]).toLowerCase()
+          !==SAFE_MAINNET_IDENTITY.singletonCodeHash.toLowerCase())) {
+    throw new Error('production Safe implementations must match the pinned singleton identity');
+  }
+  if(implementationAddresses.some(address=>configuredContracts.has(address))) {
+    throw new Error('production Safe implementation must differ from operational contract roles');
+  }
+  for(const address of implementationAddresses) configuredContracts.add(address);
+  for(const field of ['factory','singleton','fallbackHandler']) {
+    const address=getAddress(SAFE_MAINNET_IDENTITY[field]).toLowerCase();
+    if(operationalAddresses.includes(address)) {
+      throw new Error('production contract role must differ from fixed Safe infrastructure');
+    }
+    configuredContracts.add(address);
+  }
+  if(allOwners.some(owner=>configuredContracts.has(getAddress(owner).toLowerCase()))) {
+    throw new Error('production Safe owner must not be a configured contract address');
+  }
   if(typeof releaseConfig.governanceOwnersCommitment!=='string'
       ||typeof releaseConfig.guardianOwnersCommitment!=='string'
       ||releaseConfig.governanceOwnersCommitment.toLowerCase()!==governanceOwnersCommitment
@@ -95,6 +151,18 @@ export function materializeProductionReleaseCore({releaseConfig,nativeFacts,
   if(BigInt(facts.checkpointFirstV4Height)!==BigInt(facts.checkpointInitialHeight)+1n
       ||facts.checkpointInitialStateRoot!==facts.checkpointActivationEmptyStateRoot) {
     throw new Error('native activation predecessor does not match the checkpoint bootstrap');
+  }
+  const expectedDomDomain=deriveDomDomain({domNetworkMagic:facts.checkpointDomNetworkMagic,
+    domChainId:facts.checkpointDomChainId,ethereumChainId:releaseConfig.ethereumChainId,
+    reserve:releaseConfig.reserve,checkpointRegistry:releaseConfig.checkpointRegistry});
+  if(facts.domDomain!==expectedDomDomain) {
+    throw new Error('native DOM domain does not match the production deployment identity');
+  }
+  const schedule=activationSchedule({networkMagic:facts.checkpointDomNetworkMagic,
+    chainId:facts.checkpointDomChainId,firstV4Height:facts.checkpointFirstV4Height,
+    emptyStateRoot:facts.checkpointActivationEmptyStateRoot});
+  if(schedule.commitment!==facts.activationScheduleCommitment) {
+    throw new Error('native activation schedule commitment is not canonical');
   }
   const result=structuredClone(releaseConfig);
   requireAtomicPins(result,['verifierCodeHash','verifierInitcodeHash','verifierConfigHash'],
@@ -176,6 +244,9 @@ export function materializeProductionReleaseCore({releaseConfig,nativeFacts,
       maxOutstandingBaseUnits:result.maxOutstandingBaseUnits,
       outflowCapacityBaseUnitsPerDay:result.outflowCapacityBaseUnitsPerDay,
     });
+    if(reserve.pilotRestrictedDeployment!==true) {
+      throw new Error('production reserve derivation must preserve pilotRestrictedDeployment');
+    }
     assign(result,'reserveConfigHash',reserve.reserveConfigHash);
     if(reserveArtifact!==undefined) {
       const compiledReserve=identity(reserveArtifact,'reserve artifact');
@@ -190,8 +261,18 @@ export function materializeProductionReleaseCore({releaseConfig,nativeFacts,
       throw new Error('reserve artifact derivation can only be deferred from the null-pin state');
     }
   }
-  if(result.productionReady!==false||result.realFundsAuthorized!==false) {
-    throw new Error('release core cannot change authorization');
+  if(completeTechnicalProduction) {
+    if(deferReserveArtifact||deferCheckpointRegistryArtifact
+        ||reserveArtifact===undefined||checkpointRegistryArtifact===undefined
+        ||result.reserveRuntimeCodeHash===null||result.reserveInitcodeHash===null
+        ||result.checkpointRegistryRuntimeCodeHash===null
+        ||result.checkpointRegistryInitcodeHash===null) {
+      throw new Error('technical production readiness requires every final artifact binding');
+    }
+    result.productionReady=true;
+  }
+  if(result.productionReady!==completeTechnicalProduction||result.realFundsAuthorized!==false) {
+    throw new Error('release core produced an invalid technical/authorization state');
   }
   return result;
 }

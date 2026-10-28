@@ -1,0 +1,17 @@
+Stage 1226 — state-independent RandomX planner test and bounded RISC Zero blocks
+Date: 2026-10-26
+
+Changes
+- The RandomX planner regression now validates either authenticated-ready or explicit fail-closed output according to the actual immutable inputs observed in that run. In both cases it proves plan-only mode never executes a guest, generates a proof or mines.
+- RISC Zero capacity runtime observations now require finalized/common block numbers to be canonical lowercase, nonzero uint64 Ethereum quantities, with the 16-hex-digit ceiling enforced before BigInt.
+
+Security result
+- The planner test no longer races concurrent creation/removal of authenticated evidence, while preserving the requirement that readiness is true only with zero blockers and populated authenticated inputs.
+- Malformed RPC responses cannot force arbitrary-size block-number conversion or introduce uppercase/noncanonical quantities.
+- Regressions reject a 100,000-digit hex quantity, exact 2^64 and uppercase quantity framing.
+
+Validation
+- Broad artifact-independent RandomX, issuance cleanup, RISC Zero runtime and health selection: 11/11 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Rust, Solidity, Cargo, Forge, real network, signing, deployment, funds, commit or push ran.

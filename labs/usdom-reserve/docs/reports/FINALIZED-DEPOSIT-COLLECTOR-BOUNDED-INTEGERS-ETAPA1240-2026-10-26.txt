@@ -1,0 +1,37 @@
+Stage 1240 — bounded external integers in the finalized-deposit collector
+Date: 2026-10-26
+
+Finding
+-------
+Although the completed finalized-deposit artifact is validated, the live
+collector converted raw execution quantities and Beacon decimal slots/blocks
+with `BigInt` while it was still acquiring ancestry. Oversized inputs could
+therefore consume resources before artifact validation. Mixed-case and
+leading-zero Ethereum quantities were also accepted during collection.
+
+Correction
+----------
+The collector now routes execution quantities through the shared canonical
+uint64 Ethereum-quantity reader and Beacon slots/block positions through the
+shared canonical decimal uint64 reader before conversion. The bounded values
+drive period calculations, finalized ancestry loops, receipt ordering and block
+identity checks. The final artifact validator remains an independent barrier.
+
+Adversarial regression
+----------------------
+A collector-specific regression proves every raw external conversion site uses
+the bounded readers and forbids the former direct conversions. Behavioral cases
+reject 100,000-digit values, exact 2^64, leading-zero quantities/decimals,
+uppercase quantities and negative decimals before conversion.
+
+Validation
+----------
+- Collector Node syntax check: pass.
+- Collector boundary, finalized-deposit source/catalog, quantity, shell lifecycle
+  and durable-file suites: 26/26 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

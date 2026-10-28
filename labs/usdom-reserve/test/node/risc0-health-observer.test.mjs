@@ -76,7 +76,7 @@ test('multi-RPC collector redacts endpoint secrets from observation failures',as
     });
 });
 
-function healthProvider({changedCode=false}={}) {
+function healthProvider({changedCode=false,chainId='0x1',finalizedNumber='0x10'}={}) {
  const direct=new Interface(['function SELECTOR() view returns (bytes4)',
   'function VERSION() view returns (string)']);
  const stop=new Interface(['function paused() view returns (bool)','function verifier() view returns (address)']);
@@ -85,10 +85,10 @@ function healthProvider({changedCode=false}={}) {
  return {pinFinalizedSnapshot(number,hash){
   pinned={tag:number,hash}; return pinned;
  },async send(method,params) {
-  if(method==='eth_chainId') return '0x1';
+  if(method==='eth_chainId') return chainId;
   if(method==='eth_getBlockByNumber'&&params[0]==='0x0') return {
    number:'0x0',hash:'0xd4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3'};
-  if(method==='eth_getBlockByNumber') return {number:'0x10',hash:'0x'+'ab'.repeat(32)};
+  if(method==='eth_getBlockByNumber') return {number:finalizedNumber,hash:'0x'+'ab'.repeat(32)};
   if(method==='eth_getCode') {
    codeReads++;
    return changedCode&&codeReads>2?'0x6002':'0x6001';
@@ -115,6 +115,12 @@ test('health observer re-reads code and state at one stable finalized snapshot',
  assert.equal(observation.finalizedBlockHash,observation.snapshotBlockHashAfter);
  await assert.rejects(()=>observeRiscZeroMainnetHealth({reference,
   provider:healthProvider({changedCode:true})}),/snapshot changed/);
+ for(const finalizedNumber of [`0x${'f'.repeat(100000)}`,'0x10000000000000000','0x0','0X10']) {
+  await assert.rejects(()=>observeRiscZeroMainnetHealth({reference,
+   provider:healthProvider({finalizedNumber})}),/canonical finalized block/);
+ }
+ await assert.rejects(()=>observeRiscZeroMainnetHealth({reference,
+  provider:healthProvider({chainId:`0x${'f'.repeat(100000)}`})}),/not canonical Ethereum mainnet/);
 });
 
 test('health command uses only catalog-matched bounded sources',async()=>{

@@ -1,0 +1,33 @@
+ETAPA 1365 — BOUNDARY TIPADO PARA CAST CALL BOOLEANO
+Data: 2026-10-26
+
+Problema
+
+Oito chamadas RPC com retorno `bool` tinham deadline, mas capturavam stdout sem
+teto e confiavam apenas na comparação posterior. Elas controlam a blacklist do
+financiador USDT e as travas de replay de burn/request antes e depois do resgate.
+
+Correção
+
+Todas as chamadas passam agora por `rpc_bool_call`, que aplica deadline
+foreground TERM/KILL de 120 segundos, teto sentinela de 8 bytes e aceita somente
+os valores exatos `true` ou `false`. São dois pontos no executor de depósito e
+seis no executor de resgate.
+
+As expectativas específicas de cada fase continuam aplicadas depois: o
+financiador deve estar fora da blacklist, burn/request devem estar não pagos
+antes da fila e pagos após o resgate. Falha, timeout, excesso ou retorno de
+tipo/formato inválido abortam antes de assinatura, publicação ou evidência
+terminal.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores e conservação: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 2/2 calls bool no depósito e 6/6 no resgate usam o
+  boundary tipado.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

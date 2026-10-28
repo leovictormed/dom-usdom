@@ -47,3 +47,18 @@ test('debug-only fixture oracles remain impossible in optimized builds', async (
     assert.match(source, /#\[cfg\(all\(feature = "unsafe-test-oracle", not\(debug_assertions\)\)\)\]\s*compile_error!/s);
   }
 });
+
+test('checkpoint witness authenticates directory ownership through safe rustix API', async () => {
+  const source = await readFile(
+    path.join(repository, 'labs/usdom-ethereum-finality/src/bin/usdom-build-checkpoint-witness.rs'),
+    'utf8',
+  );
+  const manifest = await readFile(
+    path.join(repository, 'labs/usdom-ethereum-finality/Cargo.toml'),
+    'utf8',
+  );
+  assert.match(source, /parent_metadata\.uid\(\) == rustix::process::geteuid\(\)\.as_raw\(\)/);
+  assert.doesNotMatch(source, /libc::geteuid|\bunsafe\s*\{/);
+  assert.match(manifest, /^rustix = \{ version = "=1\.1\.4", default-features = false, features = \["process", "std"\] \}$/m);
+  assert.doesNotMatch(manifest, /^libc\s*=/m);
+});

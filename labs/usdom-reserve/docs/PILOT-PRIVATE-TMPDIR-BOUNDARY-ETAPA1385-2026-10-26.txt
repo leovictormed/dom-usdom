@@ -1,0 +1,36 @@
+ETAPA 1385 — CRIAÇÃO ATESTADA DE DIRETÓRIOS TEMPORÁRIOS PRIVADOS
+Data: 2026-10-26
+
+Problema
+
+Os executores de depósito e resgate aceitavam diretamente o pathname emitido
+por `mktemp` e aplicavam `chmod 0700` depois da criação. A operação não tinha
+deadline nem teto de stdout, e o ajuste posterior podia ocultar uma criação com
+propriedade, modo, tipo ou link count inesperados antes de segredos serem
+materializados no diretório.
+
+Correção
+
+Cada executor possui agora `private_tmpdir`, com prefixo fechado ao fluxo
+correspondente. O helper executa a única chamada `mktemp` com deadline
+foreground TERM/KILL de 120 segundos, limita stdout a 128 bytes e aceita apenas
+um pathname `/dev/shm/<prefix>.<oito caracteres alfanuméricos>`.
+
+Antes de devolver o pathname, exige diretório real e não symlink e atesta em
+uma leitura `stat_run` já limitada que UID, modo e link count são exatamente
+`$UID:700:1`. A leitura de UID usa o builtin Bash `$UID`, removendo o subprocesso
+`id -u`. O `chmod 0700` corretivo foi removido: criação insegura falha fechada,
+em vez de ser silenciosamente reparada.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Regressões focais finais: 18/18 aprovadas.
+- Suíte focal relevante executada durante a correção: 25/25 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário: uma única chamada interna `mktemp` por executor; uma única chamada
+  operacional ao helper por executor; nenhum `id -u` ou `chmod 0700` resta.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

@@ -10,7 +10,11 @@ const tests = readFileSync(new URL("../solidity/USDTPolicy.t.sol", import.meta.u
 
 for (const source of reserves) {
   assert.match(source, /TOKEN_GAS_LIMIT = 500_000/);
-  assert.match(source, /staticcall\(TOKEN_GAS_LIMIT, target,[\s\S]*returndatasize\(\)[\s\S]*returnSize != 32/);
+  assert.ok(
+    /function _tokenStaticWord[\s\S]*?_staticcallWord\(target, TOKEN_GAS_LIMIT, callData\)[\s\S]*?if \(!ok\) revert UnsupportedToken/.test(source)
+      || /function _tokenStaticWord[\s\S]*?staticcall\(TOKEN_GAS_LIMIT, target,[\s\S]*?returndatasize\(\)[\s\S]*?returnSize != 32/.test(source),
+    'token view calls remain gas- and returndata-bounded',
+  );
   assert.match(source, /call\(TOKEN_GAS_LIMIT, target,[\s\S]*returnSize != 0[\s\S]*returnSize != 32/);
   assert.match(source, /uint256\(word\) > 1/);
   assert.doesNotMatch(source, /IUSDTPolicy policy/);

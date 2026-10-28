@@ -1,0 +1,33 @@
+ETAPA 1376 — BOUNDARY PARA AVALIAÇÕES NODE LOCAIS
+Data: 2026-10-26
+
+Problema
+
+Trinta e quatro avaliações `node -e` executavam cálculos e gates críticos sem
+deadline nem teto uniforme. Os programas eram constantes e recebiam escalares
+já validados, mas uma falha do runtime ainda poderia bloquear o executor.
+
+Correção
+
+As 19 avaliações do depósito e 15 do resgate passam agora por `node_eval`. O
+helper aplica deadline foreground TERM/KILL de 120 segundos e limita stdout a
+161 bytes sob `pipefail`. Ele cobre cálculos de nonce, gás, taxa, custo e deltas
+financeiros, além de gates de finalidade, janela temporal e taxa mínima que não
+produzem saída.
+
+Os programas continuam literais no código; valores públicos escalares seguem em
+argv e nenhum segredo/raw transaction é introduzido. Uma regressão permite
+somente o `node -e` interno do helper e fixa as 34 chamadas cobertas. Falha,
+timeout ou saída excedente abortam antes de assinatura, publicação ou evidência
+terminal.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores e conservação: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário: 34/34 avaliações usam `node_eval`; zero `node -e` direto resta.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

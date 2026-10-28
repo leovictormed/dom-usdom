@@ -169,6 +169,10 @@ def audit() -> dict:
                 "production requirements outer ImageID drift",
             ),
             (
+                requirements.get("production_checkpoint_registry_risc0_evm_adapter_image_id_pinned") is True,
+                "checkpoint EVM adapter ImageID is not declared pinned",
+            ),
+            (
                 requirements.get("production_checkpoint_recursive_segment_transition_statement_magic")
                 == "UDCSTN04",
                 "production requirements segment transition magic is stale",

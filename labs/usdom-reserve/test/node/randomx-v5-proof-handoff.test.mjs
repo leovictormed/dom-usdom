@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'; import {createHash} from 'node:crypto';
-import {chmod,mkdtemp,readFile,writeFile} from 'node:fs/promises'; import os from 'node:os'; import path from 'node:path';
+import {chmod,link,mkdtemp,readFile,symlink,writeFile} from 'node:fs/promises'; import os from 'node:os'; import path from 'node:path';
 import {spawn,spawnSync} from 'node:child_process'; import {setTimeout as delay} from 'node:timers/promises'; import test from 'node:test';
 const repo=path.resolve(import.meta.dirname,'../../../..'); const checker=path.join(repo,'labs/usdom-reserve/scripts/adapt-randomx-v5-proof-handoff.py');
 const sha=x=>createHash('sha256').update(x).digest('hex'); const current='a'.repeat(64);
@@ -24,3 +24,13 @@ test('completed old-lock v5 proof is authenticated historical-stale and never pr
 test('failed v5 proof releases resources without promotion',async()=>{const f=await fixture('failed',7);const r=await invoke(f);assert.equal(r.status,0,r.stderr);const x=JSON.parse(r.stdout);assert.equal(x.classification,'failed-stale');assert.equal(x.promotionAllowed,false);});
 test('active matching v5 runner remains locked',async()=>{const f=await fixture('running',0);const child=spawn('bash',[f.runner],{stdio:'ignore'});f.status.pid=child.pid;await writeFile(path.join(f.run,'status.json'),JSON.stringify(f.status));await delay(100);try{const r=await invoke(f);assert.equal(r.status,0,r.stderr);const x=JSON.parse(r.stdout);assert.equal(x.classification,'active');assert.equal(x.releaseAllowed,false);}finally{child.kill('SIGTERM');}});
 test('runner, status, job, receipt index and receipt tampering fail closed',async()=>{for(const target of ['runner','status','job','index','receipt']){const f=await fixture();let p={runner:f.runner,status:path.join(f.run,'status.json'),job:path.join(f.lab,'evidence/randomx-proof-jobs/randomx-proof-job-index.json'),index:path.join(f.lab,'evidence/randomx-receipt-set/randomx-receipt-set-index.json'),receipt:path.join(f.lab,'evidence/randomx-receipt-set/randomx-receipt-0000.bin')}[target];await writeFile(p,'tampered');const r=await invoke(f);assert.notEqual(r.status,0,target);}});
+test('duplicate keys and floating-point control values fail closed',async()=>{for(const raw of [
+ '{"schema":"usdom-randomx-proof-build-v1","schema":"shadow"}',
+ '{"schema":"usdom-randomx-proof-build-v1","exitCode":0.0}',
+]){const f=await fixture();await writeFile(path.join(f.run,'build-status.json'),raw);const r=await invoke(f);
+ assert.notEqual(r.status,0);assert.match(r.stderr,/duplicate JSON key|floating-point/);}});
+test('descriptor-bound handoff refuses symlink and hardlink control files',async()=>{
+ for(const kind of ['symlink','hardlink']){const f=await fixture();const target=path.join(f.run,'status.json'),saved=path.join(f.run,'saved.json');await writeFile(saved,await readFile(target));
+  await import('node:fs/promises').then(fs=>fs.rm(target));if(kind==='symlink')await symlink(saved,target);else await link(saved,target);
+  const r=await invoke(f);assert.notEqual(r.status,0,kind);assert.match(r.stderr,/bounded direct file|Too many levels|not permitted/i);}
+});

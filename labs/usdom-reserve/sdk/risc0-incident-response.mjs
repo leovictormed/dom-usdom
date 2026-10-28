@@ -12,7 +12,7 @@ export const RISC0_INCIDENT_RESPONSE_SCHEMA='usdom-risc0-incident-response/v4';
 export const RISC0_INCIDENT_RESPONSE_REPORT_SCHEMA='usdom-risc0-incident-response-report/v4';
 
 const reserveInterface=new Interface([
-  'function pauseQueueEpoch(uint64 expectedQueueEpoch)',
+  'function pauseQueueEpoch(uint64 expectedQueueEpoch,uint64 expectedPilotAuthorizationGeneration)',
 ]);
 const checkpointInterface=new Interface([
   'function haltPermanently()',
@@ -62,7 +62,9 @@ function hash(value,label) {
 }
 
 function uint(value,label,bits=256) {
-  if(typeof value!=='string' || !uintPattern.test(value)) fail(`${label} must be a canonical uint`);
+  const maxDigits={64:20,256:78}[bits];
+  if(maxDigits===undefined||typeof value!=='string'||value.length>maxDigits
+      ||!uintPattern.test(value)) fail(`${label} must be a canonical uint`);
   const result=BigInt(value);
   if(result>=2n**BigInt(bits)) fail(`${label} exceeds uint${bits}`);
   return result;
@@ -78,7 +80,7 @@ function snapshot(value) {
   exactObject(value,['ethereumChainId','reserve','checkpointRegistry'],'response snapshot');
   const ethereumChainId=uint(value.ethereumChainId,'response chain ID');
   if(ethereumChainId===0n) fail('response chain ID is zero');
-  exactObject(value.reserve,['address','runtimeCodeHash','queueEpoch','paused','resumeReadyAt'],'reserve snapshot');
+  exactObject(value.reserve,['address','runtimeCodeHash','queueEpoch','pilotAuthorizationGeneration','paused','resumeReadyAt'],'reserve snapshot');
   exactObject(value.checkpointRegistry,['address','runtimeCodeHash','halted'],'checkpoint snapshot');
   if(typeof value.reserve.paused!=='boolean' || typeof value.checkpointRegistry.halted!=='boolean') {
     fail('response snapshot booleans are invalid');
@@ -88,10 +90,13 @@ function snapshot(value) {
   const checkpointTarget=target({address:value.checkpointRegistry.address,
     runtimeCodeHash:value.checkpointRegistry.runtimeCodeHash},'checkpoint registry');
   const resumeReadyAt=uint(value.reserve.resumeReadyAt,'resume ready timestamp',64);
+  const pilotAuthorizationGeneration=uint(value.reserve.pilotAuthorizationGeneration,'pilot authorization generation',64);
+  if(pilotAuthorizationGeneration===(1n<<64n)-1n) fail('pilot authorization generation exhausted');
   if(!value.reserve.paused && resumeReadyAt!==0n) fail('unpaused reserve has a scheduled resume');
   return {
     ethereumChainId:ethereumChainId.toString(),
     reserve:{...reserveTarget,queueEpoch:uint(value.reserve.queueEpoch,'queue epoch',64).toString(),
+      pilotAuthorizationGeneration:pilotAuthorizationGeneration.toString(),
       paused:value.reserve.paused,resumeReadyAt:resumeReadyAt.toString()},
     checkpointRegistry:{...checkpointTarget,halted:value.checkpointRegistry.halted},
   };
@@ -148,7 +153,7 @@ function healthSources(values,approvedCatalog) {
       fail(`health source ${index} is not an approved release source`);
     }
     return {...identity,observation:value.observation};
-  }).sort((left,right)=>left.sourceId.localeCompare(right.sourceId));
+  }).sort((left,right)=>left.sourceId<right.sourceId?-1:left.sourceId>right.sourceId?1:0);
   if(new Set(normalized.map(({sourceId})=>sourceId)).size!==normalized.length) {
     fail('upstream health source identities must be distinct');
   }
@@ -187,9 +192,9 @@ export function buildRiscZeroIncidentResponsePlan({reference,sources,approvedSou
   // upstream incident cannot be bypassed by a previously scheduled resume.
   if(classification!=='healthy' && (!observed.reserve.paused || observed.reserve.resumeReadyAt!=='0')) {
     actions.push(action('reserveGuardian',observed.reserve.address,
-      reserveInterface.encodeFunctionData('pauseQueueEpoch',[observed.reserve.queueEpoch]),
-      {queueEpoch:observed.reserve.queueEpoch,paused:observed.reserve.paused,
-        resumeReadyAt:observed.reserve.resumeReadyAt},{paused:true,resumeReadyAt:'0'}));
+      reserveInterface.encodeFunctionData('pauseQueueEpoch',[observed.reserve.queueEpoch,observed.reserve.pilotAuthorizationGeneration]),
+      {queueEpoch:observed.reserve.queueEpoch,pilotAuthorizationGeneration:observed.reserve.pilotAuthorizationGeneration,paused:observed.reserve.paused,
+        resumeReadyAt:observed.reserve.resumeReadyAt},{paused:true,resumeReadyAt:'0',pilotAuthorizationGeneration:(BigInt(observed.reserve.pilotAuthorizationGeneration)+1n).toString()}));
   }
   if(classification==='confirmed-upstream-incident' && !observed.checkpointRegistry.halted) {
     actions.push(action('checkpointGuardian',observed.checkpointRegistry.address,
@@ -274,10 +279,11 @@ export async function executeRiscZeroIncidentResponse({plan,reference,sources,ap
     if(responseAction.role==='reserveGuardian') {
       if(responseAction.to!==observed.reserve.address
           || responseAction.data.toLowerCase()!==reserveInterface.encodeFunctionData(
-            'pauseQueueEpoch',[observed.reserve.queueEpoch]).toLowerCase()) {
+            'pauseQueueEpoch',[observed.reserve.queueEpoch,observed.reserve.pilotAuthorizationGeneration]).toLowerCase()) {
         fail('reserve response action mismatch');
       }
       if(await reserve.queueEpoch()!==BigInt(observed.reserve.queueEpoch)
+          || await reserve.pilotAuthorizationGeneration()!==BigInt(observed.reserve.pilotAuthorizationGeneration)
           || await reserve.paused()!==observed.reserve.paused
           || await reserve.resumeReadyAt()!==BigInt(observed.reserve.resumeReadyAt)) {
         fail('reserve response precondition changed');

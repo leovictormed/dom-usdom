@@ -1,0 +1,8 @@
+Stage 1456 — receiving-wallet bounded cleanup
+Date: 2026-10-26
+
+The private receiving-wallet directory held a passphrase, recovery backup and private snapshots, but recursive deletion had no deadline or postcondition. Cleanup now executes the reattested Node binary through authenticated timeout (TERM 30s, KILL after 5s), suppresses output, reattests Node afterward and requires absence. Any failure produces a failing final status.
+
+Validation: bash syntax and focused Node credential/environment/cleanup/wallet lifecycle suites passed 9/9.
+
+No operational script, network, Ledger, signing, deployment, funds, commit or push occurred.

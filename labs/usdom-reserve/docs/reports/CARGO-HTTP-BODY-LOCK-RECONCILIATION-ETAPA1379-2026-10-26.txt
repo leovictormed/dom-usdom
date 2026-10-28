@@ -1,0 +1,33 @@
+Stage 1379 — Cargo http-body lock reconciliation
+Date: 2026-10-26
+
+Cause
+The dom-rpc PendingBody regressions added http-body = "1" as a dev dependency. The workspace
+lock changed only by adding http-body to the existing dom-rpc package dependency list.
+
+Supply-chain audit
+- The resolved http-body package was already present in both the prior and current Cargo.lock:
+  version 1.1.0, crates.io registry source, checksum
+  ca2a8f2913ee65f60facd6a5905613afaa448497a0230cc41ce022d93290bc2c.
+- No package, version, source or checksum was introduced by the lock change.
+- The network-free release dependency policy validates every Cargo manifest and all 36 lockfiles;
+  it reports 15,017 locked Cargo entries with immutable source authority.
+- dom-rpc/Cargo.toml is not part of the verify-only proof-host Cargo source closure, so inventing
+  an independent pin there would expand that closure incorrectly. Its exact dependency declaration
+  is audited by the repository-wide manifest policy, while the resolved edge is bound by Cargo.lock.
+
+Pin reconciliation
+- Updated the Cargo.lock pin in the critical repository inventory to
+  8ddb926652b8fd54a38926ee9dd202657c5d7cd50fbaa765a5d1ee39db2c0106.
+- Updated the same closed-file pin in mainnet-toolchain-lock.json.
+- Recomputed the verify-only source-closure commitment from the exact sorted repository pin map:
+  d2c4e772f772395ebe7f703fe4592ab07ba436ba244a500d2cdc318fad4ddcd5.
+
+Validation
+- check-release-dependency-policy.py: PASS (36 locks/15,017 entries, 234 manifests,
+  4 npm locks/241 entries pinned).
+- supply-chain, toolchain and related deployment/publication suite: 29/29 PASS.
+- critical publication inventory: PASS, 257 sources.
+- Stage 1370 suite: 22/22 PASS.
+
+No network, signing, deployment, funds, commit or push occurred.

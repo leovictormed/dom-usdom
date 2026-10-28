@@ -333,6 +333,115 @@ fn rejected_reorg_batch_leaves_tip_and_extension_state_unchanged() {
 }
 
 #[test]
+fn stale_same_height_commit_aborts_without_partial_extension_state() {
+    let dir = TempDir::new().unwrap();
+    let store = open_test_store(dir.path());
+    let first = hash(0x81);
+    let stale = hash(0x82);
+    store
+        .commit_block_with_consensus_state(
+            &first,
+            9,
+            b"header-first",
+            b"body-first",
+            &[],
+            &[],
+            &[],
+            &[put(b"usdom/v2/root", &[0x11; 32])],
+        )
+        .unwrap();
+
+    let error = store
+        .commit_block_with_consensus_state(
+            &stale,
+            9,
+            b"header-stale",
+            b"body-stale",
+            &[],
+            &[],
+            &[],
+            &[
+                put(b"usdom/v2/root", &[0x22; 32]),
+                put(b"usdom/v2/undo/stale", b"undo"),
+            ],
+        )
+        .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("canonical height already exists"));
+    assert_eq!(store.get_chain_tip().unwrap(), Some(first));
+    assert_eq!(store.get_hash_at_height(9).unwrap(), Some(first));
+    assert_eq!(store.get_block_header(&stale).unwrap(), None);
+    assert_eq!(
+        store.get_consensus_state(b"usdom/v2/root").unwrap(),
+        Some(vec![0x11; 32])
+    );
+    assert_eq!(
+        store.get_consensus_state(b"usdom/v2/undo/stale").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn duplicate_reorg_coordinates_fail_before_any_atomic_write() {
+    let dir = TempDir::new().unwrap();
+    let store = open_test_store(dir.path());
+    let old = hash(0x91);
+    let new = hash(0x92);
+    store
+        .commit_block_with_consensus_state(
+            &old,
+            10,
+            b"old",
+            b"old-body",
+            &[],
+            &[],
+            &[],
+            &[put(b"usdom/v2/root", &[0x31; 32])],
+        )
+        .unwrap();
+
+    let duplicate_height = store
+        .apply_reorg_with_consensus_state(
+            &new,
+            &[(10, Some(new)), (10, None)],
+            &[],
+            &[],
+            &[put(b"usdom/v2/root", &[0x32; 32])],
+        )
+        .unwrap_err();
+    assert!(duplicate_height.to_string().contains("duplicate height"));
+    let commitment = [0x41; 33];
+    let duplicate_utxo = store
+        .apply_reorg_with_consensus_state(
+            &new,
+            &[],
+            &[(commitment, Some(vec![1])), (commitment, None)],
+            &[],
+            &[],
+        )
+        .unwrap_err();
+    assert!(duplicate_utxo.to_string().contains("duplicate UTXO"));
+    let excess = [0x51; 33];
+    let duplicate_kernel = store
+        .apply_reorg_with_consensus_state(
+            &new,
+            &[],
+            &[],
+            &[(excess, Some(new)), (excess, None)],
+            &[],
+        )
+        .unwrap_err();
+    assert!(duplicate_kernel.to_string().contains("duplicate kernel"));
+    assert_eq!(store.get_chain_tip().unwrap(), Some(old));
+    assert_eq!(store.get_hash_at_height(10).unwrap(), Some(old));
+    assert_eq!(
+        store.get_consensus_state(b"usdom/v2/root").unwrap(),
+        Some(vec![0x31; 32])
+    );
+}
+
+#[test]
 fn reorg_sidecar_insert_and_canonical_state_are_one_atomic_transaction() {
     let dir = TempDir::new().unwrap();
     let store = open_test_store(dir.path());

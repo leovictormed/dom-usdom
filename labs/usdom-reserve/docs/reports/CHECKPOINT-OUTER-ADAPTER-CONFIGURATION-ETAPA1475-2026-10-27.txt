@@ -1,0 +1,36 @@
+CHECKPOINT OUTER ADAPTER CONFIGURATION — ETAPA 1475
+Date: 2026-10-27
+
+Result
+
+The current checkpoint-outer ImageID is reproducibly available and is pinned
+at every implemented acceptance boundary:
+
+  311d58dadcb97cac783e3ec0efe3c4570f42b944cbda1e48aeb56b055682257b
+
+The rebuilt ProgramBinary and provenance agree with this value.  The proof
+host, authenticated submission SDK, finalized-burn composition program,
+positive-evidence checker and focused Solidity pin test all require the same
+ImageID.  The V6/V4 artifact-chain checker now also requires the production
+ImageID pin claim to be true and derives the expected value from the canonical
+`.iid` artifact.  Therefore
+`production_checkpoint_registry_risc0_evm_adapter_image_id_pinned` is true.
+
+The separate `production_checkpoint_outer_guest_adapter_configured` claim
+remains false.  The checked-in file is deliberately an unconfigured template:
+the release-specific verifier manifest still has null consensus identities,
+activation schedule, RandomX receipt ImageID, proving/setup provenance and
+Ethereum verifier identity.  The release and deployment plans also have null
+adapter address, config hash, initcode hash and deployer data.  Filling those
+values without the ratified release artifacts would create a fictitious
+configuration, so no such values were invented.
+
+Validation
+
+- check-checkpoint-v5-artifact-chain-stage1040.py: ready true, no failures.
+- DOMCheckpointRiscZeroVerifier.t.sol: 11 passed, 0 failed.
+- checkpoint-verifier-config.test.mjs: 4 passed, 0 failed.
+- git diff --check: passed for the focal files.
+
+No receipt generation, deployment, network transaction, signing, funds,
+manifest modification, commit or push occurred.

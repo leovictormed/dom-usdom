@@ -1,0 +1,11 @@
+Etapa 1491 — entrada única do piloto
+
+- Um único comando oferece `--verify-only` e `--generate-plan`.
+- Verify-only valida Ubuntu, toolchain e rotas 33/33 sem instalar, baixar,
+  acessar rede ou executar fases.
+- Generate-plan repete as validações e publica JSON público create-once; uma
+  retomada aceita somente bytes idênticos.
+- Dependência ausente resulta exclusivamente em linhas NEXT com comandos
+  completos. Não há campos, edição manual ou placeholders.
+- O teste executou somente ajuda e validações estáticas; nenhuma operação foi
+  iniciada.

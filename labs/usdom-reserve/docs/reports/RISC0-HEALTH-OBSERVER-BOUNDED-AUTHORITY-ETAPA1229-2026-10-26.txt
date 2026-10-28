@@ -1,0 +1,17 @@
+Stage 1229 — bounded RISC Zero health-observer authority
+Date: 2026-10-26
+
+Changes
+- The health observer now requires the raw RPC chain ID to be exactly canonical `0x1` instead of converting arbitrary input with BigInt.
+- Its finalized block number must be a canonical lowercase, nonzero uint64 Ethereum quantity before snapshot pinning and final decimal conversion.
+
+Security result
+- The observer independently enforces mainnet and block-number framing even when supplied a provider object that merely exposes the required methods.
+- Malformed providers cannot force arbitrary-size chain/block integer conversion or pass uppercase, zero or uint64-overflow block tags.
+- Regressions reject 100,000-digit chain/block quantities, exact 2^64, zero and uppercase framing.
+
+Validation
+- Broad artifact-independent RISC Zero observer, health, catalog, capacity runtime and preflight transport selection: 26/26 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Rust, Solidity, Cargo, Forge, real network, signing, deployment, funds, commit or push ran.

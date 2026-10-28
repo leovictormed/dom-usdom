@@ -222,6 +222,19 @@ pub fn load_native_usdom_v4_node_bundle(
             "native USDOM activation schedule belongs to another network",
         ));
     }
+    let expected_genesis = dom_core::startup_genesis_hash_for_network_magic(expected_network_magic)
+        .map_err(|error| {
+            rejected(format!(
+                "native USDOM startup network has no finalized genesis identity: {error}"
+            ))
+        })?;
+    let expected_chain_id =
+        dom_consensus::derive_chain_id(expected_network_magic, &expected_genesis);
+    if schedule.chain_id() != expected_chain_id {
+        return Err(rejected(
+            "native USDOM activation schedule does not match the selected genesis chain",
+        ));
+    }
     let (
         candidate_v2_first_height,
         checkpoint_interval_blocks,
@@ -811,13 +824,13 @@ mod tests {
         std::fs::write(directory.join("spend.vk"), &key).unwrap();
         let forks = json!({
             "genesis": fork(0, "00000000"),
-            "altair": fork(0, "00000000"),
-            "bellatrix": fork(0, "00000000"),
-            "capella": fork(0, "00000000"),
-            "deneb": fork(0, "00000000"),
-            "electra": fork(0, "00000000"),
-            "fulu": fork(0, "00000000"),
-            "gloas": fork(u64::MAX, "00000000")
+            "altair": fork(74_240, "01000000"),
+            "bellatrix": fork(144_896, "02000000"),
+            "capella": fork(194_048, "03000000"),
+            "deneb": fork(269_568, "04000000"),
+            "electra": fork(364_032, "05000000"),
+            "fulu": fork(411_392, "06000000"),
+            "gloas": fork(u64::MAX, "07000000")
         });
         let manifest = json!({
             "schema_version": 1,
@@ -1194,5 +1207,41 @@ mod tests {
         assert!(error
             .to_string()
             .contains("does not match the bridge commitment"));
+    }
+
+    #[test]
+    fn manifest_rejects_hash_pinned_schedule_for_a_different_genesis_chain() {
+        let directory = tempfile::tempdir().unwrap();
+        let (bytes, digest) = fixture(directory.path());
+        let manifest = directory.path().join("native-usdom-v4.json");
+        std::fs::write(&manifest, &bytes).unwrap();
+        let loaded =
+            load_native_usdom_v4_node_bundle(&manifest, &digest, NETWORK_MAGIC_REGTEST).unwrap();
+
+        let mut other_chain_id_bytes = *loaded.schedule.chain_id().as_bytes();
+        other_chain_id_bytes[0] ^= 1;
+        let other_chain_id = Hash256::from_bytes(other_chain_id_bytes);
+        let wrong_schedule = dom_chain::NativeUsdomV4ActivationSchedule::new(
+            NETWORK_MAGIC_REGTEST,
+            other_chain_id,
+            loaded.schedule.first_v4_height(),
+            loaded.bridge,
+        )
+        .unwrap();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        value["activation_schedule_hex"] = Value::String(activation_schedule_hex(wrong_schedule));
+        let changed = serde_json::to_vec(&value).unwrap();
+        std::fs::write(&manifest, &changed).unwrap();
+
+        let error = load_native_usdom_v4_node_bundle(
+            &manifest,
+            &sha256_hex(&changed),
+            NETWORK_MAGIC_REGTEST,
+        )
+        .err()
+        .unwrap();
+        assert!(error
+            .to_string()
+            .contains("does not match the selected genesis chain"));
     }
 }

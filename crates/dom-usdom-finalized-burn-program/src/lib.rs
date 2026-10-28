@@ -59,8 +59,8 @@ pub const MAX_FINALIZED_BURN_PROVER_INPUT_BYTES: usize = FINALIZED_BURN_PROVER_H
 /// Pinned ImageID of the reviewed checkpoint-outer guest whose receipt proves
 /// the complete DOM consensus transition and confirmation suffix.
 pub const CHECKPOINT_OUTER_IMAGE_ID: [u8; 32] = [
-    0xe5, 0x9d, 0x68, 0x48, 0x73, 0x86, 0x93, 0x9b, 0x2a, 0xc3, 0x79, 0xf0, 0x45, 0x28, 0xac, 0xb6,
-    0xb3, 0x13, 0x86, 0x97, 0xe1, 0x7a, 0xdf, 0xda, 0x3a, 0xd2, 0x3e, 0xbe, 0x19, 0x5a, 0xf3, 0xdf,
+    0x31, 0x1d, 0x58, 0xda, 0xdc, 0xb9, 0x7c, 0xac, 0x78, 0x3e, 0x3e, 0xc0, 0xef, 0xe3, 0xc4, 0x57,
+    0x0f, 0x42, 0xb9, 0x44, 0xcb, 0xda, 0x1e, 0x48, 0xae, 0xb5, 0x6b, 0x05, 0x56, 0x82, 0x25, 0x7b,
 ];
 
 /// Failure to decode or execute the fixed finalized-burn relation.
@@ -1152,6 +1152,50 @@ mod tests {
                 0x1d, 0xd8, 0x8d, 0x43,
             ])
         );
+    }
+
+    #[test]
+    fn finalized_burn_hash_binds_network_release_and_every_payout_field() {
+        let original = FinalizedBurnStatement {
+            burn_id: [0x11; 32],
+            request_id: [0x22; 32],
+            recipient: [0x33; 20],
+            amount: 250_000,
+            dom_domain: [0x44; 32],
+            height: 100_360,
+            block_hash: Hash256::from_bytes([0x55; 32]),
+            state_root: Hash256::from_bytes([0x66; 32]),
+            finality_beacon_slot: 16_000_010,
+            valid_until: 1_700_100_120,
+            ethereum_chain_id: {
+                let mut word = [0; 32];
+                word[31] = 1;
+                word
+            },
+            reserve: [0x77; 20],
+            activation_schedule_commitment: Hash256::from_bytes([0x88; 32]),
+        };
+        let expected = original.statement_hash();
+        let mutations: [fn(&mut FinalizedBurnStatement); 13] = [
+            |v| v.burn_id[0] ^= 1,
+            |v| v.request_id[0] ^= 1,
+            |v| v.recipient[0] ^= 1,
+            |v| v.amount += 1,
+            |v| v.dom_domain[0] ^= 1,
+            |v| v.height += 1,
+            |v| v.block_hash = Hash256::from_bytes([0x56; 32]),
+            |v| v.state_root = Hash256::from_bytes([0x67; 32]),
+            |v| v.finality_beacon_slot += 1,
+            |v| v.valid_until += 1,
+            |v| v.ethereum_chain_id[31] = 2,
+            |v| v.reserve[0] ^= 1,
+            |v| v.activation_schedule_commitment = Hash256::from_bytes([0x89; 32]),
+        ];
+        for mutate in mutations {
+            let mut changed = original;
+            mutate(&mut changed);
+            assert_ne!(changed.statement_hash(), expected);
+        }
     }
 
     #[test]

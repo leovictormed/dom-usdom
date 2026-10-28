@@ -22,3 +22,17 @@ for(const [script,tool,expectedCalls] of cases) test(`${script} authenticates fi
   .filter(match=>match.index>boundary);
  assert.equal(calls.length,expectedCalls);
 });
+
+test('shared Git ceremony parser executes through the callers pinned node wrapper',async()=>{
+ const helper=await readFile(new URL('git-release-ceremony-boundary.sh',directory),'utf8');
+ const helperCalls=[...helper.matchAll(/^\s*node\s/gm)];
+ assert.equal(helperCalls.length,1);
+ assert.match(helper,/parse_verified_git_fingerprint\(\)/);
+ for(const script of ['commit-release-source.sh','commit-release-evidence.sh']) {
+  const source=await readFile(new URL(script,directory),'utf8');
+  const imported=source.indexOf('source "$project/scripts/git-release-ceremony-boundary.sh"');
+  const wrapper=source.indexOf('node() { assert_runtime_tool node; "$node_bin" "$@"; }');
+  const use=source.indexOf('parse_verified_git_fingerprint',wrapper);
+  assert.ok(imported>=0&&wrapper>imported&&use>wrapper,script);
+ }
+});

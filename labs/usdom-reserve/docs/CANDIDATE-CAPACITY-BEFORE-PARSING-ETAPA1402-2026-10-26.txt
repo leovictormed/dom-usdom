@@ -1,0 +1,43 @@
+Stage 1402 — candidate capacity before retained parsing
+Date: 2026-10-26
+
+Finding
+
+Both v4 and candidate-v2 runtimes decoded canonical envelopes, allocated each
+retained proof/witness structure and re-encoded for canonicality before checking
+whether the volatile pool already held 16 candidates or 16 MiB. Proof execution
+was correctly after capacity, but a full pool could still be used to force
+bounded multi-megabyte parsing, copies and validation that could never result in
+admission.
+
+Correction
+
+Admission order is now:
+
+1. cheap raw component length limits;
+2. allocation-free domain-separated candidate ID;
+3. exact-ID retransmission fast path;
+4. checked aggregate byte/count capacity;
+5. canonical parsing and retained allocations;
+6. cryptographic/state verification and queue insertion.
+
+V4 performs its envelope framing length check before hashing. V2's shared
+candidate-ID boundary already validates nonempty independent envelope/witness
+ceilings. Exact retransmission therefore remains idempotent even when the pool
+is full, while every new candidate is rejected before parsing if no capacity
+exists. Invalid data still receives full canonical parsing whenever admission
+capacity is available.
+
+Evidence
+
+- `cargo test -p dom-chain --features native-usdom-v4-poc
+  full_candidate_pool_rejects_before_envelope_parsing --lib`: 1 passed,
+  0 failed in 0.15s.
+- The regression fills all 16 slots, submits bounded but malformed framing,
+  receives the pool-full policy result rather than a parser result and confirms
+  count/byte accounting remains unchanged.
+- Feature compilation covers the analogous reordered v2 path.
+- Code was formatted with `cargo fmt --all`; `git diff --check` passes.
+- No RandomX mining, external network, wallet, signature, deployment, funds,
+  commit or push occurred.
+

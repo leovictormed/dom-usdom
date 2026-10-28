@@ -14,7 +14,7 @@ test('local proof-reserve fixture deploys and binds the mandatory checkpoint reg
   const reserveConstructor=reserveArtifact.abi.find(entry=>entry.type==='constructor');
   assert.deepEqual(reserveConstructor.inputs[0].components.map(component=>component.name),[
     'token','verifier','checkpointRegistry','domDomain','activationScheduleCommitment','governance','guardian',
-    'withdrawalDelay','governanceDelay','maxOutstanding','outflowCapacity',
+    'withdrawalDelay','governanceDelay','maxOutstanding','outflowCapacity','pilotRestricted',
   ]);
   const registryConstructor=registryArtifact.abi.find(entry=>entry.type==='constructor');
   assert.deepEqual(registryConstructor.inputs.map(input=>input.type),['bytes32','bytes32']);

@@ -26,7 +26,7 @@ try {
   const [request,bundle,releaseConfig,releaseEvidence]=bytes.map((value,index)=>
     parse(value,labels[index]));
   const {digest}=validateReleaseAuthorizationSigningRequest({
-    request,bundle,bundleSha256:createHash('sha256').update(bytes[1]).digest('hex'),
+    request,bundle,bundleBytes:bytes[1],bundleSha256:createHash('sha256').update(bytes[1]).digest('hex'),
     releaseConfig,releaseEvidence,
   });
   process.stdout.write(`PASS: release authorization ${digest} is bound to release, evidence and Safe owners\n`);

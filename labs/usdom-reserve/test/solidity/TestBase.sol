@@ -22,11 +22,13 @@ interface Vm {
     function etch(address who, bytes calldata code) external;
     function load(address target, bytes32 slot) external view returns (bytes32);
     function store(address target, bytes32 slot, bytes32 value) external;
+    function getNonce(address account) external view returns (uint64 nonce);
     function recordLogs() external;
     function getRecordedLogs() external returns (Log[] memory entries);
     function envOr(string calldata name, uint256 defaultValue) external view returns (uint256);
     function readFile(string calldata path) external view returns (string memory);
     function parseJsonBytes(string calldata json, string calldata key) external pure returns (bytes memory);
+    function parseBytes(string calldata value) external pure returns (bytes memory);
 }
 
 abstract contract TestBase {
@@ -45,6 +47,19 @@ abstract contract TestBase {
         bytes memory runtime = vm.parseJsonBytes(fixture, ".fallbackHandlerRuntimeCode");
         assertEq(keccak256(runtime), SAFE_MAINNET_FALLBACK_HANDLER_CODE_HASH);
         vm.etch(SAFE_MAINNET_FALLBACK_HANDLER, runtime);
+    }
+
+    function installPinnedRiscZeroMainnetVerifier(address verifier, bytes32 expectedCodeHash) internal {
+        bytes memory encoded = bytes(vm.readFile("test/fixtures/risc0-mainnet-v3-runtime.hex"));
+        uint256 length = encoded.length;
+        while (length != 0 && (encoded[length - 1] == 0x0a || encoded[length - 1] == 0x0d)) --length;
+        assembly ("memory-safe") {
+            mstore(encoded, length)
+        }
+        bytes memory runtime = vm.parseBytes(string(encoded));
+        assertEq(keccak256(runtime), expectedCodeHash);
+        vm.etch(verifier, runtime);
+        assertEq(verifier.codehash, expectedCodeHash);
     }
 
     function canonicalCommitment(bytes32 entropy) internal pure returns (bytes32) {

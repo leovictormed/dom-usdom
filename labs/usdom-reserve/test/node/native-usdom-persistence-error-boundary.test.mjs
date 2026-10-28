@@ -42,7 +42,7 @@ test("hostile package and witness parsing remains peer-input classification and 
   const chain = source("crates/dom-chain/src/native_usdom_v4.rs");
   const hostile = chain.slice(
     chain.indexOf("impl NativeBurnBlockProverInput"),
-    chain.indexOf("pub struct NativeUsdomV4HistoryAudit"),
+    chain.indexOf("pub struct UsdomV2ExecutionWitnesses"),
   );
   assert.match(hostile, /UsdomV4BlockPackage::from_bytes\(&self\.package_bytes\)\?/u);
   assert.doesNotMatch(hostile, /delete_(?:metadata|consensus_state|block)|repair|rollback/u);

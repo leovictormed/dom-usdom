@@ -7,8 +7,8 @@ const registry = readFileSync(new URL('../../contracts/DOMCheckpointRegistry.sol
 
 test('reserve pause invalidates exactly one queue generation and cancels stale resume', () => {
   assert.match(reserve, /if \(!paused\) \{[\s\S]*paused = true;[\s\S]*\+\+queueEpoch;[\s\S]*pendingCount = 0;[\s\S]*totalPendingAmount = 0;[\s\S]*firstPendingBurn = bytes32\(0\);[\s\S]*lastPendingBurn = bytes32\(0\)/);
-  assert.match(reserve, /resumeReadyAt = 0;\s*emit Paused\(msg\.sender\)/);
-  assert.match(reserve, /pauseQueueEpoch\(uint64 expectedQueueEpoch\)[\s\S]*expectedQueueEpoch != queueEpoch[\s\S]*revert StaleEmergency/);
+  assert.match(reserve, /resumeReadyAt = 0;\s*permissionlessDepositsReadyAt = 0;\s*emit Paused\(msg\.sender\)/);
+  assert.match(reserve, /pauseQueueEpoch\(uint64 expectedQueueEpoch, uint64 expectedPilotAuthorizationGeneration\)[\s\S]*expectedQueueEpoch != queueEpoch[\s\S]*revert StaleEmergency/);
   assert.match(reserve, /pending\.queueEpoch != queueEpoch\) revert StaleCertificate/);
 });
 

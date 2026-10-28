@@ -1,0 +1,37 @@
+USDOM mainnet readiness — Stage 1337
+Date: 2026-10-26
+
+Finding
+=======
+
+The private loopback proxy checked POST and an application/json media type, but
+did not bind Host to its active loopback listener or explicitly reject duplicate
+framing headers, Transfer-Encoding, Content-Encoding, Expect and Upgrade. Node's
+parser rejects several malformed combinations, but the security boundary should
+state and enforce the one HTTP representation accepted from Cast.
+
+Correction
+==========
+
+Before capability routing or quota admission, the proxy now requires HTTP/1.1,
+exact Host `127.0.0.1:<active port>`, exactly one Host, Content-Type and
+Content-Length header, and exact `application/json`. It rejects transfer coding,
+content coding, 100-continue and protocol upgrade. The server accepts at most 16
+headers and retains one request per socket, short keepalive and bounded header
+and request timeouts.
+
+Validation
+==========
+
+- Node syntax check passed for the proxy.
+- Static boundary assertions require canonical HTTP version/Host, single length,
+  forbidden transfer/content coding, Expect/Upgrade exclusion and header cap.
+- Proxy framing, cleanup, exact-envelope and readiness suite: 10/10 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No provider was contacted and no transaction was transmitted. No network,
+signing, deployment, funds, production facts, Rust, Solidity, Cargo, Forge,
+commit or push occurred.

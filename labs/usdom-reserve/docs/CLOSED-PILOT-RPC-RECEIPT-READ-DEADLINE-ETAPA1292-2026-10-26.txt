@@ -1,0 +1,32 @@
+ETAPA 1292 — LIMITE PARA RELEITURA RPC DE RECIBOS DO PILOTO FECHADO
+Data: 2026-10-26
+
+Problema
+
+Depois de obter ou retomar um recibo, os executores ainda faziam três releituras
+`cast receipt` sem limite externo: duas rotas no depósito e uma no resgate.
+Essas consultas não aguardam confirmações, mas um RPC ou processo filho travado
+podia bloquear indefinidamente a reconciliação entre os dois provedores.
+
+Correção
+
+Todas as releituras RPC de recibos sem `--confirmations` agora executam sob
+`timeout --foreground --signal=TERM --kill-after=5s 120s`. O arquivo candidato
+continua sendo validado somente após sucesso do subprocesso. Timeout, ausência
+do recibo, resposta inválida ou divergência entre os RPCs interrompem o fluxo
+antes da instalação da finalidade ou do avanço da cerimônia.
+
+A espera inicial por duas confirmações conserva o limite distinto de 1.800
+segundos estabelecido na etapa 1287. A regressão fixa os inventários: duas
+releituras limitadas no depósito e uma no resgate, sem relaxar comparações de
+hash da transação, status, bloco, hash do bloco, gás e preço efetivo.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 13/13 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 68/68 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

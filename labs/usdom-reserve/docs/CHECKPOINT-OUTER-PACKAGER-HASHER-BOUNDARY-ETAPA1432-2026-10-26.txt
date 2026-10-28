@@ -1,0 +1,25 @@
+Etapa 1432 — fronteira do hasher no packager checkpoint-outer EVM
+
+Problema
+
+O catálogo de entradas críticas e sua verificação chamavam `sha256sum` pelo PATH,
+sem deadline. Uma substituição de PATH entre o snapshot e a prova poderia trocar
+o hasher; um processo travado poderia impedir o cleanup por tempo indefinido.
+
+Correção
+
+O packager inclui sha256sum no inventário de ferramentas autenticadas e usa
+somente `sha256sum_bin` para criar, estender e verificar o catálogo crítico. Os
+usos são executados pelo timeout pinado, com TERM em 120 segundos e KILL cinco
+segundos depois. Hasher e timeout são reatestados antes da criação e verificação,
+e o hasher é reatestado novamente antes de iniciar o processo de prova.
+
+Validação
+
+- Sintaxe shell: aprovada.
+- Boundary estrutural dos packagers EVM: 1/1 aprovado.
+- Foco operator-runbook checkpoint-outer EVM: 1/1 aprovado.
+- Inventário de publicadores: 1/1 aprovado.
+- Nenhuma prova foi iniciada.
+
+Nenhuma rede, Ledger, assinatura, deploy, fundos, commit ou push foi executado.

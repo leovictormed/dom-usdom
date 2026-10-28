@@ -25,7 +25,8 @@ const checkpoint=()=>({
   previousHeight:'100000',previousBlock:hash('99'),previousStateRoot:hash('aa'),
   previousContextHash:hash('ee'),previousTotalDifficulty:'1000000',height:'100360',
   blockHash:hash('bb'),stateRoot:hash('cc'),contextHash:hash('ff'),
-  totalDifficulty:'1000360',confirmationHeight:'100390',confirmationBlock:hash('dd'),
+  totalDifficulty:'1000360',totalIssued:'5000000',totalBurned:'1000000',issuanceClosed:false,
+  confirmationHeight:'100390',confirmationBlock:hash('dd'),
   confirmationTotalDifficulty:'1000390',confirmationTimestamp:'1700000000',
 });
 
@@ -39,7 +40,7 @@ test('checkpoint registry configuration and statement vectors are deterministic'
   assert.equal(checkpointRegistryPreActivationConfigHash(preActivation).checkpointConfigHash,
     result.checkpointConfigHash);
   assert.equal(checkpointStatementHash(configuration(),checkpoint()),
-    '0xa63ee4c9e2bc911751f9c3be20911042c0c114b8d0fba3fd9234a34f60136c19');
+    '0x774519d55f483dd7558ceef5a629700b7a71d3d334890a2ec582f6bd888cfa41');
   assert.equal(CHECKPOINT_EVENT_TOPIC0,'0x620d9063aa9b939d1e51ea40c2e557313fcaacfde713bec8ad6844480561c30b');
   assert.notEqual(CHECKPOINT_BOOTSTRAP_EVENT_TOPIC0,CHECKPOINT_EVENT_TOPIC0);
 });
@@ -111,7 +112,7 @@ test('every checkpoint configuration and statement field changes its commitment'
   for(const [field,value] of Object.entries({
     previousBlock:hash('98'),previousStateRoot:hash('a9'),previousContextHash:hash('ed'),
     previousTotalDifficulty:'999999',blockHash:hash('bc'),stateRoot:hash('cd'),contextHash:hash('fe'),
-    totalDifficulty:'1000361',
+    totalDifficulty:'1000361',totalIssued:'5000001',totalBurned:'1000001',issuanceClosed:true,
     confirmationBlock:hash('de'),confirmationTotalDifficulty:'1000391',confirmationTimestamp:'1700000001',
   })) assert.notEqual(checkpointStatementHash(base,{...statement,[field]:value}),statementHash,field);
   assert.notEqual(checkpointStatementHash(base,{...statement,previousHeight:'99999',height:'100359',

@@ -15,8 +15,22 @@ JOB_DIR="$LAB_ROOT/evidence/checkpoint-outer-proof-job"
 OUTPUT_DIR="$LAB_ROOT/evidence/checkpoint-outer-receipt-set"
 SNAPSHOT_ROOT="$(mktemp -d "/dev/shm/usdom-outer-prove.XXXXXX")"
 chmod 0700 "$SNAPSHOT_ROOT"
+SNAPSHOT_ROOT_IDENTITY=$(/usr/bin/stat -c '%u:%d:%i:%a' "$SNAPSHOT_ROOT")
 SNAPSHOT_LAB="$SNAPSHOT_ROOT/repository/labs/usdom-reserve"
-trap 'rm -rf -- "$SNAPSHOT_ROOT"' EXIT HUP INT TERM
+cleanup_snapshot() {
+  local status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' "$SNAPSHOT_ROOT" 2>/dev/null) == "$SNAPSHOT_ROOT_IDENTITY" ]]; then
+    /usr/bin/rm -rf -- "$SNAPSHOT_ROOT" || status=1
+  else
+    status=1
+  fi
+  exit "$status"
+}
+trap 'cleanup_snapshot $?' EXIT
+trap 'cleanup_snapshot 129' HUP
+trap 'cleanup_snapshot 130' INT
+trap 'cleanup_snapshot 143' TERM
 if (($# != 0)); then printf '%s\n' 'Usage: npm run --silent prove:authenticated-checkpoint-outer' >&2; exit 2; fi
 for command in cargo cp jq mktemp node sync env realpath stat sha256sum id dirname cmp; do command -v "$command" >/dev/null; done
 pin_tool() {
@@ -30,7 +44,9 @@ pin_tool() {
  [[ $(realpath "$directory") == "$directory" ]]
  printf -v "${name}_directory_identity" '%s' "$(stat -Lc '%d:%i:%u:%a' "$directory")"
  printf -v "${name}_bin" '%s' "$path"; printf -v "${name}_identity" '%s' "$(stat -Lc '%d:%i:%s:%Y:%Z' "$path")"
- printf -v "${name}_sha256" '%s' "$(sha256sum "$path" | awk '{print $NF}')"
+ local executable_sha ignored
+ read -r executable_sha ignored < <(sha256sum "$path")
+ printf -v "${name}_sha256" '%s' "$executable_sha"
  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]]
 }
@@ -38,15 +54,22 @@ assert_tool_unchanged() {
   local name=${1} bin_name="${1}_bin" identity_name="${1}_identity" sha_name="${1}_sha256" directory_identity_name="${1}_directory_identity"
   local path=${!bin_name} identity=${!identity_name} sha=${!sha_name} directory
   directory=$(dirname "$path")
-  [[ $(realpath "$directory") == "$directory" ]]
-  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]]
-  [[ $(realpath "$(command -v "$name")") == "$path" ]]
-  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]]
-  [[ $(sha256sum "$path" | awk '{print $NF}') == "$sha" ]]
-  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]]
-  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]]
+  [[ $(realpath "$directory") == "$directory" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]] || return 1
+  [[ $(realpath "$(command -v "$name")") == "$path" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]] || return 1
+  local observed_sha ignored
+  read -r observed_sha ignored < <("$sha256sum_bin" "$path") || return 1
+  [[ $observed_sha == "$sha" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]] || return 1
 }
-for command in cargo cp jq node env; do pin_tool "$command"; done
+sha256_file() {
+  local output ignored
+  read -r output ignored < <("$sha256sum_bin" -- "${1}")
+  printf '%s\n' "$output"
+}
+for command in cargo cp jq node env sha256sum stat; do pin_tool "$command"; done
 for directory in "$SOURCE_DIR" "$RANDOMX_JOB_DIR" "$RANDOMX_RECEIPT_DIR" "$ECONOMIC_JOB_DIR" "$ECONOMIC_RECEIPT_DIR" "$SEGMENT_JOB_DIR" "$SEGMENT_RECEIPT_DIR" "$JOB_DIR"; do
   [[ -d "$directory" && ! -L "$directory" ]] || { printf 'Missing non-symlink outer-prove input directory: %s\n' "$directory" >&2; exit 1; }
 done
@@ -111,10 +134,10 @@ assert_tool_unchanged cargo
 source "$LAB_ROOT/scripts/require-risc0-program-binary.sh"
 verify_risc0_program_binary "$cargo_bin" "$REPOSITORY_ROOT" \
   "$snapshot_segment_artifacts/usdom-checkpoint-segment.bin" \
-  4e711490f3ab7dde97636687972456da58da4287ce5017e38d4acaa7263a02d6
+  371e408b360a0e4a0aae2cb994bddb2d66afcc5891a7ed574fa83119734bfbf7
 verify_risc0_program_binary "$cargo_bin" "$REPOSITORY_ROOT" \
   "$snapshot_outer_artifacts/usdom-checkpoint-outer.bin" \
-  e59d68487386939b2ac379f04528acb6b3138697e17adfda3ad23ebe195af3df
+  311d58dadcb97cac783e3ec0efe3c4570f42b944cbda1e48aeb56b055682257b
 require_risc0_recursion_artifact
 cd "$SNAPSHOT_LAB"
 reviewed_job_index="$SNAPSHOT_ROOT/reviewed-checkpoint-outer-job-index.json"
@@ -125,22 +148,36 @@ assert_tool_unchanged cargo; assert_tool_unchanged cp; assert_tool_unchanged nod
 cmp -s "$reviewed_job_index" "$snapshot_jobs/checkpoint-outer-proof-job-index.json" || { printf '%s\n' 'Checkpoint outer job index is not reproducible from snapshotted inputs' >&2; exit 1; }
 critical="$SNAPSHOT_ROOT/checkpoint-outer-critical-inputs.sha256"
 {
- sha256sum "$snapshot_source/checkpoint-source-set-index.json" "$snapshot_randomx_jobs/randomx-proof-job-index.json" "$snapshot_randomx_receipts/randomx-receipt-set-index.json" "$snapshot_economic_jobs/economic-proof-job-index.json" "$snapshot_economic_receipts/economic-receipt-set-index.json" "$snapshot_segment_jobs/checkpoint-segment-proof-job-index.json" "$snapshot_segment_receipts/checkpoint-segment-receipt-set-index.json" "$snapshot_jobs/checkpoint-outer-proof-job-index.json" "$snapshot_jobs/checkpoint-statement-v6.bin" "$snapshot_jobs/checkpoint-outer-chain.bin"
- for name in "${source_files[@]}"; do sha256sum "$snapshot_source/$name"; done
- for name in "${randomx_receipts[@]}"; do sha256sum "$snapshot_randomx_receipts/$name"; done
- for name in "${economic_receipts[@]}"; do sha256sum "$snapshot_economic_receipts/$name"; done
- for name in "${segment_receipts[@]}"; do sha256sum "$snapshot_segment_receipts/$name"; done
- sha256sum "$snapshot_segment_artifacts"/* "$snapshot_outer_artifacts"/*
- [[ ! -e $snapshot_output/$receipt_name ]] || sha256sum "$snapshot_output/$receipt_name"
+ "$sha256sum_bin" "$snapshot_source/checkpoint-source-set-index.json" "$snapshot_randomx_jobs/randomx-proof-job-index.json" "$snapshot_randomx_receipts/randomx-receipt-set-index.json" "$snapshot_economic_jobs/economic-proof-job-index.json" "$snapshot_economic_receipts/economic-receipt-set-index.json" "$snapshot_segment_jobs/checkpoint-segment-proof-job-index.json" "$snapshot_segment_receipts/checkpoint-segment-receipt-set-index.json" "$snapshot_jobs/checkpoint-outer-proof-job-index.json" "$snapshot_jobs/checkpoint-statement-v6.bin" "$snapshot_jobs/checkpoint-outer-chain.bin"
+ for name in "${source_files[@]}"; do "$sha256sum_bin" "$snapshot_source/$name"; done
+ for name in "${randomx_receipts[@]}"; do "$sha256sum_bin" "$snapshot_randomx_receipts/$name"; done
+ for name in "${economic_receipts[@]}"; do "$sha256sum_bin" "$snapshot_economic_receipts/$name"; done
+ for name in "${segment_receipts[@]}"; do "$sha256sum_bin" "$snapshot_segment_receipts/$name"; done
+ "$sha256sum_bin" "$snapshot_segment_artifacts"/* "$snapshot_outer_artifacts"/*
+ [[ ! -e $snapshot_output/$receipt_name ]] || "$sha256sum_bin" "$snapshot_output/$receipt_name"
 } > "$critical"
-assert_tool_unchanged cargo; assert_tool_unchanged cp; assert_tool_unchanged jq; assert_tool_unchanged node; assert_tool_unchanged env
-sha256sum -c "$critical" >/dev/null
+assert_tool_unchanged cargo; assert_tool_unchanged cp; assert_tool_unchanged jq; assert_tool_unchanged node; assert_tool_unchanged env; assert_tool_unchanged sha256sum; assert_tool_unchanged stat
+"$sha256sum_bin" -c "$critical" >/dev/null
 "$env_bin" -u BONSAI_API_URL -u BONSAI_API_KEY -u RISC0_SERVER_PATH -u RISC0_SERVER_ADDR -u RISC0_EXECUTOR -u RISC0_PPROF_OUT -u RISC0_PPROF_ENABLE_INLINE_FUNCTIONS -u RISC0_KECCAK_PO2 -u RISC0_DEFAULT_PROVER_NUM_GPUS -u RISC0_INFO -u RISC0_REDIS_CHANNEL_SIZE -u BONSAI_POLL_INTERVAL_MS RAYON_NUM_THREADS=1 RISC0_PROVER=local RISC0_DEV_MODE=0 "$cargo_bin" run --quiet --release --locked --manifest-path "$REPOSITORY_ROOT/Cargo.toml" -p dom-usdom-checkpoint-proof-host --features prove --bin dom-usdom-prove-checkpoint-outer
+completion_index="$snapshot_output/checkpoint-outer-receipt-set-index.json"
+completion_record=$("$jq_bin" -er --arg receipt "$receipt_name" '
+  select(.schema == "usdom-checkpoint-outer-receipt-set-v1") |
+  select(.receipt_file == $receipt) |
+  select(.receipt_sha256|type == "string" and test("^[0-9a-f]{64}$")) |
+  select(.receipt_bytes|type == "number" and floor == . and . > 0 and . <= 268435456) |
+  [.receipt_file,.receipt_sha256,(.receipt_bytes|tostring)] | @tsv
+' "$completion_index")
+IFS=$'\t' read -r completion_receipt completion_sha completion_bytes <<< "$completion_record"
+[[ $completion_receipt == "$receipt_name" && $("$stat_bin" -Lc '%s' "$snapshot_output/$completion_receipt") == "$completion_bytes" && $(sha256_file "$snapshot_output/$completion_receipt") == "$completion_sha" ]] || { printf '%s\n' 'Checkpoint outer prover receipt does not match its completion index' >&2; exit 1; }
 final_index="$OUTPUT_DIR/checkpoint-outer-receipt-set-index.json"
 if [[ -e "$final_index" || -L "$final_index" ]]; then
  [[ -f "$final_index" && ! -L "$final_index" ]] || { printf '%s\n' 'Checkpoint outer receipt-set index is not a direct regular file' >&2; exit 1; }
  rm -- "$final_index"; sync -d "$OUTPUT_DIR"
 fi
 # Receipt first; the verified index is the durable completion marker and is last.
-"$node_bin" "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$snapshot_output/$receipt_name" | "$node_bin" "$LAB_ROOT/scripts/install-private-file-stdin.mjs" "$OUTPUT_DIR/$receipt_name"
-"$node_bin" "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$snapshot_output/checkpoint-outer-receipt-set-index.json" | "$node_bin" "$LAB_ROOT/scripts/install-private-file-stdin.mjs" "$final_index"
+"$node_bin" "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$snapshot_output/$completion_receipt" | "$node_bin" "$LAB_ROOT/scripts/install-private-file-stdin.mjs" "$OUTPUT_DIR/$completion_receipt"
+[[ $("$stat_bin" -Lc '%s' "$OUTPUT_DIR/$completion_receipt") == "$completion_bytes" && $(sha256_file "$OUTPUT_DIR/$completion_receipt") == "$completion_sha" ]] || { printf '%s\n' 'Published checkpoint outer receipt failed integrity verification' >&2; exit 1; }
+completion_index_sha=$(sha256_file "$completion_index")
+"$node_bin" "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$completion_index" | "$node_bin" "$LAB_ROOT/scripts/install-private-file-stdin.mjs" "$final_index"
+[[ $(sha256_file "$final_index") == "$completion_index_sha" ]] || { printf '%s\n' 'Published checkpoint outer completion index changed during installation' >&2; exit 1; }
+[[ $("$stat_bin" -Lc '%s' "$OUTPUT_DIR/$completion_receipt") == "$completion_bytes" && $(sha256_file "$OUTPUT_DIR/$completion_receipt") == "$completion_sha" ]] || { printf '%s\n' 'Checkpoint outer receipt changed before completion publication' >&2; exit 1; }

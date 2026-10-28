@@ -1,0 +1,28 @@
+ETAPA 1315 — LIMITES DO GERADOR E VALIDADOR DE RESGATE
+Data: 2026-10-26
+
+Problema
+
+O executor invoca `check-closed-mainnet-redemption.mjs` para criar o pacote e
+as validações por etapa e para revalidá-los. As cinco invocações não tinham
+deadline; as três saídas candidatas eram gravadas sem teto ou parsing estrito.
+
+Correção
+
+Todas as invocações agora têm deadline foreground TERM/KILL de 120 segundos.
+Um helper único captura cada uma das três saídas candidatas com sentinela de
+1 MiB, rejeita excesso e exige JSON estrito antes de comparação ou instalação.
+As duas revalidações restantes preservam `pipefail` e comparação byte a byte.
+
+Timeout, falha, saída excessiva, JSON duplicado/malformado ou divergência
+interrompe antes de persistir autoridade ou avançar a cerimônia.
+
+Validação offline
+
+- Sintaxe Bash do executor de resgate: aprovada.
+- Suíte focal: 12/12 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 73/73 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

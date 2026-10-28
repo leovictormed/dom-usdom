@@ -1,0 +1,15 @@
+Stage 1181 — finalized-burn capacity bounded integer parsing
+Date: 2026-10-26
+
+The local finalized-burn capacity report was the remaining burn proof report
+whose canonical uint fields reached the shared BigInt parser before any lexical
+size ceiling. It now enforces the decimal digit bound for every supported uint
+width before exact numeric conversion, including its isolated-EVM receipt
+commitment.
+
+Adversarial tests cover 100,000-digit block-number and adapter-gas fields. The
+focused capacity suite passes 3/3 with pinned Node 24.19.0; targeted diff-check
+passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

@@ -26,5 +26,7 @@ test('finalized-deposit witness Cargo process has a hard group deadline',async()
   const source=await load('build-finalized-deposit-witness.sh');
   assert.match(source,/command in [^\n]* timeout;/);
   assert.match(source,/timeout --signal=TERM --kill-after=30s 3600s cargo run --quiet --release --locked/);
+  assert.match(source,/pin_runtime_tool cargo/);
+  assert.match(source,/cargo\(\) \{ assert_runtime_tool cargo; "\$cargo_bin" "\$@"; \}/);
   assert.doesNotMatch(source,/(?:^|\s)&\s*(?:#.*)?$/m);
 });
