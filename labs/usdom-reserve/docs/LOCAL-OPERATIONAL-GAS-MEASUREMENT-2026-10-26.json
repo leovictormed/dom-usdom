@@ -1,9 +1,9 @@
 {
-  "schema": "usdom-local-operational-gas-measurement/v1",
+  "schema": "usdom-local-operational-gas-measurement/v3",
   "network": "anvil-local-chain-31337",
   "runs": 2,
   "node": {
-    "path": "/usr/lib/chatgpt/resources/cua_node/bin/node",
+    "path": "node",
     "sha256": "bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12",
     "version": "v24.19.0"
   },
@@ -14,23 +14,23 @@
   "artifacts": {
     "reserve": {
       "artifactPath": "out/USDOMProofReserve.sol/USDOMProofReserve.json",
-      "artifactSha256": "fc09f786231a82fc6830172ecba5a7737ce53a8387d9784268e8cb137780352b"
+      "artifactExecutableSha256": "af31db039e4b9f769499b100eae313ed2ccf84bd96ce85c4ef2b4668352734c4"
     },
     "verifier": {
       "artifactPath": "out/USDOMProofReserve.t.sol/MockFinalizedBurnVerifier.json",
-      "artifactSha256": "ab56c2dec385b4a1596f1e0a9bf4829a942778219fcfdc748388931d6e7242aa"
+      "artifactExecutableSha256": "29198f4b27c894aae52cbf5430d89556116af51eb3932d038fb3d894fbd46c8d"
     },
     "token": {
       "artifactPath": "out/Mocks.sol/HostileToken.json",
-      "artifactSha256": "7c6bd6b7f92a0693d9e768aff34a45e8d7a9fff8f363fb2549a89873234c346d"
+      "artifactExecutableSha256": "da53e319c3ed2142ffdd4a1dae209a8438933aebc04c29d7b5af1da173ed0df1"
     },
     "governance": {
       "artifactPath": "out/Mocks.sol/MockGovernance.json",
-      "artifactSha256": "76ca5be187f6e52775057264bb949cb02dfdfe125a6d916bdd5eb41a1102a0ef"
+      "artifactExecutableSha256": "a6b143f0eab5cbfcd3484efa5671110c50602c8140e134e7d42851beba421094"
     },
     "registry": {
       "artifactPath": "out/Mocks.sol/MockGracefulShutdownRegistry.json",
-      "artifactSha256": "768a376114339ea4f70974dc7000a897826f243158db419be34994f561c0758f"
+      "artifactExecutableSha256": "f9c9f738b3ae99f5d1715d733f613bfaaa09186e35728d7da54c1238f6e1e1a9"
     }
   },
   "safeFixture": {
@@ -40,19 +40,19 @@
   },
   "scenarios": {
     "queueWithdrawal": {
-      "gasUsed": "343546",
+      "gasUsed": "379870",
       "proofBytes": 260,
       "queueDepthBefore": 1,
       "events": 3
     },
     "pruneExpired256": {
-      "gasUsed": "7636276",
+      "gasUsed": "7635968",
       "inputCount": 256,
       "removed": 256,
       "queueDepthBefore": 256
     },
     "pruneDiscardable256": {
-      "gasUsed": "7482345",
+      "gasUsed": "7482326",
       "inputCount": 256,
       "removed": 256,
       "invalidatedByEmergency": true
@@ -66,6 +66,42 @@
       "action": "swapOwner",
       "innerCalldataBytes": 100,
       "outerCalldataBytes": 676
+    },
+    "authorizePilotDeposit": {
+      "directOrGovernanceGasUsed": "106921",
+      "modeledSafeUpperBoundGas": "206417",
+      "safeOverheadBasisGas": "99496",
+      "generation": 0,
+      "calldataBytes": 228
+    },
+    "cancelPilotDepositAuthorization": {
+      "directOrGovernanceGasUsed": "36556",
+      "modeledSafeUpperBoundGas": "136052",
+      "safeOverheadBasisGas": "99496",
+      "generation": 0,
+      "calldataBytes": 68
+    },
+    "clearExpiredPilotDepositAuthorization": {
+      "gasUsed": "33897",
+      "generation": 0,
+      "calldataBytes": 68
+    },
+    "authorizedPilotDeposit": {
+      "gasUsed": "207245",
+      "amountBaseUnits": "1000000",
+      "calldataBytes": 100,
+      "generationAfter": 1
+    },
+    "schedulePermissionlessDeposits": {
+      "directOrGovernanceGasUsed": "54611",
+      "modeledSafeUpperBoundGas": "154107",
+      "safeOverheadBasisGas": "99496",
+      "calldataBytes": 4
+    },
+    "executePermissionlessDeposits": {
+      "gasUsed": "50677",
+      "calldataBytes": 4,
+      "opened": true
     }
   },
   "productionRequirementsRemainFalse": true,

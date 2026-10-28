@@ -1,0 +1,52 @@
+Stage 1381 — one queued issuance candidate per deposit
+Date: 2026-10-26
+
+Finding
+
+Canonical native state rejects an already consumed Ethereum deposit, but the
+bounded volatile v4 candidate pool is deliberately outside canonical state.
+Admission deduplicated only the complete candidate hash. Two distinct valid
+envelopes containing the same issuance deposit could therefore coexist, occupy
+multiple entries in the 16-candidate pool and expose competing candidate IDs
+for one deposit. Repeating this for alternate valid envelopes could reduce or
+exhaust admission for unrelated issuance/private candidates.
+
+Correction
+
+After full proof verification derives the authoritative issuance deposit IDs,
+admission now checks them against every queued candidate. Any intersection is
+rejected as policy before queue mutation. The first verified candidate reserves
+the deposit until it is mined or removed by the existing template revalidation
+path. Exact byte-for-byte retransmission remains idempotent because the existing
+candidate-ID fast path returns before the conflict check. Candidates containing
+no issuance remain unaffected.
+
+Boundary review
+
+- The authenticated binary RPC requires exact `application/octet-stream`, a
+  nonempty body and the 4 MiB transport cap before node entry.
+- The node repeats the authoritative witness-size check, constructs a canonical
+  proof envelope and verifies the witness under chain/runtime locks before pool
+  mutation.
+- Pool count and byte totals are checked before expensive proof verification;
+  canonical package construction and ingress reverify the selected candidate.
+- HTTP submission is serialized and has a 120-second timeout. If a client
+  disconnects after `spawn_blocking`, chain/runtime lock ownership bounds later
+  submissions while the proof finishes; no second verifier can enter.
+- Successful response state remains `queued` with the exact admitted candidate
+  ID. Pool-full/conflicting-deposit submissions fail without replacing an
+  existing candidate.
+
+Evidence
+
+- `cargo test -p dom-chain --features native-usdom-v4-poc
+  queued_issuance_reserves_each_deposit_for_one_candidate --lib`: 1 passed,
+  0 failed.
+- The state table covers exact overlap, overlap in a multi-ID candidate,
+  disjoint issuance and a candidate with no issuance IDs.
+- The initial default-feature command selected zero tests, as expected because
+  native v4 is feature-gated; it was not counted as evidence.
+- `cargo fmt --all -- --check` and `git diff --check` pass.
+- No RandomX mining, external network, wallet, signature, deployment, funds,
+  commit or push occurred.
+

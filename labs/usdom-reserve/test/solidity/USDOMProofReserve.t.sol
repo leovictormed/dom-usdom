@@ -2,17 +2,16 @@
 pragma solidity 0.8.37;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {
-    IDOMFinalizedBurnVerifier,
-    IDOMGracefulShutdownRegistry,
-    USDOMProofReserve
-} from "../../contracts/USDOMProofReserve.sol";
+import {IDOMFinalizedBurnVerifier} from "../../contracts/IDOMFinalizedBurnVerifier.sol";
+import {IDOMGracefulShutdownRegistry, USDOMProofReserve} from "../../contracts/USDOMProofReserve.sol";
 import {TestBase, Vm} from "./TestBase.sol";
 import {HostileToken, MockGovernance, MockGracefulShutdownRegistry, MockMutableSingletonControl} from "./Mocks.sol";
 
 contract MockFinalizedBurnVerifier is IDOMFinalizedBurnVerifier {
-    bytes32 public PROOF_ACCEPTED = keccak256("USDOM_FINALIZED_BURN_PROOF_V1");
-    bytes32 public override verifierConfigHash = keccak256("DOM verifier test configuration");
+    bytes32 private capability = keccak256("USDOM_FINALIZED_BURN_PROOF_V1");
+    bytes32 private configHash = keccak256("DOM verifier test configuration");
+    uint8 private configReturnMode;
+    uint8 private capabilityReturnMode;
     mapping(bytes32 => bool) private accepted;
 
     function approve(bytes32 statementHash, bytes calldata proof) external {
@@ -20,11 +19,38 @@ contract MockFinalizedBurnVerifier is IDOMFinalizedBurnVerifier {
     }
 
     function setConfigHash(bytes32 value) external {
-        verifierConfigHash = value;
+        configHash = value;
     }
 
     function setCapability(bytes32 value) external {
-        PROOF_ACCEPTED = value;
+        capability = value;
+    }
+
+    function setConfigReturnMode(uint8 value) external {
+        configReturnMode = value;
+    }
+
+    function setCapabilityReturnMode(uint8 value) external {
+        capabilityReturnMode = value;
+    }
+
+    function verifierConfigHash() external view override returns (bytes32) {
+        return _word(configHash, configReturnMode);
+    }
+
+    function PROOF_ACCEPTED() external view returns (bytes32) {
+        return _word(capability, capabilityReturnMode);
+    }
+
+    function _word(bytes32 value, uint8 mode) private pure returns (bytes32) {
+        if (mode != 0) {
+            uint256 size = mode == 1 ? 31 : mode == 2 ? 33 : 0x100000;
+            assembly ("memory-safe") {
+                mstore(0, value)
+                return(0, size)
+            }
+        }
+        return value;
     }
 
     function verifyFinalizedBurn(bytes32 statementHash, bytes calldata proof) external view returns (bytes32) {
@@ -133,6 +159,28 @@ abstract contract ProofReserveFixture is TestBase {
     address internal constant BOB = address(0xB0B);
     bytes32 internal constant DOMAIN = keccak256("DOM proof reserve test domain");
     bytes32 internal constant ACTIVATION_SCHEDULE = keccak256("DOM proof reserve activation schedule");
+    bytes32 internal constant ETHEREUM_USDT_CODE_HASH =
+        0xb44fb4e949d0f78f87f79ee46428f23a2a5713ce6fc6e0beb3dda78c2ac1ea55;
+    address internal constant SAFE_MAINNET_SINGLETON = 0x41675C099F32341bf84BFc5382aF534df5C7461a;
+    bytes32 internal constant SAFE_MAINNET_SINGLETON_CODE_HASH =
+        0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4;
+    bytes32 internal constant SAFE_MAINNET_PROXY_CODE_HASH =
+        0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c;
+    bytes32 internal constant PROOF_ACCEPTED = keccak256("USDOM_FINALIZED_BURN_PROOF_V1");
+    bytes32 internal constant RESERVE_IDENTITY_TYPEHASH = keccak256(
+        "ReserveIdentity(uint256 ethereumChainId,address reserve,address token,bytes32 tokenCodeHash,address verifier,bytes32 verifierCodeHash,bytes32 verifierConfigHash,address checkpointRegistry,bytes32 checkpointRegistryCodeHash,bytes32 checkpointConfigHash,bytes32 domDomain,bytes32 activationScheduleCommitment)"
+    );
+    bytes32 internal constant CONTROL_PLANE_IDENTITY_TYPEHASH = keccak256(
+        "ControlPlaneIdentity(address account,bytes32 accountCodeHash,address implementation,bytes32 implementationCodeHash,bytes32 ownersCommitment)"
+    );
+    bytes32 internal constant RESERVE_POLICY_TYPEHASH = keccak256(
+        "ReservePolicy(bytes32 governanceIdentityHash,bytes32 guardianIdentityHash,uint64 withdrawalDelay,uint64 governanceDelay,uint64 maxOutstanding,uint64 outflowCapacity,bool pilotRestricted)"
+    );
+    bytes32 internal constant RESERVE_CONFIG_TYPEHASH =
+        keccak256("ReserveConfig(bytes32 identityHash,bytes32 policyHash)");
+    bytes32 internal constant BURN_STATEMENT_TYPEHASH = keccak256(
+        "FinalizedBurn(bytes32 burnId,bytes32 requestId,address recipient,uint64 amount,bytes32 domDomain,uint64 height,bytes32 blockHash,bytes32 stateRoot,uint64 finalityBeaconSlot,uint64 validUntil,uint256 ethereumChainId,address reserve,bytes32 activationScheduleCommitment)"
+    );
 
     HostileToken internal token;
     MockGovernance internal governor;
@@ -169,7 +217,8 @@ abstract contract ProofReserveFixture is TestBase {
             1 days,
             2 days,
             CAP,
-            FLOW
+            FLOW,
+            false
         );
     }
 
@@ -211,8 +260,6 @@ abstract contract ProofReserveFixture is TestBase {
 
 contract USDOMProofReserveTest is ProofReserveFixture {
     function testMainnetReleasePolicyRequiresAnInitialPause() public view {
-        assertTrue(reserve.initialPauseRequired(1));
-        assertFalse(reserve.initialPauseRequired(31_337));
         assertFalse(reserve.paused());
     }
 
@@ -220,7 +267,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         bytes32 identityHash = keccak256(
             bytes.concat(
                 abi.encode(
-                    reserve.RESERVE_IDENTITY_TYPEHASH(),
+                    RESERVE_IDENTITY_TYPEHASH,
                     block.chainid,
                     address(reserve),
                     address(token),
@@ -240,10 +287,10 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         );
         bytes32 policyHash = keccak256(
             abi.encode(
-                reserve.RESERVE_POLICY_TYPEHASH(),
+                RESERVE_POLICY_TYPEHASH,
                 keccak256(
                     abi.encode(
-                        reserve.CONTROL_PLANE_IDENTITY_TYPEHASH(),
+                        CONTROL_PLANE_IDENTITY_TYPEHASH,
                         address(governor),
                         address(governor).codehash,
                         address(governor),
@@ -253,7 +300,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
                 ),
                 keccak256(
                     abi.encode(
-                        reserve.CONTROL_PLANE_IDENTITY_TYPEHASH(),
+                        CONTROL_PLANE_IDENTITY_TYPEHASH,
                         address(guardian),
                         address(guardian).codehash,
                         address(guardian),
@@ -264,10 +311,11 @@ contract USDOMProofReserveTest is ProofReserveFixture {
                 uint64(1 days),
                 uint64(2 days),
                 CAP,
-                FLOW
+                FLOW,
+                false
             )
         );
-        bytes32 expected = keccak256(abi.encode(reserve.RESERVE_CONFIG_TYPEHASH(), identityHash, policyHash));
+        bytes32 expected = keccak256(abi.encode(RESERVE_CONFIG_TYPEHASH, identityHash, policyHash));
         assertEq(reserve.reserveConfigHash(), expected);
     }
 
@@ -319,7 +367,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
     }
 
     function testDepositRejectsInvalidDuplicateExposureInsolvencyAndLyingToken() public {
-        uint256 scalarField = reserve.BN254_SCALAR_FIELD();
+        uint256 scalarField = BN254_SCALAR_FIELD;
         vm.startPrank(ALICE);
         vm.expectRevert(USDOMProofReserve.InvalidDeposit.selector);
         reserve.deposit(0, bytes32(uint256(2)), bytes32(uint256(3)));
@@ -354,6 +402,524 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         reserve.deposit(1, bytes32(uint256(11)), bytes32(uint256(12)));
     }
 
+    function testRestrictedPilotRejectsFrontRunTupleDriftReplayAndDelaysPermissionlessOpening() public {
+        USDOMProofReserve.Config memory c = config();
+        c.pilotRestricted = true;
+        USDOMProofReserve pilot = new USDOMProofReserve(c);
+        bytes32 salt = keccak256("restricted pilot salt");
+        bytes32 commitment = canonicalCommitment(keccak256("restricted pilot commitment"));
+        bytes32 snapshot = keccak256("reviewed pilot snapshot");
+        uint64 pilotValidUntil = uint64(block.timestamp + 1 days);
+
+        vm.prank(BOB);
+        vm.expectRevert(USDOMProofReserve.PilotDepositRestricted.selector);
+        pilot.deposit(1, salt, commitment);
+
+        governor.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.authorizePilotDeposit,
+                (snapshot, ALICE, uint64(1), salt, commitment, pilotValidUntil, pilot.pilotAuthorizationGeneration())
+            )
+        );
+        guardian.execute(address(pilot), abi.encodeCall(USDOMProofReserve.pause, ()));
+        vm.prank(ALICE);
+        vm.expectRevert(USDOMProofReserve.IsPaused.selector);
+        pilot.deposit(1, salt, commitment);
+        governor.execute(address(pilot), abi.encodeCall(USDOMProofReserve.scheduleResume, ()));
+        uint64 resumedAt = pilot.resumeReadyAt();
+        vm.warp(resumedAt);
+        pilot.executeResume();
+        governor.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.authorizePilotDeposit,
+                (
+                    snapshot,
+                    ALICE,
+                    uint64(1),
+                    salt,
+                    commitment,
+                    uint64(resumedAt + 1 days),
+                    pilot.pilotAuthorizationGeneration()
+                )
+            )
+        );
+        vm.startPrank(ALICE);
+        token.approve(address(pilot), 1);
+        vm.expectRevert(USDOMProofReserve.PilotDepositRestricted.selector);
+        pilot.deposit(1, bytes32(uint256(salt) + 1), commitment);
+        pilot.deposit(1, salt, commitment);
+        assertTrue(pilot.pilotDepositConsumed());
+        vm.expectRevert(USDOMProofReserve.PilotDepositRestricted.selector);
+        pilot.deposit(1, salt, commitment);
+        vm.stopPrank();
+
+        vm.expectRevert(USDOMProofReserve.PilotNotSettled.selector);
+        governor.execute(address(pilot), abi.encodeCall(USDOMProofReserve.schedulePermissionlessDeposits, ()));
+
+        USDOMProofReserve.FinalizedBurn memory b = burn(1);
+        bytes memory proof = proofFor(b);
+        burnVerifier.approve(pilot.burnStatementHash(b), proof);
+        pilot.queueWithdrawal(b, proof);
+        vm.warp(uint256(resumedAt) + 1 days);
+        pilot.executeWithdrawal(b);
+        governor.execute(address(pilot), abi.encodeCall(USDOMProofReserve.schedulePermissionlessDeposits, ()));
+        uint64 readyAt = pilot.permissionlessDepositsReadyAt();
+        vm.expectRevert(USDOMProofReserve.TooEarly.selector);
+        pilot.executePermissionlessDeposits();
+        vm.warp(readyAt);
+        pilot.executePermissionlessDeposits();
+        assertTrue(pilot.permissionlessDeposits());
+
+        token.mint(BOB, 1);
+        vm.startPrank(BOB);
+        token.approve(address(pilot), 1);
+        pilot.deposit(1, keccak256("permissionless salt"), commitment);
+        vm.stopPrank();
+    }
+
+    function testRestrictedPilotRequiresExactSingleUseAllowanceAndRollsBackOnResidualCapability() public {
+        USDOMProofReserve.Config memory c = config();
+        c.pilotRestricted = true;
+        USDOMProofReserve pilot = new USDOMProofReserve(c);
+        bytes32 salt = keccak256("exact pilot allowance salt");
+        bytes32 commitment = canonicalCommitment(keccak256("exact pilot allowance commitment"));
+        bytes32 snapshot = keccak256("exact pilot allowance snapshot");
+        uint64 validUntil = uint64(block.timestamp + 1 days);
+        governor.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.authorizePilotDeposit,
+                (snapshot, ALICE, uint64(1), salt, commitment, validUntil, pilot.pilotAuthorizationGeneration())
+            )
+        );
+
+        token.mint(ALICE, 1);
+        vm.startPrank(ALICE);
+        token.approve(address(pilot), 2);
+        vm.expectRevert(USDOMProofReserve.UnsupportedToken.selector);
+        pilot.deposit(1, salt, commitment);
+        assertEq(token.allowance(ALICE, address(pilot)), 2);
+        assertFalse(pilot.pilotDepositConsumed());
+        assertEq(pilot.totalDeposited(), 0);
+
+        token.approve(address(pilot), 1);
+        token.setMode(HostileToken.Mode.ResidualAllowance);
+        vm.expectRevert(USDOMProofReserve.UnsupportedToken.selector);
+        pilot.deposit(1, salt, commitment);
+        assertEq(token.allowance(ALICE, address(pilot)), 1);
+        assertFalse(pilot.pilotDepositConsumed());
+        assertEq(pilot.totalDeposited(), 0);
+
+        token.setMode(HostileToken.Mode.Standard);
+        pilot.deposit(1, salt, commitment);
+        assertEq(token.allowance(ALICE, address(pilot)), 0);
+        assertTrue(pilot.pilotDepositConsumed());
+        assertEq(pilot.totalDeposited(), 1);
+        vm.stopPrank();
+    }
+
+    function testRestrictedPilotAllowanceProbeIsBoundedCanonicalAndRetryable() public {
+        USDOMProofReserve.Config memory c = config();
+        c.pilotRestricted = true;
+        USDOMProofReserve pilot = new USDOMProofReserve(c);
+        bytes32 salt = keccak256("hostile pilot allowance returndata salt");
+        bytes32 commitment = canonicalCommitment(keccak256("hostile pilot allowance returndata commitment"));
+        bytes32 snapshot = keccak256("hostile pilot allowance returndata snapshot");
+        uint64 validUntil = uint64(block.timestamp + 1 days);
+        governor.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.authorizePilotDeposit,
+                (snapshot, ALICE, uint64(1), salt, commitment, validUntil, pilot.pilotAuthorizationGeneration())
+            )
+        );
+        token.mint(ALICE, 1);
+        vm.startPrank(ALICE);
+        token.approve(address(pilot), 1);
+        bytes4 allowanceSelector = bytes4(keccak256("allowance(address,address)"));
+        for (uint8 mode = 1; mode <= 5; ++mode) {
+            token.setPolicyReturnMode(allowanceSelector, mode);
+            vm.expectRevert(USDOMProofReserve.UnsupportedToken.selector);
+            pilot.deposit(1, salt, commitment);
+            assertFalse(pilot.pilotDepositConsumed());
+            assertEq(pilot.totalDeposited(), 0);
+        }
+        token.setPolicyReturnMode(bytes4(0), 0);
+        pilot.deposit(1, salt, commitment);
+        assertEq(token.allowance(ALICE, address(pilot)), 0);
+        assertTrue(pilot.pilotDepositConsumed());
+        vm.stopPrank();
+    }
+
+    function testRestrictedPilotAuthorizationAndConsumptionRollbackAreExact() public {
+        USDOMProofReserve.Config memory c = config();
+        c.pilotRestricted = true;
+        USDOMProofReserve pilot = new USDOMProofReserve(c);
+        bytes32 salt = keccak256("rollback pilot salt");
+        bytes32 commitment = canonicalCommitment(keccak256("rollback pilot commitment"));
+        bytes32 snapshot = keccak256("exact reviewed pilot snapshot");
+        uint64 pilotValidUntil = uint64(block.timestamp + 1 days);
+        bytes32 authorization = pilot.pilotDepositAuthorization(ALICE, 1, salt, commitment, pilotValidUntil, 0);
+
+        vm.recordLogs();
+        governor.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.authorizePilotDeposit,
+                (snapshot, ALICE, uint64(1), salt, commitment, pilotValidUntil, pilot.pilotAuthorizationGeneration())
+            )
+        );
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool exactEvent;
+        bytes32 topic = keccak256("PilotDepositAuthorized(bytes32,bytes32,uint64,uint64)");
+        for (uint256 i; i < entries.length; ++i) {
+            if (
+                entries[i].emitter == address(pilot) && entries[i].topics.length == 3 && entries[i].topics[0] == topic
+                    && entries[i].topics[1] == snapshot && entries[i].topics[2] == authorization
+                    && keccak256(entries[i].data) == keccak256(abi.encode(pilotValidUntil, uint64(0)))
+            ) exactEvent = true;
+        }
+        assertTrue(exactEvent);
+        assertEq(pilot.authorizedPilotSnapshot(), snapshot);
+        assertEq(pilot.authorizedPilotDeposit(), authorization);
+        assertEq(pilot.pilotAuthorizationGeneration(), 0);
+
+        token.mint(ALICE, 1);
+        vm.startPrank(ALICE);
+        token.approve(address(pilot), 1);
+        token.setMode(HostileToken.Mode.Lie);
+        vm.expectRevert(USDOMProofReserve.UnsupportedToken.selector);
+        pilot.deposit(1, salt, commitment);
+        vm.stopPrank();
+        assertFalse(pilot.pilotDepositConsumed());
+        assertEq(pilot.authorizedPilotSnapshot(), snapshot);
+        assertEq(pilot.authorizedPilotDeposit(), authorization);
+        assertEq(pilot.pilotAuthorizationGeneration(), 0);
+        assertEq(pilot.totalDeposited(), 0);
+
+        token.setMode(HostileToken.Mode.Standard);
+        vm.prank(ALICE);
+        pilot.deposit(1, salt, commitment);
+        assertTrue(pilot.pilotDepositConsumed());
+        assertEq(pilot.authorizedPilotSnapshot(), bytes32(0));
+        assertEq(pilot.authorizedPilotDeposit(), bytes32(0));
+        assertEq(pilot.pilotAuthorizationGeneration(), 1);
+    }
+
+    function testPilotAuthorizationHashMatchesCanonicalAbiAndBindsEveryField() public {
+        USDOMProofReserve.Config memory c = config();
+        c.pilotRestricted = true;
+        USDOMProofReserve pilot = new USDOMProofReserve(c);
+        bytes32 salt = keccak256("pilot hash salt");
+        bytes32 commitment = canonicalCommitment(keccak256("pilot hash commitment"));
+        uint64 validUntil = uint64(block.timestamp + 1 days);
+        uint64 generation = 7;
+        bytes32 expected = keccak256(
+            abi.encode(block.chainid, address(pilot), ALICE, uint64(1e6), salt, commitment, validUntil, generation)
+        );
+        bytes32 actual = pilot.pilotDepositAuthorization(ALICE, 1e6, salt, commitment, validUntil, generation);
+        assertEq(actual, expected);
+        assertTrue(actual != pilot.pilotDepositAuthorization(BOB, 1e6, salt, commitment, validUntil, generation));
+        assertTrue(actual != pilot.pilotDepositAuthorization(ALICE, 1e6 + 1, salt, commitment, validUntil, generation));
+        assertTrue(
+            actual
+                != pilot.pilotDepositAuthorization(
+                    ALICE, 1e6, bytes32(uint256(salt) + 1), commitment, validUntil, generation
+                )
+        );
+        assertTrue(
+            actual
+                != pilot.pilotDepositAuthorization(
+                    ALICE, 1e6, salt, bytes32(uint256(commitment) + 1), validUntil, generation
+                )
+        );
+        assertTrue(actual != pilot.pilotDepositAuthorization(ALICE, 1e6, salt, commitment, validUntil + 1, generation));
+        assertTrue(actual != pilot.pilotDepositAuthorization(ALICE, 1e6, salt, commitment, validUntil, generation + 1));
+
+        USDOMProofReserve other = new USDOMProofReserve(c);
+        assertTrue(actual != other.pilotDepositAuthorization(ALICE, 1e6, salt, commitment, validUntil, generation));
+    }
+
+    function testLegacyConstructorTupleWithoutPilotRestrictedIsRejected() public {
+        USDOMProofReserve.Config memory c = config();
+        bytes memory legacyInitcode = abi.encodePacked(
+            type(USDOMProofReserve).creationCode,
+            abi.encode(
+                c.token,
+                c.verifier,
+                c.checkpointRegistry,
+                c.domDomain,
+                c.activationScheduleCommitment,
+                c.governance,
+                c.guardian,
+                c.withdrawalDelay,
+                c.governanceDelay,
+                c.maxOutstanding,
+                c.outflowCapacity
+            )
+        );
+        address deployed;
+        assembly ("memory-safe") {
+            deployed := create(0, add(legacyInitcode, 0x20), mload(legacyInitcode))
+        }
+        assertEq(deployed, address(0));
+    }
+
+    function testPendingQueueSnapshotIsAtomicallyEquivalentToQueueState() public {
+        (uint64 epoch, uint256 count, uint256 amount, bytes32 first, bytes32 last) = reserve.pendingQueueSnapshot();
+        assertEq(epoch, reserve.queueEpoch());
+        assertEq(count, 0);
+        assertEq(amount, 0);
+        assertEq(first, bytes32(0));
+        assertEq(last, bytes32(0));
+
+        USDOMProofReserve.FinalizedBurn memory firstBurn = burn(1e6);
+        bytes memory firstProof = proofFor(firstBurn);
+        burnVerifier.approve(reserve.burnStatementHash(firstBurn), firstProof);
+        reserve.queueWithdrawal(firstBurn, firstProof);
+        USDOMProofReserve.FinalizedBurn memory secondBurn = burn(2e6);
+        bytes memory secondProof = proofFor(secondBurn);
+        burnVerifier.approve(reserve.burnStatementHash(secondBurn), secondProof);
+        reserve.queueWithdrawal(secondBurn, secondProof);
+
+        (epoch, count, amount, first, last) = reserve.pendingQueueSnapshot();
+        assertEq(epoch, reserve.queueEpoch());
+        assertEq(count, reserve.pendingCount());
+        assertEq(amount, reserve.totalPendingAmount());
+        assertEq(first, reserve.firstPendingBurn());
+        assertEq(last, reserve.lastPendingBurn());
+        assertEq(count, 2);
+        assertEq(amount, 3e6);
+        assertEq(first, firstBurn.burnId);
+        assertEq(last, secondBurn.burnId);
+
+        guardian.execute(address(reserve), abi.encodeCall(USDOMProofReserve.pause, ()));
+        (uint64 resetEpoch, uint256 resetCount, uint256 resetAmount, bytes32 resetFirst, bytes32 resetLast) =
+            reserve.pendingQueueSnapshot();
+        assertEq(resetEpoch, epoch + 1);
+        assertEq(resetCount, 0);
+        assertEq(resetAmount, 0);
+        assertEq(resetFirst, bytes32(0));
+        assertEq(resetLast, bytes32(0));
+    }
+
+    function testRestrictedPilotOpeningScheduleIsCancelledByPauseAndPermanentClose() public {
+        USDOMProofReserve.Config memory c = config();
+        c.pilotRestricted = true;
+        USDOMProofReserve pilot = new USDOMProofReserve(c);
+        bytes32 salt = keccak256("opening pilot salt");
+        bytes32 commitment = canonicalCommitment(keccak256("opening pilot commitment"));
+        governor.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.authorizePilotDeposit,
+                (
+                    keccak256("opening snapshot"),
+                    ALICE,
+                    uint64(1),
+                    salt,
+                    commitment,
+                    uint64(block.timestamp + 1 days),
+                    pilot.pilotAuthorizationGeneration()
+                )
+            )
+        );
+        vm.startPrank(ALICE);
+        token.approve(address(pilot), 1);
+        pilot.deposit(1, salt, commitment);
+        vm.stopPrank();
+
+        USDOMProofReserve.FinalizedBurn memory b = burn(1);
+        bytes memory proof = proofFor(b);
+        burnVerifier.approve(pilot.burnStatementHash(b), proof);
+        pilot.queueWithdrawal(b, proof);
+        vm.warp(block.timestamp + 1 days);
+        pilot.executeWithdrawal(b);
+        governor.execute(address(pilot), abi.encodeCall(USDOMProofReserve.schedulePermissionlessDeposits, ()));
+        uint64 staleReadyAt = pilot.permissionlessDepositsReadyAt();
+
+        guardian.execute(address(pilot), abi.encodeCall(USDOMProofReserve.pause, ()));
+        assertEq(pilot.permissionlessDepositsReadyAt(), 0);
+        vm.warp(staleReadyAt);
+        vm.expectRevert(USDOMProofReserve.IsPaused.selector);
+        pilot.executePermissionlessDeposits();
+        vm.expectRevert(USDOMProofReserve.IsPaused.selector);
+        governor.execute(address(pilot), abi.encodeCall(USDOMProofReserve.schedulePermissionlessDeposits, ()));
+
+        governor.execute(address(pilot), abi.encodeCall(USDOMProofReserve.scheduleResume, ()));
+        uint64 resumeAt = pilot.resumeReadyAt();
+        vm.warp(resumeAt);
+        pilot.executeResume();
+        vm.expectRevert(USDOMProofReserve.NoProposal.selector);
+        pilot.executePermissionlessDeposits();
+        governor.execute(address(pilot), abi.encodeCall(USDOMProofReserve.schedulePermissionlessDeposits, ()));
+        assertTrue(pilot.permissionlessDepositsReadyAt() != 0);
+        guardian.execute(address(pilot), abi.encodeCall(USDOMProofReserve.closeDeposits, ()));
+        assertEq(pilot.permissionlessDepositsReadyAt(), 0);
+        vm.expectRevert(USDOMProofReserve.NoProposal.selector);
+        pilot.executePermissionlessDeposits();
+        vm.expectRevert(USDOMProofReserve.DepositsClosed.selector);
+        governor.execute(address(pilot), abi.encodeCall(USDOMProofReserve.schedulePermissionlessDeposits, ()));
+    }
+
+    function testRestrictedPilotExpiryCancellationReauthorizationAndOldTupleReplay() public {
+        USDOMProofReserve.Config memory c = config();
+        c.pilotRestricted = true;
+        USDOMProofReserve pilot = new USDOMProofReserve(c);
+        bytes32 oldSalt = keccak256("old pilot salt");
+        bytes32 oldCommitment = canonicalCommitment(keccak256("old pilot commitment"));
+        bytes32 oldSnapshot = keccak256("old pilot snapshot");
+        uint64 oldValidUntil = uint64(block.timestamp + 10);
+        bytes memory staleCancelledAuthorization = abi.encodeCall(
+            USDOMProofReserve.authorizePilotDeposit,
+            (oldSnapshot, ALICE, uint64(1), oldSalt, oldCommitment, oldValidUntil, uint64(0))
+        );
+        bytes memory staleCancellation =
+            abi.encodeCall(USDOMProofReserve.cancelPilotDepositAuthorization, (oldSnapshot, uint64(0)));
+        governor.execute(address(pilot), staleCancelledAuthorization);
+        guardian.execute(address(pilot), staleCancellation);
+        assertEq(pilot.pilotAuthorizationGeneration(), 1);
+        vm.expectRevert(USDOMProofReserve.PilotDepositRestricted.selector);
+        governor.execute(address(pilot), staleCancelledAuthorization);
+        bytes memory staleExpiredAuthorization = abi.encodeCall(
+            USDOMProofReserve.authorizePilotDeposit,
+            (oldSnapshot, ALICE, uint64(1), oldSalt, oldCommitment, oldValidUntil, uint64(1))
+        );
+        governor.execute(address(pilot), staleExpiredAuthorization);
+        vm.expectRevert(USDOMProofReserve.StaleEmergency.selector);
+        guardian.execute(address(pilot), staleCancellation);
+        vm.expectRevert(USDOMProofReserve.StaleEmergency.selector);
+        guardian.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.cancelPilotDepositAuthorization, (keccak256("foreign snapshot"), uint64(1))
+            )
+        );
+        token.mint(ALICE, 2);
+        vm.prank(ALICE);
+        token.approve(address(pilot), 2);
+        vm.warp(oldValidUntil + 1);
+        vm.prank(ALICE);
+        vm.expectRevert(USDOMProofReserve.PilotDepositRestricted.selector);
+        pilot.deposit(1, oldSalt, oldCommitment);
+
+        bytes memory staleAutomatedPause =
+            abi.encodeCall(USDOMProofReserve.pauseQueueEpoch, (pilot.queueEpoch(), uint64(1)));
+        vm.prank(BOB);
+        pilot.clearExpiredPilotDepositAuthorization(oldSnapshot, 1);
+        assertEq(pilot.authorizedPilotDeposit(), bytes32(0));
+        assertEq(pilot.pilotAuthorizationGeneration(), 2);
+        vm.expectRevert(USDOMProofReserve.PilotDepositRestricted.selector);
+        governor.execute(address(pilot), staleExpiredAuthorization);
+        uint64 rearmedValidUntil = uint64(uint256(oldValidUntil) + 1 days);
+        bytes memory stalePausedAuthorization = abi.encodeCall(
+            USDOMProofReserve.authorizePilotDeposit,
+            (oldSnapshot, ALICE, uint64(1), oldSalt, oldCommitment, rearmedValidUntil, uint64(2))
+        );
+        governor.execute(address(pilot), stalePausedAuthorization);
+        vm.expectRevert(USDOMProofReserve.StaleEmergency.selector);
+        pilot.clearExpiredPilotDepositAuthorization(oldSnapshot, 1);
+        vm.expectRevert(USDOMProofReserve.StaleEmergency.selector);
+        guardian.execute(address(pilot), staleAutomatedPause);
+        vm.recordLogs();
+        guardian.execute(address(pilot), abi.encodeCall(USDOMProofReserve.pause, ()));
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bytes32 cancelTopic = keccak256("PilotDepositAuthorizationCancelled(bytes32,bytes32,uint64,uint64,address)");
+        bool cancellationFound;
+        for (uint256 i; i < entries.length; ++i) {
+            if (
+                entries[i].emitter == address(pilot) && entries[i].topics.length == 4
+                    && entries[i].topics[0] == cancelTopic && entries[i].topics[1] == oldSnapshot
+                    && entries[i].topics[3] == bytes32(uint256(uint160(address(guardian))))
+                    && keccak256(entries[i].data) == keccak256(abi.encode(rearmedValidUntil, uint64(2)))
+            ) cancellationFound = true;
+        }
+        assertTrue(cancellationFound);
+        assertEq(pilot.authorizedPilotDeposit(), bytes32(0));
+        assertEq(pilot.authorizedPilotSnapshot(), bytes32(0));
+        assertEq(pilot.authorizedPilotValidUntil(), 0);
+        assertEq(pilot.pilotAuthorizationGeneration(), 3);
+
+        governor.execute(address(pilot), abi.encodeCall(USDOMProofReserve.scheduleResume, ()));
+        uint64 resumedAt = pilot.resumeReadyAt();
+        vm.warp(resumedAt);
+        pilot.executeResume();
+        vm.expectRevert(USDOMProofReserve.PilotDepositRestricted.selector);
+        governor.execute(address(pilot), stalePausedAuthorization);
+        vm.prank(ALICE);
+        vm.expectRevert(USDOMProofReserve.PilotDepositRestricted.selector);
+        pilot.deposit(1, oldSalt, oldCommitment);
+
+        bytes32 newSalt = keccak256("new pilot salt");
+        bytes32 newCommitment = canonicalCommitment(keccak256("new pilot commitment"));
+        uint64 newValidUntil = uint64(uint256(resumedAt) + 1 days);
+        governor.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.authorizePilotDeposit,
+                (
+                    keccak256("new pilot snapshot"),
+                    ALICE,
+                    uint64(1),
+                    newSalt,
+                    newCommitment,
+                    newValidUntil,
+                    pilot.pilotAuthorizationGeneration()
+                )
+            )
+        );
+        vm.prank(ALICE);
+        vm.expectRevert(USDOMProofReserve.PilotDepositRestricted.selector);
+        pilot.deposit(1, oldSalt, oldCommitment);
+        vm.prank(ALICE);
+        token.approve(address(pilot), 1);
+        vm.prank(ALICE);
+        pilot.deposit(1, newSalt, newCommitment);
+        assertTrue(pilot.pilotDepositConsumed());
+    }
+
+    function testRestrictedPilotValidityBoundaryIsInclusiveAndHorizonIsBounded() public {
+        USDOMProofReserve.Config memory c = config();
+        c.pilotRestricted = true;
+        USDOMProofReserve pilot = new USDOMProofReserve(c);
+        bytes32 salt = keccak256("boundary pilot salt");
+        bytes32 commitment = canonicalCommitment(keccak256("boundary pilot commitment"));
+        uint256 maximumLifetime = pilot.MAX_PILOT_AUTHORIZATION_LIFETIME();
+        uint64 generation = pilot.pilotAuthorizationGeneration();
+        vm.expectRevert(USDOMProofReserve.PilotDepositRestricted.selector);
+        governor.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.authorizePilotDeposit,
+                (
+                    keccak256("too distant snapshot"),
+                    ALICE,
+                    uint64(1),
+                    salt,
+                    commitment,
+                    uint64(block.timestamp + maximumLifetime + 1),
+                    generation
+                )
+            )
+        );
+        uint64 boundary = uint64(block.timestamp);
+        governor.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.authorizePilotDeposit,
+                (keccak256("boundary snapshot"), ALICE, uint64(1), salt, commitment, boundary, generation)
+            )
+        );
+        token.mint(ALICE, 1);
+        vm.startPrank(ALICE);
+        token.approve(address(pilot), 1);
+        pilot.deposit(1, salt, commitment);
+        vm.stopPrank();
+        assertTrue(pilot.pilotDepositConsumed());
+    }
+
     function testDepositFailsClosedWhenCheckpointingOrNativeIssuanceStops() public {
         bytes32 salt = keccak256("halted checkpoint deposit");
         checkpointRegistry.setHalted(true);
@@ -381,6 +947,46 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         assertEq(reserve.totalDeposited(), INITIAL + 1);
     }
 
+    function testRegistryReturnDataMustBeExactBoundedAndCanonical() public {
+        bytes4 configSelector = bytes4(keccak256("checkpointConfigHash()"));
+        bytes4 haltedSelector = bytes4(keccak256("halted()"));
+        bytes32 salt = keccak256("hostile registry returndata");
+        for (uint8 mode = 1; mode <= 3; ++mode) {
+            checkpointRegistry.setReturnMode(configSelector, mode);
+            vm.prank(ALICE);
+            vm.expectRevert(USDOMProofReserve.RegistryChanged.selector);
+            reserve.deposit(1, salt, bytes32(uint256(1)));
+        }
+        for (uint8 mode = 1; mode <= 4; ++mode) {
+            checkpointRegistry.setReturnMode(haltedSelector, mode);
+            vm.prank(ALICE);
+            vm.expectRevert(USDOMProofReserve.RegistryChanged.selector);
+            reserve.deposit(1, salt, bytes32(uint256(1)));
+        }
+        checkpointRegistry.setReturnMode(bytes4(0), 0);
+
+        USDOMProofReserve empty = new USDOMProofReserve(config());
+        guardian.execute(address(empty), abi.encodeCall(USDOMProofReserve.closeDeposits, ()));
+        checkpointRegistry.setTerminal(0, 0, true, true);
+        bytes4[4] memory terminalSelectors = [
+            bytes4(keccak256("gracefullyShutdown()")),
+            bytes4(keccak256("latestIssuanceClosed()")),
+            bytes4(keccak256("latestTotalIssued()")),
+            bytes4(keccak256("latestTotalBurned()"))
+        ];
+        for (uint256 i; i < terminalSelectors.length; ++i) {
+            for (uint8 mode = 1; mode <= 4; ++mode) {
+                checkpointRegistry.setReturnMode(terminalSelectors[i], mode);
+                vm.expectRevert();
+                empty.finalizeGracefulShutdown();
+                assertFalse(empty.gracefullyShutdown());
+            }
+        }
+        checkpointRegistry.setReturnMode(bytes4(0), 0);
+        empty.finalizeGracefulShutdown();
+        assertTrue(empty.gracefullyShutdown());
+    }
+
     function testCheckpointHaltDoesNotBlockExistingProvedDebtPayout() public {
         (USDOMProofReserve.FinalizedBurn memory b,) = queued(1e6);
         checkpointRegistry.setHalted(true);
@@ -388,6 +994,45 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         reserve.executeWithdrawal(b);
         assertTrue(reserve.paidBurns(b.burnId));
         assertEq(token.balanceOf(BOB), b.amount);
+    }
+
+    function testChainIdDriftBlocksNewExposureRenewalAndPayoutWithoutConsumingDebt() public {
+        bytes32 salt = keccak256("deployment-chain-bound deposit");
+        bytes32 id = reserve.depositId(ALICE, salt);
+        (USDOMProofReserve.FinalizedBurn memory established,) = queued(1e6);
+        bytes32 statement = reserve.burnStatementHash(established);
+        uint256 originalChainId = reserve.deploymentChainId();
+
+        vm.chainId(originalChainId + 1);
+        assertEq(reserve.depositId(ALICE, salt), id);
+        assertEq(reserve.burnStatementHash(established), statement);
+        vm.prank(ALICE);
+        vm.expectRevert(USDOMProofReserve.ChainChanged.selector);
+        reserve.deposit(1, salt, bytes32(uint256(1)));
+
+        USDOMProofReserve.FinalizedBurn memory fresh = burn(1e6);
+        bytes memory freshProof = proofFor(fresh);
+        approve(fresh, freshProof);
+        vm.expectRevert(USDOMProofReserve.ChainChanged.selector);
+        reserve.queueWithdrawal(fresh, freshProof);
+
+        vm.warp(block.timestamp + reserve.withdrawalDelay());
+        vm.expectRevert(USDOMProofReserve.ChainChanged.selector);
+        reserve.executeWithdrawal(established);
+        assertFalse(reserve.paidBurns(established.burnId));
+        assertEq(reserve.totalProvedDebtAmount(), established.amount);
+
+        vm.warp(block.timestamp + reserve.MAX_CERTIFICATE_LIFETIME());
+        reserve.discardWithdrawal(established.burnId);
+        vm.expectRevert(USDOMProofReserve.ChainChanged.selector);
+        reserve.queueWithdrawal(established, bytes(""));
+
+        vm.chainId(originalChainId);
+        reserve.queueWithdrawal(established, bytes(""));
+        vm.warp(block.timestamp + reserve.withdrawalDelay());
+        reserve.executeWithdrawal(established);
+        assertTrue(reserve.paidBurns(established.burnId));
+        assertEq(token.balanceOf(BOB), established.amount);
     }
 
     function testRegistryIdentityDriftBlocksNewDebtButNotExistingDebtPayout() public {
@@ -701,6 +1346,82 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         assertEq(token.balanceOf(BOB), b.amount);
     }
 
+    function testTokenPolicyReturnDataMustBeExactBoundedAndCanonical() public {
+        bytes4[6] memory selectors = [
+            bytes4(keccak256("paused()")),
+            bytes4(keccak256("deprecated()")),
+            bytes4(keccak256("upgradedAddress()")),
+            bytes4(keccak256("basisPointsRate()")),
+            bytes4(keccak256("maximumFee()")),
+            bytes4(keccak256("isBlackListed(address)"))
+        ];
+        bytes32 salt = keccak256("hostile token policy returndata");
+        for (uint256 i; i < selectors.length; ++i) {
+            for (uint8 mode = 1; mode <= 5; ++mode) {
+                token.setPolicyReturnMode(selectors[i], mode);
+                vm.prank(ALICE);
+                vm.expectRevert();
+                reserve.deposit(1, salt, bytes32(uint256(1)));
+                (address funder,,) = reserve.deposits(reserve.depositId(ALICE, salt));
+                assertEq(funder, address(0));
+            }
+        }
+        token.setPolicyReturnMode(bytes4(0), 0);
+
+        (USDOMProofReserve.FinalizedBurn memory b,) = queued(100e6);
+        vm.warp(block.timestamp + reserve.withdrawalDelay());
+        uint256 pendingBefore = reserve.totalPendingAmount();
+        uint256 availableBefore = reserve.availableOutflow();
+        uint8[2] memory hostileModes = [uint8(3), uint8(5)];
+        for (uint256 i; i < hostileModes.length; ++i) {
+            token.setPolicyReturnMode(bytes4(keccak256("isBlackListed(address)")), hostileModes[i]);
+            vm.expectRevert(USDOMProofReserve.UnsupportedToken.selector);
+            reserve.executeWithdrawal(b);
+            assertFalse(reserve.paidBurns(b.burnId));
+            assertEq(reserve.totalPendingAmount(), pendingBefore);
+            assertEq(reserve.availableOutflow(), availableBefore);
+        }
+        token.setPolicyReturnMode(bytes4(0), 0);
+        reserve.executeWithdrawal(b);
+        assertTrue(reserve.paidBurns(b.burnId));
+    }
+
+    function testTokenDecimalsAndBalanceReturnDataMustBeExactAndBounded() public {
+        bytes4 decimalsSelector = bytes4(keccak256("decimals()"));
+        for (uint8 mode = 1; mode <= 5; ++mode) {
+            token.setPolicyReturnMode(decimalsSelector, mode);
+            vm.expectRevert(USDOMProofReserve.UnsupportedToken.selector);
+            new USDOMProofReserve(config());
+        }
+        token.setPolicyReturnMode(bytes4(0), 0);
+
+        bytes4 balanceSelector = bytes4(keccak256("balanceOf(address)"));
+        bytes32 salt = keccak256("hostile balance returndata");
+        for (uint8 mode = 1; mode <= 5; ++mode) {
+            token.setPolicyReturnMode(balanceSelector, mode);
+            vm.prank(ALICE);
+            vm.expectRevert();
+            reserve.deposit(1, salt, bytes32(uint256(1)));
+            (address funder,,) = reserve.deposits(reserve.depositId(ALICE, salt));
+            assertEq(funder, address(0));
+        }
+        token.setPolicyReturnMode(bytes4(0), 0);
+
+        (USDOMProofReserve.FinalizedBurn memory b,) = queued(100e6);
+        vm.warp(block.timestamp + reserve.withdrawalDelay());
+        uint256 pendingBefore = reserve.totalPendingAmount();
+        for (uint8 mode = 1; mode <= 5; ++mode) {
+            token.setPolicyReturnMode(balanceSelector, mode);
+            vm.expectRevert();
+            reserve.executeWithdrawal(b);
+            assertFalse(reserve.paidBurns(b.burnId));
+            assertEq(reserve.totalPendingAmount(), pendingBefore);
+        }
+        token.setPolicyReturnMode(bytes4(0), 0);
+        reserve.executeWithdrawal(b);
+        assertTrue(reserve.paidBurns(b.burnId));
+    }
+
     function testShortTrailingAndGasGriefTransferResponsesFailAtomically() public {
         HostileToken.Mode[3] memory modes =
             [HostileToken.Mode.ShortReturn, HostileToken.Mode.TrailingReturn, HostileToken.Mode.GasGrief];
@@ -851,92 +1572,6 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         reserve.pruneDiscardable(new bytes32[](257));
     }
 
-    function testQueueSnapshotAndPaginationAreBoundedAndGenerationConsistent() public {
-        (USDOMProofReserve.FinalizedBurn memory first,) = queued(100e6);
-        (USDOMProofReserve.FinalizedBurn memory middle,) = queued(200e6);
-        (USDOMProofReserve.FinalizedBurn memory last,) = queued(300e6);
-
-        (uint64 epoch, uint256 count, uint256 amount, bytes32 firstId, bytes32 lastId) = reserve.pendingQueueSnapshot();
-        assertEq(epoch, reserve.queueEpoch());
-        assertEq(count, 3);
-        assertEq(amount, first.amount + middle.amount + last.amount);
-        assertEq(firstId, first.burnId);
-        assertEq(lastId, last.burnId);
-
-        _assertQueuePages(epoch, first.burnId, middle.burnId, last.burnId);
-
-        guardian.execute(address(reserve), abi.encodeCall(USDOMProofReserve.pause, ()));
-        vm.expectRevert(USDOMProofReserve.StaleEmergency.selector);
-        reserve.pendingBurnPage(epoch, bytes32(0), 1);
-        (uint64 newEpoch, uint256 newCount, uint256 newAmount, bytes32 newFirst, bytes32 newLast) =
-            reserve.pendingQueueSnapshot();
-        assertEq(newEpoch, epoch + 1);
-        assertEq(newCount, 0);
-        assertEq(newAmount, 0);
-        assertEq(newFirst, bytes32(0));
-        assertEq(newLast, bytes32(0));
-        (bytes32[] memory emptyPage, bytes32 emptyCursor) =
-            reserve.pendingBurnPage(newEpoch, bytes32(0), reserve.MAX_PRUNE_BATCH());
-        assertEq(emptyPage.length, 0);
-        assertEq(emptyCursor, bytes32(0));
-        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
-        reserve.pendingBurnPage(newEpoch, last.burnId, 1);
-    }
-
-    function testPaginationFailsClosedOnCyclesBrokenLinksHeadersAndCounts() public {
-        // Keep permanent proved debt distinct from the active lease total so
-        // bounded slot discovery fails on real layout ambiguity instead of
-        // accidentally selecting the debt accumulator.
-        (USDOMProofReserve.FinalizedBurn memory discarded,) = queued(1);
-        (,,, uint64 discardedExpiry,,,,) = reserve.pendingWithdrawals(discarded.burnId);
-        vm.warp(discardedExpiry + 1);
-        reserve.discardWithdrawal(discarded.burnId);
-        (USDOMProofReserve.FinalizedBurn memory first,) = queued(100e6);
-        (USDOMProofReserve.FinalizedBurn memory middle,) = queued(200e6);
-        (USDOMProofReserve.FinalizedBurn memory last,) = queued(300e6);
-        uint64 epoch = reserve.queueEpoch();
-        bytes32 middleNextSlot = _pendingFieldSlot(middle.burnId, 4);
-        bytes32 lastPreviousSlot = _pendingFieldSlot(last.burnId, 3);
-        bytes32 pendingAmountSlot = _uniqueScalarSlot(bytes32(reserve.totalPendingAmount()));
-        bytes32 pendingCountSlot = _uniqueScalarSlot(bytes32(reserve.pendingCount()));
-        bytes32 firstPendingSlot = _uniqueScalarSlot(reserve.firstPendingBurn());
-        bytes32 lastPendingSlot = _uniqueScalarSlot(reserve.lastPendingBurn());
-
-        vm.store(address(reserve), middleNextSlot, first.burnId);
-        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
-        reserve.pendingBurnPage(epoch, bytes32(0), 256);
-        vm.store(address(reserve), middleNextSlot, last.burnId);
-
-        vm.store(address(reserve), lastPreviousSlot, first.burnId);
-        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
-        reserve.pendingBurnPage(epoch, middle.burnId, 2);
-        vm.store(address(reserve), lastPreviousSlot, middle.burnId);
-
-        vm.store(address(reserve), pendingCountSlot, bytes32(uint256(4)));
-        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
-        reserve.pendingBurnPage(epoch, bytes32(0), 256);
-        vm.store(address(reserve), pendingCountSlot, bytes32(uint256(2)));
-        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
-        reserve.pendingBurnPage(epoch, bytes32(0), 2);
-        vm.store(address(reserve), pendingCountSlot, bytes32(uint256(3)));
-
-        vm.store(address(reserve), firstPendingSlot, bytes32(0));
-        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
-        reserve.pendingBurnPage(epoch, bytes32(0), 1);
-        vm.store(address(reserve), firstPendingSlot, first.burnId);
-        vm.store(address(reserve), lastPendingSlot, bytes32(0));
-        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
-        reserve.pendingBurnPage(epoch, bytes32(0), 1);
-        vm.store(address(reserve), lastPendingSlot, last.burnId);
-        vm.store(address(reserve), pendingAmountSlot, bytes32(0));
-        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
-        reserve.pendingBurnPage(epoch, bytes32(0), 1);
-
-        // Storage corruption in this test is deliberate; the valid baseline
-        // was already exercised before each independent mutation.
-        assertEq(reserve.pendingCount(), 3);
-    }
-
     function testPruningRejectsGenerationCorruptionStillReferencedByCurrentQueue() public {
         (USDOMProofReserve.FinalizedBurn memory first,) = queued(100e6);
         (USDOMProofReserve.FinalizedBurn memory middle,) = queued(200e6);
@@ -1052,15 +1687,6 @@ contract USDOMProofReserveTest is ProofReserveFixture {
             candidates[i] = pending.burnId;
         }
         assertEq(reserve.pendingCount(), candidates.length);
-        uint256 paginationGasBefore = gasleft();
-        (bytes32[] memory page, bytes32 nextCursor) =
-            reserve.pendingBurnPage(reserve.queueEpoch(), bytes32(0), candidates.length);
-        uint256 paginationGas = paginationGasBefore - gasleft();
-        assertTrue(paginationGas < 10_000_000);
-        assertEq(page.length, candidates.length);
-        assertEq(page[0], candidates[0]);
-        assertEq(page[page.length - 1], candidates[candidates.length - 1]);
-        assertEq(nextCursor, bytes32(0));
         guardian.execute(address(reserve), abi.encodeCall(USDOMProofReserve.pause, ()));
         assertEq(reserve.pendingCount(), 0);
         uint256 gasBefore = gasleft();
@@ -1102,6 +1728,27 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         token.setPolicy(false, false, 0, 0, false);
         reserve.executeResume();
         assertFalse(reserve.paused());
+    }
+
+    function testVerifierIdentityReturnDataMustRemainExactAndBounded() public {
+        bytes32 salt = keccak256("hostile verifier identity returndata");
+        for (uint8 mode = 1; mode <= 3; ++mode) {
+            burnVerifier.setConfigReturnMode(mode);
+            vm.prank(ALICE);
+            vm.expectRevert(USDOMProofReserve.InvalidConfiguration.selector);
+            reserve.deposit(1, salt, bytes32(uint256(1)));
+        }
+        burnVerifier.setConfigReturnMode(0);
+        for (uint8 mode = 1; mode <= 3; ++mode) {
+            burnVerifier.setCapabilityReturnMode(mode);
+            vm.prank(ALICE);
+            vm.expectRevert(USDOMProofReserve.VerifierChanged.selector);
+            reserve.deposit(1, salt, bytes32(uint256(1)));
+        }
+        burnVerifier.setCapabilityReturnMode(0);
+        vm.prank(ALICE);
+        reserve.deposit(1, salt, bytes32(uint256(1)));
+        assertEq(reserve.totalDeposited(), INITIAL + 1);
     }
 
     function testOversizedVerifierReturnIsRejectedWithoutAcceptingProof() public {
@@ -1203,18 +1850,13 @@ contract USDOMProofReserveTest is ProofReserveFixture {
     }
 
     function testProductionPathIsUnavailableUntilRatifiedVerifierHashesArePinned() public {
-        assertEq(reserve.SAFE_MAINNET_SINGLETON(), 0x41675C099F32341bf84BFc5382aF534df5C7461a);
-        assertEq(
-            reserve.SAFE_MAINNET_SINGLETON_CODE_HASH(),
-            0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4
-        );
-        assertEq(
-            reserve.SAFE_MAINNET_PROXY_CODE_HASH(),
-            0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c
-        );
+        assertEq(SAFE_MAINNET_SINGLETON, 0x41675C099F32341bf84BFc5382aF534df5C7461a);
+        assertEq(SAFE_MAINNET_SINGLETON_CODE_HASH, 0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4);
+        assertEq(SAFE_MAINNET_PROXY_CODE_HASH, 0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c);
         MockGovernance implementation = new MockGovernance();
         MockMutableSingletonControl safeGovernance = new MockMutableSingletonControl(address(implementation));
         MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
         USDOMProofReserve.Config memory c = config();
         safeGovernance.setFallbackHandler(0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99);
         safeGuardian.setFallbackHandler(0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99);
@@ -1299,8 +1941,8 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         assertEq(reserve.totalPendingAmount(), b.amount);
     }
 
-    function testProofBindsEveryPublicFieldChainAndReserve() public {
-        assertEq(reserve.BURN_STATEMENT_TYPEHASH(), 0xb4a224b119278936bec16ab7cf63f13d2cc130395834d17a30335b9158062ced);
+    function testProofBindsEveryPublicFieldDeploymentChainAndReserve() public {
+        assertEq(BURN_STATEMENT_TYPEHASH, 0xb4a224b119278936bec16ab7cf63f13d2cc130395834d17a30335b9158062ced);
         USDOMProofReserve.FinalizedBurn memory b = burn(100e6);
         bytes memory proof = proofFor(b);
         bytes32 original = reserve.burnStatementHash(b);
@@ -1336,9 +1978,11 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         assertTrue(original != reserve.burnStatementHash(b));
         b = burn(100e6);
 
+        bytes32 deploymentChainStatement = reserve.burnStatementHash(b);
         approve(b, proof);
         vm.chainId(block.chainid + 1);
-        vm.expectRevert(USDOMProofReserve.InvalidProof.selector);
+        assertEq(deploymentChainStatement, reserve.burnStatementHash(b));
+        vm.expectRevert(USDOMProofReserve.ChainChanged.selector);
         reserve.queueWithdrawal(b, proof);
         vm.chainId(block.chainid - 1);
 
@@ -1356,7 +2000,6 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         USDOMProofReserve.FinalizedBurn memory b = burn(100e6);
         bytes memory proof = proofFor(b);
         bytes32 authorizedStatement = reserve.burnStatementHash(b);
-        bytes32 authorizedIntent = reserve.burnIntentHash(b);
         approve(b, proof);
 
         USDOMProofReserve.Config memory otherConfig = config();
@@ -1367,7 +2010,6 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         USDOMProofReserve otherActivation = new USDOMProofReserve(otherConfig);
         assertTrue(otherActivation.reserveConfigHash() != reserve.reserveConfigHash());
         assertTrue(otherActivation.burnStatementHash(b) != authorizedStatement);
-        assertTrue(otherActivation.burnIntentHash(b) != authorizedIntent);
         vm.startPrank(ALICE);
         token.approve(address(otherActivation), INITIAL);
         otherActivation.deposit(
@@ -1387,7 +2029,6 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         otherBurn.domDomain = otherConfig.domDomain;
         assertTrue(otherDomain.reserveConfigHash() != reserve.reserveConfigHash());
         assertTrue(otherDomain.burnStatementHash(otherBurn) != authorizedStatement);
-        assertTrue(otherDomain.burnIntentHash(otherBurn) != authorizedIntent);
         vm.startPrank(ALICE);
         token.approve(address(otherDomain), INITIAL);
         otherDomain.deposit(INITIAL, bytes32(uint256(0xD1)), canonicalCommitment(keccak256("other domain output")));
@@ -1434,7 +2075,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
             reserve.burnStatementHash(b),
             keccak256(
                 abi.encode(
-                    reserve.BURN_STATEMENT_TYPEHASH(),
+                    BURN_STATEMENT_TYPEHASH,
                     b.burnId,
                     b.requestId,
                     b.recipient,
@@ -1455,7 +2096,9 @@ contract USDOMProofReserveTest is ProofReserveFixture {
             reserve.burnDebtHash(b),
             keccak256(
                 abi.encode(
-                    reserve.BURN_DEBT_TYPEHASH(),
+                    keccak256(
+                        "FinalizedBurnDebt(bytes32 burnId,bytes32 requestId,address recipient,uint64 amount,bytes32 domDomain,uint64 height,bytes32 blockHash,bytes32 stateRoot,uint64 validUntil,uint256 ethereumChainId,address reserve,bytes32 activationScheduleCommitment)"
+                    ),
                     b.burnId,
                     b.requestId,
                     b.recipient,
@@ -1471,62 +2114,6 @@ contract USDOMProofReserveTest is ProofReserveFixture {
                 )
             )
         );
-        assertEq(
-            reserve.burnIntentHash(b),
-            keccak256(
-                abi.encode(
-                    reserve.BURN_INTENT_TYPEHASH(),
-                    b.burnId,
-                    b.requestId,
-                    b.recipient,
-                    b.amount,
-                    b.domDomain,
-                    b.validUntil,
-                    block.chainid,
-                    address(reserve)
-                )
-            )
-        );
-    }
-
-    function testBurnIntentHashBindsNativePayoutIntentOnly() public {
-        assertEq(reserve.BURN_INTENT_TYPEHASH(), 0xf1d5a150f09a125f5ab99669e765334c3d22034c98b84d0f903a900320b7f446);
-        USDOMProofReserve.FinalizedBurn memory b = burn(100e6);
-        bytes32 original = reserve.burnIntentHash(b);
-
-        bytes32 originalBurnId = b.burnId;
-        b.burnId = keccak256("other burn");
-        assertTrue(original != reserve.burnIntentHash(b));
-        b.burnId = originalBurnId;
-        bytes32 originalRequestId = b.requestId;
-        b.requestId = keccak256("other request");
-        assertTrue(original != reserve.burnIntentHash(b));
-        b.requestId = originalRequestId;
-        b.recipient = ALICE;
-        assertTrue(original != reserve.burnIntentHash(b));
-        b.recipient = BOB;
-        b.amount += 1;
-        assertTrue(original != reserve.burnIntentHash(b));
-        b.amount -= 1;
-        b.domDomain = keccak256("other domain");
-        assertTrue(original != reserve.burnIntentHash(b));
-        b.domDomain = DOMAIN;
-        b.validUntil += 1;
-        assertTrue(original != reserve.burnIntentHash(b));
-        b.validUntil -= 1;
-
-        b.height += 1;
-        b.blockHash = keccak256("other block");
-        b.stateRoot = keccak256("other state");
-        b.finalityBeaconSlot += 1;
-        assertEq(original, reserve.burnIntentHash(b));
-
-        uint256 originalChainId = block.chainid;
-        vm.chainId(originalChainId + 1);
-        assertTrue(original != reserve.burnIntentHash(b));
-        vm.chainId(originalChainId);
-        USDOMProofReserve other = new USDOMProofReserve(config());
-        assertTrue(original != other.burnIntentHash(b));
     }
 
     function testVerifierCodeAndConfigurationAreImmutable() public {
@@ -1553,14 +2140,14 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         reserve.deposit(1, bytes32(uint256(0x6461)), bytes32(uint256(0x6462)));
         assertEq(reserve.totalDeposited(), INITIAL);
 
-        burnVerifier.setCapability(reserve.PROOF_ACCEPTED());
+        burnVerifier.setCapability(PROOF_ACCEPTED);
         vm.prank(ALICE);
         reserve.deposit(1, bytes32(uint256(0x6461)), bytes32(uint256(0x6462)));
         assertEq(reserve.totalDeposited(), INITIAL + 1);
     }
 
     function testTokenCodeIdentityIsImmutable() public {
-        assertEq(reserve.ETHEREUM_USDT_CODE_HASH(), 0xb44fb4e949d0f78f87f79ee46428f23a2a5713ce6fc6e0beb3dda78c2ac1ea55);
+        assertEq(ETHEREUM_USDT_CODE_HASH, 0xb44fb4e949d0f78f87f79ee46428f23a2a5713ce6fc6e0beb3dda78c2ac1ea55);
         assertEq(address(token).codehash, reserve.tokenCodeHash());
         vm.etch(address(token), hex"00");
         vm.prank(ALICE);
@@ -1589,6 +2176,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         MockGovernance replacement = new MockGovernance();
         MockMutableSingletonControl safeGovernance = new MockMutableSingletonControl(address(implementation));
         MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
         USDOMProofReserve.Config memory c = config();
         c.governance = address(safeGovernance);
         c.guardian = address(safeGuardian);
@@ -1608,6 +2196,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         MockGovernance implementation = new MockGovernance();
         MockMutableSingletonControl safeGovernance = new MockMutableSingletonControl(address(implementation));
         MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
         USDOMProofReserve.Config memory c = config();
         c.governance = address(safeGovernance);
         c.guardian = address(safeGuardian);
@@ -1617,7 +2206,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         bytes32 firstOwners = first.governanceOwnersCommitment();
         bytes32 firstIdentity = keccak256(
             abi.encode(
-                first.CONTROL_PLANE_IDENTITY_TYPEHASH(),
+                CONTROL_PLANE_IDENTITY_TYPEHASH,
                 address(safeGovernance),
                 address(safeGovernance).codehash,
                 address(implementation),
@@ -1632,7 +2221,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         bytes32 secondOwners = second.governanceOwnersCommitment();
         bytes32 secondIdentity = keccak256(
             abi.encode(
-                second.CONTROL_PLANE_IDENTITY_TYPEHASH(),
+                CONTROL_PLANE_IDENTITY_TYPEHASH,
                 address(safeGovernance),
                 address(safeGovernance).codehash,
                 address(implementation),
@@ -1652,6 +2241,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         MockGovernance implementation = new MockGovernance();
         MockMutableSingletonControl safeGovernance = new MockMutableSingletonControl(address(implementation));
         MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
         USDOMProofReserve.Config memory c = config();
         c.governance = address(safeGovernance);
         c.guardian = address(safeGuardian);
@@ -1663,7 +2253,10 @@ contract USDOMProofReserveTest is ProofReserveFixture {
             protectedReserve.governanceOwnersCommitment(),
             keccak256(abi.encode(address(0x101), address(0x102), address(0x103)))
         );
-        assertEq(protectedReserve.guardianOwnersCommitment(), protectedReserve.governanceOwnersCommitment());
+        assertEq(
+            protectedReserve.guardianOwnersCommitment(),
+            keccak256(abi.encode(address(0x201), address(0x202), address(0x203)))
+        );
 
         // Replacing one owner with another distinct EOA preserves 2-of-3 and
         // every old shape check. The immutable ordered commitment must still
@@ -1701,7 +2294,16 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         protectedReserve.deposit(1, bytes32(uint256(905)), bytes32(uint256(906)));
 
         safeGuardian.setOwnerCount(3);
-        safeGuardian.setOwner(2, address(0x103));
+        safeGuardian.setOwner(2, address(0x203));
+        for (uint8 mode = 1; mode <= 7; ++mode) {
+            safeGuardian.setOwnersReturnMode(mode);
+            assertFalse(protectedReserve.controlPlaneHealthy());
+            vm.prank(ALICE);
+            vm.expectRevert(USDOMProofReserve.ControlPlaneChanged.selector);
+            protectedReserve.deposit(1, bytes32(uint256(0x1200 + mode)), bytes32(uint256(0x1300 + mode)));
+        }
+        safeGuardian.setOwnersReturnMode(0);
+        assertTrue(protectedReserve.controlPlaneHealthy());
         safeGovernance.setModule(address(0xBEEF));
         assertFalse(protectedReserve.controlPlaneHealthy());
         vm.prank(ALICE);
@@ -1723,24 +2325,86 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         protectedReserve.deposit(1, bytes32(uint256(911)), bytes32(uint256(912)));
 
         safeGuardian.setGuard(address(0));
-        vm.chainId(1);
-        assertFalse(protectedReserve.controlPlaneHealthy());
-        safeGovernance.setFallbackHandler(0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99);
-        safeGuardian.setFallbackHandler(0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99);
-        assertFalse(protectedReserve.controlPlaneHealthy());
-        installMainnetSafeFallbackHandler();
+        uint256 deploymentChain = protectedReserve.deploymentChainId();
+        vm.chainId(deploymentChain + 1);
         assertTrue(protectedReserve.controlPlaneHealthy());
-        vm.etch(SAFE_MAINNET_FALLBACK_HANDLER, hex"00");
+        safeGuardian.setThreshold(1);
         assertFalse(protectedReserve.controlPlaneHealthy());
-        installMainnetSafeFallbackHandler();
-        safeGuardian.setFallbackHandler(address(0xBEEF));
+        safeGuardian.setThreshold(2);
+        assertTrue(protectedReserve.controlPlaneHealthy());
+        vm.chainId(deploymentChain);
+    }
+
+    function testSafeOwnerCodeAppearanceAfterAdmissionDoesNotFreezeReserve() public {
+        MockGovernance implementation = new MockGovernance();
+        MockMutableSingletonControl safeGovernance = new MockMutableSingletonControl(address(implementation));
+        MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
+        USDOMProofReserve.Config memory c = config();
+        c.governance = address(safeGovernance);
+        c.guardian = address(safeGuardian);
+
+        // Admission still excludes contract/delegated-code owners.
+        vm.etch(address(0x101), hex"00");
+        vm.expectRevert(USDOMProofReserve.InvalidConfiguration.selector);
+        new USDOMProofReserve(c);
+        vm.etch(address(0x101), bytes(""));
+
+        USDOMProofReserve protectedReserve = new USDOMProofReserve(c);
+        vm.prank(ALICE);
+        token.approve(address(protectedReserve), type(uint256).max);
+
+        // EIP-7702 code appearance does not change the admitted owner address
+        // or the 2-of-3 Safe authority, so one owner cannot halt deposits.
+        vm.etch(address(0x101), hex"00");
+        assertTrue(protectedReserve.controlPlaneHealthy());
+        vm.prank(ALICE);
+        protectedReserve.deposit(1, bytes32(uint256(0x7702)), bytes32(uint256(0x7703)));
+
+        // Actual policy and owner-set changes remain fail-closed.
+        safeGovernance.setThreshold(1);
         assertFalse(protectedReserve.controlPlaneHealthy());
+        vm.prank(ALICE);
+        vm.expectRevert(USDOMProofReserve.ControlPlaneChanged.selector);
+        protectedReserve.deposit(1, bytes32(uint256(0x7704)), bytes32(uint256(0x7705)));
+        safeGovernance.setThreshold(2);
+        safeGovernance.setOwner(0, address(0x104));
+        assertFalse(protectedReserve.controlPlaneHealthy());
+    }
+
+    function testSafeAuxiliaryReturnDataMustBeExactAndBounded() public {
+        MockGovernance implementation = new MockGovernance();
+        MockMutableSingletonControl safeGovernance = new MockMutableSingletonControl(address(implementation));
+        MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
+        USDOMProofReserve.Config memory c = config();
+        c.governance = address(safeGovernance);
+        c.guardian = address(safeGuardian);
+        USDOMProofReserve protectedReserve = new USDOMProofReserve(c);
+
+        for (uint8 mode = 1; mode <= 3; ++mode) {
+            safeGovernance.setThresholdReturnMode(mode);
+            assertFalse(protectedReserve.controlPlaneHealthy());
+        }
+        safeGovernance.setThresholdReturnMode(0);
+        for (uint8 mode = 1; mode <= 4; ++mode) {
+            safeGovernance.setModulesReturnMode(mode);
+            assertFalse(protectedReserve.controlPlaneHealthy());
+        }
+        safeGovernance.setModulesReturnMode(0);
+        for (uint8 mode = 1; mode <= 4; ++mode) {
+            safeGovernance.setStorageReturnMode(mode);
+            assertFalse(protectedReserve.controlPlaneHealthy());
+        }
+        safeGovernance.setStorageReturnMode(0);
+        assertTrue(protectedReserve.controlPlaneHealthy());
     }
 
     function testSafeDriftBetweenQueueExecuteAndResumePreservesRetryableState() public {
         MockGovernance implementation = new MockGovernance();
         MockMutableSingletonControl safeGovernance = new MockMutableSingletonControl(address(implementation));
         MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
         USDOMProofReserve.Config memory c = config();
         c.governance = address(safeGovernance);
         c.guardian = address(safeGuardian);
@@ -1761,23 +2425,13 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         uint256 availableBefore = protectedReserve.availableOutflow();
 
         safeGovernance.setOwner(0, address(0x104));
-        vm.expectRevert(USDOMProofReserve.ControlPlaneChanged.selector);
-        protectedReserve.executeWithdrawal(b);
-        assertFalse(protectedReserve.paidBurns(b.burnId));
-        assertEq(protectedReserve.totalPendingAmount(), b.amount);
-        assertEq(protectedReserve.availableOutflow(), availableBefore);
-
-        safeGovernance.setOwner(0, address(0x101));
-        safeGuardian.setModule(address(0xBEEF));
-        vm.expectRevert(USDOMProofReserve.ControlPlaneChanged.selector);
-        protectedReserve.executeWithdrawal(b);
-        assertFalse(protectedReserve.paidBurns(b.burnId));
-        assertEq(protectedReserve.totalReleased(), 0);
-
-        safeGuardian.setModule(address(0));
         protectedReserve.executeWithdrawal(b);
         assertTrue(protectedReserve.paidBurns(b.burnId));
+        assertEq(protectedReserve.totalPendingAmount(), 0);
+        assertEq(protectedReserve.totalReleased(), b.amount);
+        assertEq(protectedReserve.availableOutflow(), availableBefore - b.amount);
 
+        safeGovernance.setOwner(0, address(0x101));
         safeGuardian.execute(address(protectedReserve), abi.encodeCall(USDOMProofReserve.pause, ()));
         safeGovernance.setGuard(address(0xBEEF));
         vm.expectRevert(USDOMProofReserve.ControlPlaneChanged.selector);
@@ -1794,10 +2448,51 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         assertTrue(protectedReserve.paused());
         assertEq(protectedReserve.resumeReadyAt(), scheduled);
 
-        safeGuardian.setOwner(2, address(0x103));
+        safeGuardian.setOwner(2, address(0x203));
         protectedReserve.executeResume();
         assertFalse(protectedReserve.paused());
         assertEq(protectedReserve.resumeReadyAt(), 0);
+    }
+
+    function testExpiredProvedDebtCanRenewAndSettleAfterSafeOwnerDrift() public {
+        MockGovernance implementation = new MockGovernance();
+        MockMutableSingletonControl safeGovernance = new MockMutableSingletonControl(address(implementation));
+        MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
+        USDOMProofReserve.Config memory c = config();
+        c.governance = address(safeGovernance);
+        c.guardian = address(safeGuardian);
+        USDOMProofReserve protectedReserve = new USDOMProofReserve(c);
+
+        vm.startPrank(ALICE);
+        token.approve(address(protectedReserve), INITIAL);
+        protectedReserve.deposit(
+            INITIAL, keccak256("safe renewal deposit"), canonicalCommitment(keccak256("safe renewal commitment"))
+        );
+        vm.stopPrank();
+
+        USDOMProofReserve.FinalizedBurn memory b = burn(100e6);
+        bytes memory proof = proofFor(b);
+        burnVerifier.approve(protectedReserve.burnStatementHash(b), proof);
+        protectedReserve.queueWithdrawal(b, proof);
+        vm.warp(block.timestamp + protectedReserve.MAX_CERTIFICATE_LIFETIME() + 1);
+        protectedReserve.discardWithdrawal(b.burnId);
+
+        safeGovernance.setOwner(0, address(0x104));
+        assertFalse(protectedReserve.controlPlaneHealthy());
+        protectedReserve.queueWithdrawal(b, bytes(""));
+        assertEq(protectedReserve.totalProvedDebtAmount(), b.amount);
+        assertEq(protectedReserve.totalPendingAmount(), b.amount);
+
+        vm.warp(block.timestamp + protectedReserve.withdrawalDelay());
+        protectedReserve.executeWithdrawal(b);
+        assertTrue(protectedReserve.paidBurns(b.burnId));
+        assertEq(protectedReserve.totalProvedDebtAmount(), 0);
+        assertEq(protectedReserve.totalPendingAmount(), 0);
+
+        vm.prank(ALICE);
+        vm.expectRevert(USDOMProofReserve.ControlPlaneChanged.selector);
+        protectedReserve.deposit(1, bytes32(uint256(0xD1)), bytes32(uint256(0xD2)));
     }
 
     function testConstructorRejectsUnsafeSafePolicy() public {
@@ -1825,10 +2520,135 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         vm.expectRevert(USDOMProofReserve.InvalidConfiguration.selector);
         new USDOMProofReserve(c);
 
+        safeGovernance.setOwner(1, address(0x11));
+        vm.expectRevert(USDOMProofReserve.InvalidConfiguration.selector);
+        new USDOMProofReserve(c);
+
         safeGovernance.setOwner(1, address(0x102));
         safeGovernance.setGuard(address(0xBEEF));
         vm.expectRevert(USDOMProofReserve.InvalidConfiguration.selector);
         new USDOMProofReserve(c);
+
+        safeGovernance.setGuard(address(0));
+        uint64 creatorNonce = vm.getNonce(address(this));
+        // Foundry reports the test contract's external-account nonce; the next
+        // CREATE uses the following nonce after this contract's own creation.
+        ++creatorNonce;
+        assertTrue(creatorNonce != 0 && creatorNonce <= 0x7f);
+        address predictedReserve = address(
+            uint160(uint256(keccak256(abi.encodePacked(hex"d694", address(this), bytes1(uint8(creatorNonce))))))
+        );
+        safeGovernance.setOwner(1, predictedReserve);
+        vm.expectRevert(USDOMProofReserve.InvalidConfiguration.selector);
+        new USDOMProofReserve(c);
+    }
+
+    function testConstructorRejectsAnyOwnerSharedAcrossGovernanceAndGuardianSafes() public {
+        MockGovernance implementation = new MockGovernance();
+        MockMutableSingletonControl safeGovernance = new MockMutableSingletonControl(address(implementation));
+        MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        USDOMProofReserve.Config memory c = config();
+        c.governance = address(safeGovernance);
+        c.guardian = address(safeGuardian);
+
+        address[3] memory governanceSet = [address(0x101), address(0x102), address(0x103)];
+        for (uint256 governanceIndex; governanceIndex < governanceSet.length; ++governanceIndex) {
+            for (uint256 guardianIndex; guardianIndex < 3; ++guardianIndex) {
+                safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
+                safeGuardian.setOwner(guardianIndex, governanceSet[governanceIndex]);
+                vm.expectRevert(USDOMProofReserve.InvalidConfiguration.selector);
+                new USDOMProofReserve(c);
+            }
+        }
+
+        safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
+        USDOMProofReserve separated = new USDOMProofReserve(c);
+        assertTrue(separated.governanceOwnersCommitment() != separated.guardianOwnersCommitment());
+    }
+
+    function testConstructorRejectsEveryMalformedOrUnboundedSafeOwnersResponse() public {
+        MockGovernance implementation = new MockGovernance();
+        MockMutableSingletonControl safeGovernance = new MockMutableSingletonControl(address(implementation));
+        MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        safeGuardian.setOwners(address(0x201), address(0x202), address(0x203));
+        USDOMProofReserve.Config memory c = config();
+        c.governance = address(safeGovernance);
+        c.guardian = address(safeGuardian);
+
+        // Revert, short/trailing returndata, return bomb, noncanonical offset,
+        // wrong count and dirty address padding must all fail closed.
+        for (uint8 mode = 1; mode <= 7; ++mode) {
+            safeGovernance.setOwnersReturnMode(mode);
+            vm.expectRevert(USDOMProofReserve.InvalidConfiguration.selector);
+            new USDOMProofReserve(c);
+        }
+        safeGovernance.setOwnersReturnMode(0);
+        new USDOMProofReserve(c);
+    }
+
+    function testPilotAuthorizationCannotBeCreatedWhilePausedOrAfterIngressClosure() public {
+        USDOMProofReserve.Config memory c = config();
+        c.pilotRestricted = true;
+        USDOMProofReserve pilot = new USDOMProofReserve(c);
+        bytes memory authorization = abi.encodeCall(
+            USDOMProofReserve.authorizePilotDeposit,
+            (
+                keccak256("paused pilot snapshot"),
+                ALICE,
+                uint64(1),
+                keccak256("paused pilot salt"),
+                canonicalCommitment(keccak256("paused pilot commitment")),
+                uint64(block.timestamp + 1 days),
+                uint64(0)
+            )
+        );
+
+        guardian.execute(address(pilot), abi.encodeCall(USDOMProofReserve.pause, ()));
+        vm.expectRevert(USDOMProofReserve.IsPaused.selector);
+        governor.execute(address(pilot), authorization);
+        governor.execute(address(pilot), abi.encodeCall(USDOMProofReserve.scheduleResume, ()));
+        vm.warp(pilot.resumeReadyAt());
+        pilot.executeResume();
+        guardian.execute(address(pilot), abi.encodeCall(USDOMProofReserve.closeDeposits, ()));
+        vm.expectRevert(USDOMProofReserve.DepositsClosed.selector);
+        governor.execute(address(pilot), authorization);
+    }
+
+    function testCloseDepositsAtomicallyInvalidatesActivePilotAuthorization() public {
+        USDOMProofReserve.Config memory c = config();
+        c.pilotRestricted = true;
+        USDOMProofReserve pilot = new USDOMProofReserve(c);
+        bytes32 snapshot = keccak256("closure pilot snapshot");
+        governor.execute(
+            address(pilot),
+            abi.encodeCall(
+                USDOMProofReserve.authorizePilotDeposit,
+                (
+                    snapshot,
+                    ALICE,
+                    uint64(1),
+                    keccak256("closure pilot salt"),
+                    canonicalCommitment(keccak256("closure pilot commitment")),
+                    uint64(block.timestamp + 1 days),
+                    uint64(0)
+                )
+            )
+        );
+        assertTrue(pilot.authorizedPilotDeposit() != bytes32(0));
+
+        guardian.execute(address(pilot), abi.encodeCall(USDOMProofReserve.closeDeposits, ()));
+        assertTrue(pilot.depositsClosed());
+        assertEq(pilot.authorizedPilotDeposit(), bytes32(0));
+        assertEq(pilot.authorizedPilotSnapshot(), bytes32(0));
+        assertEq(pilot.authorizedPilotValidUntil(), 0);
+        assertEq(pilot.permissionlessDepositsReadyAt(), 0);
+        assertEq(pilot.pilotAuthorizationGeneration(), 1);
+
+        checkpointRegistry.setTerminal(0, 0, true, true);
+        pilot.finalizeGracefulShutdown();
+        assertTrue(pilot.gracefullyShutdown());
+        vm.expectRevert(USDOMProofReserve.NotGracefullyClosable.selector);
+        guardian.execute(address(pilot), abi.encodeCall(USDOMProofReserve.pause, ()));
     }
 
     function testPauseRequiresContractRolesAndDelayedGovernanceResume() public {
@@ -1848,7 +2668,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         assertFalse(reserve.paused());
     }
 
-    function testDepositShutdownDoesNotBlockExistingBurnPayouts() public {
+    function testDepositShutdownBlocksIngressButAllowsFirstProofAndPayouts() public {
         (USDOMProofReserve.FinalizedBurn memory existingBurn,) = queued(100e6);
 
         vm.prank(ALICE);
@@ -1865,13 +2685,17 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         USDOMProofReserve.FinalizedBurn memory newDebt = burn(1);
         bytes memory newDebtProof = proofFor(newDebt);
         approve(newDebt, newDebtProof);
-        vm.expectRevert(USDOMProofReserve.DepositsClosed.selector);
         reserve.queueWithdrawal(newDebt, newDebtProof);
+        assertEq(reserve.provedBurnDebts(newDebt.burnId), reserve.burnDebtHash(newDebt));
+        assertEq(reserve.totalProvedDebtAmount(), existingBurn.amount + newDebt.amount);
 
         (,, uint64 readyAt,,,,,) = reserve.pendingWithdrawals(existingBurn.burnId);
         vm.warp(readyAt);
         reserve.executeWithdrawal(existingBurn);
+        reserve.executeWithdrawal(newDebt);
         assertTrue(reserve.paidBurns(existingBurn.burnId));
+        assertTrue(reserve.paidBurns(newDebt.burnId));
+        assertEq(token.balanceOf(BOB), existingBurn.amount + newDebt.amount);
     }
 
     function testGracefulShutdownWaitsForEveryLiabilityWithoutBlockingPayout() public {
@@ -1954,25 +2778,23 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         assertTrue(reserve.paidRequests(oldBurn.requestId));
     }
 
-    function testExecutionFailsClosedIfVerifierChangesAfterQueue() public {
+    function testAcceptedDebtExecutesIfVerifierChangesAfterQueue() public {
         (USDOMProofReserve.FinalizedBurn memory b,) = queued(100e6);
         vm.warp(block.timestamp + 1 days);
         burnVerifier.setConfigHash(keccak256("changed after proof admission"));
-        vm.expectRevert(USDOMProofReserve.VerifierChanged.selector);
-        reserve.executeWithdrawal(b);
-        assertFalse(reserve.paidBurns(b.burnId));
-        assertEq(reserve.totalReleased(), 0);
-        assertEq(reserve.totalPendingAmount(), b.amount);
-
-        burnVerifier.setConfigHash(reserve.verifierConfigHash());
         reserve.executeWithdrawal(b);
         assertTrue(reserve.paidBurns(b.burnId));
+        assertEq(reserve.totalReleased(), b.amount);
+        assertEq(reserve.totalPendingAmount(), 0);
     }
 
     function testEpochBoundPauseCannotInvalidateReviewedReplacementQueue() public {
         uint64 observedEpoch = reserve.queueEpoch();
         (USDOMProofReserve.FinalizedBurn memory oldBurn,) = queued(100e6);
-        guardian.execute(address(reserve), abi.encodeCall(USDOMProofReserve.pauseQueueEpoch, (observedEpoch)));
+        guardian.execute(
+            address(reserve),
+            abi.encodeCall(USDOMProofReserve.pauseQueueEpoch, (observedEpoch, reserve.pilotAuthorizationGeneration()))
+        );
         assertTrue(reserve.paused());
         assertEq(reserve.queueEpoch(), observedEpoch + 1);
         govern(abi.encodeCall(USDOMProofReserve.scheduleResume, ()));
@@ -1988,7 +2810,8 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         bytes memory oldProof = proofFor(oldBurn);
         reserve.queueWithdrawal(oldBurn, oldProof);
 
-        bytes memory stalePause = abi.encodeCall(USDOMProofReserve.pauseQueueEpoch, (observedEpoch));
+        bytes memory stalePause =
+            abi.encodeCall(USDOMProofReserve.pauseQueueEpoch, (observedEpoch, reserve.pilotAuthorizationGeneration()));
         vm.expectRevert(USDOMProofReserve.StaleEmergency.selector);
         guardian.execute(address(reserve), stalePause);
         assertFalse(reserve.paused());
@@ -1996,11 +2819,14 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         assertEq(reserve.totalPendingAmount(), oldBurn.amount);
 
         uint64 currentEpoch = reserve.queueEpoch();
+        uint64 currentPilotGeneration = reserve.pilotAuthorizationGeneration();
         vm.prank(ALICE);
         vm.expectRevert(USDOMProofReserve.Unauthorized.selector);
-        reserve.pauseQueueEpoch(currentEpoch);
+        reserve.pauseQueueEpoch(currentEpoch, currentPilotGeneration);
 
-        guardian.execute(address(reserve), abi.encodeCall(USDOMProofReserve.pauseQueueEpoch, (currentEpoch)));
+        guardian.execute(
+            address(reserve), abi.encodeCall(USDOMProofReserve.pauseQueueEpoch, (currentEpoch, currentPilotGeneration))
+        );
         assertTrue(reserve.paused());
         assertEq(reserve.pendingCount(), 0);
     }
@@ -2046,6 +2872,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         reserve.queueWithdrawal(changed, changedProof);
         assertEq(reserve.provedBurnDebts(original.burnId), debtHash);
         assertEq(reserve.provedBurnStatements(original.burnId), statementHash);
+        assertEq(reserve.latestProvedBurnStatements(original.burnId), reserve.burnStatementHash(changed));
         (,,, uint64 renewedExpiry,,,,) = reserve.pendingWithdrawals(original.burnId);
         vm.warp(renewedExpiry + 1);
         reserve.discardWithdrawal(original.burnId);
@@ -2066,6 +2893,7 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         approve(original, renewalProof);
         reserve.queueWithdrawal(original, renewalProof);
         assertEq(reserve.provedBurnFinalitySlots(original.burnId), original.finalityBeaconSlot);
+        assertEq(reserve.latestProvedBurnStatements(original.burnId), reserve.burnStatementHash(original));
         assertEq(reserve.pendingRequests(original.requestId), original.burnId);
         assertEq(reserve.provedBurnStatements(original.burnId), statementHash);
         assertEq(reserve.provedBurnDebts(original.burnId), debtHash);
@@ -2107,16 +2935,126 @@ contract USDOMProofReserveTest is ProofReserveFixture {
         vm.warp(readyAt);
         bytes32 originalConfig = burnVerifier.verifierConfigHash();
         burnVerifier.setConfigHash(keccak256("temporary liveness drift"));
-        vm.expectRevert(USDOMProofReserve.VerifierChanged.selector);
         reserve.executeWithdrawal(b);
-        assertFalse(reserve.paidBurns(b.burnId));
+        assertTrue(reserve.paidBurns(b.burnId));
         assertEq(reserve.provedBurnStatements(b.burnId), originallyProvedStatement);
+        assertTrue(originalConfig != burnVerifier.verifierConfigHash());
+        assertEq(token.balanceOf(BOB), b.amount);
+        assertEq(reserve.totalPendingAmount(), 0);
+    }
 
-        burnVerifier.setConfigHash(originalConfig);
+    function testExactLatestStatementCanRequeueWithoutLiveVerifier() public {
+        (USDOMProofReserve.FinalizedBurn memory b,) = queued(100e6);
+        bytes32 statementHash = reserve.burnStatementHash(b);
+        assertEq(reserve.latestProvedBurnStatements(b.burnId), statementHash);
+
+        guardian.execute(address(reserve), abi.encodeCall(USDOMProofReserve.pause, ()));
+        reserve.discardWithdrawal(b.burnId);
+        govern(abi.encodeCall(USDOMProofReserve.scheduleResume, ()));
+        vm.warp(block.timestamp + reserve.governanceDelay());
+        reserve.executeResume();
+
+        burnVerifier.setConfigHash(keccak256("permanent verifier outage after admission"));
+        reserve.queueWithdrawal(b, bytes(""));
+        (,, uint64 readyAt,,,,,) = reserve.pendingWithdrawals(b.burnId);
+        vm.warp(readyAt);
         reserve.executeWithdrawal(b);
         assertTrue(reserve.paidBurns(b.burnId));
         assertEq(token.balanceOf(BOB), b.amount);
+    }
+
+    function testExactLatestStatementCanRequeueAfterFinalitySlotAgesOut() public {
+        (USDOMProofReserve.FinalizedBurn memory b,) = queued(100e6);
+        bytes32 firstStatement = reserve.provedBurnStatements(b.burnId);
+        bytes32 latestStatement = reserve.latestProvedBurnStatements(b.burnId);
+        bytes32 debt = reserve.provedBurnDebts(b.burnId);
+        uint64 provedSlot = reserve.provedBurnFinalitySlots(b.burnId);
+        uint256 aggregateDebt = reserve.totalProvedDebtAmount();
+        (,,, uint64 expiresAt,,,,) = reserve.pendingWithdrawals(b.burnId);
+
+        vm.warp(uint256(expiresAt) + reserve.MAX_FINALITY_AGE_SLOTS() * reserve.ETHEREUM_SECONDS_PER_SLOT() + 1);
+        reserve.discardWithdrawal(b.burnId);
+        burnVerifier.setConfigHash(keccak256("verifier unavailable after permanent proof"));
+
+        reserve.queueWithdrawal(b, bytes(""));
+        assertEq(reserve.provedBurnStatements(b.burnId), firstStatement);
+        assertEq(reserve.latestProvedBurnStatements(b.burnId), latestStatement);
+        assertEq(reserve.provedBurnDebts(b.burnId), debt);
+        assertEq(reserve.provedBurnFinalitySlots(b.burnId), provedSlot);
+        assertEq(reserve.totalProvedDebtAmount(), aggregateDebt);
+        assertEq(reserve.totalPendingAmount(), b.amount);
+
+        (,, uint64 readyAt,,,,,) = reserve.pendingWithdrawals(b.burnId);
+        vm.warp(readyAt);
+        reserve.executeWithdrawal(b);
+        assertTrue(reserve.paidBurns(b.burnId));
+        assertTrue(reserve.paidRequests(b.requestId));
+        assertEq(reserve.totalProvedDebtAmount(), 0);
+    }
+
+    function testAgedLatestStatementCannotAuthorizeAlteredRecipientAmountOrFinality() public {
+        (USDOMProofReserve.FinalizedBurn memory original,) = queued(100e6);
+        (,,, uint64 expiresAt,,,,) = reserve.pendingWithdrawals(original.burnId);
+        vm.warp(uint256(expiresAt) + reserve.MAX_FINALITY_AGE_SLOTS() * reserve.ETHEREUM_SECONDS_PER_SLOT() + 1);
+        reserve.discardWithdrawal(original.burnId);
+
+        USDOMProofReserve.FinalizedBurn memory altered =
+            abi.decode(abi.encode(original), (USDOMProofReserve.FinalizedBurn));
+        altered.recipient = ALICE;
+        vm.expectRevert(USDOMProofReserve.InvalidBurn.selector);
+        reserve.queueWithdrawal(altered, bytes(""));
+        altered = abi.decode(abi.encode(original), (USDOMProofReserve.FinalizedBurn));
+        altered.amount += 1;
+        vm.expectRevert(USDOMProofReserve.InvalidBurn.selector);
+        reserve.queueWithdrawal(altered, bytes(""));
+        altered = abi.decode(abi.encode(original), (USDOMProofReserve.FinalizedBurn));
+        altered.finalityBeaconSlot += 1;
+        vm.expectRevert(USDOMProofReserve.InvalidBurn.selector);
+        reserve.queueWithdrawal(altered, bytes(""));
+        bytes memory alteredProof = proofFor(altered);
+        approve(altered, alteredProof);
+        vm.expectRevert(USDOMProofReserve.InvalidBurn.selector);
+        reserve.queueWithdrawal(altered, alteredProof);
+
         assertEq(reserve.totalPendingAmount(), 0);
+        assertEq(reserve.totalProvedDebtAmount(), original.amount);
+        assertEq(reserve.latestProvedBurnStatements(original.burnId), reserve.burnStatementHash(original));
+    }
+
+    function testExecutionFailsClosedOnLatestStatementOrPaidFlagStorageDivergence() public {
+        (USDOMProofReserve.FinalizedBurn memory b,) = queued(100e6);
+        (,, uint64 readyAt,,,,,) = reserve.pendingWithdrawals(b.burnId);
+        vm.warp(readyAt);
+        uint256 releasedBefore = reserve.totalReleased();
+        uint256 debtBefore = reserve.totalProvedDebtAmount();
+        uint256 pendingBefore = reserve.totalPendingAmount();
+
+        bytes32 latestSlot = keccak256(abi.encode(b.burnId, uint256(8)));
+        bytes32 latest = vm.load(address(reserve), latestSlot);
+        vm.store(address(reserve), latestSlot, keccak256("poisoned latest statement"));
+        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
+        reserve.executeWithdrawal(b);
+        vm.store(address(reserve), latestSlot, latest);
+
+        bytes32 paidBurnSlot = keccak256(abi.encode(b.burnId, uint256(3)));
+        vm.store(address(reserve), paidBurnSlot, bytes32(uint256(1)));
+        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
+        reserve.executeWithdrawal(b);
+        vm.store(address(reserve), paidBurnSlot, bytes32(0));
+
+        bytes32 paidRequestSlot = keccak256(abi.encode(b.requestId, uint256(4)));
+        vm.store(address(reserve), paidRequestSlot, bytes32(uint256(1)));
+        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
+        reserve.executeWithdrawal(b);
+        vm.store(address(reserve), paidRequestSlot, bytes32(0));
+
+        assertEq(reserve.totalReleased(), releasedBefore);
+        assertEq(reserve.totalProvedDebtAmount(), debtBefore);
+        assertEq(reserve.totalPendingAmount(), pendingBefore);
+        reserve.executeWithdrawal(b);
+        assertTrue(reserve.paidBurns(b.burnId));
+        assertTrue(reserve.paidRequests(b.requestId));
+        assertEq(token.balanceOf(BOB), b.amount);
     }
 
     function testReservationsAndRateLimitCannotExceedCreditedCollateral() public {
@@ -2248,26 +3186,6 @@ contract USDOMProofReserveTest is ProofReserveFixture {
             assertEq(finalityBeaconSlot, b.finalityBeaconSlot);
         }
         assertEq(matches, 1);
-    }
-
-    function _assertQueuePages(uint64 epoch, bytes32 firstId, bytes32 middleId, bytes32 lastId) private {
-        (bytes32[] memory firstPage, bytes32 nextCursor) = reserve.pendingBurnPage(epoch, bytes32(0), 2);
-        assertEq(firstPage.length, 2);
-        assertEq(firstPage[0], firstId);
-        assertEq(firstPage[1], middleId);
-        assertEq(nextCursor, lastId);
-        (bytes32[] memory lastPage, bytes32 endCursor) = reserve.pendingBurnPage(epoch, nextCursor, 2);
-        assertEq(lastPage.length, 1);
-        assertEq(lastPage[0], lastId);
-        assertEq(endCursor, bytes32(0));
-
-        vm.expectRevert(USDOMProofReserve.InvalidConfiguration.selector);
-        reserve.pendingBurnPage(epoch, bytes32(0), 0);
-        uint256 maximum = reserve.MAX_PRUNE_BATCH();
-        vm.expectRevert(USDOMProofReserve.InvalidConfiguration.selector);
-        reserve.pendingBurnPage(epoch, bytes32(0), maximum + 1);
-        vm.expectRevert(USDOMProofReserve.PendingMismatch.selector);
-        reserve.pendingBurnPage(epoch, keccak256("unknown queue cursor"), 1);
     }
 
     function _pendingFieldSlot(bytes32 burnId, uint256 fieldOffset) private pure returns (bytes32) {

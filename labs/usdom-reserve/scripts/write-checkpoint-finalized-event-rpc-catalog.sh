@@ -11,7 +11,21 @@ node() { assert_runtime_tool node; "$node_bin" "$@"; }
 TARGET="$ROOT/config/checkpoint-finalized-event-rpc-catalog.json"
 [[ ! -e "$TARGET" && ! -L "$TARGET" ]] || { printf '%s\n' 'RPC catalog already exists' >&2; exit 1; }
 TEMPORARY=$(mktemp -p "$ROOT/config" .checkpoint-finalized-rpc-catalog.XXXXXXXX)
-trap 'rm -f -- "$TEMPORARY"' EXIT HUP INT TERM
+TEMPORARY_IDENTITY=$(/usr/bin/stat -c '%u:%d:%i:%a' -- "$TEMPORARY")
+cleanup() {
+  local status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' -- "$TEMPORARY" 2>/dev/null) == "$TEMPORARY_IDENTITY" ]]; then
+    /usr/bin/rm -f -- "$TEMPORARY" || { (( status != 0 )) || status=1; }
+  else
+    (( status != 0 )) || status=1
+  fi
+  exit "$status"
+}
+trap 'cleanup $?' EXIT
+trap 'cleanup 129' HUP
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
 node "$ROOT/scripts/prepare-checkpoint-finalized-event-rpc-catalog.mjs" >"$TEMPORARY"
 chmod 0644 "$TEMPORARY"; sync -f "$TEMPORARY"
 node "$ROOT/scripts/install-public-file-create-once-stdin.mjs" "$TARGET" <"$TEMPORARY"

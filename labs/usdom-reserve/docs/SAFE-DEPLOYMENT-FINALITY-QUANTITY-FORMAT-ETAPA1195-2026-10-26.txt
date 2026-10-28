@@ -1,0 +1,31 @@
+SAFE DEPLOYMENT FINALITY QUANTITY FORMAT — STAGE 1195
+Date: 2026-10-26
+
+Finding
+=======
+
+Stage 1177 correctly removed RPC-derived values from Bash arithmetic, but its
+inline validator required both heights to be decimal. The strict receipt
+projector intentionally preserves Ethereum's canonical hexadecimal quantity
+for `blockNumber` (`0x10`), while Cast's finalized block field is decimal. Every
+real receipt would therefore fail the finality barrier despite valid evidence.
+
+Correction
+==========
+
+A dedicated checker now parses the finalized height as bounded canonical
+decimal and the receipt block as bounded canonical Ethereum quantity. Both are
+limited to uint64 before `BigInt` comparison. The checker rejects insufficient
+finality, mixed formats, leading zeros, overflow and a 100,000-digit input. It
+is included in the critical publication inventory.
+
+Verification
+============
+
+- Bash and Node syntax: pass.
+- Focused Safe/finality/receipt/process tests: 8/8 pass.
+- Broad operator-runbook, Safe and finality tests: 88/88 pass.
+- Critical inventory JSON parse and `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

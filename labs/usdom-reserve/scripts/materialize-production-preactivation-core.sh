@@ -19,10 +19,10 @@ pin_tool() {
 }
 assert_tool_unchanged() {
  local name=$1 bin_name="${1}_bin" identity_name="${1}_identity" parent_identity_name="${1}_parent_identity" sha_name="${1}_sha256" path parent; path=${!bin_name}; parent=$(dirname "$path")
- [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]]
- [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
+ [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]] || return 1
+ [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]] || return 1
 }
-pin_tool node; pin_tool jq
+pin_tool node; pin_tool jq; pin_tool timeout; pin_tool python3
 project=$(realpath "$(dirname "$0")/..")
 test "$PWD" = "$project"
 config_directory="$project/config"
@@ -34,7 +34,21 @@ target_sha256=$(sha256sum "$target" | awk '{print $1}')
 exec 9<"$config_directory"
 flock -n 9 || { printf '%s\n' 'Another release materializer holds the config lock' >&2; exit 75; }
 temporary=$(mktemp -p "$config_directory" .production-preactivation-core.XXXXXXXX)
-cleanup() { local status=${1:-$?}; trap - EXIT; assert_tool_unchanged node && "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$temporary" || status=1; exit "$status"; }
+cleanup() {
+  local status=${1:-$?}
+  trap - EXIT
+  if assert_tool_unchanged node && assert_tool_unchanged timeout &&
+    "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+      "$node_bin" -e 'const fs=require("fs");fs.rmSync(process.argv[1],{recursive:true,force:true});fs.rmSync(process.argv[2],{recursive:true,force:true})' \
+      "$temporary" "$temporary.rechecked" > /dev/null 2> /dev/null &&
+    assert_tool_unchanged node && assert_tool_unchanged timeout && test ! -e "$temporary" &&
+      test ! -e "$temporary.rechecked"; then
+    :
+  else
+    status=1
+  fi
+  exit "$status"
+}
 trap 'cleanup $?' EXIT
 assert_tool_unchanged node
 "$node_bin" scripts/prepare-production-preactivation-core-materialization.mjs > "$temporary"
@@ -53,10 +67,33 @@ test "$(sha256sum "$target" | awk '{print $1}')" = "$target_sha256" || {
 }
 if ! cmp -s "$temporary" "$target"; then
   assert_tool_unchanged node
-  "$node_bin" scripts/install-release-config-stdin.mjs "$target" < "$temporary"
+  assert_tool_unchanged python3
+  candidate_sha256=$(sha256sum "$temporary" | awk '{print $1}')
+  parent_device=$(stat -Lc '%d' "$config_directory")
+  parent_inode=$(stat -Lc '%i' "$config_directory")
+  "$node_bin" scripts/replace-locked-source-stdin.mjs "$target" "$candidate_sha256" \
+    "$target_sha256" "$parent_device" "$parent_inode" "$python3_bin" "$python3_sha256" \
+    < "$temporary"
 fi
+test -f "$target"; test ! -L "$target"
+test "$(stat -Lc '%u:%a:%h' "$target")" = "$(id -u):644:1"
+cmp -s "$temporary" "$target"
 sync -f "$target"; sync -f "$config_directory"
+cmp -s "$temporary" "$target"
+# Re-derive from all installed inputs after the durable directory boundary.
+# This makes a late, non-cooperating source/artifact replacement observable
+# before the materializer reports success.
+assert_tool_unchanged node
+"$node_bin" scripts/prepare-production-preactivation-core-materialization.mjs > "$temporary.rechecked"
+cmp -s "$temporary" "$temporary.rechecked"
+cmp -s "$temporary" "$target"
+"$node_bin" scripts/prepare-production-preactivation-core-materialization.mjs > "$temporary.rechecked"
+cmp -s "$temporary" "$temporary.rechecked"
+cmp -s "$temporary" "$target"
+"$node_bin" scripts/prepare-production-preactivation-core-materialization.mjs > "$temporary.rechecked"
+cmp -s "$temporary" "$temporary.rechecked"
 assert_tool_unchanged jq
+assert_tool_unchanged python3
 "$jq_bin" '{productionReady,realFundsAuthorized,domDomain,activationScheduleCommitment,
   verifierCodeHash,verifierInitcodeHash,verifierConfigHash,reserveConfigHash,checkpointVerifierCodeHash,
   checkpointVerifierInitcodeHash,checkpointVerifierConfigHash,checkpointRegistryConfigHash,

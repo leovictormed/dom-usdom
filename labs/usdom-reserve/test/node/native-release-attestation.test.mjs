@@ -9,7 +9,9 @@ import {collectNativeAttestationApprovalConsensus} from '../../sdk/release-autho
 
 const address=byte=>'0x'+byte.repeat(20);
 const hash=byte=>'0x'+byte.repeat(32);
+const implementation=address('12');
 const releaseConfig={ethereumChainId:'1',governance:address('11'),governanceCodeHash:hash('22'),
+ governanceImplementation:implementation,governanceImplementationCodeHash:keccak256('0x60016000'),
  reserveConfigHash:hash('44'),checkpointRegistryConfigHash:hash('33')};
 const attestation={approvedBy:releaseConfig.governance,checkpointRegistryConfigHash:hash('33'),
  completedAt:'1792492800',kind:'native-privacy-trusted-setup',releaseId:'release-1',
@@ -21,8 +23,12 @@ const validReturn=AbiCoder.defaultAbiCoder().encode(['bytes4'],[EIP1271_MAGIC_VA
 const sources=[{sourceId:'operator-a',originKeccak256:hash('81')},
  {sourceId:'operator-b',originKeccak256:hash('82')}];
 
-function provider({result=validReturn,endingHash=blockHash,callError=false}={}) {
+function provider({result=validReturn,endingHash=blockHash,callError=false,
+ implementationCode=code,singleton=implementation,singletonAfter=singleton,
+ governanceCodeAfter=code}={}) {
  const calls=[];
+ let storageReads=0;
+ let governanceCodeReads=0;
  return {calls,async send(method,params) {
   calls.push([method,params]);
   if(method==='eth_chainId') return '0x1';
@@ -31,7 +37,12 @@ function provider({result=validReturn,endingHash=blockHash,callError=false}={}) 
     timestamp:'0x'+BigInt(1792492900).toString(16)};
    return {number:'0x14fb180',hash:endingHash,timestamp:'0x'+BigInt(1792492900).toString(16)};
   }
-  if(method==='eth_getCode') return code;
+  if(method==='eth_getCode') return params[0].toLowerCase()===implementation.toLowerCase()
+   ?implementationCode:(governanceCodeReads++===0?code:governanceCodeAfter);
+  if(method==='eth_getStorageAt') {
+   const selected=storageReads++===0?singleton:singletonAfter;
+   return '0x'+'00'.repeat(12)+selected.slice(2);
+  }
   if(method==='eth_call') {
    if(callError) throw new Error('rejected');
    return result;
@@ -76,6 +87,18 @@ test('native attestation builder derives the exact release-bound signing request
   completedAt:attestation.completedAt,subjectCommitment:attestation.subjectCommitment}),/unsupported/);
 });
 
+test('native attestation rejects oversized integers before EIP-712 conversion',()=>{
+ assert.throws(()=>nativeReleaseAttestationTypedData({
+  ...attestation,completedAt:'9'.repeat(100000),
+ },releaseConfig),/completedAt/);
+ assert.throws(()=>nativeReleaseAttestationTypedData(attestation,{
+  ...releaseConfig,ethereumChainId:'9'.repeat(100000),
+ }),/ethereumChainId/);
+ assert.throws(()=>nativeReleaseAttestationTypedData(attestation,{
+  ...releaseConfig,ethereumChainId:(1n<<256n).toString(),
+ }),/uint256/);
+});
+
 test('finalized collector uses exact governance code, fixed block and EIP-1271 result',async()=>{
  const rpc=provider();
  const observation=await collectNativeAttestationApprovals({provider:rpc,releaseConfig,
@@ -106,6 +129,14 @@ test('collector records rejection, call failure and ending-snapshot changes fail
  const changed=await collectNativeAttestationApprovals({provider:provider({endingHash:hash('67')}),releaseConfig,
   attestations:{nativePrivacyTrustedSetup:attestation}});
  assert.equal(changed.snapshotBlockHashAfter,hash('67'));
+});
+
+test('native collector rejects Safe implementation drift before accepting EIP-1271',async()=>{
+ for(const rpc of [provider({singleton:address('13')}),provider({implementationCode:'0x6002'}),
+  provider({singletonAfter:address('13')}),provider({governanceCodeAfter:'0x6002'})]) {
+  await assert.rejects(()=>collectNativeAttestationApprovals({provider:rpc,releaseConfig,
+   attestations:{nativePrivacyTrustedSetup:attestation}}),/implementation/);
+ }
 });
 
 test('native attestation signatures are canonical, nonempty and bounded',async()=>{

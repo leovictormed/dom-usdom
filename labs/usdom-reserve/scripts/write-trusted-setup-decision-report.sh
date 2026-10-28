@@ -6,7 +6,7 @@ if (($# != 0)); then
   printf '%s\n' 'Usage: bash scripts/write-trusted-setup-decision-report.sh' >&2
   exit 64
 fi
-for command in node jq sha256sum stat realpath mktemp flock sync mv cmp id chmod awk; do
+for command in node jq sha256sum stat realpath mktemp flock sync mv cmp id chmod awk timeout python3; do
   command -v "$command" >/dev/null
 done
 pin_tool() {
@@ -21,10 +21,10 @@ pin_tool() {
 }
 assert_tool_unchanged() {
  local name=$1 bin_name="${1}_bin" identity_name="${1}_identity" parent_identity_name="${1}_parent_identity" sha_name="${1}_sha256" path parent; path=${!bin_name}; parent=$(dirname "$path")
- [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]]
- [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
+ [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]] || return 1
+ [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]] || return 1
 }
-pin_tool node; pin_tool jq
+pin_tool node; pin_tool jq; pin_tool timeout; pin_tool python3
 project=$(realpath "$(dirname "$0")/..")
 test "$PWD" = "$project"
 config_directory="$project/config"
@@ -43,22 +43,47 @@ exec 8<"$config_directory"
 flock -n 8 || { printf '%s\n' 'Another release materializer holds the config lock' >&2; exit 75; }
 exec 9<"$output"
 flock -n 9 || { printf '%s\n' 'Another trusted-setup writer holds the output lock' >&2; exit 75; }
+metadata_sha256=$(sha256sum "$metadata" | awk '{print $1}')
+parent_device=$(stat -Lc '%d' "$config_directory")
+parent_inode=$(stat -Lc '%i' "$config_directory")
 
 invalidation=$(mktemp -p "$output" .invalidate.XXXXXXXX)
-cleanup_invalidation() { local status=${1:-$?}; trap - EXIT; assert_tool_unchanged node && "$node_bin" -e 'require("fs").rmSync(process.argv[1],{force:true})' "$invalidation" || status=1; exit "$status"; }
+cleanup_invalidation() {
+  local status=${1:-$?}; trap - EXIT
+  if assert_tool_unchanged node && assert_tool_unchanged timeout &&
+    "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+      "$node_bin" -e 'require("fs").rmSync(process.argv[1],{force:true})' "$invalidation" \
+      > /dev/null 2> /dev/null &&
+    assert_tool_unchanged node && assert_tool_unchanged timeout && test ! -e "$invalidation"; then :; else status=1; fi
+  exit "$status"
+}
 trap 'cleanup_invalidation $?' EXIT
 assert_tool_unchanged node
 "$node_bin" "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" \
   | (assert_tool_unchanged jq; "$jq_bin" '.trustedSetup.decisionReport=null | .checkpointTrustedSetup.decisionReport=null') > "$invalidation"
 chmod 0600 "$invalidation"; sync -f "$invalidation"
 assert_tool_unchanged node
-"$node_bin" "$project/scripts/install-release-config-stdin.mjs" "$metadata" < "$invalidation"
+assert_tool_unchanged python3
+candidate_sha256=$(sha256sum "$invalidation" | awk '{print $1}')
+"$node_bin" "$project/scripts/replace-locked-source-stdin.mjs" "$metadata" \
+  "$candidate_sha256" "$metadata_sha256" "$parent_device" "$parent_inode" \
+  "$python3_bin" "$python3_sha256" < "$invalidation"
+metadata_sha256=$candidate_sha256
 assert_tool_unchanged node
 "$node_bin" "$project/scripts/remove-private-file-durable.mjs" "$output/trusted-setup-decision-report.json"
 sync -f "$metadata"; sync -f "$output"; sync -f "$config_directory"
 
 temporary=$(mktemp -d -p "$output" .build.XXXXXXXX)
-cleanup() { local status=${1:-$?}; trap - EXIT; assert_tool_unchanged node && "$node_bin" -e 'const fs=require("fs");for(const p of process.argv.slice(1))fs.rmSync(p,{recursive:true,force:true})' "$invalidation" "$temporary" || status=1; exit "$status"; }
+cleanup() {
+  local status=${1:-$?}; trap - EXIT
+  if assert_tool_unchanged node && assert_tool_unchanged timeout &&
+    "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+      "$node_bin" -e 'const fs=require("fs");for(const p of process.argv.slice(1))fs.rmSync(p,{recursive:true,force:true})' \
+      "$invalidation" "$temporary" > /dev/null 2> /dev/null &&
+    assert_tool_unchanged node && assert_tool_unchanged timeout &&
+    test ! -e "$invalidation" && test ! -e "$temporary"; then :; else status=1; fi
+  exit "$status"
+}
 trap 'cleanup $?' EXIT
 report="$temporary/trusted-setup-decision-report.json"
 next_metadata="$temporary/mainnet-release-evidence.json"
@@ -94,7 +119,11 @@ assert_tool_unchanged node
 cmp -s "$metadata_snapshot" "$metadata_current"
 if ! cmp -s "$next_metadata" "$metadata_snapshot"; then
   assert_tool_unchanged node
-  "$node_bin" "$project/scripts/install-release-config-stdin.mjs" "$metadata" < "$next_metadata"
+  assert_tool_unchanged python3
+  candidate_sha256=$(sha256sum "$next_metadata" | awk '{print $1}')
+  "$node_bin" "$project/scripts/replace-locked-source-stdin.mjs" "$metadata" \
+    "$candidate_sha256" "$metadata_sha256" "$parent_device" "$parent_inode" \
+    "$python3_bin" "$python3_sha256" < "$next_metadata"
 fi
 assert_tool_unchanged node
 "$node_bin" "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_installed"

@@ -1,0 +1,32 @@
+USDOM mainnet readiness — Stage 1323
+Date: 2026-10-26
+
+Finding
+=======
+
+The production operational-gas job preparer read operator-selected release and
+local-evidence paths directly and parsed both with JSON.parse. Although values
+and hashes came from the same Buffer, symlinked, oversized and duplicate-key JSON
+could cross this production planning boundary.
+
+Correction
+==========
+
+Both authorities now pass through one snapshot helper. It opens with O_NOFOLLOW,
+requires a regular, owner-owned, mode-0600, single-link file between 1 byte and 1 MiB, reads
+one descriptor snapshot and derives both bounded strict JSON and SHA-256 from
+those exact bytes. The job receives only each snapshot's paired value and hash.
+
+Validation
+==========
+
+- Node syntax check passed.
+- Focused bounded-numeric, production-job and ingress tests: 3/3 passed.
+- Independent strict-JSON and operator suite: 89/89 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No production facts were changed by local evidence. No Rust, Solidity, Cargo,
+Forge, network, Ledger, signing, deployment, funds, commit or push occurred.

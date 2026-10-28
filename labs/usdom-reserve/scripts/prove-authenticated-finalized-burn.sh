@@ -15,8 +15,22 @@ ARTIFACT_DIR="$LAB_ROOT/evidence/finalized-burn-guest"
 OUTPUT_DIR="$LAB_ROOT/evidence/finalized-burn-receipt"
 SNAPSHOT_ROOT="$(mktemp -d "/dev/shm/usdom-finalized-burn-prove.XXXXXX")"
 chmod 0700 "$SNAPSHOT_ROOT"
+SNAPSHOT_ROOT_IDENTITY=$(/usr/bin/stat -c '%u:%d:%i:%a' "$SNAPSHOT_ROOT")
 SNAPSHOT_LAB="$SNAPSHOT_ROOT/repository/labs/usdom-reserve"
-trap 'rm -rf -- "$SNAPSHOT_ROOT"' EXIT HUP INT TERM
+cleanup_snapshot() {
+  local status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' "$SNAPSHOT_ROOT" 2>/dev/null) == "$SNAPSHOT_ROOT_IDENTITY" ]]; then
+    /usr/bin/rm -rf -- "$SNAPSHOT_ROOT" || status=1
+  else
+    status=1
+  fi
+  exit "$status"
+}
+trap 'cleanup_snapshot $?' EXIT
+trap 'cleanup_snapshot 129' HUP
+trap 'cleanup_snapshot 130' INT
+trap 'cleanup_snapshot 143' TERM
 
 if (($# != 0)); then
   printf '%s\n' 'Usage: npm run --silent prove:authenticated-finalized-burn' >&2
@@ -34,7 +48,9 @@ pin_tool() {
  [[ $(realpath "$directory") == "$directory" ]]
  printf -v "${name}_directory_identity" '%s' "$(stat -Lc '%d:%i:%u:%a' "$directory")"
  printf -v "${name}_bin" '%s' "$path"; printf -v "${name}_identity" '%s' "$(stat -Lc '%d:%i:%s:%Y:%Z' "$path")"
- printf -v "${name}_sha256" '%s' "$(sha256sum "$path" | awk '{print $NF}')"
+ local executable_sha ignored
+ read -r executable_sha ignored < <(sha256sum "$path")
+ printf -v "${name}_sha256" '%s' "$executable_sha"
  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]]
 }
@@ -42,15 +58,22 @@ assert_tool_unchanged() {
   local name=${1} bin_name="${1}_bin" identity_name="${1}_identity" sha_name="${1}_sha256" directory_identity_name="${1}_directory_identity"
   local path=${!bin_name} identity=${!identity_name} sha=${!sha_name} directory
   directory=$(dirname "$path")
-  [[ $(realpath "$directory") == "$directory" ]]
-  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]]
-  [[ $(realpath "$(command -v "$name")") == "$path" ]]
-  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]]
-  [[ $(sha256sum "$path" | awk '{print $NF}') == "$sha" ]]
-  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]]
-  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]]
+  [[ $(realpath "$directory") == "$directory" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]] || return 1
+  [[ $(realpath "$(command -v "$name")") == "$path" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]] || return 1
+  local observed_sha ignored
+  read -r observed_sha ignored < <("$sha256sum_bin" "$path") || return 1
+  [[ $observed_sha == "$sha" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]] || return 1
 }
-for command in cargo cmp jq node env cp; do pin_tool "$command"; done
+sha256_file() {
+  local output ignored
+  read -r output ignored < <("$sha256sum_bin" -- "${1}")
+  printf '%s\n' "$output"
+}
+for command in cargo cmp jq node env cp sha256sum stat; do pin_tool "$command"; done
 for directory in "$JOB_DIR" "$ARTIFACT_DIR"; do
   [[ -d "$directory" && ! -L "$directory" ]] || {
     printf 'Missing non-symlink finalized-burn proof input directory: %s\n' "$directory" >&2; exit 1; }
@@ -91,8 +114,8 @@ for name in finalized-burn-receipt.bin finalized-burn-composite-receipt.bin; do
     chmod 0600 "$snapshot_output/$name"
   fi
 done
-input_sha=$(sha256sum "$snapshot_jobs/finalized-burn-input.bin" | cut -d ' ' -f 1)
-program_sha=$(sha256sum "$snapshot_artifacts/usdom-finalized-burn.elf" | cut -d ' ' -f 1)
+input_sha=$(sha256_file "$snapshot_jobs/finalized-burn-input.bin")
+program_sha=$(sha256_file "$snapshot_artifacts/usdom-finalized-burn.elf")
 if ! "$cmp_bin" -s "$snapshot_source/finalized-burn-input.bin" "$snapshot_jobs/finalized-burn-input.bin"; then
   printf '%s\n' 'Finalized-burn source differs from the exact planned proof input' >&2
   exit 1
@@ -124,7 +147,7 @@ assert_tool_unchanged cargo
 source "$LAB_ROOT/scripts/require-risc0-program-binary.sh"
 verify_risc0_program_binary "$cargo_bin" "$REPOSITORY_ROOT" \
   "$snapshot_artifacts/usdom-finalized-burn.elf" \
-  2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea
+  f0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae
 require_risc0_recursion_artifact
 cd "$SNAPSHOT_LAB"
 reviewed_job_index="$SNAPSHOT_ROOT/reviewed-finalized-burn-job-index.json"
@@ -136,11 +159,11 @@ assert_tool_unchanged cargo; assert_tool_unchanged cp; assert_tool_unchanged nod
 "$cmp_bin" -s "$snapshot_source/finalized-burn-input.bin" "$snapshot_jobs/finalized-burn-input.bin" || { printf '%s\n' 'Rebuilt finalized-burn witness differs from private source' >&2; exit 1; }
 critical="$SNAPSHOT_ROOT/finalized-burn-critical-inputs.sha256"
 {
- sha256sum "$snapshot_source/finalized-burn-input.bin" "$snapshot_jobs/finalized-burn-input.bin" "$snapshot_jobs/finalized-burn-proof-job-index.json" "$snapshot_statement/checkpoint-statement-v6.bin" "$snapshot_checkpoint_receipts/checkpoint-outer-receipt.bin" "$snapshot_artifacts/usdom-finalized-burn.elf" "$snapshot_artifacts/usdom-finalized-burn.iid"
- for name in finalized-burn-receipt.bin finalized-burn-composite-receipt.bin; do [[ ! -e $snapshot_output/$name ]] || sha256sum "$snapshot_output/$name"; done
+ "$sha256sum_bin" "$snapshot_source/finalized-burn-input.bin" "$snapshot_jobs/finalized-burn-input.bin" "$snapshot_jobs/finalized-burn-proof-job-index.json" "$snapshot_statement/checkpoint-statement-v6.bin" "$snapshot_checkpoint_receipts/checkpoint-outer-receipt.bin" "$snapshot_artifacts/usdom-finalized-burn.elf" "$snapshot_artifacts/usdom-finalized-burn.iid"
+ for name in finalized-burn-receipt.bin finalized-burn-composite-receipt.bin; do [[ ! -e $snapshot_output/$name ]] || "$sha256sum_bin" "$snapshot_output/$name"; done
 } > "$critical"
-assert_tool_unchanged cargo; assert_tool_unchanged cmp; assert_tool_unchanged jq; assert_tool_unchanged node; assert_tool_unchanged env
-sha256sum -c "$critical" >/dev/null
+assert_tool_unchanged cargo; assert_tool_unchanged cmp; assert_tool_unchanged jq; assert_tool_unchanged node; assert_tool_unchanged env; assert_tool_unchanged sha256sum; assert_tool_unchanged stat
+"$sha256sum_bin" -c "$critical" >/dev/null
 "$env_bin" -u BONSAI_API_URL -u BONSAI_API_KEY -u RISC0_SERVER_PATH -u RISC0_SERVER_ADDR \
   -u RISC0_EXECUTOR -u RISC0_PPROF_OUT -u RISC0_PPROF_ENABLE_INLINE_FUNCTIONS \
   -u RISC0_KECCAK_PO2 -u RISC0_DEFAULT_PROVER_NUM_GPUS -u RISC0_INFO \
@@ -149,6 +172,17 @@ sha256sum -c "$critical" >/dev/null
   "$cargo_bin" run --quiet --release --locked --manifest-path "$REPOSITORY_ROOT/Cargo.toml" \
   -p dom-usdom-finalized-burn-proof-host --features prove \
   --bin dom-usdom-prove-finalized-burn
+
+completion_index="$snapshot_output/finalized-burn-receipt-index.json"
+completion_record=$("$jq_bin" -er '
+  select(.schema == "usdom-finalized-burn-receipt-v1") |
+  select(.receipt_file == "finalized-burn-receipt.bin") |
+  select(.receipt_sha256|type == "string" and test("^[0-9a-f]{64}$")) |
+  select(.receipt_bytes|type == "number" and floor == . and . > 0 and . <= 268435456) |
+  [.receipt_file,.receipt_sha256,(.receipt_bytes|tostring)] | @tsv
+' "$completion_index")
+IFS=$'\t' read -r completion_receipt completion_sha completion_bytes <<< "$completion_record"
+[[ $completion_receipt == finalized-burn-receipt.bin && $("$stat_bin" -Lc '%s' "$snapshot_output/$completion_receipt") == "$completion_bytes" && $(sha256_file "$snapshot_output/$completion_receipt") == "$completion_sha" ]] || { printf '%s\n' 'Finalized-burn prover receipt does not match its completion index' >&2; exit 1; }
 
 final_index="$OUTPUT_DIR/finalized-burn-receipt-index.json"
 if [[ -e "$final_index" || -L "$final_index" ]]; then
@@ -162,7 +196,11 @@ if [[ -e "$installed_receipt" || -L "$installed_receipt" ]]; then
   rm -- "$installed_receipt"
   sync -d "$OUTPUT_DIR"
 fi
-"$node_bin" "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$snapshot_output/finalized-burn-receipt.bin" \
-  | "$node_bin" "$LAB_ROOT/scripts/install-private-file-stdin.mjs" "$OUTPUT_DIR/finalized-burn-receipt.bin"
-"$node_bin" "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$snapshot_output/finalized-burn-receipt-index.json" \
-  | "$node_bin" "$LAB_ROOT/scripts/install-private-file-stdin.mjs" "$OUTPUT_DIR/finalized-burn-receipt-index.json"
+"$node_bin" "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$snapshot_output/$completion_receipt" \
+  | "$node_bin" "$LAB_ROOT/scripts/install-private-file-stdin.mjs" "$OUTPUT_DIR/$completion_receipt"
+[[ $("$stat_bin" -Lc '%s' "$OUTPUT_DIR/$completion_receipt") == "$completion_bytes" && $(sha256_file "$OUTPUT_DIR/$completion_receipt") == "$completion_sha" ]] || { printf '%s\n' 'Published finalized-burn receipt failed integrity verification' >&2; exit 1; }
+completion_index_sha=$(sha256_file "$completion_index")
+"$node_bin" "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$completion_index" \
+  | "$node_bin" "$LAB_ROOT/scripts/install-private-file-stdin.mjs" "$final_index"
+[[ $(sha256_file "$final_index") == "$completion_index_sha" ]] || { printf '%s\n' 'Published finalized-burn completion index changed during installation' >&2; exit 1; }
+[[ $("$stat_bin" -Lc '%s' "$OUTPUT_DIR/$completion_receipt") == "$completion_bytes" && $(sha256_file "$OUTPUT_DIR/$completion_receipt") == "$completion_sha" ]] || { printf '%s\n' 'Finalized-burn receipt changed before completion publication' >&2; exit 1; }

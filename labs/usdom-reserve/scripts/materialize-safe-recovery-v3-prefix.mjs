@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+import {readFile} from 'node:fs/promises';import {writePrivateFileDurableNew} from '../sdk/durable-private-file.mjs';import {nextRecoveryOrdinal} from '../sdk/safe-recovery-roster-drill.mjs';
+try{const [planPath,...args]=process.argv.slice(2),output=args.pop(),plan=JSON.parse(await readFile(planPath)),steps=[];for(const p of args)steps.push(JSON.parse(await readFile(p)));nextRecoveryOrdinal(plan,steps);await writePrivateFileDurableNew(output,`${JSON.stringify({schema:'usdom-safe-recovery-roster-finalized-prefix/v3',steps})}\n`);}catch(e){console.error(e.message);process.exit(1)}

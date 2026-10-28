@@ -1,0 +1,15 @@
+Stage 1187 — release-authorization bounded integer parsing
+Date: 2026-10-26
+
+Production release authorization and signing-request validation still accepted
+arbitrary-length chain IDs, acceptance timestamps and finalized anchor
+coordinates before BigInt or ethers conversion. Chain ID now has a 78-digit
+lexical ceiling and exact uint256 bound. Authorization time and finalized block
+number/timestamp have 20-digit lexical ceilings and exact nonzero uint64 bounds.
+
+Adversarial tests reject 100,000-digit acceptance/chain values and exact 2^256
+before EIP-712 encoding. The full focused authorization suite passes 7/7 with
+pinned Node 24.19.0; targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

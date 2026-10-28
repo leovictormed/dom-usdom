@@ -8,7 +8,7 @@ use std::{
 
 use alloy::{
     consensus::Header,
-    primitives::{Address, Bytes, B256, U256},
+    primitives::{keccak256, Address, Bytes, B256, U256},
 };
 use dom_config::Network;
 use dom_node::{
@@ -28,7 +28,7 @@ use usdom_ethereum_finality_experiment::{
     verified_transcript_from_rest,
 };
 
-const SOURCE_SCHEMA: &str = "usdom-finalized-deposit-source-v1";
+const SOURCE_SCHEMA: &str = "usdom-finalized-deposit-source-v2";
 const WITNESS_NAME: &str = "finalized-deposit-witness.bin";
 const INDEX_NAME: &str = "finalized-deposit-witness-index.json";
 const MAX_SOURCE_BYTES: usize = 64 * 1024 * 1024;
@@ -62,9 +62,28 @@ struct Source {
     updates: Vec<Value>,
     finality: Value,
     headers: Vec<Value>,
+    raw_transactions: Vec<Bytes>,
     receipts: Vec<Bytes>,
     reserve_account: RpcAccount,
     runtime_bytecode: Bytes,
+    source_catalog: SourceCatalog,
+    source_count: String,
+    source_set_commitment: B256,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SourceCatalog {
+    schema: String,
+    sources: Vec<SourceCatalogEntry>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SourceCatalogEntry {
+    operator_id: String,
+    execution_origin_keccak256: B256,
+    beacon_origin_keccak256: B256,
 }
 
 #[derive(Deserialize)]
@@ -97,6 +116,10 @@ fn run() -> anyhow::Result<()> {
         || source.headers.len() > 256
         || source.receipts.is_empty()
         || source.receipts.len() > 4096
+        || source.raw_transactions.is_empty()
+        || source.raw_transactions.len() != source.receipts.len()
+        || source.raw_transactions.len() > 4096
+        || !valid_source_catalog(&source)
     {
         anyhow::bail!("finalized-deposit source identity is invalid");
     }
@@ -166,6 +189,18 @@ fn run() -> anyhow::Result<()> {
     if receipts_root != first.receipts_root {
         anyhow::bail!("complete receipt set does not reproduce the deposit block root");
     }
+    let transactions_root = alloy_trie::root::ordered_trie_root_encoded(&source.raw_transactions);
+    let transaction_index = usize::try_from(source.transaction_index)
+        .map_err(|_| anyhow::anyhow!("transaction index overflow"))?;
+    let raw_transaction = source
+        .raw_transactions
+        .get(transaction_index)
+        .ok_or_else(|| anyhow::anyhow!("deposit transaction index exceeds raw transaction set"))?;
+    if transactions_root != first.transactions_root
+        || keccak256(raw_transaction.as_ref()) != source.transaction_hash
+    {
+        anyhow::bail!("raw transaction set does not bind the deposit transaction to its block");
+    }
     let nonce = parse_quantity_u64(&source.reserve_account.nonce, "reserve nonce")?;
     let balance = parse_quantity_u256(&source.reserve_account.balance, "reserve balance")?;
     let account = account_evidence_from_rpc_claim(RpcAccountClaim {
@@ -225,6 +260,8 @@ fn run() -> anyhow::Result<()> {
         "funder": verified.funder(),
         "amount_base_units": verified.amount().to_string(),
         "receiving_commitment": verified.receiving_commitment(),
+        "transaction_index": verified.locator().transaction_index,
+        "receipt_log_index": verified.locator().receipt_log_index,
         "deposit_block_number": verified.locator().block_number.to_string(),
         "deposit_block_hash": verified.locator().block_hash,
         "finalized_beacon_slot": finalized.beacon_slot.to_string(),
@@ -333,7 +370,10 @@ fn parse_quantity_u256(value: &str, label: &str) -> anyhow::Result<U256> {
     if digits.is_empty() || (digits.len() > 1 && digits.starts_with('0')) {
         anyhow::bail!("{label} is noncanonical");
     }
-    U256::from_str_radix(digits, 16).map_err(|error| anyhow::anyhow!("invalid {label}: {error}"))
+    match U256::from_str_radix(digits, 16) {
+        Ok(value) => Ok(value),
+        Err(_) => anyhow::bail!("invalid {label}"),
+    }
 }
 
 fn parse_decimal_u64(value: &str, label: &str) -> anyhow::Result<u64> {
@@ -351,6 +391,54 @@ fn is_raw_sha256(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn source_catalog_commitment(catalog: &SourceCatalog) -> B256 {
+    let mut preimage = b"USDOM_FINALIZED_DEPOSIT_RPC_SOURCES_V1\n".to_vec();
+    for (index, source) in catalog.sources.iter().enumerate() {
+        if index != 0 {
+            preimage.push(b'\n');
+        }
+        preimage.extend_from_slice(source.operator_id.as_bytes());
+        preimage.push(0);
+        preimage.extend_from_slice(b"0x");
+        preimage.extend_from_slice(hex::encode(source.execution_origin_keccak256).as_bytes());
+        preimage.push(0);
+        preimage.extend_from_slice(b"0x");
+        preimage.extend_from_slice(hex::encode(source.beacon_origin_keccak256).as_bytes());
+    }
+    keccak256(preimage)
+}
+
+fn valid_source_catalog(source: &Source) -> bool {
+    let entries = &source.source_catalog.sources;
+    if source.source_catalog.schema != "usdom-finalized-deposit-source-catalog-v1"
+        || !(2..=5).contains(&entries.len())
+        || parse_decimal_u64(&source.source_count, "source count").ok()
+            != u64::try_from(entries.len()).ok()
+        || source_catalog_commitment(&source.source_catalog) != source.source_set_commitment
+    {
+        return false;
+    }
+    for (index, entry) in entries.iter().enumerate() {
+        if !(3..=64).contains(&entry.operator_id.len())
+            || !entry.operator_id.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'_'
+            })
+            || entry.execution_origin_keccak256 == B256::ZERO
+            || entry.beacon_origin_keccak256 == B256::ZERO
+        {
+            return false;
+        }
+        if entries[..index].iter().any(|prior| {
+            prior.operator_id >= entry.operator_id
+                || prior.execution_origin_keccak256 == entry.execution_origin_keccak256
+                || prior.beacon_origin_keccak256 == entry.beacon_origin_keccak256
+        }) {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -376,6 +464,75 @@ mod tests {
         symlink(&source, &indirect).unwrap();
         assert!(read_regular_file(&indirect, 5, "source").is_err());
         assert!(read_regular_file(&source, 4, "source").is_err());
+    }
+
+    #[test]
+    fn collected_source_catalog_is_accepted_and_cryptographically_bound() {
+        let execution_a = B256::repeat_byte(0x11);
+        let execution_b = B256::repeat_byte(0x22);
+        let beacon_a = B256::repeat_byte(0x33);
+        let beacon_b = B256::repeat_byte(0x44);
+        let catalog = SourceCatalog {
+            schema: "usdom-finalized-deposit-source-catalog-v1".to_owned(),
+            sources: vec![
+                SourceCatalogEntry {
+                    operator_id: "operator_a".to_owned(),
+                    execution_origin_keccak256: execution_a,
+                    beacon_origin_keccak256: beacon_a,
+                },
+                SourceCatalogEntry {
+                    operator_id: "operator_b".to_owned(),
+                    execution_origin_keccak256: execution_b,
+                    beacon_origin_keccak256: beacon_b,
+                },
+            ],
+        };
+        let commitment = source_catalog_commitment(&catalog);
+        let mut encoded = serde_json::json!({
+            "schema": SOURCE_SCHEMA,
+            "releaseConfigSha256": "11".repeat(32),
+            "nativeManifestSha256": "22".repeat(32),
+            "transactionHash": format!("{:#x}", B256::repeat_byte(0x55)),
+            "chainId": "1",
+            "reserve": "0x0000000000000000000000000000000000000001",
+            "depositId": format!("{:#x}", B256::repeat_byte(0x66)),
+            "funder": "0x0000000000000000000000000000000000000002",
+            "amountBaseUnits": "1",
+            "receivingCommitment": format!("{:#x}", B256::repeat_byte(0x77)),
+            "transactionIndex": 0,
+            "receiptLogIndex": 0,
+            "depositBlockNumber": "1",
+            "depositBlockHash": format!("{:#x}", B256::repeat_byte(0x88)),
+            "bootstrap": {}, "updates": [], "finality": {}, "headers": [{}],
+            "rawTransactions": ["0x01"], "receipts": ["0x01"],
+            "reserveAccount": {
+                "address": "0x0000000000000000000000000000000000000001",
+                "balance": "0x0", "codeHash": format!("{:#x}", B256::repeat_byte(0x99)),
+                "nonce": "0x0", "storageHash": format!("{:#x}", B256::repeat_byte(0xaa)),
+                "accountProof": ["0x01"]
+            },
+            "runtimeBytecode": "0x01",
+            "sourceCatalog": {
+                "schema": "usdom-finalized-deposit-source-catalog-v1",
+                "sources": [
+                    {"operatorId":"operator_a","executionOriginKeccak256":format!("{execution_a:#x}"),"beaconOriginKeccak256":format!("{beacon_a:#x}")},
+                    {"operatorId":"operator_b","executionOriginKeccak256":format!("{execution_b:#x}"),"beaconOriginKeccak256":format!("{beacon_b:#x}")}
+                ]
+            },
+            "sourceCount": "2",
+            "sourceSetCommitment": format!("{commitment:#x}")
+        });
+        let parsed: Source = serde_json::from_value(encoded.clone()).unwrap();
+        assert!(valid_source_catalog(&parsed));
+
+        encoded["sourceCount"] = serde_json::json!("3");
+        let parsed: Source = serde_json::from_value(encoded.clone()).unwrap();
+        assert!(!valid_source_catalog(&parsed));
+        encoded["sourceCount"] = serde_json::json!("2");
+        encoded["sourceSetCommitment"] =
+            serde_json::json!(format!("{:#x}", B256::repeat_byte(0xbb)));
+        let parsed: Source = serde_json::from_value(encoded).unwrap();
+        assert!(!valid_source_catalog(&parsed));
     }
 }
 

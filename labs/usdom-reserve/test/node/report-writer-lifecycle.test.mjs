@@ -20,7 +20,7 @@ test('all report writer Node children share the finite lifecycle policy',()=>{
     assert.equal(spawnSync('bash',['-n',script]).status,0,name);
     const source=readFileSync(script,'utf8');
     assert.doesNotMatch(source,/^\s*node\s/m,name);
-    const sites=source.match(/^\s*timeout --signal=TERM --kill-after=2s 120s node\s/gm)??[];
+    const sites=source.match(/^\s*(?:assert_runtime_tool node; assert_runtime_tool timeout; )?"?\$?timeout(?:_bin)?"? --signal=TERM --kill-after=2s 120s "?\$?node(?:_bin)?"?\s/gm)??[];
     assert.equal(sites.length,10,name);
     bounded+=sites.length;
   }

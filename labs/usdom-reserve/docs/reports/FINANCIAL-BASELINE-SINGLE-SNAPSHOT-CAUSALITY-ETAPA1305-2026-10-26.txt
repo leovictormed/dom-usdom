@@ -1,0 +1,35 @@
+Stage 1305 — single-snapshot financial baseline causality
+Date: 2026-10-26
+
+Finding
+-------
+The final phase reconciler parsed each deposit/redemption financial baseline,
+then reopened its pathname to compute baselineSha256. A replacement between
+these reads could combine validated balances and identities from one generation
+with the digest of another, weakening the causal link stored by terminal
+execution evidence.
+
+Correction
+----------
+The evidence reader now returns one record containing bytes, parsed value and
+SHA-256 derived from those exact bytes. Both deposit and payout terminal checks
+consume the value and digest from that same record. Missing baseline records
+fail explicitly. Other evidence consumers retain their bounded strict parsing.
+
+Adversarial regression
+----------------------
+Static causal coverage requires both terminal call sites to pass
+baselineSnapshot.value and baselineSnapshot.sha256, counts both digest uses and
+forbids the former pathname rereads used for deposit and payout baseline hashes.
+
+Validation
+----------
+- Closed-mainnet phase checker Node syntax check: pass.
+- Financial evidence/conservation, pilot DAG/evidence, command/privacy and broad
+  operator suites: 107/107 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

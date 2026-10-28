@@ -7,11 +7,12 @@ import {
 import {validateRecoverableSafeRecoveryEnvelope} from './safe-control-recovery-envelope.mjs';
 import {validateRpcConsensusEvidence} from './rpc-consensus-evidence.mjs';
 
-export const SAFE_RECOVERY_EXECUTION_SCHEMA='usdom-safe-recovery-finalized-execution/v2';
+export const SAFE_RECOVERY_EXECUTION_SCHEMA='usdom-safe-recovery-finalized-execution/v3';
 
 const safeInterface=new Interface([
   'event ExecutionSuccess(bytes32 indexed txHash,uint256 payment)',
 ]);
+const ZERO_HASH='0x'+'00'.repeat(32);
 
 function fail(message) { throw new Error(message); }
 function sameAddress(left,right) { return getAddress(left)===getAddress(right); }
@@ -32,6 +33,7 @@ export function validateFinalizedSafeRecoveryExecution({plan,transactionPackage,
   validateRecoverableSafeRecoveryPlan(plan);
   validateRecoverableSafeRecoveryTransactionPackage(plan,transactionPackage);
   const keys=['schema','role','safe','safeTxHash','transactionHash','blockNumber','blockHash',
+    'transactionIndex',
     'finalizedObservationBlockNumber','finalizedObservationBlockHash'];
   if(requireRpcConsensus) keys.push('rpcConsensus');
   exactKeys(execution,keys,'finalized Safe recovery execution');
@@ -42,13 +44,19 @@ export function validateFinalizedSafeRecoveryExecution({plan,transactionPackage,
       ||execution.safeTxHash!==rolePlan.safeTxHash
       ||!/^0x[0-9a-f]{64}$/.test(execution.transactionHash??'')
       ||!/^0x[0-9a-f]{64}$/.test(execution.blockHash??'')
-      ||!/^0x[0-9a-f]{64}$/.test(execution.finalizedObservationBlockHash??'')) {
+      ||!/^0x[0-9a-f]{64}$/.test(execution.finalizedObservationBlockHash??'')
+      ||[execution.safeTxHash,execution.transactionHash,execution.blockHash,
+        execution.finalizedObservationBlockHash].includes(ZERO_HASH)) {
     fail('finalized Safe recovery execution identity is invalid');
   }
   const block=uint64Decimal(execution.blockNumber,'execution block number');
+  uint64Decimal(execution.transactionIndex,'execution transaction index');
   const finalized=uint64Decimal(execution.finalizedObservationBlockNumber,
     'finalized observation block number');
   if(block>finalized) fail('execution block is newer than finalized observation');
+  if(block===finalized&&execution.blockHash!==execution.finalizedObservationBlockHash) {
+    fail('execution block hash differs from the finalized observation at the same height');
+  }
   if(requireRpcConsensus) validateRpcConsensusEvidence(execution.rpcConsensus);
   return execution;
 }
@@ -68,10 +76,10 @@ export function validateRecoverableSafeRecoveryRawTransaction({
   const expected=transactionPackage.transactions.find(value=>value.role===role);
   if(!expected||envelopePlan.role!==role) fail('Safe recovery role is invalid');
   if(!isAddress(relayerOwner)
-      || !plan.roles.find(value=>value.role===role).requiredSigners
-        .some(owner=>sameAddress(owner,relayerOwner))
+      || plan.roles.flatMap(value=>[value.safe,...value.requiredSigners])
+        .some(authority=>sameAddress(authority,relayerOwner))
       || !sameAddress(envelopePlan.relayerOwner,relayerOwner)) {
-    fail('Safe recovery relayer must be one of the two surviving owners');
+    fail('Safe recovery relayer overlaps a Safe or control owner');
   }
   if(typeof rawTransaction!=='string'||rawTransaction.length>128*1024
       || !/^0x[0-9a-f]+$/.test(rawTransaction)||rawTransaction.length%2!==0) {
@@ -80,7 +88,7 @@ export function validateRecoverableSafeRecoveryRawTransaction({
   let parsed;
   try { parsed=Transaction.from(rawTransaction); }
   catch { fail(`${role} raw recovery transaction cannot be decoded`); }
-  if(!parsed.isSigned()||parsed.hash!==keccak256(rawTransaction)
+  if(!parsed.isSigned()||parsed.serialized!==rawTransaction||parsed.hash!==keccak256(rawTransaction)
       || parsed.type!==2||parsed.chainId!==1n
       || !parsed.to||!sameAddress(parsed.to,expected.to)
       || !parsed.from||!sameAddress(parsed.from,relayerOwner)
@@ -92,6 +100,7 @@ export function validateRecoverableSafeRecoveryRawTransaction({
       || parsed.gasLimit<=0n||parsed.maxFeePerGas===null
       || parsed.maxPriorityFeePerGas===null
       || parsed.maxPriorityFeePerGas>parsed.maxFeePerGas
+      || !parsed.signature||parsed.signature.serialized!==parsed.signature.serialized.toLowerCase()
       || (parsed.accessList?.length??0)!==0
       || parsed.authorizationList!==null||parsed.blobVersionedHashes!==null) {
     fail(`${role} signed recovery transaction envelope mismatch`);
@@ -161,6 +170,9 @@ export async function observeFinalizedSafeRecoveryExecution({
       || transaction.hash!==log.transactionHash||receipt.hash!==log.transactionHash
       || transaction.blockHash!==log.blockHash||receipt.blockHash!==log.blockHash
       || transaction.blockNumber!==log.blockNumber||receipt.blockNumber!==log.blockNumber
+      || !Number.isSafeInteger(receipt.index)||receipt.index<0
+      || !Number.isSafeInteger(transaction.index)||transaction.index!==receipt.index
+      || !Number.isSafeInteger(log.transactionIndex)||log.transactionIndex!==receipt.index
       || canonicalBlock.hash!==log.blockHash||log.blockNumber>finalized.number
       || log.removed===true
       || !sameAddress(transaction.to,expected.to)||!sameAddress(receipt.to,expected.to)
@@ -179,6 +191,7 @@ export async function observeFinalizedSafeRecoveryExecution({
   if(!receiptEvent||receiptEvent.args.payment!==0n
       || receiptLog.transactionHash!==log.transactionHash
       || receiptLog.blockHash!==log.blockHash||receiptLog.blockNumber!==log.blockNumber
+      || receiptLog.transactionIndex!==log.transactionIndex
       || receiptLog.index!==log.index) {
     fail(`${role} receipt execution event mismatch`);
   }
@@ -190,6 +203,7 @@ export async function observeFinalizedSafeRecoveryExecution({
     transactionHash:log.transactionHash,
     blockNumber:String(log.blockNumber),
     blockHash:log.blockHash,
+    transactionIndex:String(log.transactionIndex),
     finalizedObservationBlockNumber:String(finalized.number),
     finalizedObservationBlockHash:finalized.hash,
   };

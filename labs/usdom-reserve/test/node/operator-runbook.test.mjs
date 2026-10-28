@@ -55,6 +55,9 @@ const releaseSourceCommitScript=fileURLToPath(new URL(
 const releaseEvidenceCommitScript=fileURLToPath(new URL(
   '../../scripts/commit-release-evidence.sh',import.meta.url,
 ));
+const releaseGitBoundaryScript=fileURLToPath(new URL(
+  '../../scripts/git-release-ceremony-boundary.sh',import.meta.url,
+));
 const residualRiskWriter=fileURLToPath(new URL(
   '../../scripts/write-residual-risk-report.sh',import.meta.url,
 ));
@@ -331,6 +334,7 @@ const finalizedBurnProverE2eScript=fileURLToPath(new URL(
 
 test('operator runbook contains no manual substitution markers',()=>{
   const runbook=readFileSync(runbookPath,'utf8');
+  const phaseGenerator=readFileSync(new URL('../../scripts/generate-closed-mainnet-phase-command.sh',import.meta.url),'utf8');
   const safeDeploymentExecutor=readFileSync(new URL('../../scripts/execute-safe-control-deployment.sh',import.meta.url),'utf8');
   for(const forbidden of [
     '0x_SUBSTITUA','FINGERPRINT_FORA_DO_REPOSITORIO','Preencha os arquivos',
@@ -349,15 +353,15 @@ test('operator runbook contains no manual substitution markers',()=>{
     assert.match(runbook,new RegExp(`install-private-file-new-stdin\\.mjs "\\$${artifact}"`));
     assert.doesNotMatch(runbook,new RegExp(`> "\\$${artifact}"|chmod 0600[^\\n]*"\\$${artifact}"`));
   }
-  assert.match(runbook,/generate-closed-mainnet-phase-command\.sh prepare-safe-recovery-secret/);
-  assert.match(runbook,/generate-closed-mainnet-phase-command\.sh execute-safe-recovery-secret/);
+  assert.match(runbook,/materialize-closed-mainnet-phase-script\.sh prepare-safe-recovery-secret/);
+  assert.match(runbook,/materialize-closed-mainnet-phase-script\.sh execute-safe-recovery-secret/);
   assert.doesNotMatch(runbook,/> "\$USDOM_SAFE_RECOVERY_PLAN"|chmod 0600[^\n]*"\$USDOM_SAFE_RECOVERY_PLAN"/);
   assert.match(runbook,/install-private-file-new-stdin\.mjs \\\n+      "\$USDOM_CONTROL_EVIDENCE_DIRECTORY\/\$role-configuration\.json"/);
   assert.doesNotMatch(runbook,/> "\$USDOM_CONTROL_EVIDENCE_DIRECTORY\/\$role-configuration\.json"/);
   assert.doesNotMatch(runbook,/\/tmp\/usdom-recoverable-safe-controls/);
   assert.match(runbook,/USDOM_SAFE_PACKAGE="\$USDOM_CONTROL_EVIDENCE_DIRECTORY\/safe-package\.json"/);
-  assert.match(runbook,/USDOM_MAINNET_DEPLOYMENT_PACKAGE="\$USDOM_CONTROL_EVIDENCE_DIRECTORY\/mainnet-deployment-package\.json"/);
-  assert.match(runbook,/install-private-file-new-stdin\.mjs --json "\$USDOM_MAINNET_DEPLOYMENT_PACKAGE"/);
+  assert.match(runbook,/materialize-closed-mainnet-phase-script\.sh prepare-deployment/);
+  assert.match(runbook,/\/usr\/bin\/bash --noprofile --norc \/home\/leonardov\/usdom-mainnet-private\/operator-phases\/prepare-deployment\.sh/);
   assert.doesNotMatch(runbook,/\/tmp\/usdom-mainnet-deployment-package\.json/);
   assert.doesNotMatch(runbook,/\/tmp\/usdom-release-signing-public-identity\.json/);
   assert.doesNotMatch(runbook,/> "\$USDOM_MAINNET_DEPLOYMENT_PACKAGE"|chmod 0600[^\n]*"\$USDOM_MAINNET_DEPLOYMENT_PACKAGE"/);
@@ -371,7 +375,7 @@ test('operator runbook contains no manual substitution markers',()=>{
   assert.match(safeDeploymentExecutor,/AUTORIZO TRANSMITIR SAFE/);
   assert.match(safeDeploymentExecutor,/check-safe-control-deployment-raw-transaction\.mjs/);
   assert.match(safeDeploymentExecutor,/check-safe-control-deployment-target\.mjs/);
-  assert.match(safeDeploymentExecutor,/rpc publish/);
+  assert.match(safeDeploymentExecutor,/publish-private-raw-transaction\.mjs/);
   assert.doesNotMatch(runbook,/cast send "\$to"/);
   assert.match(runbook,/USDOM_RELEASE_SIGNING_PUBLIC_IDENTITY="\$USDOM_CONTROL_EVIDENCE_DIRECTORY\/release-signing-public-identity\.json"/);
   assert.match(runbook,/install-private-file-immutable-stdin\.mjs "\$USDOM_RELEASE_SIGNING_PUBLIC_IDENTITY"/);
@@ -387,9 +391,9 @@ test('operator runbook contains no manual substitution markers',()=>{
     assert.match(runbook,new RegExp(`read-private-file-stdout\\.mjs "\\$${variable}"`));
     assert.match(runbook,new RegExp(`npm run --silent ${command}`));
   }
-  assert.match(runbook,/USDOM_NATIVE_RECEIVING_WALLET_PUBLIC="\$USDOM_CONTROL_EVIDENCE_DIRECTORY\/native-receiving-wallet-public\.json"/);
-  assert.match(runbook,/install-private-file-immutable-stdin\.mjs "\$USDOM_NATIVE_RECEIVING_WALLET_PUBLIC"/);
-  assert.match(runbook,/read-private-file-stdout\.mjs "\$USDOM_NATIVE_RECEIVING_WALLET_PUBLIC"/);
+  assert.match(phaseGenerator,/USDOM_NATIVE_RECEIVING_WALLET_PUBLIC="\\\$USDOM_CONTROL_EVIDENCE_DIRECTORY\/native-receiving-wallet-public\.json"/);
+  assert.match(phaseGenerator,/install-private-file-immutable-stdin\.mjs "\$USDOM_NATIVE_RECEIVING_WALLET_PUBLIC"/);
+  assert.match(phaseGenerator,/read-private-file-stdout\.mjs "\$USDOM_NATIVE_RECEIVING_WALLET_PUBLIC"/);
   assert.match(runbook,/USDOM_CLOSED_MAINNET_DEPOSIT_PACKAGE="\$USDOM_CONTROL_EVIDENCE_DIRECTORY\/closed-mainnet-deposit-package\.json"/);
   assert.match(runbook,/install-private-file-new-stdin\.mjs "\$USDOM_CLOSED_MAINNET_DEPOSIT_PACKAGE"/);
   assert.match(runbook,/read-private-file-stdout\.mjs "\$USDOM_CLOSED_MAINNET_DEPOSIT_PACKAGE"/);
@@ -511,7 +515,7 @@ test('deployment receipt authority rejects identical malformed RPC JSON',t=>{
   const executor=readFileSync(mainnetDeploymentExecutor,'utf8');
   const strictJsonChecks=(executor.match(/check-private-strict-json-file\.mjs/g)??[]).length;
   const pinnedStrictJsonChecks=(executor.match(
-    /"\$node_bin" scripts\/check-private-strict-json-file\.mjs/g)??[]).length;
+    /run_node_empty_authority (?:generated-(?:jq-)?json|strict-json) scripts\/check-private-strict-json-file\.mjs/g)??[]).length;
   assert.ok(strictJsonChecks>=14);
   assert.equal(pinnedStrictJsonChecks,strictJsonChecks);
   assert.doesNotMatch(executor,/(?:^|\n)\s*node scripts\/check-private-strict-json-file\.mjs/m);
@@ -574,7 +578,7 @@ parseStrictJsonBytes(readFileSync(process.argv[1]),{label:'deployment observatio
   }
 });
 
-test('mainnet deployment executor journals the exact Ledger transaction before publish',()=>{
+test('mainnet deployment executor journals the exact gas-relayer transaction before publish',()=>{
   const source=readFileSync(mainnetDeploymentExecutor,'utf8');
   assert.match(source,/\[\[ ! -t 0 \|\| ! -t 1 \]\]/);
   assert.match(source,/authorization requires an interactive terminal/);
@@ -594,17 +598,18 @@ test('mainnet deployment executor journals the exact Ledger transaction before p
   assert.match(source,/export USDOM_MAINNET_DEPLOYMENT_IDENTITY_OBSERVATION=\$observation_snapshot/);
   assert.match(source,/prepare-mainnet-deployment-transaction\.mjs "\$index"/);
   assert.match(source,/check-mainnet-deployment-raw-transaction\.mjs "\$index"/);
-  assert.match(source,/"\$cast_bin" wallet address --ledger/);
-  assert.match(source,/mktx --chain 1/);
-  assert.match(source,/--gas-limit "\$gas_limit" --gas-price "\$max_fee"/);
-  assert.match(source,/--priority-gas-price "\$priority_fee" --ledger/);
+  assert.match(source,/relayer_envelope="\$evidence_directory\/contract-deployment-\$index-relayer-envelope\.json"/);
+  assert.match(source,/prepare-private-mainnet-create\.mjs prepare/);
+  assert.match(source,/"\$nonce" "\$gas_limit" "\$max_fee" "\$priority_fee"/);
+  assert.match(source,/relayer_external_raw="\$evidence_directory\/contract-deployment-\$index-relayer-external-raw\.txt"/);
+  assert.doesNotMatch(source,/wallet (?:address|sign)[^\n]*--ledger|assemble-private-mainnet-create/);
   assert.match(source,/persist_new "\$raw_draft" "\$raw_file"/);
   assert.match(source,/persist_new "\$temporary\/hash\.txt" "\$hash_file"/);
-  assert.match(source,/cast publish|rpc publish/);
+  assert.match(source,/publish-private-raw-transaction\.mjs "\$raw_snapshot"/);
   assert.ok(source.indexOf('persist_new "$raw_draft" "$raw_file"')
-    < source.indexOf('publish "$raw" --async'));
+    < source.indexOf('publish-private-raw-transaction.mjs "$raw_snapshot"'));
   assert.ok(source.indexOf('persist_new "$temporary/hash.txt" "$hash_file"')
-    < source.indexOf('publish "$raw" --async'));
+    < source.indexOf('publish-private-raw-transaction.mjs "$raw_snapshot"'));
   assert.match(source,/USDOM_MAINNET_PREFLIGHT_RPC_SOURCES_FILE/);
   assert.match(source,/serve-private-rpc-catalog-proxy\.mjs/);
   assert.match(source,/rpc_urls\[@\]/);
@@ -623,7 +628,7 @@ test('mainnet deployment executor journals the exact Ledger transaction before p
   assert.match(source,/canonical_quantity "\$stable_number" "\$stable_finalized_number" >\/dev\/null/);
   assert.match(source,/test "\$stable_code" = "\$code_consensus"/);
   assert.match(source,/\[redacted RPC URL\]/);
-  assert.match(source,/AUTORIZO ASSINAR DEPLOY MAINNET INDICE \$index/);
+  assert.match(source,/AUTORIZO ASSINAR DEPLOY INDICE \$index/);
   assert.match(source,/presign_maximum_estimate=0/);
   assert.match(source,/presign_maximum_base=0/);
   assert.match(source,/test "\$presign_gas_limit" = "\$gas_limit"/);
@@ -631,19 +636,21 @@ test('mainnet deployment executor journals the exact Ledger transaction before p
   assert.ok(source.indexOf('signing_authorization')
     < source.indexOf('presign_maximum_estimate=0'));
   assert.ok(source.indexOf('presign_maximum_estimate=0')
-    < source.indexOf('mktx --chain 1'));
-  assert.match(source,/AUTORIZO TRANSMITIR DEPLOY MAINNET INDICE \$index/);
-  assert.ok(source.indexOf('AUTORIZO ASSINAR DEPLOY MAINNET INDICE $index')
-    < source.indexOf('mktx --chain 1'));
-  assert.ok(source.indexOf('AUTORIZO TRANSMITIR DEPLOY MAINNET INDICE $index')
-    < source.indexOf('publish "$raw" --async'));
+    < source.indexOf('prepare-private-mainnet-create.mjs prepare'));
+  assert.ok(source.indexOf('deployment_broadcast_state=signed-unresolved')
+    > source.indexOf('check-mainnet-deployment-raw-transaction.mjs'));
+  assert.match(source,/AUTORIZO TRANSMITIR DEPLOY INDICE \$index/);
+  assert.ok(source.indexOf('AUTORIZO ASSINAR DEPLOY INDICE $index')
+    < source.indexOf('prepare-private-mainnet-create.mjs prepare'));
+  assert.ok(source.indexOf('AUTORIZO TRANSMITIR DEPLOY INDICE $index')
+    < source.indexOf('publish-private-raw-transaction.mjs "$raw_snapshot"'));
   assert.match(source,/transaction\.transmit\.json/);
   assert.match(source,/eth_getTransactionByHash[^\n]*\\\n\s*> "\$transmit_seen_file"/);
   assert.match(source,/raw\.transmit\.txt/);
   const transmitAuthorization=source.indexOf('test "$transmission_authorization" =');
   const transmitReobservation=source.indexOf('transaction.transmit.json',transmitAuthorization);
   assert.ok(transmitAuthorization<transmitReobservation);
-  assert.ok(transmitReobservation<source.indexOf('publish "$raw" --async'));
+  assert.ok(transmitReobservation<source.indexOf('publish-private-raw-transaction.mjs "$raw_snapshot"'));
   assert.match(source,/if\(fee>100000000000n\)process\.exit\(1\)/);
   assert.match(source,/600000000000000000n/);
   assert.match(source,/gas_limit <= 20000000/);
@@ -660,7 +667,7 @@ test('limited mainnet pilot policy is fixed, atomic and cannot authorize or tran
   const preparer=readFileSync(limitedMainnetPolicyPreparer,'utf8');
   assert.equal(spawnSync('bash',['-n',limitedMainnetPolicyMaterializer]).status,0);
   assert.equal(spawnSync(process.execPath,['--check',limitedMainnetPolicyPreparer]).status,0);
-  assert.match(wrapper,/install-release-config-stdin\.mjs/);
+  assert.match(wrapper,/replace-locked-source-stdin\.mjs/);
   assert.match(wrapper,/\.productionReady == false and \.realFundsAuthorized == false/);
   assert.match(wrapper,/\.maxOutstandingBaseUnits == "1000000"/);
   assert.match(wrapper,/flock -n 9/);
@@ -679,9 +686,10 @@ test('mainnet deployment identity is rederived before each durable write without
   const preparer=readFileSync(mainnetDeploymentIdentityPreparer,'utf8');
   assert.equal(spawnSync('bash',['-n',mainnetDeploymentIdentityMaterializer]).status,0);
   assert.equal(spawnSync(process.execPath,['--check',mainnetDeploymentIdentityPreparer]).status,0);
-  assert.equal((wrapper.match(/cast wallet address --ledger/g)??[]).length,4);
+  assert.equal((wrapper.match(/read-mainnet-gas-relayer-identity\.mjs/g)??[]).length,4);
+  assert.doesNotMatch(wrapper,/--ledger|Ledger/);
   assert.match(wrapper,/USDOM_MAINNET_PREFLIGHT_RPC_SOURCES_FILE/);
-  assert.match(wrapper,/install-release-config-stdin\.mjs/);
+  assert.match(wrapper,/replace-locked-source-stdin\.mjs/);
   assert.match(wrapper,/install-private-file-immutable-stdin\.mjs --json "\$observation_target"/);
   assert.match(wrapper,/envelope\.final\.json/);
   assert.match(wrapper,/envelope\.preconfig\.json/);
@@ -689,8 +697,8 @@ test('mainnet deployment identity is rederived before each durable write without
   assert.match(wrapper,/configuration\.installed\.json/);
   assert.match(wrapper,/observation\.final\.json/);
   assert.ok(wrapper.indexOf('install-private-file-immutable-stdin.mjs --json "$observation_target"')
-    <wrapper.indexOf('install-release-config-stdin.mjs "$target"'));
-  assert.ok(wrapper.indexOf('install-release-config-stdin.mjs "$target"')
+    <wrapper.indexOf('replace-locked-source-stdin.mjs "$target"'));
+  assert.ok(wrapper.indexOf('replace-locked-source-stdin.mjs "$target"')
     <wrapper.indexOf('observation.final.json'));
   assert.equal((wrapper.match(/prepare-mainnet-deployment-identity-materialization\.mjs/g)??[]).length,3);
   assert.match(preparer,/observeMainnetDeploymentIdentity/);
@@ -777,7 +785,7 @@ test('native receiving-wallet command keeps secrets interactive and returns a fi
   } finally { rmSync(temporary,{recursive:true,force:true}); }
 });
 
-test('closed mainnet deposit command derives one stable Ledger address and cannot broadcast',()=>{
+test('closed mainnet deposit command derives one stable Safe custody address and cannot broadcast',()=>{
   const parsed=spawnSync('bash',['-n',closedMainnetDepositScript],{encoding:'utf8'});
   assert.equal(parsed.status,0,parsed.stderr);
   const source=readFileSync(closedMainnetDepositScript,'utf8');
@@ -785,12 +793,13 @@ test('closed mainnet deposit command derives one stable Ledger address and canno
     'PLACEHOLDER','SUBSTITUA','--private-key','--mnemonic','cast send','eth_sendRawTransaction',
   ]) assert.equal(source.includes(forbidden),false,forbidden);
   assert.match(source,/\(\(\$# != 0\)\)/);
-  assert.equal((source.match(/cast wallet address --ledger/g)??[]).length,2);
+  assert.equal((source.match(/read-safe-usdt-custody-address\.mjs/g)??[]).length,2);
+  assert.doesNotMatch(source,/--ledger|Ledger/);
   assert.match(source,/"\$FIRST_ADDRESS" != "\$SECOND_ADDRESS"/);
   assert.match(source,/node scripts\/prepare-closed-mainnet-deposit\.mjs/);
 });
 
-test('recoverable production Safe package is fixed at three independent owners and threshold two',()=>{
+test('recoverable production Safe package is fixed at three distinct owners per role and threshold two',()=>{
   const source=readFileSync(recoverableSafeControlsScript,'utf8');
   for(const forbidden of [
     'PRIVATE KEY','MNEMONIC','--private-key','--mnemonic','eth_sendRawTransaction','cast send',
@@ -833,7 +842,7 @@ test('recoverable Safe collectors are read-only and bind the finalized recovery 
   assert.doesNotMatch(recovery,/USDOM_CHECKPOINT_GUARDIAN_RECOVERY_TX/);
 });
 
-test('Safe recovery planning and Ledger handoff cannot transmit a transaction',()=>{
+test('Safe recovery planning and OneKey iOS EIP-712 handoff cannot transmit a transaction',()=>{
   for(const script of [recoverableSafeRecoveryPlanner,recoverableSafeRecoveryAssembler]) {
     const source=readFileSync(script,'utf8');
     for(const forbidden of [
@@ -848,11 +857,15 @@ test('Safe recovery planning and Ledger handoff cannot transmit a transaction',(
     'PRIVATE KEY','MNEMONIC','--private-key','--mnemonic','eth_sendRawTransaction','cast send',
   ]) assert.equal(signer.includes(forbidden),false,forbidden);
   assert.match(signer,/\(\(\$# != 0\)\)/);
-  assert.match(signer,/ASSINO RECUPERACAO SAFE SEM TRANSMITIR/);
+  assert.match(signer,/ASSINO RECUPERACAO SAFE SEM TRANSMITIR AUTH \$authorization_hash/);
   assert.match(signer,/\[\[ -t 0 && -t 2 \]\]/);
   assert.match(signer,/umask 077/);
-  assert.match(signer,/"\$cast_bin" wallet address --ledger/);
-  assert.match(signer,/"\$cast_bin" wallet sign --data --from-file "\$typed_data" --ledger/);
+  assert.match(signer,/sign-onekey-ios-walletconnect-typed-data\.mjs/);
+  assert.match(signer,/prepare-onekey-ios-walletconnect-request\.mjs/);
+  assert.match(signer,/read-onekey-ios-walletconnect-signature\.mjs/);
+  assert.match(signer,/artifact_prefix="\$signatures_output\.onekey-\$role-\$signer_index"/);
+  assert.match(signer,/response="\$artifact_prefix\.response\.json"/);
+  assert.doesNotMatch(signer,/--ledger|wallet address|wallet sign/i);
   assert.match(signer,/read-private-file-stdout\.mjs/);
   assert.match(signer,/"\$cmp_bin" -s "\$plan_snapshot"/);
   assert.match(signer,/assert_signing_inputs_unchanged/);
@@ -868,7 +881,7 @@ test('Safe recovery planning and Ledger handoff cannot transmit a transaction',(
   assert.match(signer,/\.transitionsByRole/);
   assert.match(signer,/\.roles\[\]\|select\(\.role==\$role\)\|\.requiredSigners\[\$index\]/);
   assert.ok(signer.lastIndexOf('reobserve_safe_recovery_network')
-    < signer.indexOf('"$cast_bin" wallet sign --data'));
+    < signer.indexOf('scripts/sign-onekey-ios-walletconnect-typed-data.mjs'));
   assert.match(signer,/USDOM_MAINNET_PREFLIGHT_RPC_SOURCES_FILE/);
   assert.doesNotMatch(signer,/ETHEREUM_RPC_URL_2/);
 });
@@ -884,9 +897,9 @@ test('Safe recovery executor journals before publish and requires exact authoriz
   assert.doesNotMatch(source,/\$\{USDOM_SAFE_LOST_OWNER:\?/);
   assert.doesNotMatch(source,/\$\{USDOM_SAFE_REPLACEMENT_OWNER:\?/);
   assert.doesNotMatch(source,/\$\{USDOM_SAFE_RELAYER_OWNER:\?/);
-  assert.match(source,/USDOM_SAFE_RELAYER_OWNER=\$\("\$cast_bin" wallet address --ledger\)/);
+  assert.match(source,/USDOM_SAFE_RELAYER_OWNER=\$\(run_bounded_ledger_address "\$role-initial"\)/);
   assert.match(source,/\.requiredSigners[\s\S]*any\(\(ascii_downcase\) == \(\$owner \| ascii_downcase\)\)/);
-  assert.match(source,/AUTORIZO TRES SWAPOWNER SAFE MAINNET/);
+  assert.match(source,/AUTORIZO ASSINAR SWAPOWNER \$role ENVELOPE \$envelope_hash/);
   assert.match(source,/\[\[ ! -t 0 \|\| ! -t 1 \]\]/);
   assert.match(source,/Safe recovery authorization requires an interactive terminal/);
   const redirected=spawnSync('bash',[recoverableSafeRecoveryExecutor],{
@@ -897,7 +910,10 @@ test('Safe recovery executor journals before publish and requires exact authoriz
   assert.match(redirected.stderr,/authorization requires an interactive terminal/);
   assert.match(source,/assert_flock_unchanged[\s\S]*"\$flock_bin" -n 9/);
   assert.doesNotMatch(source,/(?:^|\n)\s*flock -n 9/m);
-  assert.match(source,/rpc mktx "\$to" "\$data"/);
+  assert.match(source,/prepare-safe-recovery-private-input\.mjs/);
+  assert.match(source,/prepare-ledger-eip1559-transaction\.mjs/);
+  assert.match(source,/wallet sign --no-hash "\$signing_hash" --ledger/);
+  assert.doesNotMatch(source,/rpc mktx "\$to" "\$data"/);
   assert.match(source,/persist_private_new "\$raw_draft" "\$raw_file"/);
   assert.match(source,/install-private-file-new-stdin\.mjs/);
   assert.match(source,/install-private-file-new-stdin\.mjs/);
@@ -913,10 +929,10 @@ test('Safe recovery executor journals before publish and requires exact authoriz
   assert.match(source,/hash_snapshot=/);
   assert.match(source,/prepare-recoverable-safe-recovery-envelope\.mjs/);
   assert.match(source,/recovery-envelope\.presign\.json/);
-  assert.ok(source.indexOf("test \"$authorization\" = 'AUTORIZO TRES SWAPOWNER SAFE MAINNET'")
+  assert.ok(source.indexOf('test "$authorization" = "AUTORIZO ASSINAR SWAPOWNER $role ENVELOPE $envelope_hash"')
     < source.indexOf('recovery-envelope.presign.json'));
   assert.ok(source.indexOf('recovery-envelope.presign.json')
-    < source.lastIndexOf('"$cast_bin" wallet address --ledger'));
+    < source.lastIndexOf('run_bounded_ledger_address "$role-presign"'));
   assert.match(source,/check-recoverable-safe-recovery-envelope\.mjs/);
   assert.match(source,/check-recoverable-safe-recovery-raw-transaction\.mjs/);
   const rawValidator=readFileSync(new URL('../../scripts/check-recoverable-safe-recovery-raw-transaction.mjs',
@@ -926,20 +942,21 @@ test('Safe recovery executor journals before publish and requires exact authoriz
   assert.match(rawValidator,/new TextDecoder\('utf-8',\{fatal:true\}\)/);
   assert.doesNotMatch(rawValidator,/process\.env\.USDOM_SAFE_RECOVERY_ROLE/);
   assert.doesNotMatch(rawValidator,/process\.env\.USDOM_SAFE_RELAYER_OWNER/);
-  assert.match(source,/--nonce "\$nonce" --gas-limit "\$gas_limit" --gas-price "\$max_fee_per_gas"/);
-  assert.match(source,/--priority-gas-price "\$max_priority_fee_per_gas" --ledger/);
-  assert.match(source,/rpc publish "\$raw_transaction" --async/);
+  assert.match(source,/prepare-ledger-eip1559-transaction\.mjs[\s\S]*"\$nonce" "\$gas_limit" \\\n+        "\$max_fee_per_gas" "\$max_priority_fee_per_gas"/);
+  assert.match(source,/wallet sign --no-hash "\$signing_hash" --ledger/);
+  assert.match(source,/publish-private-raw-transaction\.mjs "\$raw_snapshot"/);
   assert.match(source,/check-private-strict-json-file\.mjs "\$seen_file"/);
   assert.doesNotMatch(source,/seen=\$\(rpc rpc eth_getTransactionByHash/);
   assert.doesNotMatch(source,/jq[^\n]*<<<"\$seen"/);
   assert.match(source,/eth_getTransactionByHash[^\n]*\\\n\s*> "\$seen_file"/);
   assert.ok(source.indexOf('persist_private_new "$raw_draft" "$raw_file"')
-    < source.indexOf('rpc publish "$raw_transaction" --async'));
+    < source.indexOf('publish-private-raw-transaction.mjs "$raw_snapshot"'));
   assert.ok(source.lastIndexOf('assert_private_snapshot_unchanged "$raw_file"')
-    < source.indexOf('rpc publish "$raw_transaction" --async'));
+    < source.indexOf('publish-private-raw-transaction.mjs "$raw_snapshot"'));
   assert.equal(source.includes(
     '$USDOM_CONTROL_EVIDENCE_DIRECTORY/governance-finalized-execution.json'),false);
-  assert.equal(source.trimEnd().endsWith('"$final_consensus"'),true);
+  assert.equal(source.trimEnd().endsWith(`final_summary=$(<"$final_summary_file")
+printf '%s\\n' "$final_summary"`),true);
   assert.match(source,/observe-recoverable-safe-recovery-execution\.mjs/);
   const executionObserver=readFileSync(new URL(
     '../../scripts/observe-recoverable-safe-recovery-execution.mjs',import.meta.url),'utf8');
@@ -951,7 +968,7 @@ test('Safe recovery executor journals before publish and requires exact authoriz
   assert.match(source,/del\(\.finalizedBlockNumber,\.finalizedBlockHash\)/);
   assert.match(source,/target-consensus\.prepublish\.state\.json/);
   const targetReobservation=source.indexOf('target-consensus.prepublish.json');
-  const recoveryPublish=source.indexOf('rpc publish "$raw_transaction" --async');
+  const recoveryPublish=source.indexOf('publish-private-raw-transaction.mjs "$raw_snapshot"');
   assert.ok(targetReobservation>source.indexOf('assert_sources_unchanged',
     source.indexOf('recovery-submission-hash.prepublish.txt')));
   assert.ok(targetReobservation<recoveryPublish);
@@ -966,7 +983,8 @@ test('Safe recovery executor journals before publish and requires exact authoriz
   assert.match(source,/rpc_urls\[@\]/);
   assert.match(source,/\[redacted RPC URL\]/);
   assert.doesNotMatch(source,/ETHEREUM_RPC_URL/);
-  assert.equal((source.match(/"\$cast_bin" wallet address --ledger/g)??[]).length,3);
+  assert.equal((source.match(/"\$cast_bin" wallet address --ledger/g)??[]).length,1);
+  assert.equal((source.match(/run_bounded_ledger_address "\$role-(?:initial|confirm|presign)"/g)??[]).length,3);
   assert.doesNotMatch(source,/persist_private_replace "\$observed_consensus"/);
   assert.doesNotMatch(source,/persist_private_replace "\$final_consensus"/);
 });
@@ -1038,7 +1056,7 @@ test('Safe source and evidence materializers preserve the two-commit boundary',(
     assert.match(source,/\(\(\$# != 0\)\)/);
     assert.match(source,/flock -n 9/);
     assert.match(source,/sync -f/);
-    assert.match(source,/install-release-config-stdin\.mjs/);
+    assert.match(source,/replace-locked-source-stdin\.mjs/);
     assert.match(source,new RegExp(expectedTarget.replaceAll('.','\\.')));
   }
   const sourceMaterializer=readFileSync(safeControlReleaseConfigMaterializer,'utf8');
@@ -1072,8 +1090,8 @@ test('release provenance materializer authenticates source and cannot publish',(
   assert.match(source,/mainnet-release-evidence\.unconfigured\.json/);
   assert.match(source,/operator-intent\.json/);
   assert.match(source,/prepare-release-provenance-materialization\.mjs/);
-  assert.match(source,/install-release-config-stdin\.mjs/);
-  assert.match(source,/install-private-file-stdin\.mjs/);
+  assert.match(source,/replace-locked-source-stdin\.mjs/);
+  assert.match(source,/replace-locked-private-stdin\.mjs/);
   assert.match(source,/read-release-config-file-stdout\.mjs/);
   assert.match(source,/read-private-file-stdout\.mjs/);
   assert.match(source,/assert_targets_unchanged/);
@@ -1086,6 +1104,7 @@ test('release source ceremony signs locally and has no remote capability',()=>{
   const parsed=spawnSync('bash',['-n',releaseSourceCommitScript],{encoding:'utf8'});
   assert.equal(parsed.status,0,parsed.stderr);
   const source=readFileSync(releaseSourceCommitScript,'utf8');
+  const boundary=readFileSync(releaseGitBoundaryScript,'utf8');
   for(const forbidden of [
     'git push','git fetch','git pull','git remote','curl ','wget ',
     'ETHEREUM_RPC_URL','eth_sendRawTransaction','cast send','cast publish',
@@ -1093,9 +1112,15 @@ test('release source ceremony signs locally and has no remote capability',()=>{
   assert.match(source,/\(\(\$# != 0\)\)/);
   assert.match(source,/npm test/);
   assert.match(source,/npm run check:provenance/);
-  assert.match(source,/"\$git_bin" -C "\$repository" commit -S/);
-  assert.match(source,/"\$git_bin" -C "\$repository" verify-commit --raw HEAD/);
-  assert.match(source,/reset --mixed --quiet "\$before"/);
+  assert.match(source,/gpg\.ssh\.program=\$ssh_keygen_bin/);
+  assert.match(source,/commit-tree -S -p "\$before" -m "USDOM \$source_tag immutable source" "\$staged_tree"/);
+  assert.match(source,/update-ref HEAD "\$created" "\$before"/);
+  assert.match(source,/verify-commit --raw HEAD/);
+  assert.match(source,/diff --check HEAD\^ HEAD/);
+  assert.match(source,/rollback_release_index_and_head "\$created" "\$before"/);
+  assert.match(source,/read-tree --reset "\$before"/);
+  assert.doesNotMatch(source,/reset --mixed/);
+  assert.match(boundary,/update-ref HEAD "\$restored_head" "\$expected_head"/);
   assert.match(source,/\(top,exclude\).*evidence\/\*\*/);
   assert.match(source,/CONTINUATION-STATE\.md/);
   assert.match(source,/\[\[ ! -t 0 \|\| ! -t 2 \]\]/);
@@ -1113,20 +1138,26 @@ test('release evidence ceremony gates, signs, tags and cannot publish',()=>{
   const parsed=spawnSync('bash',['-n',releaseEvidenceCommitScript],{encoding:'utf8'});
   assert.equal(parsed.status,0,parsed.stderr);
   const source=readFileSync(releaseEvidenceCommitScript,'utf8');
+  const boundary=readFileSync(releaseGitBoundaryScript,'utf8');
   for(const forbidden of [
     'git push','git fetch','git pull','git remote','curl ','wget ',
     'eth_sendRawTransaction','cast send','cast publish',
   ]) assert.equal(source.includes(forbidden),false,forbidden);
   assert.match(source,/\(\(\$# != 0\)\)/);
   assert.match(source,/npm run check:provenance/);
-  assert.match(source,/commit -S/);
+  assert.match(source,/commit-tree -S -p "\$source_commit"/);
+  assert.match(source,/update-ref HEAD "\$evidence_commit" "\$source_commit"/);
+  assert.match(source,/gpg\.ssh\.program=\$ssh_keygen_bin/);
   assert.match(source,/tag -s -a/);
   assert.match(source,/verify-commit --raw/);
   assert.match(source,/verify-tag --raw/);
   assert.match(source,/check-mainnet-readiness\.mjs closed-mainnet/);
   assert.match(source,/check-mainnet-readiness\.mjs real-funds/);
-  assert.match(source,/reset --mixed --quiet "\$source_commit"/);
-  assert.match(source,/tag -d -- "\$source_tag"/);
+  assert.match(source,/rollback_release_index_and_head "\$evidence_commit" "\$source_commit"/);
+  assert.match(source,/read-tree --reset "\$source_commit"/);
+  assert.match(source,/update-ref -d "refs\/tags\/\$source_tag" "\$tag_object"/);
+  assert.doesNotMatch(source,/reset --mixed|tag -d/);
+  assert.match(boundary,/update-ref HEAD "\$restored_head" "\$expected_head"/);
   assert.match(source,/\[\[ ! -t 0 \|\| ! -t 2 \]\]/);
   assert.match(source,/ASSINO EVIDENCIA E TAG USDOM/);
   assert.match(source,/authorization_state=\$\("\$git_bin"/);
@@ -1153,7 +1184,7 @@ test('release authorization writers are fixed, finalized and cannot transmit',()
     assert.match(source,/install-private-file-immutable-stdin\.mjs/);
   }
   assert.match(readFileSync(residualRiskWriter,'utf8'),/residual-risk-acceptance-report\.json/);
-  assert.match(readFileSync(residualRiskWriter,'utf8'),/install-release-config-stdin\.mjs/);
+  assert.match(readFileSync(residualRiskWriter,'utf8'),/replace-locked-source-stdin\.mjs/);
   assert.match(readFileSync(residualRiskWriter,'utf8'),/read-release-config-file-stdout\.mjs/);
   assert.match(readFileSync(residualRiskWriter,'utf8'),/cmp -s "\$metadata_snapshot"/);
   assert.match(readFileSync(releaseAuthorizationRequestWriter,'utf8'),/USDOM_MAINNET_PREFLIGHT_RPC_SOURCES_FILE/);
@@ -1192,7 +1223,7 @@ test('release authorization writers are fixed, finalized and cannot transmit',()
     /cmp -s "\$observation"[\s\\]*"\$temporary\/release-authorization-finalized-observation\.installed\.json"/);
   assert.match(readFileSync(nativeAttestationMaterializer,'utf8'),
     /signatures=\(native-privacy-trusted-setup native-scheduled-runtime-activation native-wallet-custody native-wallet-recovery\)/);
-  assert.match(readFileSync(nativeAttestationMaterializer,'utf8'),/install-release-config-stdin\.mjs/);
+  assert.match(readFileSync(nativeAttestationMaterializer,'utf8'),/replace-locked-source-stdin\.mjs/);
   assert.match(readFileSync(nativeAttestationMaterializer,'utf8'),/assert_inputs_unchanged/);
   assert.match(readFileSync(nativeAttestationMaterializer,'utf8'),
     /read-release-config-file-stdout\.mjs/);
@@ -1262,7 +1293,14 @@ test('finalized-deposit collector keeps RPC URLs in memory and has no transactio
     'PLACEHOLDER','SUBSTITUA','$1','--private-key','--mnemonic','cast send','tee ',
   ]) assert.equal(source.includes(forbidden),false,forbidden);
   assert.match(source,/\(\(\$# != 0\)\)/);
-  assert.match(source,/read -r -s -p 'Finalized-deposit source JSON \(2-5 cataloged execution\/Beacon pairs; memory only\): '/);
+  assert.doesNotMatch(source,/Finalized-deposit source JSON/);
+  assert.match(source,/while IFS= read -r operator_id/);
+  assert.match(source,/read -r -s -p "Secret execution RPC URL for \$operator_id: " execution_url/);
+  assert.match(source,/read -r -s -p "Secret Beacon RPC URL for \$operator_id: " beacon_url/);
+  assert.match(source,/pin_runtime_tool jq[\s\S]*run_pinned_jq\(\) \{ assert_runtime_tool jq; "\$jq_bin" "\$@"; \}/);
+  assert.equal((source.match(/run_pinned_jq /g)??[]).length,2);
+  assert.match(source,/done < <\(run_pinned_jq -er '\.sources\[\]\.operatorId' "\$catalog"\)/);
+  assert.match(source,/unset execution_url beacon_url/);
   assert.match(source,/printf '%s' "\$USDOM_FINALIZED_DEPOSIT_SOURCES"/);
   assert.match(source,/\| run_pinned_timeout[\s\S]*node scripts\/collect-finalized-deposit-source\.mjs/);
   assert.doesNotMatch(source,/export USDOM_FINALIZED_DEPOSIT_SOURCES/);
@@ -1316,7 +1354,7 @@ test('credential-bearing operational entrypoints disable trace, backtraces and c
     ['submit:finalized-deposit-issuance','submit-finalized-deposit-issuance.mjs'],
     ['initialize:closed-mainnet-genesis','initialize-closed-mainnet-genesis.mjs'],
     ['mine:closed-mainnet-issuance-block','mine-closed-mainnet-issuance-block.mjs'],
-  ]) assert.equal(packageScripts[name],`bash scripts/run-secret-node-entrypoint.sh ${entrypoint}`);
+  ]) assert.equal(packageScripts[name],`./scripts/mainnet-tool-dispatcher bash scripts/run-secret-node-entrypoint.sh ${entrypoint}`);
   for(const sourcePath of [finalizedDepositSubmission,closedMainnetGenesisScript,
     closedMainnetIssuanceBlockScript]) {
     const source=readFileSync(sourcePath,'utf8');
@@ -1481,7 +1519,8 @@ test('closed mainnet private burn is exact, offline, proof-backed and cannot sub
   ]) assert.equal(source.includes(forbidden),false,forbidden);
   assert.match(source,/\(\(\$# != 0\)\)/);
   assert.match(source,/HOME must be a current-user direct absolute directory/);
-  assert.equal((source.match(/cast wallet address --ledger/g)??[]).length,2);
+  assert.equal((source.match(/read-onekey-ios-hardware-address\.mjs/g)??[]).length,2);
+  assert.doesNotMatch(source,/--ledger|Ledger/);
   assert.match(source,/"\$FIRST_RECIPIENT" != "\$SECOND_RECIPIENT"/);
   assert.match(source,/mktemp -d -p \/dev\/shm usdom-private-burn/);
   assert.match(source,/read -r -s -p 'Native USDOM recovery password: '/);
@@ -1860,13 +1899,22 @@ test('authenticated RandomX receipt plan and prover are fixed and secret-free',(
   assert.match(prover,/dom-usdom-plan-randomx-receipt-set/);
   assert.match(prover,/cmp -s "\$reviewed_job_index" "\$snapshot_job_index"/);
   assert.match(prover,/randomx-critical-inputs\.sha256/);
-  assert.match(prover,/sha256sum "\$snapshot_artifacts\/usdom-randomx\.elf"[\s\S]*usdom-randomx\.bin[\s\S]*usdom-randomx\.iid/);
-  assert.match(prover,/sha256sum -c "\$critical_snapshot"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
+  assert.match(prover,/"\$sha256sum_bin" "\$snapshot_artifacts\/usdom-randomx\.elf"[\s\S]*usdom-randomx\.bin[\s\S]*usdom-randomx\.iid/);
+  assert.match(prover,/"\$sha256sum_bin" -c "\$critical_snapshot"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
   assert.doesNotMatch(prover,/(^|[;(]\s*)cargo run/m);
   assert.doesNotMatch(prover,/(^|[|;(]\s*)jq\s/m);
   assert.doesNotMatch(prover,/(^|[|;(]\s*)node\s/m);
-  assert.ok(prover.indexOf('for name in "${receipt_files[@]}"')
-    <prover.lastIndexOf('"$OUTPUT_DIR/randomx-receipt-set-index.json"'));
+  const receiptInstall=prover.indexOf('for record in "${publication_records[@]}"');
+  assert.ok(receiptInstall>=0);
+  assert.match(prover,/usdom-randomx-receipt-set-v1/);
+  assert.match(prover,/receipt_sha256/);
+  assert.match(prover,/receipt_bytes/);
+  assert.match(prover,/RandomX receipt publication order differs from the reviewed proof jobs/);
+  assert.match(prover,/"\$stat_bin" -Lc '%s' "\$OUTPUT_DIR\/\$name"/);
+  assert.match(prover,/sha256_file "\$OUTPUT_DIR\/\$name"/);
+  assert.match(prover,/install-private-file-stdin\.mjs"[\s\S]{0,80}"\$final_index"[\s\S]*for record in "\$\{publication_records\[@\]\}"/);
+  assert.ok(prover.lastIndexOf('for record in "${publication_records[@]}"')>receiptInstall,
+    'receipts must be rechecked after the completion index is installed');
 });
 
 test('authenticated RandomX aggregate plan and prover are fixed and secret-free',()=>{
@@ -1901,7 +1949,17 @@ test('authenticated RandomX aggregate plan and prover are fixed and secret-free'
   assert.match(prover,/randomx-aggregate-critical-inputs\.sha256/);
   assert.match(prover,/evidence\/randomx-receipt-set[\s\S]*evidence\/checkpoint-source-set/);
   assert.match(prover,/usdom-randomx-aggregate\.elf usdom-randomx-aggregate\.bin usdom-randomx-aggregate\.iid/);
-  assert.match(prover,/sha256sum -c "\$critical"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
+  assert.match(prover,/"\$sha256sum_bin" -c "\$critical"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
+  const receiptInstall=prover.indexOf('for record in "${publication_records[@]}"');
+  assert.ok(receiptInstall>=0);
+  assert.match(prover,/usdom-randomx-aggregate-receipt-set-v1/);
+  assert.match(prover,/receipt_sha256/);
+  assert.match(prover,/receipt_bytes/);
+  assert.match(prover,/"\$stat_bin" -Lc '%s' "\$OUTPUT_DIR\/\$name"/);
+  assert.match(prover,/sha256_file "\$OUTPUT_DIR\/\$name"/);
+  assert.match(prover,/install-private-file-stdin\.mjs" "\$final_index"[\s\S]*for record in "\$\{publication_records\[@\]\}"/);
+  assert.ok(prover.lastIndexOf('for record in "${publication_records[@]}"')>receiptInstall,
+    'aggregate receipts must be rechecked after the completion index is installed');
   assert.doesNotMatch(prover,/(^|[;(]\s*)cargo run/m);
   assert.doesNotMatch(prover,/(^|[|;(]\s*)node\s/m);
 });
@@ -1951,12 +2009,23 @@ test('authenticated economic receipt prover is fixed, local and secret-free',()=
   assert.match(source,/dom-usdom-plan-economic-receipt-set/);
   assert.match(source,/cmp -s "\$reviewed_job_index" "\$snapshot_job_index"/);
   assert.match(source,/economic-critical-inputs\.sha256/);
-  assert.match(source,/sha256sum "\$chunk_artifacts"\/\* "\$block_artifacts"\/\*/);
-  assert.match(source,/sha256sum -c "\$critical_snapshot"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
+  assert.match(source,/"\$sha256sum_bin" "\$chunk_artifacts"\/\* "\$block_artifacts"\/\*/);
+  assert.match(source,/"\$sha256sum_bin" -c "\$critical_snapshot"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
   assert.doesNotMatch(source,/(^|[;(]\s*)cargo run/m);
   assert.doesNotMatch(source,/(^|[|;(]\s*)node\s/m);
   assert.ok(source.indexOf('for name in "${receipt_files[@]}"')
     <source.lastIndexOf('"$OUTPUT_DIR/economic-receipt-set-index.json"'));
+  assert.match(source,/usdom-economic-receipt-set-v1/);
+  assert.match(source,/chunk_receipt_count/);
+  assert.match(source,/block_receipt_count/);
+  assert.match(source,/receipt_sha256/);
+  assert.match(source,/receipt_bytes/);
+  assert.match(source,/Economic completion index differs from reviewed proof-job order/);
+  assert.match(source,/sha256_file "\$final_index"/);
+  const firstPublication=source.indexOf('for record in "${publication_records[@]}"');
+  assert.ok(firstPublication>=0);
+  assert.ok(source.lastIndexOf('for record in "${publication_records[@]}"')>firstPublication,
+    'economic receipts must be rechecked after the completion index is installed');
 });
 
 test('authenticated checkpoint segment planner is fixed, verify-only and secret-free',()=>{
@@ -2018,7 +2087,7 @@ test('authenticated checkpoint segment prover is fixed, local and secret-free',(
   assert.match(source,/dom-usdom-plan-checkpoint-segment-set/);
   assert.match(source,/cmp -s "\$reviewed_job_index" "\$snapshot_jobs\/checkpoint-segment-proof-job-index\.json"/);
   assert.match(source,/checkpoint-segment-critical-inputs\.sha256/);
-  assert.match(source,/sha256sum -c "\$critical"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
+  assert.match(source,/"\$sha256sum_bin" -c "\$critical"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
   assert.doesNotMatch(source,/(^|[;(]\s*)cargo run/m);
   assert.doesNotMatch(source,/(^|[|;(]\s*)node\s/m);
   assert.ok(source.indexOf('RISC0_DEV_MODE=0 "$cargo_bin" run')
@@ -2038,6 +2107,12 @@ test('checkpoint segment prover rejects catalog substitution and closes its proo
   const indexInstall=source.lastIndexOf('"$OUTPUT_DIR/checkpoint-segment-receipt-set-index.json"');
   assert.ok(snapshot>=0 && snapshot<validation && validation<proof);
   assert.ok(proof<receiptInstall && receiptInstall<indexInstall);
+  assert.match(source,/usdom-checkpoint-segment-receipt-set-v1/);
+  assert.match(source,/completion_catalog/);
+  assert.match(source,/receipt_sha256/);
+  assert.match(source,/receipt_bytes/);
+  assert.match(source,/sha256_file "\$final_index"/);
+  assert.match(source,/Checkpoint segment receipt changed before completion publication/);
   assert.doesNotMatch(source.slice(proof,proofEnd),
     /\$(SOURCE_DIR|RANDOMX_RECEIPT_DIR|ECONOMIC_RECEIPT_DIR|JOB_INDEX|OUTPUT_DIR)\//);
 });
@@ -2083,6 +2158,20 @@ test('checkpoint outer planner snapshots substitution, TOCTOU and receipt catalo
     <source.indexOf('--bin dom-usdom-plan-checkpoint-outer'));
   assert.ok(source.indexOf('checkpoint-statement-v6.bin checkpoint-outer-chain.bin checkpoint-outer-proof-job-index.json')
     <source.lastIndexOf('install-private-file-stdin.mjs'));
+});
+
+test('checkpoint outer prover validates and publishes its receipt catalog atomically',()=>{
+  const source=readFileSync(checkpointOuterProveScript,'utf8');
+  const proof=source.indexOf('--bin dom-usdom-prove-checkpoint-outer');
+  const catalog=source.indexOf('usdom-checkpoint-outer-receipt-set-v1',proof);
+  const receiptInstall=source.lastIndexOf('install-private-file-stdin.mjs" "$OUTPUT_DIR/$completion_receipt"');
+  const indexInstall=source.lastIndexOf('install-private-file-stdin.mjs" "$final_index"');
+  assert.ok(proof>=0 && proof<catalog && catalog<receiptInstall && receiptInstall<indexInstall);
+  assert.match(source,/receipt_sha256/);
+  assert.match(source,/receipt_bytes/);
+  assert.match(source,/sha256_file "\$final_index"/);
+  assert.match(source,/Checkpoint outer receipt changed before completion publication/);
+  assert.match(source,/for command in cargo cp jq node env sha256sum stat/);
 });
 
 test('authenticated finalized-burn planner is fixed, non-proving and secret-free',()=>{
@@ -2162,10 +2251,10 @@ test('authenticated finalized-burn prover is fixed, local and secret-free',()=>{
   assert.match(source,/"\$cmp_bin" -s "\$reviewed_job_index"/);
   assert.match(source,/finalized-burn-critical-inputs\.sha256/);
   assert.match(source,/checkpoint-outer-receipt\.bin[\s\S]*usdom-finalized-burn\.elf[\s\S]*usdom-finalized-burn\.iid/);
-  assert.match(source,/sha256sum -c "\$critical"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
+  assert.match(source,/"\$sha256sum_bin" -c "\$critical"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
   assert.doesNotMatch(source,/(^|[;(]\s*)cargo run/m);
-  assert.ok(source.indexOf('"$OUTPUT_DIR/finalized-burn-receipt.bin"')
-    <source.lastIndexOf('"$OUTPUT_DIR/finalized-burn-receipt-index.json"'));
+  assert.ok(source.indexOf('install-private-file-stdin.mjs" "$OUTPUT_DIR/$completion_receipt"')
+    <source.lastIndexOf('install-private-file-stdin.mjs" "$final_index"'));
 });
 
 test('finalized-burn prover binds one replica and publishes its verified completion index last',()=>{
@@ -2174,11 +2263,16 @@ test('finalized-burn prover binds one replica and publishes its verified complet
   const catalog=source.indexOf('"$jq_bin" -e --arg input_sha',jobCapture);
   const proof=source.indexOf('cd "$SNAPSHOT_LAB"',catalog);
   const proofEnd=source.indexOf('final_index="$OUTPUT_DIR/',proof);
-  const receiptInstall=source.lastIndexOf('"$OUTPUT_DIR/finalized-burn-receipt.bin"');
-  const indexInstall=source.lastIndexOf('"$OUTPUT_DIR/finalized-burn-receipt-index.json"');
+  const receiptInstall=source.lastIndexOf('install-private-file-stdin.mjs" "$OUTPUT_DIR/$completion_receipt"');
+  const indexInstall=source.lastIndexOf('install-private-file-stdin.mjs" "$final_index"');
   assert.ok(jobCapture>=0 && jobCapture<catalog && catalog<proof);
   assert.ok(proofEnd>proof);
   assert.ok(proof<receiptInstall && receiptInstall<indexInstall);
+  assert.match(source,/usdom-finalized-burn-receipt-v1/);
+  assert.match(source,/receipt_sha256/);
+  assert.match(source,/receipt_bytes/);
+  assert.match(source,/sha256_file "\$final_index"/);
+  assert.match(source,/Finalized-burn receipt changed before completion publication/);
   assert.doesNotMatch(source.slice(proof,proofEnd),
     /\$(SOURCE_INPUT|JOB_INPUT|JOB_INDEX|CHECKPOINT_STATEMENT|CHECKPOINT_OUTER_RECEIPT|ARTIFACT_DIR)\b/);
 });
@@ -2189,8 +2283,8 @@ test('finalized-burn proof host supplies the authenticated checkpoint receipt as
   assert.match(source,/execute_with_checkpoint_assumption\(&input\)/);
   assert.match(source,/verify_receipt\([\s\S]*recursive\.image_id\(\)[\s\S]*recursive\.journal\(\)/);
   assert.match(source,/builder\.add_assumption\(checkpoint_receipt\)/);
-  assert.match(source,/883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21/);
-  assert.match(source,/2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea/);
+  assert.match(source,/bf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511/);
+  assert.match(source,/f0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae/);
   assert.equal(source.includes('LEGACY_UNCOMPOSED_IMAGE_ID'),false);
 });
 
@@ -2221,16 +2315,17 @@ test('finalized-burn EVM packager is fixed, local and secret-free',()=>{
   assert.match(source,/receipt_sha256 == \$receipt_sha/);
   assert.match(source,/program_sha256 == \$program_sha/);
   assert.match(source,/cd "\$SNAPSHOT_LAB"/);
-  assert.match(source,/rm -- "\$final_index"/);
-  assert.match(source,/sync -d "\$OUTPUT_DIR"/);
+  assert.match(source,/remove_output_file\(\) \{[\s\S]*case \$file in[\s\S]*finalized-burn-evm-proof-index\.json[\s\S]*finalized-burn-groth16-receipt\.bin[\s\S]*finalized-burn-evm-seal\.bin[\s\S]*\*\) return 1/);
+  assert.match(source,/remove_output_file\(\) \{[\s\S]*assert_tool_unchanged rm; assert_tool_unchanged timeout[\s\S]*"\$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s "\$rm_bin" -- "\$file"[\s\S]*\[\[ ! -e \$file && ! -L \$file \]\]/);
+  assert.match(source,/remove_output_file "\$final_index"; sync_output_directory/);
   assert.match(source,/install-private-file-stdin\.mjs/);
   assert.match(source,/assert_tool_unchanged cargo/);
   assert.match(source,/finalized-burn-evm-critical-inputs\.sha256/);
-  assert.match(source,/sha256sum -c "\$critical"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
+  assert.match(source,/assert_tool_unchanged sha256sum; assert_tool_unchanged timeout[\s\S]*"\$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s "\$sha256sum_bin" -c "\$critical"[\s\S]*assert_tool_unchanged sha256sum[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
   assert.doesNotMatch(source,/(^|[;(]\s*)cargo run/m);
-  assert.ok(source.indexOf('RISC0_DEV_MODE=0 "$cargo_bin" run') < source.indexOf('rm -- "$final_index"'));
-  assert.ok(source.indexOf('for name in finalized-burn-groth16-receipt.bin finalized-burn-evm-seal.bin')
-    <source.lastIndexOf('"$OUTPUT_DIR/finalized-burn-evm-proof-index.json"'));
+  assert.ok(source.indexOf('RISC0_DEV_MODE=0 "$cargo_bin" run') < source.indexOf('remove_output_file "$final_index"'));
+  assert.ok(source.indexOf('for record in "$groth_name"')
+    <source.lastIndexOf('"$final_index"'));
 });
 
 test('finalized-burn EVM packager binds one receipt graph and publishes metadata last',()=>{
@@ -2239,13 +2334,19 @@ test('finalized-burn EVM packager binds one receipt graph and publishes metadata
   const catalog=source.indexOf('"$jq_bin" -e --arg job_sha',capture);
   const compression=source.indexOf('cd "$SNAPSHOT_LAB"',catalog);
   const compressionEnd=source.indexOf('final_index="$OUTPUT_DIR/',compression);
-  const artifacts=source.indexOf('for name in finalized-burn-groth16-receipt.bin',compression);
-  const completion=source.lastIndexOf('"$OUTPUT_DIR/finalized-burn-evm-proof-index.json"');
+  const artifacts=source.indexOf('for record in "$groth_name"',compression);
+  const completion=source.lastIndexOf('"$final_index"');
   assert.ok(capture>=0 && capture<catalog && catalog<compression);
   assert.ok(compressionEnd>compression);
   assert.ok(compression<artifacts && artifacts<completion);
   assert.doesNotMatch(source.slice(compression,compressionEnd),
     /\$(JOB_DIR|RECEIPT_DIR|ARTIFACT_DIR|OUTPUT_DIR)\//);
+  assert.match(source,/usdom-finalized-burn-evm-proof-v1/);
+  assert.match(source,/receipt_index_sha256 == \$receipt_index_sha/);
+  assert.match(source,/groth16_receipt_sha256/);
+  assert.match(source,/evm_seal_sha256/);
+  assert.match(source,/sha256_file "\$final_index"/);
+  assert.match(source,/Finalized-burn EVM artifact changed before completion publication/);
 });
 
 test('finalized-burn submission command is fixed, unsigned and secret-free',()=>{
@@ -2457,7 +2558,7 @@ test('authenticated checkpoint outer prover is fixed, local and secret-free',()=
   assert.match(source,/dom-usdom-plan-checkpoint-outer/);
   assert.match(source,/cmp -s "\$reviewed_job_index" "\$snapshot_jobs\/checkpoint-outer-proof-job-index\.json"/);
   assert.match(source,/checkpoint-outer-critical-inputs\.sha256/);
-  assert.match(source,/sha256sum -c "\$critical"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
+  assert.match(source,/"\$sha256sum_bin" -c "\$critical"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
   assert.ok(source.indexOf('RISC0_DEV_MODE=0 "$cargo_bin" run') < source.indexOf('rm -- "$final_index"'));
   assert.doesNotMatch(source,/(^|[;(]\s*)cargo run/m);
 });
@@ -2473,12 +2574,17 @@ test('checkpoint outer prover rejects substitution and closes its long-proof TOC
   ]) assert.match(source,new RegExp(`capture_private .*${input.replaceAll('.','\\.')}`));
   const snapshot=source.indexOf('capture_private "$JOB_DIR/checkpoint-outer-proof-job-index.json"');
   const validation=source.indexOf('"$jq_bin" -e \'',snapshot);
-  const proof=source.indexOf('cd "$SNAPSHOT_LAB"',validation);
+  const proof=source.indexOf('--bin dom-usdom-prove-checkpoint-outer',validation);
   const proofEnd=source.indexOf('final_index="$OUTPUT_DIR/',proof);
-  const receiptInstall=source.lastIndexOf('"$OUTPUT_DIR/$receipt_name"');
-  const indexInstall=source.lastIndexOf('"$final_index"');
+  const receiptInstall=source.indexOf('install-private-file-stdin.mjs" "$OUTPUT_DIR/$completion_receipt"',proofEnd);
+  const receiptValidation=source.indexOf('Published checkpoint outer receipt failed integrity verification',receiptInstall);
+  const indexInstall=source.indexOf('install-private-file-stdin.mjs" "$final_index"',receiptValidation);
+  const indexValidation=source.indexOf('Published checkpoint outer completion index changed during installation',indexInstall);
+  const postIndexReceiptValidation=source.indexOf('Checkpoint outer receipt changed before completion publication',indexValidation);
   assert.ok(snapshot>=0 && snapshot<validation && validation<proof);
-  assert.ok(proof<receiptInstall && receiptInstall<indexInstall);
+  assert.ok(proof<proofEnd && proofEnd<receiptInstall && receiptInstall<receiptValidation);
+  assert.ok(receiptValidation<indexInstall && indexInstall<indexValidation
+    && indexValidation<postIndexReceiptValidation);
   assert.ok(proofEnd>proof);
   assert.doesNotMatch(source.slice(proof,proofEnd),
     /\$(SOURCE_DIR|RANDOMX_RECEIPT_DIR|ECONOMIC_RECEIPT_DIR|SEGMENT_RECEIPT_DIR|JOB_DIR|OUTPUT_DIR)\//);
@@ -2503,7 +2609,7 @@ test('checkpoint outer EVM packager is fixed, local and secret-free',()=>{
   assert.match(source,/checkpoint-outer-evm-critical-inputs\.sha256/);
   assert.match(source,/usdom-checkpoint-outer\.elf usdom-checkpoint-outer\.bin usdom-checkpoint-outer\.iid/);
   assert.match(source,/assert_tool_unchanged cargo/);
-  assert.match(source,/sha256sum -c "\$critical"[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
+  assert.match(source,/assert_tool_unchanged sha256sum; assert_tool_unchanged timeout[\s\S]*"\$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s "\$sha256sum_bin" -c "\$critical"[\s\S]*assert_tool_unchanged sha256sum[\s\S]*"\$env_bin"[\s\S]*"\$cargo_bin" run/);
   assert.doesNotMatch(source,/(^|[;(]\s*)cargo run/m);
   const packageStart=source.indexOf('RISC0_DEV_MODE=0 "$cargo_bin" run');
   const completionInvalidation=source.indexOf('final_index="$OUTPUT_DIR/',packageStart);

@@ -1,0 +1,32 @@
+USDⓄM — ETAPA 1426
+Issuance submission post-body, cancellation-safe admission
+Date: 2026-10-26
+
+Scope
+- Authenticated POST /usdom/v4/issuance/submit/v1
+- Binary witness delivery, finality-verification admission, client cancellation, bounded memory and queueing
+
+Finding (material availability defect)
+The route's ConcurrencyLimitLayer(1) wrapped the entire HTTP request, including delivery of a witness body up to 4 MiB. An authenticated slow sender could occupy the only finality-verification slot without completing a witness. Once a node submission began, cancellation of the HTTP future could also release route admission while detached node/blocking work continued, allowing overlapping expensive jobs to accumulate behind internal locks.
+
+Correction
+- Added a two-permit body-delivery admission distinct from finality verification.
+- The handler acquires the one-permit finality worker only after the bounded body is complete and media/empty checks pass.
+- Moved the owned worker permit into a spawned Tokio task containing the node submission. Disconnect/timeout no longer releases it before node work ends.
+- Excess complete witnesses fail immediately with retryable HTTP 503 instead of queueing.
+- The existing 4 MiB body cap, 120-second route timeout, bearer authentication and rate limit remain in force.
+
+Focused evidence
+1. cargo test -p dom-rpc slow_issuance_submission_body_does_not_hold_finality_worker_admission -- --nocapture
+   PASS: 1 passed, 0 failed, 127 filtered out; focal runtime 0.03s. Compilation completed successfully. Wall time was dominated by unrelated filesystem I/O wait.
+2. target/debug/deps/dom_rpc-9dfa47fe5e647ed4 issuance_submission_capacity_survives_client_cancellation --nocapture
+   PASS: 1 passed, 0 failed, 127 filtered out; 0.46s.
+3. rustfmt --edition 2021 --check crates/dom-rpc/src/lib.rs
+   PASS.
+4. git diff --check -- crates/dom-rpc/src/lib.rs
+   PASS.
+
+Limits
+- No RandomX proof or mining was executed.
+- No network access, commit, push, deployment, signature, or funds were used.
+- This is an HTTP/resource-admission guarantee; proof soundness and full mainnet lifecycle remain separate evidence obligations.

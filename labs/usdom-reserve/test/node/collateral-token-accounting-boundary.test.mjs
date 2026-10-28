@@ -18,6 +18,9 @@ assert.match(proof, /uint256 credited = outstanding\(\);[\s\S]*totalProvedDebtAm
 assert.match(proof, /totalProvedDebtAmount \+= burn\.amount/);
 assert.match(proof, /totalProvedDebtAmount -= burn\.amount/);
 assert.match(proof, /IUSDTPolicy\.upgradedAddress[\s\S]*!= bytes32\(0\)/);
+assert.match(proof, /pilotRestrictedDeployment && _tokenAllowance\(msg\.sender, address\(this\)\) != amount/);
+assert.match(proof, /pilotRestrictedDeployment && _tokenAllowance\(msg\.sender, address\(this\)\) != 0/);
+assert.match(proof, /abi\.encodeCall\(IERC20\.allowance, \(owner, spender\)\)/);
 assert.match(reserve, /burn\.amount > unreservedCollateral\(\)/);
 assert.match(reserve, /elapsed >= REFILL_PERIOD/);
 assert.match(invariant, /ghostDeposited/);
@@ -25,4 +28,6 @@ assert.match(invariant, /ghostPaid/);
 assert.match(invariant, /ghostDonated/);
 assert.match(invariant, /reserve\.tokenCodeHash\(\).*address\(token\)\.codehash/);
 assert.match(policy, /testChangedTokenRuntimeCannotMutateCollateralLedger/);
+assert.match(readFileSync(new URL("../solidity/USDOMProofReserve.t.sol", import.meta.url), "utf8"),
+  /testRestrictedPilotRequiresExactSingleUseAllowanceAndRollsBackOnResidualCapability/);
 console.log("collateral/token accounting boundary: ok");

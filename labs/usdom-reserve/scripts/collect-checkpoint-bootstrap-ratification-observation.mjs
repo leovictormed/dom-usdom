@@ -39,7 +39,9 @@ try {
     throw new Error('ratification request or signature SHA-256 differs from fixed bytes');
   }
   validateCheckpointBootstrapRatificationSigningRequest({request,releaseEvidence,releaseConfig,
-    checkpointConsensus,nativeFacts,finalizedAnchor:request.finalizedAnchor,inputDocuments:{
+    releaseEvidenceBytes:inputBytes[1],releaseConfigBytes:inputBytes[2],checkpointConsensus,
+    checkpointConsensusBytes:inputBytes[3],nativeFacts,nativeFactsBytes:inputBytes[4],
+    finalizedAnchor:request.finalizedAnchor,inputDocuments:{
       releaseEvidenceSha256:sha(inputBytes[1]),releaseConfigSha256:sha(inputBytes[2]),
       checkpointConsensusSha256:sha(inputBytes[3]),nativeFactsSha256:sha(inputBytes[4]),
     }});

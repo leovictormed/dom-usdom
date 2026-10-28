@@ -5,7 +5,7 @@ mod middleware;
 mod token;
 use axum::{
     body::Bytes,
-    extract::{ConnectInfo, Path, Query, State},
+    extract::{ConnectInfo, Extension, Path, Query, State},
     http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -269,6 +269,14 @@ pub trait NodeHandle: Send + Sync + 'static {
         Box::pin(async {})
     }
 
+    /// Whether the process supervisor has begun shutdown, including shutdown
+    /// triggered by a critical task failure. This feeds the authenticated
+    /// readiness endpoint; it must not include free-form failure text because
+    /// operator or backend errors may contain sensitive local details.
+    fn is_shutting_down(&self) -> bool {
+        false
+    }
+
     /// A coherent snapshot of the canonical chain identity.  This is a
     /// wallet-safe RPC value, deliberately separate from `PROTOCOL_VERSION`.
     fn chain_identity(&self) -> Result<ChainIdentity, RpcError> {
@@ -312,6 +320,36 @@ pub const MAX_SCAN_RANGE: u64 = 1000;
 /// Maximum number of authenticated large scan responses generated at once.
 /// Excess page requests are retryable and receive 503 instead of queueing.
 pub const MAX_EXPENSIVE_SCAN_INFLIGHT: usize = 2;
+pub const MAX_EXPENSIVE_SCAN_BODY_INFLIGHT: usize = 4;
+
+/// Issuance reconciliation retains canonical chain/runtime locks while a
+/// bounded history window is authenticated. Its permit is moved into the
+/// blocking job so disconnect or HTTP timeout cannot admit an overlapping job.
+pub const MAX_USDOM_V4_ISSUANCE_STATUS_INFLIGHT: usize = 1;
+
+/// Bound authenticated requests that are still delivering/parsing the small
+/// status JSON. This is deliberately separate from both unrelated scanners
+/// and the one-worker canonical lookup admission.
+pub const MAX_USDOM_V4_ISSUANCE_STATUS_BODY_INFLIGHT: usize = 4;
+
+/// The issuance-status JSON contains five fixed scalar fields and four
+/// 32-byte identifiers encoded as hex. Keep its transport ceiling separate
+/// from proof/scan payload limits.
+pub const MAX_USDOM_V4_ISSUANCE_STATUS_BODY_BYTES_V1: usize = 1_024;
+
+/// JSON framing for the largest canonical private-burn payload encoded as hex,
+/// with bounded whitespace/field overhead. The binary payload ceiling is about
+/// 33 KiB; the exact node-side class limit remains authoritative after decode.
+pub const MAX_USDOM_V4_PRIVATE_SUBMIT_BODY_BYTES_V1: usize = 68 * 1_024;
+
+/// Private transfer and burn share one proof-verifying native runtime. Acquire
+/// this permit only after the bounded JSON body has arrived, then keep it in
+/// the spawned submission task so client cancellation cannot admit overlap.
+pub const MAX_USDOM_V4_PRIVATE_SUBMIT_INFLIGHT: usize = 1;
+
+/// Bound authenticated clients that are still delivering a private-submission
+/// JSON body without consuming the proof-verification admission above.
+pub const MAX_USDOM_V4_PRIVATE_SUBMIT_BODY_INFLIGHT: usize = 4;
 
 /// Mempool pagination clones and canonically sorts the bounded live hash set;
 /// serialize it so contending requests fail retryably instead of duplicating
@@ -322,12 +360,17 @@ pub const MAX_MEMPOOL_RPC_INFLIGHT: usize = 1;
 /// Keep a small amount of parallelism without letting a submit burst occupy
 /// every async runtime worker.
 pub const MAX_TX_SUBMIT_INFLIGHT: usize = 2;
+pub const MAX_TX_SUBMIT_BODY_INFLIGHT: usize = 4;
 
 /// Wallet mutations share reservation state and durable wallet storage.
 pub const MAX_WALLET_MUTATION_INFLIGHT: usize = 1;
+pub const MAX_WALLET_MUTATION_BODY_INFLIGHT: usize = 4;
 
 /// A regtest mining call can request up to 1,000 real blocks.
 pub const MAX_REGTEST_MINE_INFLIGHT: usize = 1;
+pub const MAX_REGTEST_MINE_BODY_INFLIGHT: usize = 2;
+pub const MAX_CLOSED_MAINNET_MINE_INFLIGHT: usize = 1;
+pub const MAX_CLOSED_MAINNET_MINE_BODY_INFLIGHT: usize = 2;
 
 /// Canonical ancestry walks are bounded to 256 steps but cost materially more
 /// than point reads; retain limited parallelism without multiplying the walk.
@@ -513,6 +556,8 @@ pub struct UsdomV4PrivateTransferInclusionV1 {
 pub struct UsdomV4PrivateTransferScanV1 {
     /// Exact response schema.
     pub schema_version: u16,
+    /// Exact private payload identifier whose canonical inclusion was scanned.
+    pub transition_id: [u8; 32],
     /// Chain identity and tip observed under the same chain lock.
     pub identity: CoreChainIdentity,
     /// Request anchor validated by the node.
@@ -873,14 +918,47 @@ pub struct UsdomV4IssuanceInclusionV1 {
     pub transition_commitment: [u8; 32],
 }
 
+/// Reconciliation state of one exact issuance candidate/deposit pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsdomV4IssuancePairStateV1 {
+    /// Neither the exact pair nor canonical consumption is observed.
+    Absent,
+    /// The exact pair remains eligible in the volatile candidate pool.
+    Queued,
+    /// The exact pair has an authenticated canonical inclusion.
+    Canonical,
+    /// A complete retained-history search proves that another candidate
+    /// consumed this deposit.
+    CandidateMismatch,
+    /// The deposit is consumed, but its inclusion predates the bounded search
+    /// window so this candidate cannot be confirmed or rejected here.
+    HistoryTruncated,
+}
+
+impl UsdomV4IssuancePairStateV1 {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Absent => "absent",
+            Self::Queued => "queued",
+            Self::Canonical => "canonical",
+            Self::CandidateMismatch => "candidate_mismatch",
+            Self::HistoryTruncated => "history_truncated",
+        }
+    }
+}
+
 /// Bounded, chain-pinned result for one exact candidate/deposit pair.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsdomV4IssuanceStatusV1 {
     /// Exact response schema.
     pub schema_version: u16,
+    /// Unambiguous reconciliation state for the requested exact pair.
+    pub pair_state: UsdomV4IssuancePairStateV1,
     /// Chain identity and tip observed under the same lock snapshot.
     pub identity: CoreChainIdentity,
-    /// True only when the volatile pool contains this exact pair.
+    /// True only when the volatile pool contains this exact pair and the
+    /// deposit has not already been consumed canonically. Canonical
+    /// consumption supersedes transient or competing pool residency.
     pub queued: bool,
     /// True when canonical native state has consumed the deposit.
     pub consumed: bool,
@@ -888,10 +966,16 @@ pub struct UsdomV4IssuanceStatusV1 {
     pub issuance_commitment: Option<[u8; 32]>,
     /// Exact pair inclusion found in the bounded retained history window.
     pub inclusion: Option<UsdomV4IssuanceInclusionV1>,
-    /// First canonical height examined for pair inclusion.
-    pub scanned_from: u64,
-    /// Last canonical height examined for pair inclusion.
-    pub scanned_to: u64,
+    /// True when older canonical history was excluded by the bounded window.
+    /// In this case `consumed` alone does not authenticate `candidate_id`.
+    pub history_truncated: bool,
+    /// First canonical height examined for pair inclusion, or `None` when the
+    /// canonical state proves the deposit has not been consumed and no history
+    /// scan is necessary.
+    pub scanned_from: Option<u64>,
+    /// Last canonical height examined for pair inclusion, absent together with
+    /// `scanned_from` when no history block was read.
+    pub scanned_to: Option<u64>,
 }
 
 /// Maximum recent canonical blocks inspected by issuance reconciliation.
@@ -899,6 +983,19 @@ pub const MAX_USDOM_V4_ISSUANCE_STATUS_BLOCKS_V1: u64 = 256;
 
 /// Maximum raw UDOMDPW1 body accepted by the issuance submission RPC.
 pub const MAX_USDOM_V4_ISSUANCE_WITNESS_BYTES_V1: usize = 4 * 1_024 * 1_024;
+
+/// Finalized-deposit verification is serialized. Acquire this admission only
+/// after the bounded binary body arrives and retain it through node work.
+pub const MAX_USDOM_V4_ISSUANCE_SUBMIT_INFLIGHT: usize = 1;
+
+/// Bound authenticated clients still delivering issuance witnesses without
+/// allowing them to consume finality-verification admission.
+pub const MAX_USDOM_V4_ISSUANCE_SUBMIT_BODY_INFLIGHT: usize = 2;
+
+/// Native V2 candidate validation is serialized after its bounded canonical
+/// binary body has been decoded.
+pub const MAX_USDOM_V2_CANDIDATE_SUBMIT_INFLIGHT: usize = 1;
+pub const MAX_USDOM_V2_CANDIDATE_SUBMIT_BODY_INFLIGHT: usize = 2;
 
 /// Receipt for one exact candidate-V2 proof/witness pair retained for mining.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1073,6 +1170,12 @@ impl IntoResponse for RpcError {
 #[derive(Debug, Serialize)]
 struct HealthResponse {
     ok: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ReadinessResponse {
+    ready: bool,
+    status: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -1344,7 +1447,6 @@ struct KernelNotFoundResponse {
 
 use middleware::BearerToken;
 use std::time::Duration;
-use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer};
 
 pub fn router(
@@ -1371,6 +1473,10 @@ fn router_with_rate_limit_policy(
         RequestBodyLimitLayer::new(MAX_USDOM_V2_CANDIDATE_RPC_BODY_BYTES_V1);
     let usdom_v4_issuance_body_limit =
         RequestBodyLimitLayer::new(MAX_USDOM_V4_ISSUANCE_WITNESS_BYTES_V1);
+    let usdom_v4_issuance_status_body_limit =
+        RequestBodyLimitLayer::new(MAX_USDOM_V4_ISSUANCE_STATUS_BODY_BYTES_V1);
+    let usdom_v4_private_submit_body_limit =
+        RequestBodyLimitLayer::new(MAX_USDOM_V4_PRIVATE_SUBMIT_BODY_BYTES_V1);
     let timeout = TimeoutLayer::new(Duration::from_secs(30));
     let usdom_v4_issuance_timeout = TimeoutLayer::new(Duration::from_secs(120));
     let closed_mainnet_mine_timeout = TimeoutLayer::new(Duration::from_secs(4 * 60 * 60));
@@ -1380,6 +1486,7 @@ fn router_with_rate_limit_policy(
     let rate_limit_auth_read = middleware::rate_limit_read(policy.read_burst);
     let rate_limit_mempool = middleware::rate_limit_read(policy.read_burst);
     let rate_limit_expensive_scan = middleware::rate_limit_read(policy.read_burst);
+    let rate_limit_issuance_status = middleware::rate_limit_read(policy.read_burst);
     let rate_limit_submit = middleware::rate_limit_submit(policy.submit_burst);
     let rate_limit_wallet_mutation = middleware::rate_limit_submit(policy.submit_burst);
     let rate_limit_regtest_mine = middleware::rate_limit_submit(policy.submit_burst);
@@ -1415,8 +1522,11 @@ fn router_with_rate_limit_policy(
 
     let submit_route = Router::new()
         .route("/tx/submit", post(submit_tx))
+        .layer(Extension(Arc::new(tokio::sync::Semaphore::new(
+            MAX_TX_SUBMIT_INFLIGHT,
+        ))))
         .layer(axum::middleware::from_fn_with_state(
-            Arc::new(tokio::sync::Semaphore::new(MAX_TX_SUBMIT_INFLIGHT)),
+            Arc::new(tokio::sync::Semaphore::new(MAX_TX_SUBMIT_BODY_INFLIGHT)),
             middleware::require_inflight_capacity,
         ))
         .layer(rate_limit_submit);
@@ -1438,6 +1548,7 @@ fn router_with_rate_limit_policy(
         .route("/tx/:tx_hash", get(get_tx))
         .route("/wallet/balance", get(wallet_balance_handler))
         .route("/build-info", get(build_info_handler))
+        .route("/ready", get(readiness))
         .route("/shutdown", post(shutdown_handler))
         .layer(rate_limit_auth_read);
 
@@ -1449,9 +1560,13 @@ fn router_with_rate_limit_policy(
         ))
         .layer(rate_limit_mempool);
 
-    let expensive_scan_routes = Router::new()
+    let expensive_scan_capacity =
+        Arc::new(tokio::sync::Semaphore::new(MAX_EXPENSIVE_SCAN_INFLIGHT));
+    let expensive_scan_get_routes = Router::new()
         .route("/chain/scan", get(chain_scan_handler))
         .route("/chain/scan/scriptless/v1", get(chain_scan_full_v1_handler))
+        .layer(Extension(Arc::clone(&expensive_scan_capacity)));
+    let expensive_scan_post_routes = Router::new()
         .route(
             "/usdom/v4/transfer/scan/v1",
             post(usdom_v4_transfer_scan_v1_handler),
@@ -1464,28 +1579,57 @@ fn router_with_rate_limit_policy(
             "/usdom/v4/history/scan/v1",
             post(usdom_v4_history_scan_v1_handler),
         )
+        // Body delivery and chain scanning have independent bounds. A slow
+        // authenticated POST body must not reserve either scan worker.
+        .layer(Extension(expensive_scan_capacity))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(
+                MAX_EXPENSIVE_SCAN_BODY_INFLIGHT,
+            )),
+            middleware::require_inflight_capacity,
+        ));
+    let expensive_scan_routes = expensive_scan_get_routes
+        .merge(expensive_scan_post_routes)
+        .layer(rate_limit_expensive_scan);
+
+    // Body extraction happens before the handler acquires the dedicated
+    // issuance-status worker permit. Keep this route outside the shared
+    // expensive-scan semaphore so a slow JSON sender cannot starve unrelated
+    // authenticated history/transfer/burn scans.
+    let issuance_status_routes = Router::new()
         .route(
             "/usdom/v4/issuance/status/v1",
             post(usdom_v4_issuance_status_v1_handler),
         )
-        // Scanner requests are page-retryable. Reject excess work before a
-        // chain snapshot or multi-megabyte response is generated rather than
-        // retaining an unbounded queue behind a concurrency semaphore.
+        .layer(Extension(Arc::new(tokio::sync::Semaphore::new(
+            MAX_USDOM_V4_ISSUANCE_STATUS_INFLIGHT,
+        ))))
+        // A client may take up to the ordinary request timeout to finish its
+        // body. Bound those request futures without consuming unrelated scan
+        // capacity; the handler's distinct permit protects blocking work.
         .layer(axum::middleware::from_fn_with_state(
-            Arc::new(tokio::sync::Semaphore::new(MAX_EXPENSIVE_SCAN_INFLIGHT)),
+            Arc::new(tokio::sync::Semaphore::new(
+                MAX_USDOM_V4_ISSUANCE_STATUS_BODY_INFLIGHT,
+            )),
             middleware::require_inflight_capacity,
         ))
-        .layer(rate_limit_expensive_scan);
+        .layer(usdom_v4_issuance_status_body_limit)
+        .layer(rate_limit_issuance_status);
 
     let usdom_v2_candidate_routes = Router::new()
         .route(
             "/usdom/v2/candidate/submit/v1",
             post(usdom_v2_candidate_submit_v1_handler),
         )
-        // Native V2 admission is deliberately serialized by its consensus
-        // runtime. Apply matching HTTP backpressure before buffering another
-        // consensus-sized request in the handler.
-        .layer(ConcurrencyLimitLayer::new(1))
+        .layer(Extension(Arc::new(tokio::sync::Semaphore::new(
+            MAX_USDOM_V2_CANDIDATE_SUBMIT_INFLIGHT,
+        ))))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(
+                MAX_USDOM_V2_CANDIDATE_SUBMIT_BODY_INFLIGHT,
+            )),
+            middleware::require_inflight_capacity,
+        ))
         .layer(usdom_v2_candidate_body_limit)
         // Reject excess source traffic before it can wait on the serialized
         // proof-verification permit.
@@ -1500,9 +1644,18 @@ fn router_with_rate_limit_policy(
             "/usdom/v4/issuance/submit/v1",
             post(usdom_v4_issuance_submit_v1_handler),
         )
-        // Finality verification is CPU-intensive. Keep a second consensus-sized
-        // body outside the handler until the first admission has completed.
-        .layer(ConcurrencyLimitLayer::new(1))
+        // Body delivery and finality verification have distinct admission.
+        // A slow authenticated witness cannot occupy the proof worker, while
+        // no more than two bounded witness bodies are retained concurrently.
+        .layer(Extension(Arc::new(tokio::sync::Semaphore::new(
+            MAX_USDOM_V4_ISSUANCE_SUBMIT_INFLIGHT,
+        ))))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(
+                MAX_USDOM_V4_ISSUANCE_SUBMIT_BODY_INFLIGHT,
+            )),
+            middleware::require_inflight_capacity,
+        ))
         .layer(usdom_v4_issuance_body_limit)
         .layer(usdom_v4_issuance_timeout)
         .layer(rate_limit_usdom_issuance_submit)
@@ -1520,13 +1673,19 @@ fn router_with_rate_limit_policy(
             "/usdom/v4/burn/submit/v1",
             post(usdom_v4_burn_submit_v1_handler),
         )
-        // Transfer and burn share the same proof-verifying native runtime.
-        // Apply backpressure before JSON decoding and runtime-lock queuing so
-        // concurrent authenticated submissions cannot accumulate proof-sized
-        // request buffers while one Groth16 verification is in progress.
-        .layer(ConcurrencyLimitLayer::new(1))
-        // Transfer and burn share the same verifier and therefore the same
-        // admission bucket. Apply it before the serialized work queue.
+        // Body delivery has a small, independent bound. The handler acquires
+        // the single proof-worker permit only after JSON extraction, so a slow
+        // authenticated sender cannot starve a complete valid submission.
+        .layer(Extension(Arc::new(tokio::sync::Semaphore::new(
+            MAX_USDOM_V4_PRIVATE_SUBMIT_INFLIGHT,
+        ))))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(
+                MAX_USDOM_V4_PRIVATE_SUBMIT_BODY_INFLIGHT,
+            )),
+            middleware::require_inflight_capacity,
+        ))
+        .layer(usdom_v4_private_submit_body_limit)
         .layer(rate_limit_usdom_private_submit)
         .route_layer(axum::middleware::from_fn_with_state(
             Arc::clone(&bearer_token),
@@ -1540,7 +1699,15 @@ fn router_with_rate_limit_policy(
         )
         // A Mainnet RandomX block can legitimately exceed the ordinary RPC
         // timeout. Only one authenticated request may hold this capability.
-        .layer(ConcurrencyLimitLayer::new(1))
+        .layer(Extension(Arc::new(tokio::sync::Semaphore::new(
+            MAX_CLOSED_MAINNET_MINE_INFLIGHT,
+        ))))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(tokio::sync::Semaphore::new(
+                MAX_CLOSED_MAINNET_MINE_BODY_INFLIGHT,
+            )),
+            middleware::require_inflight_capacity,
+        ))
         .layer(RequestBodyLimitLayer::new(4_096))
         .layer(closed_mainnet_mine_timeout)
         .layer(rate_limit_closed_mainnet_mine)
@@ -1563,16 +1730,24 @@ fn router_with_rate_limit_policy(
             "/wallet/slate/v1/submit",
             post(wallet_slate_submit_v1_handler),
         )
+        .layer(Extension(Arc::new(tokio::sync::Semaphore::new(
+            MAX_WALLET_MUTATION_INFLIGHT,
+        ))))
         .layer(axum::middleware::from_fn_with_state(
-            Arc::new(tokio::sync::Semaphore::new(MAX_WALLET_MUTATION_INFLIGHT)),
+            Arc::new(tokio::sync::Semaphore::new(
+                MAX_WALLET_MUTATION_BODY_INFLIGHT,
+            )),
             middleware::require_inflight_capacity,
         ))
         .layer(rate_limit_wallet_mutation);
 
     let regtest_mine_routes = Router::new()
         .route("/regtest/mine/v1", post(regtest_mine_v1_handler))
+        .layer(Extension(Arc::new(tokio::sync::Semaphore::new(
+            MAX_REGTEST_MINE_INFLIGHT,
+        ))))
         .layer(axum::middleware::from_fn_with_state(
-            Arc::new(tokio::sync::Semaphore::new(MAX_REGTEST_MINE_INFLIGHT)),
+            Arc::new(tokio::sync::Semaphore::new(MAX_REGTEST_MINE_BODY_INFLIGHT)),
             middleware::require_inflight_capacity,
         ))
         .layer(rate_limit_regtest_mine);
@@ -1581,6 +1756,7 @@ fn router_with_rate_limit_policy(
         .merge(auth_read_routes)
         .merge(mempool_routes)
         .merge(expensive_scan_routes)
+        .merge(issuance_status_routes)
         .merge(wallet_mutation_routes)
         .merge(regtest_mine_routes)
         .route_layer(axum::middleware::from_fn_with_state(
@@ -1635,11 +1811,29 @@ async fn shutdown_handler(
     StatusCode::ACCEPTED
 }
 
+async fn wait_for_shutdown_signal<F, E>(signal: F)
+where
+    F: std::future::Future<Output = Result<(), E>>,
+    E: std::fmt::Display,
+{
+    match signal.await {
+        Ok(()) => info!("Shutdown signal received, stopping RPC server"),
+        Err(error) => {
+            // Signal registration can fail in restricted containers or when
+            // another runtime component exhausted the OS registration
+            // resource. This future is the graceful-shutdown trigger: a panic
+            // here tears down the RPC server (and may unwind its owner) even
+            // though no shutdown was requested. Keep serving instead; the
+            // authenticated shutdown route and caller-owned supervisor remain
+            // available.
+            warn!(%error, "CTRL+C handler unavailable; retaining RPC service");
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
 async fn shutdown_signal() {
-    tokio::signal::ctrl_c()
-        .await
-        .expect("failed to install CTRL+C signal handler");
-    info!("Shutdown signal received, stopping RPC server");
+    wait_for_shutdown_signal(tokio::signal::ctrl_c()).await;
 }
 
 /// Bind the RPC TCP listener.
@@ -1754,6 +1948,37 @@ async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
 }
 
+async fn readiness(State(handle): State<Arc<dyn NodeHandle>>) -> Response {
+    if handle.is_shutting_down() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ReadinessResponse {
+                ready: false,
+                status: "shutdown_or_critical_task_failure",
+            }),
+        )
+            .into_response();
+    }
+    match handle.status_snapshot() {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(ReadinessResponse {
+                ready: true,
+                status: "ready",
+            }),
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ReadinessResponse {
+                ready: false,
+                status: "state_snapshot_unavailable",
+            }),
+        )
+            .into_response(),
+    }
+}
+
 async fn status(
     State(handle): State<Arc<dyn NodeHandle>>,
 ) -> Result<Json<StatusResponse>, RpcError> {
@@ -1826,6 +2051,7 @@ async fn mempool(
 
 async fn submit_tx(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(submit_capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(payload): Json<SubmitTxRequest>,
 ) -> impl IntoResponse {
     let tx_bytes = match decode_hex(&payload.tx_hex) {
@@ -1833,6 +2059,14 @@ async fn submit_tx(
         Err(e) => {
             warn!("submit_tx: invalid hex: {e}");
             return submit_error(e);
+        }
+    };
+    let _submit_permit = match submit_capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return submit_error(RpcError::Overloaded(
+                "transaction admission capacity exhausted; retry".into(),
+            ))
         }
     };
     match handle.submit_tx(tx_bytes) {
@@ -1871,20 +2105,23 @@ async fn submit_tx(
 
 async fn usdom_v4_transfer_submit_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(private_submit_capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<UsdomV4TransferSubmitRequestV1>,
 ) -> Response {
-    usdom_v4_private_submit_v1_response(handle, request, false).await
+    usdom_v4_private_submit_v1_response(handle, private_submit_capacity, request, false).await
 }
 
 async fn usdom_v4_burn_submit_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(private_submit_capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<UsdomV4TransferSubmitRequestV1>,
 ) -> Response {
-    usdom_v4_private_submit_v1_response(handle, request, true).await
+    usdom_v4_private_submit_v1_response(handle, private_submit_capacity, request, true).await
 }
 
 async fn usdom_v4_private_submit_v1_response(
     handle: Arc<dyn NodeHandle>,
+    private_submit_capacity: Arc<tokio::sync::Semaphore>,
     request: UsdomV4TransferSubmitRequestV1,
     burn: bool,
 ) -> Response {
@@ -1903,10 +2140,35 @@ async fn usdom_v4_private_submit_v1_response(
         }
         Err(error) => return error.into_response(),
     };
-    let submitted = if burn {
-        handle.submit_usdom_v4_private_burn_v1(payload).await
-    } else {
-        handle.submit_usdom_v4_private_transfer_v1(payload).await
+    let private_submit_permit = match private_submit_capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded(
+                "native USDOM private-submission capacity exhausted; retry".into(),
+            )
+            .into_response()
+        }
+    };
+    // Detach the admitted operation from the request future. If the client
+    // disconnects after admission, Tokio continues this task and the permit
+    // remains held until the native runtime has actually stopped using the
+    // shared proof-verification path.
+    let submitted = match tokio::spawn(async move {
+        let _private_submit_permit = private_submit_permit;
+        if burn {
+            handle.submit_usdom_v4_private_burn_v1(payload).await
+        } else {
+            handle.submit_usdom_v4_private_transfer_v1(payload).await
+        }
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            error!("native USDOM private-submission worker failed: {error}");
+            return RpcError::Internal("native USDOM private-submission worker failed".into())
+                .into_response();
+        }
     };
     match submitted {
         Ok(submission) => (
@@ -1929,6 +2191,7 @@ async fn usdom_v4_private_submit_v1_response(
 
 async fn usdom_v4_issuance_submit_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(issuance_submit_capacity): Extension<Arc<tokio::sync::Semaphore>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -1947,10 +2210,30 @@ async fn usdom_v4_issuance_submit_v1_handler(
         return RpcError::InvalidTx("native USDOM issuance witness must not be empty".into())
             .into_response();
     }
-    match handle
-        .submit_usdom_v4_issuance_witness_v1(body.to_vec())
-        .await
+    let issuance_submit_permit = match issuance_submit_capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded(
+                "native USDOM issuance-submission capacity exhausted; retry".into(),
+            )
+            .into_response()
+        }
+    };
+    let witness = body.to_vec();
+    let submitted = match tokio::spawn(async move {
+        let _issuance_submit_permit = issuance_submit_permit;
+        handle.submit_usdom_v4_issuance_witness_v1(witness).await
+    })
+    .await
     {
+        Ok(result) => result,
+        Err(error) => {
+            error!("native USDOM issuance-submission worker failed: {error}");
+            return RpcError::Internal("native USDOM issuance-submission worker failed".into())
+                .into_response();
+        }
+    };
+    match submitted {
         Ok(submission) => (
             StatusCode::OK,
             Json(UsdomV4IssuanceSubmitResponseV1 {
@@ -1970,6 +2253,7 @@ async fn usdom_v4_issuance_submit_v1_handler(
 
 async fn usdom_v4_issuance_status_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(status_capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<UsdomV4IssuanceStatusRequestBodyV1>,
 ) -> Response {
     if request.schema_version != 1 {
@@ -1993,16 +2277,41 @@ async fn usdom_v4_issuance_status_v1_handler(
         Ok(value) => value,
         Err(error) => return error.into_response(),
     };
-    let result = match handle.usdom_v4_issuance_status_v1(UsdomV4IssuanceStatusRequestV1 {
+    let typed_request = UsdomV4IssuanceStatusRequestV1 {
         schema_version: request.schema_version,
         network_magic: request.expected_network_magic,
         chain_id,
         candidate_id,
         deposit_id,
-    }) {
-        Ok(result) => result,
-        Err(error) => return error.into_response(),
     };
+    let status_permit = match status_capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded(
+                "native USDOM issuance-status capacity exhausted; retry".into(),
+            )
+            .into_response()
+        }
+    };
+    let status_handle = Arc::clone(&handle);
+    let result = match tokio::task::spawn_blocking(move || {
+        let _status_permit = status_permit;
+        status_handle.usdom_v4_issuance_status_v1(typed_request)
+    })
+    .await
+    {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => return error.into_response(),
+        Err(error) => {
+            error!("native USDOM issuance-status worker failed: {error}");
+            return RpcError::Internal("native USDOM issuance-status worker failed".into())
+                .into_response();
+        }
+    };
+    if let Err(error) = validate_usdom_v4_issuance_status_v1(&typed_request, &result) {
+        warn!("native USDOM issuance-status backend returned invalid evidence: {error}");
+        return error.into_response();
+    }
     let inclusion = result.inclusion.map(|value| {
         serde_json::json!({
             "height": value.height,
@@ -2015,6 +2324,7 @@ async fn usdom_v4_issuance_status_v1_handler(
         StatusCode::OK,
         Json(serde_json::json!({
             "schema_version": result.schema_version,
+            "pair_state": result.pair_state.as_str(),
             "identity": {
                 "network": result.identity.network.as_str(),
                 "network_magic": result.identity.network_magic,
@@ -2029,6 +2339,7 @@ async fn usdom_v4_issuance_status_v1_handler(
             "consumed": result.consumed,
             "issuance_commitment": result.issuance_commitment.map(hex::encode),
             "inclusion": inclusion,
+            "history_truncated": result.history_truncated,
             "scanned_from": result.scanned_from,
             "scanned_to": result.scanned_to,
         })),
@@ -2036,8 +2347,100 @@ async fn usdom_v4_issuance_status_v1_handler(
         .into_response()
 }
 
+fn validate_usdom_v4_issuance_status_v1(
+    request: &UsdomV4IssuanceStatusRequestV1,
+    result: &UsdomV4IssuanceStatusV1,
+) -> Result<(), RpcError> {
+    let invalid =
+        || RpcError::Internal("incoherent native USDOM issuance-status backend evidence".into());
+    if result.schema_version != 1
+        || result.identity.network_magic != request.network_magic
+        || result.identity.chain_id != request.chain_id
+        || result.identity.genesis_hash == [0; 32]
+        || result.identity.current_tip.hash == [0; 32]
+    {
+        return Err(invalid());
+    }
+
+    let scan = match (result.scanned_from, result.scanned_to) {
+        (None, None) => None,
+        (Some(from), Some(to)) if from <= to && to == result.identity.current_tip.height => {
+            let width = to
+                .checked_sub(from)
+                .and_then(|distance| distance.checked_add(1))
+                .ok_or_else(invalid)?;
+            if width > MAX_USDOM_V4_ISSUANCE_STATUS_BLOCKS_V1 {
+                return Err(invalid());
+            }
+            Some((from, to, width))
+        }
+        _ => return Err(invalid()),
+    };
+    let nonzero_commitment = result
+        .issuance_commitment
+        .is_some_and(|commitment| commitment != [0; 32]);
+    let valid = match result.pair_state {
+        UsdomV4IssuancePairStateV1::Absent => {
+            !result.queued
+                && !result.consumed
+                && result.issuance_commitment.is_none()
+                && result.inclusion.is_none()
+                && !result.history_truncated
+                && scan.is_none()
+        }
+        UsdomV4IssuancePairStateV1::Queued => {
+            result.queued
+                && !result.consumed
+                && result.issuance_commitment.is_none()
+                && result.inclusion.is_none()
+                && !result.history_truncated
+                && scan.is_none()
+        }
+        UsdomV4IssuancePairStateV1::Canonical => {
+            !result.queued
+                && result.consumed
+                && nonzero_commitment
+                && scan.is_some()
+                && result.inclusion.is_some_and(|inclusion| {
+                    inclusion.block_hash != [0; 32]
+                        && inclusion.transition_commitment != [0; 32]
+                        && result.issuance_commitment == Some(inclusion.transition_commitment)
+                        && scan.is_some_and(|(from, to, _)| {
+                            inclusion.height >= from && inclusion.height <= to
+                        })
+                })
+                && (!result.history_truncated
+                    || scan.is_some_and(|(_, _, width)| {
+                        width == MAX_USDOM_V4_ISSUANCE_STATUS_BLOCKS_V1
+                    }))
+        }
+        UsdomV4IssuancePairStateV1::CandidateMismatch => {
+            !result.queued
+                && result.consumed
+                && nonzero_commitment
+                && result.inclusion.is_none()
+                && !result.history_truncated
+                && scan.is_some()
+        }
+        UsdomV4IssuancePairStateV1::HistoryTruncated => {
+            !result.queued
+                && result.consumed
+                && nonzero_commitment
+                && result.inclusion.is_none()
+                && result.history_truncated
+                && scan.is_some_and(|(_, _, width)| width == MAX_USDOM_V4_ISSUANCE_STATUS_BLOCKS_V1)
+        }
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(invalid())
+    }
+}
+
 async fn usdom_v2_candidate_submit_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(candidate_capacity): Extension<Arc<tokio::sync::Semaphore>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -2056,10 +2459,31 @@ async fn usdom_v2_candidate_submit_v1_handler(
         Ok(candidate) => candidate,
         Err(error) => return error.into_response(),
     };
-    match handle
-        .submit_usdom_v2_mining_candidate_v1(envelope, witnesses)
-        .await
+    let candidate_permit = match candidate_capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded(
+                "native USDOM V2 candidate capacity exhausted; retry".into(),
+            )
+            .into_response()
+        }
+    };
+    let submitted = match tokio::spawn(async move {
+        let _candidate_permit = candidate_permit;
+        handle
+            .submit_usdom_v2_mining_candidate_v1(envelope, witnesses)
+            .await
+    })
+    .await
     {
+        Ok(result) => result,
+        Err(error) => {
+            error!("native USDOM V2 candidate worker failed: {error}");
+            return RpcError::Internal("native USDOM V2 candidate worker failed".into())
+                .into_response();
+        }
+    };
+    match submitted {
         Ok(submission) => (
             StatusCode::OK,
             Json(UsdomV2CandidateSubmitResponseV1 {
@@ -2085,22 +2509,46 @@ fn decode_usdom_v2_candidate_submission_v1(body: &[u8]) -> Result<(Vec<u8>, Vec<
 
 async fn usdom_v4_transfer_scan_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<UsdomV4TransferScanRequestBodyV1>,
 ) -> Response {
-    usdom_v4_private_scan_v1_response(handle, request, false)
+    let permit = match capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded("expensive scan capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
+    usdom_v4_private_scan_v1_response(handle, request, false, permit).await
 }
 
 async fn usdom_v4_burn_scan_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<UsdomV4TransferScanRequestBodyV1>,
 ) -> Response {
-    usdom_v4_private_scan_v1_response(handle, request, true)
+    let permit = match capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded("expensive scan capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
+    usdom_v4_private_scan_v1_response(handle, request, true, permit).await
 }
 
 async fn usdom_v4_history_scan_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<UsdomV4HistoryRequestBodyV1>,
 ) -> Response {
+    let permit = match capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded("expensive scan capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
     if request.schema_version != 1 {
         return RpcError::InvalidScan(format!(
             "unsupported native USDOM history schema {}",
@@ -2148,7 +2596,7 @@ async fn usdom_v4_history_scan_v1_handler(
         }
         None => None,
     };
-    let scanned = match handle.scan_usdom_v4_history_v1(UsdomV4HistoryRequestV1 {
+    let typed_request = UsdomV4HistoryRequestV1 {
         schema_version: request.schema_version,
         network_magic: request.expected_network_magic,
         chain_id,
@@ -2161,9 +2609,23 @@ async fn usdom_v4_history_scan_v1_handler(
         max_blocks: request.max_blocks,
         anchor,
         require_checkpoint_finality: request.require_checkpoint_finality,
-    }) {
-        Ok(value) => value,
-        Err(error) => return error.into_response(),
+    };
+    // Chain snapshots and storage reads are synchronous and may be slow. Keep
+    // them off Tokio's network executor, and move the permit into the blocking
+    // job so disconnecting a client cannot reopen capacity while work remains.
+    let scanned = match tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        handle.scan_usdom_v4_history_v1(typed_request)
+    })
+    .await
+    {
+        Ok(Ok(value)) => value,
+        Ok(Err(error)) => return error.into_response(),
+        Err(error) => {
+            error!("native USDOM history-scan worker failed: {error}");
+            return RpcError::Internal("native USDOM history-scan worker failed".into())
+                .into_response();
+        }
     };
 
     let blocks = scanned
@@ -2221,6 +2683,8 @@ async fn usdom_v4_history_scan_v1_handler(
                 "network_magic": scanned.identity.network_magic,
                 "chain_id": hex::encode(scanned.identity.chain_id),
                 "genesis_hash": hex::encode(scanned.identity.genesis_hash),
+                "protocol_version": scanned.identity.protocol_version,
+                "range_proof_serialization_version": scanned.identity.range_proof_serialization_version,
                 "tip_height": scanned.identity.current_tip.height,
                 "tip_hash": hex::encode(scanned.identity.current_tip.hash),
             },
@@ -2238,10 +2702,11 @@ async fn usdom_v4_history_scan_v1_handler(
         .into_response()
 }
 
-fn usdom_v4_private_scan_v1_response(
+async fn usdom_v4_private_scan_v1_response(
     handle: Arc<dyn NodeHandle>,
     request: UsdomV4TransferScanRequestBodyV1,
     burn: bool,
+    permit: tokio::sync::OwnedSemaphorePermit,
 ) -> Response {
     if request.schema_version != 1 {
         return RpcError::InvalidScan(format!(
@@ -2285,14 +2750,25 @@ fn usdom_v4_private_scan_v1_response(
         max_blocks: request.max_blocks,
         anchor,
     };
-    let scanned = if burn {
-        handle.scan_usdom_v4_private_burn_v1(request)
-    } else {
-        handle.scan_usdom_v4_private_transfer_v1(request)
-    };
-    let result = match scanned {
-        Ok(result) => result,
-        Err(error) => return error.into_response(),
+    // Preserve fail-fast admission through cancellation: once admitted, the
+    // synchronous chain scan owns the permit until its blocking job exits.
+    let result = match tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        if burn {
+            handle.scan_usdom_v4_private_burn_v1(request)
+        } else {
+            handle.scan_usdom_v4_private_transfer_v1(request)
+        }
+    })
+    .await
+    {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => return error.into_response(),
+        Err(error) => {
+            error!("native USDOM private-scan worker failed: {error}");
+            return RpcError::Internal("native USDOM private-scan worker failed".into())
+                .into_response();
+        }
     };
     let inclusion = result.inclusion.map(|value| {
         serde_json::json!({
@@ -2318,11 +2794,14 @@ fn usdom_v4_private_scan_v1_response(
         StatusCode::OK,
         Json(serde_json::json!({
             "schema_version": result.schema_version,
+            "transition_id": hex::encode(result.transition_id),
             "identity": {
                 "network": result.identity.network.as_str(),
                 "network_magic": result.identity.network_magic,
                 "chain_id": hex::encode(result.identity.chain_id),
                 "genesis_hash": hex::encode(result.identity.genesis_hash),
+                "protocol_version": result.identity.protocol_version,
+                "range_proof_serialization_version": result.identity.range_proof_serialization_version,
                 "tip_height": result.identity.current_tip.height,
                 "tip_hash": hex::encode(result.identity.current_tip.hash),
             },
@@ -2539,7 +3018,9 @@ fn parse_canonical_nonzero_hash_hex(label: &str, value: &str) -> Result<[u8; 32]
 
 async fn wallet_balance_handler(State(handle): State<Arc<dyn NodeHandle>>) -> impl IntoResponse {
     match handle.get_wallet_balance() {
-        Some(bal) => (StatusCode::OK, Json(serde_json::to_value(bal).unwrap())).into_response(),
+        // Let Axum serialize the typed value at the response boundary. Avoid a
+        // process abort if this DTO ever gains a fallible custom serializer.
+        Some(bal) => (StatusCode::OK, Json(bal)).into_response(),
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({"error": "wallet not available"})),
@@ -2825,8 +3306,16 @@ fn full_scan_block_dto_v1(block: ScanBlock) -> FullScanBlockDtoV1 {
 
 async fn chain_scan_full_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Query(query): Query<FullScanQueryV1>,
 ) -> impl IntoResponse {
+    let _permit = match capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded("expensive scan capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
     let request = (|| {
         if query.from > query.to {
             return Err(RpcError::InvalidScan("from must not exceed to".to_string()));
@@ -2925,8 +3414,16 @@ async fn chain_scan_full_v1_handler(
 /// error; a busy chain answers a retriable 503.
 async fn chain_scan_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Query(q): Query<ScanQuery>,
 ) -> impl IntoResponse {
+    let _permit = match capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded("expensive scan capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
     // Apply the documented clamp at the untrusted HTTP boundary.  A custom
     // NodeHandle must never receive an attacker-selected u64-wide range and
     // accidentally turn one RPC into a full-chain walk. Preserve the existing
@@ -3024,8 +3521,16 @@ async fn chain_ancestry_handler(
 
 async fn wallet_spend_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(req): Json<SpendRequest>,
 ) -> impl IntoResponse {
+    let _permit = match capacity.try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => {
+            return RpcError::Overloaded("wallet mutation capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
     // This one-message legacy flow can reserve and admit a transaction before
     // its HTTP response reaches the caller, but it has no client-supplied
     // replay key with which to recover that exact result after a lost reply.
@@ -3054,8 +3559,16 @@ async fn wallet_spend_handler(
 
 async fn wallet_slate_create_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<WalletSlateCreateRequestV1>,
 ) -> impl IntoResponse {
+    let _permit = match capacity.try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => {
+            return RpcError::Overloaded("wallet mutation capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
     match handle.wallet_slate_create_v1(request) {
         Ok(offer) => (
             StatusCode::OK,
@@ -3076,8 +3589,16 @@ async fn wallet_slate_create_v1_handler(
 
 async fn wallet_slate_finalize_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<WalletSlateFinalizeRequestV1>,
 ) -> impl IntoResponse {
+    let _permit = match capacity.try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => {
+            return RpcError::Overloaded("wallet mutation capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
     match handle.wallet_slate_finalize_v1(request) {
         Ok(finalized) => (
             StatusCode::OK,
@@ -3098,8 +3619,16 @@ async fn wallet_slate_finalize_v1_handler(
 
 async fn wallet_slate_submit_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<WalletSlateSubmitRequestV1>,
 ) -> impl IntoResponse {
+    let _permit = match capacity.try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => {
+            return RpcError::Overloaded("wallet mutation capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
     match handle.wallet_slate_submit_v1(request) {
         Ok(submitted) => (
             StatusCode::OK,
@@ -3123,9 +3652,29 @@ async fn wallet_slate_submit_v1_handler(
 
 async fn regtest_mine_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(mine_capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<RegtestMineRequestV1>,
 ) -> impl IntoResponse {
-    match handle.regtest_mine_v1(request).await {
+    let permit = match mine_capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded("regtest mining capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
+    let mined = match tokio::spawn(async move {
+        let _permit = permit;
+        handle.regtest_mine_v1(request).await
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            return RpcError::Internal(format!("regtest mining worker failed: {error}"))
+                .into_response()
+        }
+    };
+    match mined {
         Ok(result) => (
             StatusCode::OK,
             Json(serde_json::json!({
@@ -3146,9 +3695,29 @@ async fn regtest_mine_v1_handler(
 
 async fn closed_mainnet_mine_one_v1_handler(
     State(handle): State<Arc<dyn NodeHandle>>,
+    Extension(mine_capacity): Extension<Arc<tokio::sync::Semaphore>>,
     Json(request): Json<ClosedMainnetMineOneRequestV1>,
 ) -> impl IntoResponse {
-    match handle.closed_mainnet_mine_one_v1(request).await {
+    let permit = match mine_capacity.try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return RpcError::Overloaded("closed Mainnet mining capacity exhausted; retry".into())
+                .into_response()
+        }
+    };
+    let mined = match tokio::spawn(async move {
+        let _permit = permit;
+        handle.closed_mainnet_mine_one_v1(request).await
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            return RpcError::Internal(format!("closed Mainnet mining worker failed: {error}"))
+                .into_response()
+        }
+    };
+    match mined {
         Ok(result) => (
             StatusCode::OK,
             Json(serde_json::json!({
@@ -3179,12 +3748,157 @@ mod tests {
     use serde_json::Value;
     use std::{
         collections::HashMap,
+        convert::Infallible,
+        pin::Pin,
         sync::{
             atomic::{AtomicBool, AtomicUsize, Ordering},
             Arc, Mutex,
         },
+        task::{Context, Poll},
         time::Duration,
     };
+
+    /// A client that opened an HTTP request but never sends or closes its body.
+    struct PendingBody;
+
+    impl http_body::Body for PendingBody {
+        type Data = Bytes;
+        type Error = Infallible;
+
+        fn poll_frame(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+            Poll::Pending
+        }
+    }
+
+    fn issuance_status_fixture(
+        pair_state: UsdomV4IssuancePairStateV1,
+    ) -> (UsdomV4IssuanceStatusRequestV1, UsdomV4IssuanceStatusV1) {
+        use dom_wallet_core_api::{BlockRef, CoreNetwork};
+
+        let request = UsdomV4IssuanceStatusRequestV1 {
+            schema_version: 1,
+            network_magic: 0xd0_4d_00_04,
+            chain_id: [0x21; 32],
+            candidate_id: [0x46; 32],
+            deposit_id: [0x47; 32],
+        };
+        let mut result = UsdomV4IssuanceStatusV1 {
+            schema_version: 1,
+            pair_state,
+            identity: CoreChainIdentity {
+                network: CoreNetwork::Regtest,
+                network_magic: request.network_magic,
+                chain_id: request.chain_id,
+                genesis_hash: [0x22; 32],
+                protocol_version: 4,
+                range_proof_serialization_version: 2,
+                coinbase_maturity: 1_000,
+                current_tip: BlockRef {
+                    height: 300,
+                    hash: [0x77; 32],
+                },
+            },
+            queued: false,
+            consumed: false,
+            issuance_commitment: None,
+            inclusion: None,
+            history_truncated: false,
+            scanned_from: None,
+            scanned_to: None,
+        };
+        match pair_state {
+            UsdomV4IssuancePairStateV1::Absent => {}
+            UsdomV4IssuancePairStateV1::Queued => result.queued = true,
+            UsdomV4IssuancePairStateV1::Canonical => {
+                result.consumed = true;
+                result.issuance_commitment = Some([0x88; 32]);
+                result.inclusion = Some(UsdomV4IssuanceInclusionV1 {
+                    height: 200,
+                    block_hash: [0x66; 32],
+                    transition_index: 2,
+                    transition_commitment: [0x88; 32],
+                });
+                result.scanned_from = Some(45);
+                result.scanned_to = Some(300);
+            }
+            UsdomV4IssuancePairStateV1::CandidateMismatch => {
+                result.consumed = true;
+                result.issuance_commitment = Some([0x88; 32]);
+                result.scanned_from = Some(45);
+                result.scanned_to = Some(300);
+            }
+            UsdomV4IssuancePairStateV1::HistoryTruncated => {
+                result.consumed = true;
+                result.issuance_commitment = Some([0x88; 32]);
+                result.history_truncated = true;
+                result.scanned_from = Some(45);
+                result.scanned_to = Some(300);
+            }
+        }
+        (request, result)
+    }
+
+    #[test]
+    fn issuance_status_backend_evidence_obeys_exact_state_table() {
+        use UsdomV4IssuancePairStateV1 as PairState;
+
+        for state in [
+            PairState::Absent,
+            PairState::Queued,
+            PairState::Canonical,
+            PairState::CandidateMismatch,
+            PairState::HistoryTruncated,
+        ] {
+            let (request, result) = issuance_status_fixture(state);
+            validate_usdom_v4_issuance_status_v1(&request, &result)
+                .expect("canonical state-table row");
+        }
+
+        let (request, canonical) = issuance_status_fixture(PairState::Canonical);
+        let mut invalid = Vec::new();
+        let mut value = canonical.clone();
+        value.identity.chain_id = [0x99; 32];
+        invalid.push(value);
+        let mut value = canonical.clone();
+        value.queued = true;
+        invalid.push(value);
+        let mut value = canonical.clone();
+        value.inclusion = None;
+        invalid.push(value);
+        let mut value = canonical.clone();
+        value.issuance_commitment = Some([0x89; 32]);
+        invalid.push(value);
+        let mut value = canonical.clone();
+        value.inclusion.as_mut().unwrap().height = 44;
+        invalid.push(value);
+        let mut value = canonical.clone();
+        value.scanned_from = None;
+        invalid.push(value);
+        let mut value = canonical;
+        value.scanned_from = Some(44);
+        invalid.push(value);
+
+        let (_, mut value) = issuance_status_fixture(PairState::HistoryTruncated);
+        value.scanned_from = Some(46);
+        invalid.push(value);
+        let (_, mut value) = issuance_status_fixture(PairState::CandidateMismatch);
+        value.history_truncated = true;
+        invalid.push(value);
+        let (_, mut value) = issuance_status_fixture(PairState::Absent);
+        value.scanned_from = Some(300);
+        value.scanned_to = Some(300);
+        invalid.push(value);
+
+        for result in invalid {
+            assert!(matches!(
+                validate_usdom_v4_issuance_status_v1(&request, &result),
+                Err(RpcError::Internal(_))
+            ));
+        }
+    }
 
     #[test]
     fn scan_page_size_is_nonzero_and_bounded_before_backend_work() {
@@ -3351,6 +4065,16 @@ mod tests {
         /// Canned answer for `resolve_admitted_tx`, keyed by tx hash.
         confirmed: Option<([u8; 32], ConfirmedTxRef)>,
         candidate_gate: Option<Arc<CandidateGate>>,
+        closed_mine_gate: Option<Arc<CandidateGate>>,
+        issuance_status_delay: Option<Duration>,
+        issuance_status_entered: Option<Arc<AtomicUsize>>,
+        issuance_status_panic_once: Option<Arc<AtomicBool>>,
+        usdom_scan_delay: Option<Duration>,
+        usdom_scan_entered: Option<Arc<AtomicUsize>>,
+        private_submit_delay: Option<Duration>,
+        private_submit_entered: Option<Arc<AtomicUsize>>,
+        issuance_submit_delay: Option<Duration>,
+        issuance_submit_entered: Option<Arc<AtomicUsize>>,
     }
 
     struct CandidateGate {
@@ -3373,6 +4097,16 @@ mod tests {
                 ancestry: None,
                 confirmed: None,
                 candidate_gate: None,
+                closed_mine_gate: None,
+                issuance_status_delay: None,
+                issuance_status_entered: None,
+                issuance_status_panic_once: None,
+                usdom_scan_delay: None,
+                usdom_scan_entered: None,
+                private_submit_delay: None,
+                private_submit_entered: None,
+                issuance_submit_delay: None,
+                issuance_submit_entered: None,
             }
         }
 
@@ -3429,6 +4163,52 @@ mod tests {
                 ..Self::new(0)
             }
         }
+
+        fn with_closed_mine_gate(gate: Arc<CandidateGate>) -> Self {
+            Self {
+                closed_mine_gate: Some(gate),
+                ..Self::new(42)
+            }
+        }
+
+        fn with_issuance_status_delay(delay: Duration) -> Self {
+            let mut node = Self::new(42);
+            node.issuance_status_delay = Some(delay);
+            node
+        }
+
+        fn with_issuance_status_gate(delay: Duration, entered: Arc<AtomicUsize>) -> Self {
+            let mut node = Self::with_issuance_status_delay(delay);
+            node.issuance_status_entered = Some(entered);
+            node
+        }
+
+        fn with_issuance_status_panic_once() -> Self {
+            let mut node = Self::new(42);
+            node.issuance_status_panic_once = Some(Arc::new(AtomicBool::new(true)));
+            node
+        }
+
+        fn with_usdom_scan_gate(delay: Duration, entered: Arc<AtomicUsize>) -> Self {
+            let mut node = Self::new(42);
+            node.usdom_scan_delay = Some(delay);
+            node.usdom_scan_entered = Some(entered);
+            node
+        }
+
+        fn with_private_submit_gate(delay: Duration, entered: Arc<AtomicUsize>) -> Self {
+            let mut node = Self::new(42);
+            node.private_submit_delay = Some(delay);
+            node.private_submit_entered = Some(entered);
+            node
+        }
+
+        fn with_issuance_submit_gate(delay: Duration, entered: Arc<AtomicUsize>) -> Self {
+            let mut node = Self::new(42);
+            node.issuance_submit_delay = Some(delay);
+            node.issuance_submit_entered = Some(entered);
+            node
+        }
     }
 
     impl NodeHandle for MockNode {
@@ -3444,6 +4224,10 @@ mod tests {
             Box::pin(async move {
                 requested.store(true, Ordering::SeqCst);
             })
+        }
+
+        fn is_shutting_down(&self) -> bool {
+            self.shutdown_requested.load(Ordering::SeqCst)
         }
 
         fn chain_height(&self) -> u64 {
@@ -3592,7 +4376,17 @@ mod tests {
             &self,
             request: ClosedMainnetMineOneRequestV1,
         ) -> ClosedMainnetMineFuture {
+            let gate = self.closed_mine_gate.clone();
             Box::pin(async move {
+                if let Some(gate) = gate {
+                    gate.entered.fetch_add(1, Ordering::SeqCst);
+                    gate.release
+                        .clone()
+                        .acquire_owned()
+                        .await
+                        .expect("gate open")
+                        .forget();
+                }
                 if request.expected_tip_height != 42 || request.expected_tip_hash != "11".repeat(32)
                 {
                     return Err(RpcError::Rejected("unexpected test tip".into()));
@@ -3609,9 +4403,17 @@ mod tests {
             &self,
             payload: Vec<u8>,
         ) -> UsdomV4TransferSubmitFuture {
+            let delay = self.private_submit_delay;
+            let entered = self.private_submit_entered.clone();
             Box::pin(async move {
                 if payload != [1, 2, 3] {
                     return Err(RpcError::Rejected("unexpected test payload".into()));
+                }
+                if let Some(entered) = entered {
+                    entered.fetch_add(1, Ordering::SeqCst);
+                }
+                if let Some(delay) = delay {
+                    tokio::time::sleep(delay).await;
                 }
                 Ok(UsdomV4TransferSubmissionV1 {
                     transition_id: [0x55; 32],
@@ -3621,9 +4423,17 @@ mod tests {
         }
 
         fn submit_usdom_v4_private_burn_v1(&self, payload: Vec<u8>) -> UsdomV4TransferSubmitFuture {
+            let delay = self.private_submit_delay;
+            let entered = self.private_submit_entered.clone();
             Box::pin(async move {
                 if payload != [4, 5, 6] {
                     return Err(RpcError::Rejected("unexpected test burn payload".into()));
+                }
+                if let Some(entered) = entered {
+                    entered.fetch_add(1, Ordering::SeqCst);
+                }
+                if let Some(delay) = delay {
+                    tokio::time::sleep(delay).await;
                 }
                 Ok(UsdomV4TransferSubmissionV1 {
                     transition_id: [0x65; 32],
@@ -3636,11 +4446,19 @@ mod tests {
             &self,
             witness: Vec<u8>,
         ) -> UsdomV4IssuanceSubmitFuture {
+            let delay = self.issuance_submit_delay;
+            let entered = self.issuance_submit_entered.clone();
             Box::pin(async move {
                 if witness != [7, 8, 9] {
                     return Err(RpcError::Rejected(
                         "unexpected test issuance witness".into(),
                     ));
+                }
+                if let Some(entered) = entered {
+                    entered.fetch_add(1, Ordering::SeqCst);
+                }
+                if let Some(delay) = delay {
+                    tokio::time::sleep(delay).await;
                 }
                 Ok(UsdomV4IssuanceSubmissionV1 {
                     candidate_id: [0x46; 32],
@@ -3654,6 +4472,19 @@ mod tests {
         ) -> Result<UsdomV4IssuanceStatusV1, RpcError> {
             use dom_wallet_core_api::{BlockRef, CoreNetwork};
 
+            if self
+                .issuance_status_panic_once
+                .as_ref()
+                .is_some_and(|panic_once| panic_once.swap(false, Ordering::SeqCst))
+            {
+                panic!("private backend panic details");
+            }
+            if let Some(entered) = &self.issuance_status_entered {
+                entered.fetch_add(1, Ordering::SeqCst);
+            }
+            if let Some(delay) = self.issuance_status_delay {
+                std::thread::sleep(delay);
+            }
             if request.schema_version != 1
                 || request.network_magic != 0xd0_4d_00_04
                 || request.chain_id != [0x21; 32]
@@ -3666,6 +4497,7 @@ mod tests {
             }
             Ok(UsdomV4IssuanceStatusV1 {
                 schema_version: 1,
+                pair_state: UsdomV4IssuancePairStateV1::Canonical,
                 identity: CoreChainIdentity {
                     network: CoreNetwork::Regtest,
                     network_magic: request.network_magic,
@@ -3679,7 +4511,7 @@ mod tests {
                         hash: [0x77; 32],
                     },
                 },
-                queued: true,
+                queued: false,
                 consumed: true,
                 issuance_commitment: Some([0x88; 32]),
                 inclusion: Some(UsdomV4IssuanceInclusionV1 {
@@ -3688,8 +4520,9 @@ mod tests {
                     transition_index: 2,
                     transition_commitment: [0x88; 32],
                 }),
-                scanned_from: 1,
-                scanned_to: 12,
+                history_truncated: false,
+                scanned_from: Some(1),
+                scanned_to: Some(12),
             })
         }
 
@@ -3728,11 +4561,19 @@ mod tests {
         ) -> Result<UsdomV4PrivateTransferScanV1, RpcError> {
             use dom_wallet_core_api::{BlockRef, CoreNetwork};
 
+            if let Some(entered) = &self.usdom_scan_entered {
+                entered.fetch_add(1, Ordering::SeqCst);
+            }
+            if let Some(delay) = self.usdom_scan_delay {
+                std::thread::sleep(delay);
+            }
+
             if request.transition_id != [0x55; 32] {
                 return Err(RpcError::Rejected("unexpected test transition".into()));
             }
             Ok(UsdomV4PrivateTransferScanV1 {
                 schema_version: 1,
+                transition_id: request.transition_id,
                 identity: CoreChainIdentity {
                     network: CoreNetwork::Regtest,
                     network_magic: request.network_magic,
@@ -3764,11 +4605,19 @@ mod tests {
         ) -> Result<UsdomV4PrivateTransferScanV1, RpcError> {
             use dom_wallet_core_api::{BlockRef, CoreNetwork};
 
+            if let Some(entered) = &self.usdom_scan_entered {
+                entered.fetch_add(1, Ordering::SeqCst);
+            }
+            if let Some(delay) = self.usdom_scan_delay {
+                std::thread::sleep(delay);
+            }
+
             if request.transition_id != [0x65; 32] {
                 return Err(RpcError::Rejected("unexpected test burn transition".into()));
             }
             Ok(UsdomV4PrivateTransferScanV1 {
                 schema_version: 1,
+                transition_id: request.transition_id,
                 identity: CoreChainIdentity {
                     network: CoreNetwork::Regtest,
                     network_magic: request.network_magic,
@@ -3799,6 +4648,13 @@ mod tests {
             request: UsdomV4HistoryRequestV1,
         ) -> Result<UsdomV4HistoryPageV1, RpcError> {
             use dom_wallet_core_api::{BlockRef, CoreNetwork};
+
+            if let Some(entered) = &self.usdom_scan_entered {
+                entered.fetch_add(1, Ordering::SeqCst);
+            }
+            if let Some(delay) = self.usdom_scan_delay {
+                std::thread::sleep(delay);
+            }
 
             if request.trusted_tip
                 != (ChainTip {
@@ -3970,6 +4826,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn readiness_is_authenticated_and_fails_closed_during_shutdown() {
+        let node = MockNode::new(42);
+        let shutting_down = Arc::clone(&node.shutdown_requested);
+        let service = app_with(node);
+
+        let unauthenticated = service
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+        let ready = service
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/ready")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ready.status(), StatusCode::OK);
+        assert_eq!(body_json(ready).await["status"], "ready");
+
+        shutting_down.store(true, Ordering::SeqCst);
+        let unavailable = service
+            .oneshot(
+                Request::builder()
+                    .uri("/ready")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = body_json(unavailable).await;
+        assert_eq!(body["ready"], false);
+        assert_eq!(body["status"], "shutdown_or_critical_task_failure");
+    }
+
+    #[tokio::test]
     async fn usdom_transfer_submission_requires_bearer_and_returns_exact_ids() {
         let body = r#"{"schema_version":1,"payload_hex":"010203"}"#;
         let unauthorized = app()
@@ -4030,6 +4935,110 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
+    }
+
+    #[tokio::test]
+    async fn private_submission_rejects_oversized_json_before_deserialization() {
+        for route in ["/usdom/v4/transfer/submit/v1", "/usdom/v4/burn/submit/v1"] {
+            let response = app()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(route)
+                        .header("content-type", "application/json")
+                        .header("authorization", "Bearer test-token")
+                        .header(
+                            "content-length",
+                            (MAX_USDOM_V4_PRIVATE_SUBMIT_BODY_BYTES_V1 + 1).to_string(),
+                        )
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_private_submission_body_does_not_hold_proof_worker_admission() {
+        let app = app();
+        let slow_app = app.clone();
+        let slow = tokio::spawn(async move {
+            slow_app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/usdom/v4/transfer/submit/v1")
+                        .header("content-type", "application/json")
+                        .header("authorization", "Bearer test-token")
+                        .body(Body::new(PendingBody))
+                        .unwrap(),
+                )
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let complete = tokio::time::timeout(
+            Duration::from_millis(250),
+            app.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/transfer/submit/v1")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(r#"{"schema_version":1,"payload_hex":"010203"}"#))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("slow request body held private proof-worker admission")
+        .unwrap();
+        assert_eq!(complete.status(), StatusCode::OK);
+
+        slow.abort();
+        let _ = slow.await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn private_submission_capacity_survives_client_cancellation() {
+        let entered = Arc::new(AtomicUsize::new(0));
+        let app = app_with(MockNode::with_private_submit_gate(
+            Duration::from_millis(200),
+            Arc::clone(&entered),
+        ));
+        let request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/usdom/v4/transfer/submit/v1")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-token")
+                .body(Body::from(r#"{"schema_version":1,"payload_hex":"010203"}"#))
+                .unwrap()
+        };
+
+        let first_app = app.clone();
+        let first = tokio::spawn(async move { first_app.oneshot(request()).await });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while entered.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("private submission worker entered");
+        first.abort();
+        let _ = first.await;
+
+        let started = std::time::Instant::now();
+        let rejected = app.clone().oneshot(request()).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert_eq!(entered.load(Ordering::SeqCst), 1);
+
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let accepted = app.oneshot(request()).await.unwrap();
+        assert_eq!(accepted.status(), StatusCode::OK);
+        assert_eq!(entered.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
@@ -4117,6 +5126,87 @@ mod tests {
         assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_issuance_submission_body_does_not_hold_finality_worker_admission() {
+        let app = app();
+        let slow_app = app.clone();
+        let slow = tokio::spawn(async move {
+            slow_app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/usdom/v4/issuance/submit/v1")
+                        .header("content-type", "application/octet-stream")
+                        .header("authorization", "Bearer test-token")
+                        .body(Body::new(PendingBody))
+                        .unwrap(),
+                )
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let complete = tokio::time::timeout(
+            Duration::from_millis(250),
+            app.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/submit/v1")
+                    .header("content-type", "application/octet-stream")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(vec![7, 8, 9]))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("slow witness body held finality-worker admission")
+        .unwrap();
+        assert_eq!(complete.status(), StatusCode::OK);
+
+        slow.abort();
+        let _ = slow.await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn issuance_submission_capacity_survives_client_cancellation() {
+        let entered = Arc::new(AtomicUsize::new(0));
+        let app = app_with(MockNode::with_issuance_submit_gate(
+            Duration::from_millis(200),
+            Arc::clone(&entered),
+        ));
+        let request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/usdom/v4/issuance/submit/v1")
+                .header("content-type", "application/octet-stream")
+                .header("authorization", "Bearer test-token")
+                .body(Body::from(vec![7, 8, 9]))
+                .unwrap()
+        };
+
+        let first_app = app.clone();
+        let first = tokio::spawn(async move { first_app.oneshot(request()).await });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while entered.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("issuance submission worker entered");
+        first.abort();
+        let _ = first.await;
+
+        let started = std::time::Instant::now();
+        let rejected = app.clone().oneshot(request()).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert_eq!(entered.load(Ordering::SeqCst), 1);
+
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let accepted = app.oneshot(request()).await.unwrap();
+        assert_eq!(accepted.status(), StatusCode::OK);
+        assert_eq!(entered.load(Ordering::SeqCst), 2);
+    }
+
     #[tokio::test]
     async fn usdom_issuance_status_is_authenticated_chain_pinned_and_exact() {
         let exact_body = serde_json::json!({
@@ -4156,6 +5246,7 @@ mod tests {
             body_json(response).await,
             serde_json::json!({
                 "schema_version": 1,
+                "pair_state": "canonical",
                 "identity": {
                     "network": "regtest",
                     "network_magic": 0xd0_4d_00_04_u32,
@@ -4166,7 +5257,7 @@ mod tests {
                 },
                 "candidate_id": "46".repeat(32),
                 "deposit_id": "47".repeat(32),
-                "queued": true,
+                "queued": false,
                 "consumed": true,
                 "issuance_commitment": "88".repeat(32),
                 "inclusion": {
@@ -4175,6 +5266,7 @@ mod tests {
                     "transition_index": 2,
                     "transition_commitment": "88".repeat(32),
                 },
+                "history_truncated": false,
                 "scanned_from": 1,
                 "scanned_to": 12,
             })
@@ -4226,6 +5318,281 @@ mod tests {
                 .unwrap();
             assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn issuance_status_rejects_oversized_body_before_backend_work() {
+        let entered = Arc::new(AtomicUsize::new(0));
+        let app = app_with(MockNode::with_issuance_status_gate(
+            Duration::ZERO,
+            Arc::clone(&entered),
+        ));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/status/v1")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .header(
+                        "content-length",
+                        (MAX_USDOM_V4_ISSUANCE_STATUS_BODY_BYTES_V1 + 1).to_string(),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(entered.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_issuance_status_bodies_do_not_starve_expensive_scans() {
+        let app = app_with(MockNode::with_scan(2, canned_scan()));
+        let slow_request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/usdom/v4/issuance/status/v1")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-token")
+                .body(Body::new(PendingBody))
+                .unwrap()
+        };
+
+        let first_app = app.clone();
+        let first = tokio::spawn(async move { first_app.oneshot(slow_request()).await });
+        let second_app = app.clone();
+        let second = tokio::spawn(async move { second_app.oneshot(slow_request()).await });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let scan = tokio::time::timeout(
+            Duration::from_millis(250),
+            app.oneshot(
+                Request::builder()
+                    .uri("/chain/scan?from=0&to=2")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("unrelated scan was not held behind slow status bodies")
+        .unwrap();
+        assert_eq!(scan.status(), StatusCode::OK);
+
+        first.abort();
+        second.abort();
+        let _ = first.await;
+        let _ = second.await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_private_scan_bodies_do_not_hold_expensive_scan_workers() {
+        let app = app_with(MockNode::with_scan(2, canned_scan()));
+        let mut slow = Vec::new();
+        for _ in 0..MAX_EXPENSIVE_SCAN_BODY_INFLIGHT {
+            let slow_app = app.clone();
+            slow.push(tokio::spawn(async move {
+                slow_app
+                    .oneshot(
+                        Request::builder()
+                            .method("POST")
+                            .uri("/usdom/v4/transfer/scan/v1")
+                            .header("content-type", "application/json")
+                            .header("authorization", "Bearer test-token")
+                            .body(Body::new(PendingBody))
+                            .unwrap(),
+                    )
+                    .await
+            }));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let scan = tokio::time::timeout(
+            Duration::from_millis(250),
+            app.oneshot(
+                Request::builder()
+                    .uri("/chain/scan?from=0&to=2")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("slow POST bodies must not reserve expensive scan workers")
+        .unwrap();
+        assert_eq!(scan.status(), StatusCode::OK);
+        for task in slow {
+            task.abort();
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn issuance_status_bounds_clients_still_delivering_bodies() {
+        let app = app();
+        let slow_request = || {
+            Request::builder()
+                .method("POST")
+                .uri("/usdom/v4/issuance/status/v1")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-token")
+                .body(Body::new(PendingBody))
+                .unwrap()
+        };
+        let mut admitted = Vec::new();
+        for _ in 0..MAX_USDOM_V4_ISSUANCE_STATUS_BODY_INFLIGHT {
+            let request_app = app.clone();
+            admitted.push(tokio::spawn(async move {
+                request_app.oneshot(slow_request()).await
+            }));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let started = std::time::Instant::now();
+        let rejected = app.oneshot(slow_request()).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(started.elapsed() < Duration::from_millis(100));
+
+        for request in admitted {
+            request.abort();
+            let _ = request.await;
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn issuance_status_auth_rejects_without_waiting_for_body() {
+        let response = tokio::time::timeout(
+            Duration::from_millis(250),
+            app().oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/status/v1")
+                    .header("content-type", "application/json")
+                    .body(Body::new(PendingBody))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("authentication waited for an unauthenticated request body")
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn issuance_status_blocking_store_work_does_not_stall_async_runtime() {
+        let app = app_with(MockNode::with_issuance_status_delay(Duration::from_millis(
+            200,
+        )));
+        let body = serde_json::json!({
+            "schema_version": 1,
+            "expected_network_magic": 0xd0_4d_00_04_u32,
+            "expected_chain_id": "21".repeat(32),
+            "candidate_id": "46".repeat(32),
+            "deposit_id": "47".repeat(32),
+        });
+        let request = tokio::spawn(async move {
+            app.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/issuance/status/v1")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+        });
+
+        tokio::task::yield_now().await;
+        let started = std::time::Instant::now();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "synchronous issuance history work stalled the async RPC runtime"
+        );
+        assert_eq!(request.await.unwrap().status(), StatusCode::OK);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn issuance_status_capacity_survives_client_cancellation_until_worker_finishes() {
+        let entered = Arc::new(AtomicUsize::new(0));
+        let app = app_with(MockNode::with_issuance_status_gate(
+            Duration::from_millis(200),
+            Arc::clone(&entered),
+        ));
+        let status_request = || {
+            let body = serde_json::json!({
+                "schema_version": 1,
+                "expected_network_magic": 0xd0_4d_00_04_u32,
+                "expected_chain_id": "21".repeat(32),
+                "candidate_id": "46".repeat(32),
+                "deposit_id": "47".repeat(32),
+            });
+            Request::builder()
+                .method("POST")
+                .uri("/usdom/v4/issuance/status/v1")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-token")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+
+        let first_app = app.clone();
+        let first_request = status_request();
+        let first = tokio::spawn(async move { first_app.oneshot(first_request).await });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while entered.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("blocking worker entered");
+        first.abort();
+        let _ = first.await;
+
+        let started = std::time::Instant::now();
+        let rejected = app.clone().oneshot(status_request()).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert_eq!(entered.load(Ordering::SeqCst), 1);
+
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let accepted = app.oneshot(status_request()).await.unwrap();
+        assert_eq!(accepted.status(), StatusCode::OK);
+        assert_eq!(entered.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn issuance_status_worker_panic_is_sanitized_and_releases_capacity() {
+        let app = app_with(MockNode::with_issuance_status_panic_once());
+        let status_request = || {
+            let body = serde_json::json!({
+                "schema_version": 1,
+                "expected_network_magic": 0xd0_4d_00_04_u32,
+                "expected_chain_id": "21".repeat(32),
+                "candidate_id": "46".repeat(32),
+                "deposit_id": "47".repeat(32),
+            });
+            Request::builder()
+                .method("POST")
+                .uri("/usdom/v4/issuance/status/v1")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-token")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+
+        let failed = app.clone().oneshot(status_request()).await.unwrap();
+        assert_eq!(failed.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            body_json(failed).await["error"],
+            serde_json::json!("internal server error")
+        );
+        let recovered = app.oneshot(status_request()).await.unwrap();
+        assert_eq!(recovered.status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -4359,7 +5726,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn usdom_v2_candidate_admission_applies_backpressure_before_a_second_handler() {
+    async fn usdom_v2_candidate_admission_is_fail_fast_and_survives_cancellation() {
         let gate = Arc::new(CandidateGate {
             entered: AtomicUsize::new(0),
             release: Arc::new(tokio::sync::Semaphore::new(0)),
@@ -4386,18 +5753,115 @@ mod tests {
         .await
         .expect("first candidate reaches the node handle");
 
-        let second = tokio::spawn(app.oneshot(request(body)));
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert_eq!(
-            gate.entered.load(Ordering::SeqCst),
-            1,
-            "a second consensus-sized body must wait outside the handler"
-        );
+        first.abort();
+        let _ = first.await;
+        let started = std::time::Instant::now();
+        let rejected = app.clone().oneshot(request(body.clone())).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert_eq!(gate.entered.load(Ordering::SeqCst), 1);
 
-        gate.release.add_permits(2);
-        assert_eq!(first.await.unwrap().unwrap().status(), StatusCode::OK);
-        assert_eq!(second.await.unwrap().unwrap().status(), StatusCode::OK);
+        gate.release.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while gate.release.available_permits() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled request worker consumes release permit");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let retry = tokio::spawn(app.oneshot(request(body)));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while gate.entered.load(Ordering::SeqCst) != 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("capacity released after detached worker completes");
+        gate.release.add_permits(1);
+        assert_eq!(retry.await.unwrap().unwrap().status(), StatusCode::OK);
         assert_eq!(gate.entered.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_v2_candidate_body_does_not_hold_consensus_worker_admission() {
+        let app = app();
+        let slow_app = app.clone();
+        let slow = tokio::spawn(async move {
+            slow_app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/usdom/v2/candidate/submit/v1")
+                        .header("content-type", "application/octet-stream")
+                        .header("authorization", "Bearer test-token")
+                        .body(Body::new(PendingBody))
+                        .unwrap(),
+                )
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let body = encode_usdom_v2_candidate_submission_v1(&[0x10, 0x20], &[0x30, 0x40])
+            .expect("canonical candidate body");
+        let complete = tokio::time::timeout(
+            Duration::from_millis(250),
+            app.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v2/candidate/submit/v1")
+                    .header("content-type", "application/octet-stream")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(body))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("slow V2 body held consensus-worker admission")
+        .unwrap();
+        assert_eq!(complete.status(), StatusCode::OK);
+        slow.abort();
+        let _ = slow.await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_public_tx_bodies_do_not_hold_transaction_admission() {
+        let app = app();
+        let mut slow = Vec::new();
+        for _ in 0..MAX_TX_SUBMIT_INFLIGHT {
+            let slow_app = app.clone();
+            slow.push(tokio::spawn(async move {
+                slow_app
+                    .oneshot(
+                        Request::builder()
+                            .method("POST")
+                            .uri("/tx/submit")
+                            .header("content-type", "application/json")
+                            .body(Body::new(PendingBody))
+                            .unwrap(),
+                    )
+                    .await
+            }));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let complete = tokio::time::timeout(
+            Duration::from_millis(250),
+            app.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/tx/submit")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"tx_hex":"01"}"#))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("slow public bodies held transaction admission")
+        .unwrap();
+        assert_eq!(complete.status(), StatusCode::OK);
+        for request in slow {
+            request.abort();
+            let _ = request.await;
+        }
     }
 
     #[tokio::test]
@@ -4487,6 +5951,10 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let response = body_json(response).await;
+        assert_eq!(
+            response["transition_id"],
+            serde_json::json!("55".repeat(32))
+        );
         assert_eq!(response["finality_claimed"], serde_json::json!(false));
         assert_eq!(response["scanned_from"], serde_json::json!(12));
         assert_eq!(response["scanned_to"], serde_json::json!(12));
@@ -4500,6 +5968,68 @@ mod tests {
             serde_json::json!(3)
         );
         assert!(response["continuation"].is_null());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn usdom_private_scan_blocking_work_does_not_stall_runtime_or_escape_capacity() {
+        let entered = Arc::new(AtomicUsize::new(0));
+        let app = app_with(MockNode::with_usdom_scan_gate(
+            Duration::from_millis(200),
+            Arc::clone(&entered),
+        ));
+        let request = || {
+            let body = serde_json::json!({
+                "schema_version": 1,
+                "expected_network_magic": dom_core::NETWORK_MAGIC_REGTEST,
+                "expected_chain_id": "11".repeat(32),
+                "transition_id": "55".repeat(32),
+                "start_height": 12,
+                "max_blocks": 1,
+                "anchor": {"height": 11, "block_hash": "44".repeat(32)}
+            });
+            Request::builder()
+                .method("POST")
+                .uri("/usdom/v4/transfer/scan/v1")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer test-token")
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+
+        let first_app = app.clone();
+        let first = tokio::spawn(async move { first_app.oneshot(request()).await });
+        let second_app = app.clone();
+        let second = tokio::spawn(async move { second_app.oneshot(request()).await });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while entered.load(Ordering::SeqCst) != MAX_EXPENSIVE_SCAN_INFLIGHT {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("blocking private scans entered");
+
+        let started = std::time::Instant::now();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "synchronous USDOM scan stalled the async RPC runtime"
+        );
+
+        first.abort();
+        second.abort();
+        let _ = first.await;
+        let _ = second.await;
+        let rejected = app.clone().oneshot(request()).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(entered.load(Ordering::SeqCst), MAX_EXPENSIVE_SCAN_INFLIGHT);
+
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let accepted = app.oneshot(request()).await.unwrap();
+        assert_eq!(accepted.status(), StatusCode::OK);
+        assert_eq!(
+            entered.load(Ordering::SeqCst),
+            MAX_EXPENSIVE_SCAN_INFLIGHT + 1
+        );
     }
 
     #[tokio::test]
@@ -4594,6 +6124,10 @@ mod tests {
             .unwrap();
         assert_eq!(scanned.status(), StatusCode::OK);
         let response = body_json(scanned).await;
+        assert_eq!(
+            response["transition_id"],
+            serde_json::json!("65".repeat(32))
+        );
         assert_eq!(response["finality_claimed"], serde_json::json!(false));
         assert_eq!(response["inclusion"]["height"], serde_json::json!(12));
         assert_eq!(
@@ -4664,6 +6198,57 @@ mod tests {
             serde_json::json!("040506")
         );
         assert!(response["continuation"].is_null());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn usdom_history_scan_blocking_work_does_not_stall_async_runtime() {
+        let entered = Arc::new(AtomicUsize::new(0));
+        let app = app_with(MockNode::with_usdom_scan_gate(
+            Duration::from_millis(200),
+            Arc::clone(&entered),
+        ));
+        let body = serde_json::json!({
+            "schema_version": 1,
+            "expected_network_magic": dom_core::NETWORK_MAGIC_REGTEST,
+            "expected_chain_id": "11".repeat(32),
+            "expected_dom_domain": "33".repeat(32),
+            "trusted_tip": {"height": 12, "hash": "77".repeat(32)},
+            "start_height": 12,
+            "max_blocks": 1,
+            "anchor": {
+                "height": 11,
+                "block_hash": "44".repeat(32),
+                "state_root": "88".repeat(32)
+            },
+            "require_checkpoint_finality": false
+        });
+        let scan = tokio::spawn(async move {
+            app.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/usdom/v4/history/scan/v1")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while entered.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("blocking history scan entered");
+        let started = std::time::Instant::now();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "synchronous USDOM history work stalled the async RPC runtime"
+        );
+        assert_eq!(scan.await.unwrap().status(), StatusCode::OK);
     }
 
     #[tokio::test]
@@ -4973,6 +6558,24 @@ mod tests {
         })
         .await
         .expect("shutdown request task should run after the 202 response");
+    }
+
+    #[tokio::test]
+    async fn signal_registration_failure_does_not_trigger_shutdown_or_panic() {
+        let result = tokio::time::timeout(
+            Duration::from_millis(20),
+            wait_for_shutdown_signal(async {
+                Err::<(), _>(std::io::Error::other(
+                    "injected signal registration failure",
+                ))
+            }),
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "registration failure must leave the shutdown trigger pending"
+        );
     }
 
     #[tokio::test]
@@ -5377,6 +6980,42 @@ mod tests {
             body_json(r).await["error"],
             serde_json::json!("internal server error")
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_wallet_body_does_not_hold_mutation_worker() {
+        let slow = tokio::spawn(async {
+            app()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/wallet/spend")
+                        .header("content-type", "application/json")
+                        .header("authorization", "Bearer test-token")
+                        .body(Body::new(PendingBody))
+                        .unwrap(),
+                )
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        let response = tokio::time::timeout(
+            Duration::from_millis(250),
+            app().oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/wallet/spend")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(wallet_spend_body()))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("a slow body must not reserve the wallet mutation worker")
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        slow.abort();
     }
 
     #[tokio::test]
@@ -5818,6 +7457,44 @@ mod tests {
         }
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_regtest_body_does_not_hold_mining_worker() {
+        let app = app();
+        let slow_app = app.clone();
+        let slow = tokio::spawn(async move {
+            slow_app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/regtest/mine/v1")
+                        .header("content-type", "application/json")
+                        .header("authorization", "Bearer test-token")
+                        .body(Body::new(PendingBody))
+                        .unwrap(),
+                )
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let complete = tokio::time::timeout(
+            Duration::from_millis(250),
+            app.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/regtest/mine/v1")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(r#"{"count":1}"#))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(complete.status(), StatusCode::OK);
+        slow.abort();
+        let _ = slow.await;
+    }
+
     #[tokio::test]
     async fn closed_mainnet_single_block_requires_bearer_and_exact_tip() {
         let body = serde_json::json!({
@@ -5857,6 +7534,89 @@ mod tests {
         assert_eq!(response["block_hash"], serde_json::json!("22".repeat(32)));
         assert_eq!(response["initialized_genesis"], serde_json::json!(false));
         assert_eq!(response["count"], serde_json::json!(1));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_closed_mainnet_body_does_not_hold_mining_worker() {
+        let app = app();
+        let slow_app = app.clone();
+        let slow = tokio::spawn(async move {
+            slow_app
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/closed-mainnet/mine-one/v1")
+                        .header("content-type", "application/json")
+                        .header("authorization", "Bearer test-token")
+                        .body(Body::new(PendingBody))
+                        .unwrap(),
+                )
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let body = serde_json::json!({
+            "expected_tip_height": 42,
+            "expected_tip_hash": "11".repeat(32),
+        })
+        .to_string();
+        let complete = tokio::time::timeout(
+            Duration::from_millis(250),
+            app.oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/closed-mainnet/mine-one/v1")
+                    .header("content-type", "application/json")
+                    .header("authorization", "Bearer test-token")
+                    .body(Body::from(body))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("slow body held mining worker")
+        .unwrap();
+        assert_eq!(complete.status(), StatusCode::OK);
+        slow.abort();
+        let _ = slow.await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn closed_mainnet_capacity_survives_client_cancellation() {
+        let gate = Arc::new(CandidateGate {
+            entered: AtomicUsize::new(0),
+            release: Arc::new(tokio::sync::Semaphore::new(0)),
+        });
+        let app = app_with(MockNode::with_closed_mine_gate(Arc::clone(&gate)));
+        let request = || {
+            Request::builder().method("POST").uri("/closed-mainnet/mine-one/v1")
+            .header("content-type", "application/json").header("authorization", "Bearer test-token")
+            .body(Body::from(serde_json::json!({"expected_tip_height":42,"expected_tip_hash":"11".repeat(32)}).to_string())).unwrap()
+        };
+        let first = tokio::spawn(app.clone().oneshot(request()));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while gate.entered.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        first.abort();
+        let _ = first.await;
+        assert_eq!(
+            app.clone().oneshot(request()).await.unwrap().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        gate.release.add_permits(1);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let retry = tokio::spawn(app.oneshot(request()));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while gate.entered.load(Ordering::SeqCst) != 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        gate.release.add_permits(1);
+        assert_eq!(retry.await.unwrap().unwrap().status(), StatusCode::OK);
     }
 
     #[tokio::test]

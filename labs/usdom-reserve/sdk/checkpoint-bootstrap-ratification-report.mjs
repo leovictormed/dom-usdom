@@ -1,4 +1,4 @@
-import {AbiCoder,getAddress,keccak256,toUtf8Bytes} from 'ethers';
+import {AbiCoder,TypedDataEncoder,getAddress,keccak256,toUtf8Bytes} from 'ethers';
 
 export const CHECKPOINT_BOOTSTRAP_RATIFICATION_OBSERVATION_SCHEMA=
   'usdom-checkpoint-bootstrap-ratification-observation-v1';
@@ -60,7 +60,7 @@ function stable(value) {
   return value;
 }
 
-export function checkpointBootstrapRatificationDigest({releaseEvidence,releaseConfig,
+export function checkpointBootstrapRatificationCommitment({releaseEvidence,releaseConfig,
   checkpointConsensus,nativeFacts}={}) {
   if(!releaseEvidence||releaseEvidence.schema!==1||!identifier.test(releaseEvidence.releaseId??'')
       ||!identifier.test(releaseEvidence.sourceTag??'')||!commit.test(releaseEvidence.sourceCommit??'')) {
@@ -103,6 +103,20 @@ export function checkpointBootstrapRatificationDigest({releaseEvidence,releaseCo
       bytes32(nativeFacts.checkpointDomChainId,'checkpointDomChainId'),first]));
 }
 
+export function checkpointBootstrapRatificationTypedData(args={}) {
+  const commitment=checkpointBootstrapRatificationCommitment(args);
+  return TypedDataEncoder.getPayload({name:'USDOM Checkpoint Bootstrap Ratification',version:'1',
+    chainId:1,verifyingContract:normalizedAddress(args.releaseConfig?.governance,'governance')},
+  {CheckpointBootstrapRatification:[{name:'ratificationCommitment',type:'bytes32'}]},
+  {ratificationCommitment:commitment});
+}
+
+export function checkpointBootstrapRatificationDigest(args={}) {
+  const payload=checkpointBootstrapRatificationTypedData(args);
+  const types={...payload.types}; delete types.EIP712Domain;
+  return TypedDataEncoder.hash(payload.domain,types,payload.message);
+}
+
 export function buildCheckpointBootstrapRatificationReport({releaseEvidence,releaseConfig,
   checkpointConsensus,nativeFacts,observation}={}) {
   const digest=checkpointBootstrapRatificationDigest({releaseEvidence,releaseConfig,
@@ -140,7 +154,7 @@ export function buildCheckpointBootstrapRatificationReport({releaseEvidence,rele
     if(observed<timestamp||observed-timestamp>86400n) fail('ratification observation is stale or predates snapshot');
   }
   const canonical=[...observation.approvals].sort((left,right)=>
-    left.operatorId.localeCompare(right.operatorId));
+    left.operatorId<right.operatorId?-1:left.operatorId>right.operatorId?1:0);
   if(observation.approvals.some((approval,index)=>approval.operatorId!==canonical[index].operatorId)) {
     fail('ratification approvals must use canonical operator order');
   }

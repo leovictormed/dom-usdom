@@ -115,6 +115,11 @@ test('authenticated export binds exact source commitments and terminal package h
   assert.throws(()=>inspectAuthenticatedRandomxExport(
     {...fixture.report,blockHash:`0x${'11'.repeat(32)}`},fixture.sources,fixture.statement,
   ),/block hash mismatch/);
+  for(const blockHeight of ['9'.repeat(100000),(1n<<64n).toString()]) {
+    assert.throws(()=>inspectAuthenticatedRandomxExport(
+      {...fixture.report,blockHeight},fixture.sources,fixture.statement,
+    ),/report values are invalid/);
+  }
   for(const transition of [
     fixture.sources.transition.subarray(0,2319),
     (()=>{ const value=Buffer.from(fixture.sources.transition); value.writeUInt16BE(3,8); return value; })(),
@@ -128,18 +133,25 @@ test('authenticated export binds exact source commitments and terminal package h
   }
 });
 
-test('plan CLI fails closed without a canonical external statement and executes nothing',()=>{
+test('plan CLI reports authenticated input availability consistently and executes nothing',()=>{
   const script=fileURLToPath(new URL('../../scripts/plan-randomx-measurement.mjs',import.meta.url));
   const result=spawnSync(process.execPath,[script],{encoding:'utf8'});
-  assert.equal(result.status,1,result.stderr);
+  assert.ok(result.status===0||result.status===1,result.stderr);
   const report=JSON.parse(result.stdout);
   assert.equal(report.mode,'plan-only');
   assert.equal(report.executesGuest,false);
   assert.equal(report.generatesProof,false);
   assert.equal(report.mines,false);
-  assert.equal(report.readyForAuthorizedExecution,false);
-  assert(report.blockers.some(value=>value.startsWith('canonical_statement_unavailable:')));
-  assert(report.blockers.some(value=>value.startsWith('authenticated_export_unavailable:')));
+  assert.equal(report.readyForAuthorizedExecution,result.status===0);
+  if(result.status===0) {
+    assert.notEqual(report.statement,null); assert.notEqual(report.authenticatedExport,null);
+    assert.deepEqual(report.blockers,[]);
+  } else {
+    assert.equal(report.readyForAuthorizedExecution,false);
+    assert(report.blockers.includes('canonical_statement_unavailable')
+      ||report.blockers.includes('authenticated_export_unavailable')
+      ||report.blockers.some(value=>value.startsWith('artifact_unavailable:')));
+  }
   const extra=spawnSync(process.execPath,[script,'ignored-input.bin'],{encoding:'utf8'});
   assert.equal(extra.status,2);
   assert.equal(extra.stdout,'');

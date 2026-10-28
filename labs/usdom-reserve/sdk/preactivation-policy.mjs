@@ -15,7 +15,9 @@ function exact(value,fields,label) {
   }
 }
 function decimal(value,bits,label) {
-  if(typeof value!=='string'||!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error(`${label} must be canonical decimal`);
+  const maxDigits={8:3,32:10,64:20,128:39,256:78}[bits];
+  if(maxDigits===undefined||typeof value!=='string'||value.length>maxDigits
+      ||!/^(0|[1-9][0-9]*)$/.test(value)) throw new Error(`${label} must be canonical decimal`);
   const parsed=BigInt(value);
   if(parsed>=(1n<<BigInt(bits))) throw new Error(`${label} exceeds uint${bits}`);
   return parsed;

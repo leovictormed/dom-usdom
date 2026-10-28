@@ -60,6 +60,7 @@ test('replacement possession checker rejects plan, typed-data and signature muta
     value=>{value.bundle.planHash=`0x${'cd'.repeat(32)}`;},
     value=>{value.bundle.proofs[0].typedData.message.role='reserveGuardian';},
     value=>{value.bundle.proofs[1].signature=value.bundle.proofs[0].signature;},
+    value=>{value.bundle.proofs[0].signature=`0x${value.bundle.proofs[0].signature.slice(2).toUpperCase()}`;},
     value=>{value.bundle.proofs[2].extra=true;},
     value=>{value.plan.roles[0].newOwner=value.plan.roles[1].newOwner;},
   ];
@@ -67,8 +68,24 @@ test('replacement possession checker rejects plan, typed-data and signature muta
     const value=await fixture(); mutate(value);
     const result=await runWith(value.plan,value.bundle);
     assert.notEqual(result.status,0);
-    assert.match(result.stderr,/Safe recovery replacement proof validation failed:/);
+    assert.deepEqual(JSON.parse(result.stderr),{schema:'usdom-release-safe-diagnostic/v1',ok:false,
+      operation:'check-safe-recovery-replacement-proofs',code:'RELEASE_OPERATION_REJECTED'});
   }
+});
+
+test('replacement possession checker rejects group-readable recovery evidence',async()=>{
+  const value=await fixture();
+  const directory=await mkdtemp(path.join(tmpdir(),'usdom-replacement-proof-mode-'));
+  await chmod(directory,0o700);
+  const planPath=path.join(directory,'plan.json'),proofPath=path.join(directory,'proofs.json');
+  await writeFile(planPath,JSON.stringify(value.plan),{mode:0o600});
+  await writeFile(proofPath,JSON.stringify(value.bundle),{mode:0o640});
+  await chmod(proofPath,0o640);
+  try {
+    const result=spawnSync(process.execPath,[checker],{encoding:'utf8',env:{...process.env,
+      USDOM_SAFE_RECOVERY_PLAN:planPath,USDOM_SAFE_RECOVERY_REPLACEMENT_PROOFS:proofPath}});
+    assert.notEqual(result.status,0);
+  } finally { await rm(directory,{recursive:true,force:true}); }
 });
 
 test('Safe recovery signer snapshots and continuously rechecks replacement proofs',()=>{
@@ -78,4 +95,11 @@ test('Safe recovery signer snapshots and continuously rechecks replacement proof
   assert.match(signer,/"\$cmp_bin" -s "\$replacement_proofs_snapshot" "\$temporary\/replacement-proofs\.current\.json"/);
   assert.match(signer,/check-safe-recovery-replacement-proofs\.mjs >\/dev\/null/);
   assert.match(signer,/assert_signing_inputs_unchanged[\s\S]+wallet sign/);
+});
+
+test('Safe recovery operator authorization binds the complete offline signing context',()=>{
+  assert.match(signer,/usdom-safe-recovery-offline-sign-v1\|action=signRecoverableSafeRecovery\|phase=offline-sign-only\|chainId=1\|planHash=\$plan_hash\|transactionPackageHash=\$transaction_package_hash\|safeTxHashes=\$safe_transaction_hashes\|planSha256=\$plan_sha256\|replacementProofsSha256=\$replacement_proofs_sha256\|safePackageSha256=\$safe_package_sha256\|safeBaselineSha256=\$safe_baseline_sha256/);
+  assert.match(signer,/\.roles \| map\(\.role \+ ":" \+ \.safeTxHash\) \| join\(","\)/);
+  assert.match(signer,/ASSINO RECUPERACAO SAFE SEM TRANSMITIR AUTH \$authorization_hash/);
+  assert.ok(signer.indexOf('assert_signing_inputs_unchanged',signer.indexOf('authorization_hash=$(sha256_file'))>signer.indexOf('AUTH $authorization_hash'));
 });

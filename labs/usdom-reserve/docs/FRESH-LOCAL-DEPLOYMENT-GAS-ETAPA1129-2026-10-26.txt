@@ -40,11 +40,12 @@ Evidence and limitations
 ========================
 
 Machine-readable evidence is
-`LOCAL-DEPLOYMENT-GAS-MEASUREMENT-2026-10-26.json`. A dedicated runner rebuilds
-the evidence from the current artifacts and fails if either fresh run differs,
+`LOCAL-DEPLOYMENT-GAS-MEASUREMENT-2026-10-26.json`. A dedicated runner first
+compiles the required contracts and mocks in an isolated directory with pinned
+Forge and Solc, captures that complete artifact set by descriptor, and fails if either fresh run differs,
 an individual ceiling is exceeded or the aggregate policy is exceeded.
 
-The current artifacts contain unmaterialized mainnet production pins and cannot
+The isolated local artifacts contain unmaterialized mainnet production pins and cannot
 successfully execute their chain-ID-1 production branches. This measurement
 therefore proves the current artifact/local constructor path and policy
 arithmetic. The eventual configured release artifacts must reproduce fresh gas

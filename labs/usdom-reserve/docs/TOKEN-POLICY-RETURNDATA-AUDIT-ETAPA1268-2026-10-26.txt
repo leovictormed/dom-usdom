@@ -1,0 +1,67 @@
+ETAPA 1268 — token policy returndata audit
+Date: 2026-10-26
+
+Scope
+-----
+
+Adversarial review of every USDT policy read used by ProofReserve before
+deposit, proof admission, payout and delayed resume: paused, deprecated, upgrade
+target, basis-points fee, maximum fee and blacklist status. Balance and transfer
+boundaries, callback rollback and token runtime identity were rechecked. No Rust,
+production script, network, signing, deployment, funds, commit or push operation
+was performed.
+
+Result
+------
+
+No new material production defect was found. Every policy read uses the bounded
+one-word token decoder: at most 32 bytes are copied under the token gas cap and
+success requires exactly 32 return bytes. Boolean reads additionally reject
+every value above one. Upgrade target and fee fields must be zero. Token runtime
+code must continue to match its deployment hash.
+
+These checks precede deposit credit and first proved debt. Execution repeats the
+policy checks for the reserve and exact recipient before reducing debt, queue or
+rate-limit state. Any malformed policy response, blacklist, transfer failure or
+balance postcondition failure therefore rolls back the complete transaction.
+
+Regression expansion
+--------------------
+
+The hostile token now supports selector-specific responses for all six policy
+getters:
+
+- 31-byte short response;
+- 33-byte response with trailing data;
+- one-megabyte return bomb; and
+- exact-length word `2`, which is noncanonical for boolean getters and unsafe
+  nonzero policy for scalar getters.
+
+A new regression exercises the complete 6-by-4 matrix before deposit and proves
+that no deposit identifier or credit is consumed. It then queues a valid proved
+debt, injects a blacklist return bomb during payout, verifies that paid flags,
+pending amount and debt remain retryable, restores the token response and pays
+the exact recipient successfully. Production contracts and ABI were unchanged.
+
+Verification
+------------
+
+- Complete Foundry suite: 208/208 tests passed in 14 suites, 0 failed, 0
+  skipped.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 reverts.
+- ProofReserve runtime: 20,003 bytes; EIP-170 margin 4,573 bytes; 477-byte
+  surplus over the mandatory project margin.
+- ProofReserve initcode: 25,671 bytes; margin 23,481 bytes.
+- Registry runtime: 10,605 bytes; margin 13,971 bytes.
+- Quorum prototype runtime: 14,609 bytes; margin 9,967 bytes.
+- Formatting, full Forge execution, size measurement and `git diff --check`
+  passed.
+
+Release impact
+--------------
+
+This stage adds executable negative evidence only. Production bytecode remains
+the stage-1244 result. This evidence does not authorize deployment or real funds
+and does not replace outstanding release, proof, identity or operator gates.

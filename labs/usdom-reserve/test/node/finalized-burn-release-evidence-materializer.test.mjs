@@ -10,6 +10,8 @@ const scriptUrl=new URL(
   '../../scripts/materialize-finalized-burn-release-evidence.mjs',import.meta.url,
 );
 const source=await readFile(scriptUrl,'utf8');
+const materializationSource=await readFile(new URL(
+  '../../sdk/finalized-burn-release-evidence-materialization.mjs',import.meta.url),'utf8');
 
 test('finalized-burn evidence materializer selects only the latest fixed successful run',()=>{
   for(const value of [
@@ -20,12 +22,16 @@ test('finalized-burn evidence materializer selects only the latest fixed success
     'assertRunUnchanged(latest)',
     'captureFinalizedBurnReleaseRun(runRoot)','await snapshot.assertOriginsUnchanged()',
     'FINALIZED_BURN_E2E_EVIDENCE_PATH','await immutableWrite(FINALIZED_BURN_E2E_EVIDENCE_PATH',
-    'await atomicWrite(evidencePath','broadcastAuthorized:false',
+    'await compareAndSwapEvidence(evidencePath','broadcastAuthorized:false',
     'readDirectFile(target,{minimum:1,maximum,privateMode:true',
-    'writePrivateFileDurable(path.join(root,relative),content)',
     'writePrivateFileDurableNew(target,bytes)','immutable finalized-burn release evidence already differs',
+    'replaceLockedParentFileDurable','expectedPreviousSha256:rawSha(previousBytes)',
+    'expectedMode:0o600','metadataInspectorSha256:pythonExecutable.sha256',
+    'process.exitCode=durableReplacementFailureExitCode(error)',
+    'primaryError=error','if(primaryError===null) throw cleanupError',
   ]) assert.match(source,new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
   assert.doesNotMatch(source,/open\(target,'r'\)|rename\(temporary,target\)/);
+  assert.doesNotMatch(source,/writePrivateFileDurable\(path\.join\(root,relative\),content\)/);
   assert.doesNotMatch(source,/capacity-report\.json/);
   assert.doesNotMatch(source,/git\s+(?:add|commit|tag|push)|eth_sendRawTransaction|privateKey|mnemonic/i);
 });
@@ -64,4 +70,16 @@ test('finalized-burn evidence materializer rejects arguments before reading rele
   });
   assert.equal(code,1);
   assert.equal(JSON.parse(output).code,'PILOT_OPERATION_REJECTED');
+});
+
+test('finalized-burn evidence slot is immutable across materialization retries',()=>{
+  assert.match(materializationSource,/current!==null/);
+  assert.match(materializationSource,/already binds a different finalized-burn E2E report/);
+});
+
+test('finalized-burn success is emitted only after snapshot cleanup completes',()=>{
+  const cleanup=source.indexOf('await latest.snapshot.cleanup()');
+  const success=source.indexOf('console.log(JSON.stringify(successRecord');
+  assert.ok(cleanup>=0&&success>cleanup);
+  assert.doesNotMatch(source,/console\.log\(JSON\.stringify\(\{ok:true/);
 });

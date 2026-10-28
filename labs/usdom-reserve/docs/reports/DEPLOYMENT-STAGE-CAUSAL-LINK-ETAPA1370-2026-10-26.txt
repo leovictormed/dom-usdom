@@ -1,0 +1,37 @@
+Stage 1370 — exact causal deployment-stage link
+Date: 2026-10-26
+
+Finding
+The raw transaction, RPC receipt, completion evidence and fee anchor each had an exact
+schema validator, but the deployment ceremony joined them with dispersed field checks.
+That left no single reusable boundary proving that the four independently valid documents
+belonged to the same transaction and stage.
+
+Correction
+- Added validateDeploymentStageLink to validate all four closed schemas before comparing them.
+- Bound index/name/chain/package/observation context across raw, completion and anchor.
+- Bound release/RPC configuration hashes, transaction hash, sender, nonce, expected contract
+  and raw hash from raw evidence into completion evidence.
+- Bound receipt transaction/sender/contract and block number/hash into raw/completion evidence.
+- Bound anchor gas limit and max fee to raw policy; additionally require receipt gas used <=
+  transaction gas limit, effective gas price <= transaction max fee and actual cost <= maximum cost.
+- Required the fee anchor height not exceed the completion finality height.
+- Invoked the validator for every prior stage recovered on restart and for the current stage
+  before final evidence persistence.
+- Added the new checker to the local critical-source inventory.
+
+Adversarial regression
+The focal regression rejects transaction drift, raw-hash drift, gas-limit drift, receipt gas
+above the transaction gas limit, effective price above max fee, anchor finality beyond the
+completion proof and inconsistent maximum cost.
+
+Validation
+- bash -n scripts/execute-mainnet-deployment.sh: PASS
+- node --check scripts/check-deployment-stage-link.mjs: PASS
+- related Node suite: 21/22 PASS; the only failure is the pre-existing/concurrent pinned
+  repository-source mismatch for Cargo.lock in rebuild-v3-publication-boundary. All 21
+  deployment and publication-boundary behavioral tests preceding that external pin check pass.
+- The inventory-only checker reaches the same Cargo.lock pinned-content mismatch; no source
+  hash was regenerated or frozen in this stage.
+
+No network, signing, deployment, funds, commit or push occurred.

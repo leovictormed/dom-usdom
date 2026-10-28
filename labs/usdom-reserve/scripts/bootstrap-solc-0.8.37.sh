@@ -27,7 +27,8 @@ else
   candidate=$(mktemp "$directory/.solc-0.8.37.XXXXXXXX")
   trap 'rm -f -- "$candidate"' EXIT
   curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-    --tlsv1.2 --connect-timeout 20 --max-time 600 --retry 3 --retry-all-errors \
+    --tlsv1.2 --connect-timeout 15 --max-time 300 --max-filesize 67108864 \
+    --retry 3 --retry-all-errors \
     --output "$candidate" "$origin"
   test "$(sha256sum "$candidate" | awk '{print $1}')" = "$expected"
   chmod 0700 "$candidate"

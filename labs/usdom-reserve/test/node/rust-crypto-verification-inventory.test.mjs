@@ -33,9 +33,11 @@ function occurrences(text, needle) {
 
 test("all authoritative Rust verification primitives remain inventoried", () => {
   const files = sources();
-  assert.equal(files.length, 59);
+  assert.equal(files.length, 63);
   const all = files.map(production).join("\n");
-  assert.equal(occurrences(all, "Groth16::<Bn254>::verify_proof("), 1);
+  // One runtime spend verifier plus the ceremony's positive and mutated-input
+  // verification checks. All three results are consumed fail-closed.
+  assert.equal(occurrences(all, "Groth16::<Bn254>::verify_proof("), 3);
   assert.equal(occurrences(all, "risc0_zkvm::guest::env::verify("), 4);
   assert.equal(occurrences(all, "env::verify("), 5); // four qualified plus one direct guest call
   assert.equal(occurrences(all, ".verify(Risc0Digest::from("), 9);
@@ -47,7 +49,7 @@ test("all authoritative Rust verification primitives remain inventoried", () => 
 
 test("Groth16 verification rejects malleable encodings before granting transitions", () => {
   const verifier = production(path.join(crates, "dom-usdom-privacy/src/verifier.rs"));
-  assert.match(verifier, /proof_bytes\.len\(\) != GROTH16_PROOF_BYTES[\s\S]*deserialize_compressed[\s\S]*!reader\.is_empty\(\)[\s\S]*serialize_compressed[\s\S]*canonical\.as_slice\(\) != proof_bytes[\s\S]*Groth16::<Bn254>::verify_proof/u);
+  assert.match(verifier, /proof_bytes\.len\(\) != GROTH16_PROOF_BYTES[\s\S]*deserialize_with_mode\(&mut reader, Compress::Yes, Validate::Yes\)[\s\S]*!reader\.is_empty\(\)[\s\S]*serialize_compressed[\s\S]*canonical\.as_slice\(\) != proof_bytes[\s\S]*Groth16::<Bn254>::verify_proof/u);
 
   const state = production(path.join(crates, "dom-usdom-state/src/lib.rs"));
   assert.match(state, /verifier\.config_hash\(\)\.as_bytes\(\) != &bridge\.privacy_verifier_config_hash[\s\S]*verifier\s*\.verify\(statement, proof\)[\s\S]*Ok\(VerifiedTransition::Transfer/u);

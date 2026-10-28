@@ -1,0 +1,30 @@
+ETAPA 1311 — LIMITES DO GATE REAL-FUNDS DO PILOTO FECHADO
+Data: 2026-10-26
+
+Problema
+
+Cada executor roda `check-mainnet-readiness.mjs real-funds` antes do Ledger. O
+processo não tinha deadline e seu stdout era gravado sem teto antes de `jq`.
+
+Correção
+
+Os dois gates agora possuem:
+
+- deadline foreground TERM/KILL de 300 segundos;
+- captura de no máximo 1 MiB, com sentinela de um byte adicional;
+- validação JSON estrita do arquivo privado antes da consulta semântica;
+- exigência preservada de `ready==true` e `blockerCount==0`.
+
+Com `pipefail`, timeout, erro do verificador e truncamento encerram o fluxo. Saída
+excessiva, JSON duplicado/malformado ou gate negativo também abortam antes de
+qualquer interação com o Ledger.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 21/21 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 73/73 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

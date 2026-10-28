@@ -28,5 +28,5 @@ test("disabled witness slots are fully canonicalized", () => {
   assert.match(source, /origin\.conditional_enforce_equal\(&FpVar::zero\(\), &disabled\)/);
   assert.match(source, /sibling\.conditional_enforce_equal\(&FpVar::zero\(\), &disabled\)/);
   assert.match(source, /field\.conditional_enforce_equal\(&FpVar::zero\(\), &disabled\)/);
-  assert.match(source, /disabled_input_has_one_canonical_zero_witness/);
+  assert.match(source, /disabled_slots_have_one_canonical_zero_witness/);
 });

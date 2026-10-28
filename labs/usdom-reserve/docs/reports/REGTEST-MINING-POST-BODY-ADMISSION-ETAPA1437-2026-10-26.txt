@@ -1,0 +1,4 @@
+USDⓄM — ETAPA 1437
+Regtest mining post-body cancellation-safe admission
+
+Two bounded body slots are separated from the single regtest mining worker. Worker admission is post-JSON/fail-fast and its permit remains in the spawned task across HTTP cancellation. Mock-only focal passed 1/1 (0.02s); no mining ran. No network/sign/deploy/funds/commit/push.

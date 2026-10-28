@@ -1,0 +1,27 @@
+Etapa 1437 — fechamento de dependências peer npm
+Data: 2026-10-26
+
+Problema
+
+O grafo npm validava dependências normais, de desenvolvimento e opcionais, mas ignorava peerDependencies. Um peer obrigatório ausente ou resolvido para versão incompatível podia permanecer no package-lock e o checker ainda retornar sucesso.
+
+Correção
+
+- peerDependencies agora participa da resolução por ancestral do package-lock.
+- Peer obrigatório deve resolver para uma entrada instalada cuja versão satisfaça o requisito.
+- Peer marcado exatamente como opcional em peerDependenciesMeta pode estar ausente; quando instalado, sua versão também deve satisfazer o requisito.
+- O avaliador bounded de versões passou a compreender as formas peer efetivamente presentes: wildcard, comparador >=, conjunções por espaço e alternativas ||, além das formas exata/caret/tilde já suportadas.
+- Pré-releases continuam rejeitadas por wildcard/comparador e somente são aceitas quando declaradas exatamente pela forma atômica existente.
+
+Regressões
+
+Cobertura adversarial rejeita peer obrigatório ausente, peer incompatível, limites >=, conjunções, alternativas fora do conjunto e wildcard resolvido para prerelease. Também prova peer opcional ausente e peer obrigatório compatível.
+
+Validação
+
+- py_compile: aprovado;
+- self-test adversarial: aprovado;
+- política viva: 36 Cargo locks/15.017 entradas, 234 manifests e quatro npm locks/241 entradas aprovados;
+- suíte Node focal: 4/4.
+
+Nenhum inventário global foi rematerializado. Não houve rede, build pesado, assinatura, deploy, fundos, commit ou push.

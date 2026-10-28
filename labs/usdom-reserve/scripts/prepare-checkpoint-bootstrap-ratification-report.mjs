@@ -3,13 +3,13 @@ import {writeReleaseFailure} from '../sdk/pilot-safe-diagnostics.mjs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readDirectProjectFile} from '../sdk/direct-project-file.mjs';
-import {parseStrictJson} from '../sdk/strict-json.mjs';
+import {parseStrictJsonBytes} from '../sdk/strict-json.mjs';
 import {buildCheckpointBootstrapRatificationReport,serializeCheckpointBootstrapRatificationReport}
   from '../sdk/checkpoint-bootstrap-ratification-report.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const read=relative=>readDirectProjectFile(root,relative,{minimum:2,maximum:1024*1024});
-const parse=(relative,bytes)=>parseStrictJson(bytes.toString('utf8'),{
+const parse=(relative,bytes)=>parseStrictJsonBytes(bytes,{
   label:relative,maxBytes:1024*1024,maxDepth:20,
 });
 try {

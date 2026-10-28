@@ -33,7 +33,7 @@ function count(source, needle) {
 
 test("all USDOM Rust arithmetic boundaries remain inventoried", () => {
   const files = rustSources();
-  assert.equal(files.length, 59);
+  assert.equal(files.length, 63);
   const source = files.map(production).join("\n");
   assert.deepEqual({
     checkedAdd: count(source, ".checked_add("),
@@ -46,16 +46,23 @@ test("all USDOM Rust arithmetic boundaries remain inventoried", () => {
     asU32: count(source, " as u32"),
     asUsize: count(source, " as usize"),
   }, {
-    checkedAdd: 157,
-    checkedSub: 34,
-    checkedMul: 17,
-    saturatingAdd: 9,
+    checkedAdd: 163,
+    checkedSub: 35,
+    checkedMul: 18,
+    saturatingAdd: 8,
     saturatingSub: 10,
-    tryInto: 203,
-    asU64: 68,
+    tryInto: 206,
+    asU64: 69,
     asU32: 14,
     asUsize: 57,
   });
+});
+
+test("private scan continuation cannot recover a terminal cursor through saturation", () => {
+  const rpc = production(path.join(crates, "dom-usdom-wallet/src/rpc_client.rs"));
+  assert.doesNotMatch(rpc, /tip_height\.saturating_add\(1\)/u);
+  assert.match(rpc, /value\.anchor\.height >= response\.identity\.tip_height/u);
+  assert.match(rpc, /value\.next_height > response\.identity\.tip_height/u);
 });
 
 test("native issuance and burn totals are checked and supply conserving", () => {

@@ -1,0 +1,29 @@
+ETAPA 1308 — COBERTURA TOTAL DE PRAZO PARA LEITURAS DE CONTRATO
+Data: 2026-10-26
+
+Problema
+
+Os executores dependem de `cast call` para blacklist, allowance, saldos,
+contabilidade da reserva, configuração, replay, dívida provada e estado de
+saque. Essas 61 chamadas estáticas não tinham prazo externo.
+
+Correção
+
+Todas agora executam sob
+`timeout --foreground --signal=TERM --kill-after=5s 120s`: 25 no depósito e 36
+no resgate. Timeout ou falha interrompe o fluxo antes de consumir o retorno ou
+avançar a reconciliação financeira e de estado.
+
+As comparações dual-RPC, valores esperados e snapshots fixados permanecem
+inalterados. A regressão iguala os inventários completos de chamadas e wrappers,
+impedindo consulta direta sem deadline.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 19/19 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 72/72 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

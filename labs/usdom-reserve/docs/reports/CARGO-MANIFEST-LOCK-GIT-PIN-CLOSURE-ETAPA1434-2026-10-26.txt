@@ -1,0 +1,26 @@
+Etapa 1434 — vínculo causal de pins Git Cargo entre manifest e lock
+Data: 2026-10-26
+
+Problema
+
+Manifests e locks eram validados separadamente. Um manifest podia declarar uma URL HTTPS e revisão Git de 40 hex válida, mas inexistente em todos os Cargo.lock revisados, e ainda assim a política retornava sucesso. A sintaxe pinada não demonstrava que o grafo travado correspondia à declaração.
+
+Correção
+
+- Todos os pares exatos (URL Git, rev) são extraídos recursivamente dos manifests, incluindo dependências target-specific e patches.
+- Todos os pares exatos são extraídos das fontes git+ dos locks depois da validação de rev e fragmento.
+- Cada pin declarado deve existir em pelo menos um lock revisado; declaração desconectada falha fechada.
+- Pins adicionais no lock continuam permitidos porque dependências Git transitivas podem usar revisões não declaradas diretamente pelo manifest raiz.
+
+Regressões
+
+O self-test cobre extração em tabela target-specific, aceita uma fonte transitiva adicional e rejeita pin declarado ausente de todos os locks.
+
+Validação
+
+- py_compile: aprovado;
+- self-test adversarial: aprovado;
+- política viva: 36 Cargo locks/15.017 entradas, 234 manifests e quatro npm locks/241 entradas aprovados;
+- suíte Node focal production-implementation-claims: 4/4.
+
+Nenhum inventário global foi rematerializado. Não houve rede, build pesado, assinatura, deploy, fundos, commit ou push.

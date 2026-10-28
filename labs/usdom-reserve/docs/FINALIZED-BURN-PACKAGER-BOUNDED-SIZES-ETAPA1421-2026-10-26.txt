@@ -1,0 +1,31 @@
+ETAPA 1421 — TAMANHOS LIMITADOS DO PACKAGER DE QUEIMA
+Data: 2026-10-26
+
+Problema
+
+Seis limites que protegem o empacotamento da queima finalizada — input, índices,
+receipt, ELF e IID — liam tamanho com `wc -c` direto pelo PATH. Essas decisões
+admitem até 256 MiB no caminho de prova, mas não autenticavam a ferramenta, não
+tinham deadline nem garantiam que o arquivo permanecia estável durante a leitura.
+
+Correção
+
+O novo `snapshot_file_size` aceita somente arquivos sob a raiz exata do snapshot
+privado e exige `assert_private_file`. Reatesta `stat` e `timeout`, captura a
+identidade completa antes e depois e lê o tamanho com `stat_bin` autenticado.
+
+As três leituras possuem deadline foreground TERM/KILL de 120 segundos. A
+identidade pré/pós deve coincidir e o tamanho precisa ser decimal canônico de
+até 20 dígitos. Os seis limites existentes usam o helper; nenhum `wc -c` resta
+nas decisões.
+
+Validação offline
+
+- Sintaxe Bash dos dois packagers: aprovada.
+- Regressões focais e integração leve, sem geração de prova: 9/9 aprovadas.
+- Inventário exige raiz confinada, metadados privados, ferramentas reatestadas,
+  três chamadas limitadas, identidade estável, parser canônico e seis usos.
+- `git diff --check`: aprovado.
+
+Nenhuma prova pesada, rede externa, Ledger, assinatura, deploy, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

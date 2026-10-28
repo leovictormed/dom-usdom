@@ -6,7 +6,7 @@ if (($# != 0)); then
   printf '%s\n' 'Usage: npm run --silent materialize:safe-control-release-config' >&2
   exit 64
 fi
-for command in node jq stat realpath mktemp flock sync mv cmp; do command -v "$command" >/dev/null; done
+for command in node jq stat realpath mktemp flock sync mv cmp sha256sum awk; do command -v "$command" >/dev/null; done
 pin_tool() {
  local name=$1 path parent owner mode size parent_owner parent_mode identity_name parent_identity_name
  path=$(realpath "$(command -v "$name")"); [[ -x $path && -f $path && ! -L $path ]]
@@ -19,10 +19,10 @@ pin_tool() {
 }
 assert_tool_unchanged() {
  local name=$1 bin_name="${1}_bin" identity_name="${1}_identity" parent_identity_name="${1}_parent_identity" sha_name="${1}_sha256" path parent; path=${!bin_name}; parent=$(dirname "$path")
- [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]]
- [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
+ [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]] || return 1
+ [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]] || return 1
 }
-pin_tool node; pin_tool jq
+pin_tool node; pin_tool jq; pin_tool timeout; pin_tool python3
 project=$(realpath "$(dirname "$0")/..")
 test "$PWD" = "$project"
 config_directory="$project/config"
@@ -34,22 +34,68 @@ if ! flock -n 9; then
   printf '%s\n' 'Another release materializer holds the config-directory lock' >&2
   exit 75
 fi
-temporary=$(mktemp -p "$config_directory" .safe-release-config.XXXXXXXX)
-cleanup() { local status=${1:-$?}; trap - EXIT; assert_tool_unchanged node && "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$temporary" || status=1; exit "$status"; }
+target_sha256=$(sha256sum "$target" | awk '{print $1}')
+temporary=$(mktemp -d -p "$config_directory" .safe-release-config.XXXXXXXX)
+chmod 0700 "$temporary"
+prepared="$temporary/prepared.json"
+rechecked="$temporary/rechecked.json"
+installed="$temporary/installed.json"
+cleanup() {
+  local status=${1:-$?}
+  trap - EXIT
+  if assert_tool_unchanged node && assert_tool_unchanged timeout &&
+    "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+      "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+      "$temporary" > /dev/null 2> /dev/null &&
+    assert_tool_unchanged node && assert_tool_unchanged timeout && test ! -e "$temporary"; then
+    :
+  else
+    status=1
+  fi
+  exit "$status"
+}
 trap 'cleanup $?' EXIT
-assert_tool_unchanged node
-"$node_bin" scripts/prepare-safe-control-release-config-materialization.mjs > "$temporary"
-assert_tool_unchanged jq
-"$jq_bin" -e '.productionReady == false and .realFundsAuthorized == false' "$temporary" >/dev/null
-chmod 0600 "$temporary"
-sync -f "$temporary"
-if ! cmp -s "$temporary" "$target" || [[ $(stat -c '%a' "$target") != 644 ]]; then
+snapshot_public() {
   assert_tool_unchanged node
-  "$node_bin" "$project/scripts/install-release-config-stdin.mjs" "$target" < "$temporary"
+  "$node_bin" "$project/scripts/read-release-config-file-stdout.mjs" "$1" > "$2"
+  chmod 0600 "$2"
+}
+assert_tool_unchanged node
+"$node_bin" scripts/prepare-safe-control-release-config-materialization.mjs > "$prepared"
+assert_tool_unchanged jq
+"$jq_bin" -e '.productionReady == false and .realFundsAuthorized == false' "$prepared" >/dev/null
+chmod 0600 "$prepared"
+sync -f "$prepared"
+# Rebuild from the live fixed artifact catalog immediately before publication.
+# This is also the post-capture origin check: any renewal between preparation
+# and installation changes the prepared bytes and fails closed.
+assert_tool_unchanged node
+"$node_bin" scripts/prepare-safe-control-release-config-materialization.mjs > "$rechecked"
+chmod 0600 "$rechecked"
+assert_tool_unchanged jq
+"$jq_bin" -e '.productionReady == false and .realFundsAuthorized == false' "$rechecked" >/dev/null
+cmp -s "$prepared" "$rechecked"
+if ! cmp -s "$prepared" "$target" || [[ $(stat -c '%a' "$target") != 644 ]]; then
+  assert_tool_unchanged node
+  assert_tool_unchanged python3
+  candidate_sha256=$(sha256sum "$prepared" | awk '{print $1}')
+  parent_device=$(stat -Lc '%d' "$config_directory")
+  parent_inode=$(stat -Lc '%i' "$config_directory")
+  "$node_bin" "$project/scripts/replace-locked-source-stdin.mjs" "$target" "$candidate_sha256" \
+    "$target_sha256" "$parent_device" "$parent_inode" "$python3_bin" "$python3_sha256" \
+    < "$prepared"
 fi
 sync -f "$target"
+assert_tool_unchanged node
+"$node_bin" scripts/read-release-config-file-stdout.mjs "$target" > "$installed"
+cmp -s "$prepared" "$installed"
 sync -f "$config_directory"
+# Re-open after the containing directory is durable; the pre-fsync readback
+# alone cannot prove that the same generation is still installed at success.
+snapshot_public "$target" "$temporary/installed.durable.json"
+cmp -s "$prepared" "$temporary/installed.durable.json"
 assert_tool_unchanged jq
+assert_tool_unchanged python3
 "$jq_bin" '{productionReady,realFundsAuthorized,governance,governanceCodeHash,
   governanceOwners,guardianOwners,checkpointGuardianOwners,
   governanceImplementation,governanceImplementationCodeHash,

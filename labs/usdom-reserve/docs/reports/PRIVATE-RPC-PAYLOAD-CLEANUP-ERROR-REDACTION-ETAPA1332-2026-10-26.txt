@@ -1,0 +1,38 @@
+USDOM mainnet readiness — Stage 1332
+Date: 2026-10-26
+
+Finding
+=======
+
+The private loopback proxy bounds and validates JSON-RPC traffic, but retained
+request Buffers and parsed request strings until garbage collection. This is
+material for eth_sendRawTransaction because both contain the signed raw
+transaction. It also forwarded authenticated upstream error payloads unchanged;
+a provider-controlled error data/message could echo raw transaction material or
+other request details back into operator tooling and logs.
+
+Correction
+==========
+
+Per-request cleanup now zeroes the captured request Buffer and recursively clears
+the parsed request and reply objects in finally. Upstream error replies are not
+forwarded: the proxy emits one fixed, id-bound error and zeroes the original
+payload. Successful response Buffers use an idempotent end-and-zero callback
+registered for both response completion and socket close. Failure paths zero any
+payload that was not handed to the response stream.
+
+Validation
+==========
+
+- Node syntax check passed for the proxy.
+- Static lifecycle assertions require request/reply clearing, unhanded payload
+  zeroization, socket-close cleanup and fixed upstream error redaction.
+- Proxy cleanup, exact-envelope and readiness suite: 10/10 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No provider was contacted and no raw transaction was transmitted. No network,
+signing, deployment, funds, production facts, Rust, Solidity, Cargo, Forge,
+commit or push occurred.

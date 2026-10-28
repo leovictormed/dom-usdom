@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
@@ -118,13 +119,15 @@ test('durable deployment package validator closes top-level and transaction sche
 
 test('Ledger handoff schema is exact and cross-linked to the reviewed package',()=>{
   const packageValue=buildMainnetDeploymentPackage(fixture());
-  const packageSha256='ef'.repeat(32);
+  const packageBytes=Buffer.from(JSON.stringify(packageValue));
+  const packageSha256=createHash('sha256').update(packageBytes).digest('hex');
   const handoff={schema:'usdom-mainnet-deployment-ledger-handoff-v1',chainId:'1',
     releaseConfigSha256:packageValue.releaseConfigSha256,packageSha256,
     rpcCatalogSha256:'12'.repeat(32),
     observationDocumentSha256:packageValue.observationDocumentSha256,
     observationHash:packageValue.observationHash,transaction:packageValue.transactions[2]};
-  assert.equal(validateMainnetDeploymentLedgerHandoff({handoff,packageValue,index:2,packageSha256}),
+  assert.equal(validateMainnetDeploymentLedgerHandoff({handoff,packageValue,packageBytes,index:2,
+    packageSha256}),
     handoff);
   for(const mutate of [
     value=>{value.extra=true;},value=>{delete value.rpcCatalogSha256;},
@@ -135,8 +138,22 @@ test('Ledger handoff schema is exact and cross-linked to the reviewed package',(
     const value=structuredClone(handoff); mutate(value);
     assert.throws(()=>validateMainnetDeploymentLedgerHandoff({
       handoff:value,packageValue,index:2,packageSha256,
+      packageBytes,
     }));
   }
+  const detached=structuredClone(packageValue);
+  detached.transactions[2].nonce='99';
+  assert.throws(()=>validateMainnetDeploymentLedgerHandoff({handoff,packageValue:detached,
+    packageBytes,index:2,packageSha256}),/bytes differ from reviewed authority/);
+});
+
+test('deployment package rejects null integrity commitments',()=>{
+  for(const field of ['releaseConfigSha256','observationDocumentSha256']) {
+    const value=fixture(); value[field]='00'.repeat(32);
+    assert.throws(()=>buildMainnetDeploymentPackage(value),/SHA-256|commitments/);
+  }
+  const value=fixture(); value.observationHash=`0x${'00'.repeat(32)}`;
+  assert.throws(()=>buildMainnetDeploymentPackage(value),/commitments/);
 });
 
 test('deployment CLI fails closed before producing a package for the unconfigured release',()=>{
@@ -155,8 +172,7 @@ test('deployment producer derives and reconciles all four source-built artifacts
     'deriveCheckpointRegistryArtifactBinding','deriveReserveArtifactBinding',
     "assertEqual(finalizedBinding.initcodeHash,releaseConfig.verifierInitcodeHash",
     "assertEqual(checkpointBinding.initcodeHash,releaseConfig.checkpointVerifierInitcodeHash",
-    'reserveBinding.immutableReferenceCount!==68',
-    'reserveBinding.immutablePatchManifest?.length!==23',
+    'validateImmutablePatchManifest(reserveBinding)',
     'approvedArtifacts:{',
   ]) assert.ok(source.includes(marker),marker);
 });

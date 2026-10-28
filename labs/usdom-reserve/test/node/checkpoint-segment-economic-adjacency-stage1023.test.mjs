@@ -10,11 +10,13 @@ const state = read('crates/dom-usdom-state/src/lib.rs');
 const source = read('crates/dom-usdom-checkpoint-program/src/source.rs');
 const persisted = read('crates/dom-chain/src/native_usdom_v4.rs');
 
-assert.match(program, /CHECKPOINT_SEGMENT_TRANSITION_MAGIC[^\n]+UDCSTN03/);
-assert.match(program, /CHECKPOINT_SEGMENT_TRANSITION_VERSION: u16 = 3/);
-assert.match(program, /CHECKPOINT_SEGMENT_TRANSITION_PREFIX_BYTES: usize = 108/);
+assert.match(program, /CHECKPOINT_SEGMENT_TRANSITION_MAGIC[^\n]+UDCSTN04/);
+assert.match(program, /CHECKPOINT_SEGMENT_TRANSITION_VERSION: u16 = 4/);
+assert.match(program, /CHECKPOINT_SEGMENT_TRANSITION_PREFIX_BYTES: usize = 110/);
 assert.doesNotMatch(program, /CHECKPOINT_SEGMENT_TRANSITION_MAGIC[^\n]+UDCSTN02/);
 assert.match(program, /for magic in \[b"UDCSTN01", b"UDCSTN02"\]/);
+assert.match(program, /bytes\[108\] = u8::from\(self\.previous_issuance_closed\)/);
+assert.match(program, /bytes\[109\] = u8::from\(self\.new_issuance_closed\)/);
 for (const [field, offset] of [
   ['previous_total_issued', '44\\.\\.60'],
   ['previous_total_burned', '60\\.\\.76'],

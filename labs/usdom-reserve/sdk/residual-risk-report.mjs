@@ -60,9 +60,9 @@ export function buildResidualRiskReport({releaseEvidence,releaseConfig,requireme
   }
   if(!sha256.test(draftSha256??'')) fail('residual-risk draft SHA-256 is invalid');
   const selectedFinality=requirements?.finality_evaluation?.selected_production_mechanism;
-  if(typeof selectedFinality!=='string'||selectedFinality.length===0
+  if(selectedFinality!=='ethereum-checkpoint-finality'
       || requirements?.checkpoint_poc_authorization?.production_mechanism_approved!==true) {
-    fail('production finality is not selected and approved');
+    fail('supported production finality is not selected and approved');
   }
   const evidenceEnvelope=structuredClone(releaseEvidence);
   evidenceEnvelope.residualRiskAcceptanceReport=null;

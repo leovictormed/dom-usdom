@@ -4,10 +4,12 @@ import {checkpointStatementHash} from './checkpoint-registry.mjs';
 import {checkpointRegistryConfigurationFromRelease} from './checkpoint-submission.mjs';
 import {checkpointVerifierConfigHash} from './checkpoint-verifier-config.mjs';
 import {uint} from './reserve.mjs';
+import {parseStrictJsonBytes} from './strict-json.mjs';
 
 const rawHashPattern=/^[0-9a-f]{64}$/;
 const bytes32Pattern=/^0x[0-9a-fA-F]{64}$/;
 const sourceCommitPattern=/^[0-9a-f]{40}$/;
+const runIdPattern=/^[0-9]{8}T[0-9]{6}Z-[1-9][0-9]*$/;
 const topFields=Object.freeze([
   'adapter','adapterCallAccepted','adapterRuntimeCodeHash','adapterVerificationGas',
   'adapterVerifierConfigHash','artifactSetCommitmentSchema','broadcastAuthorized','checkpointEndHeight','checkpointRegistry',
@@ -15,7 +17,7 @@ const topFields=Object.freeze([
   'compressionPeakResidentKiB','compressionWallMilliseconds',
   'devMode','ethereumChainId','evmSealBytes','evmSealSha256','hostFingerprintSha256',
   'isolatedEvmBlockHash','isolatedEvmBlockNumber','isolatedEvmReceiptSha256',
-  'isolatedEvmTransactionHash',
+  'isolatedEvmTransactionHash','artifactManifestPath','artifactManifestSha256','runId',
   'layers','logicalCpus','memoryTotalKiB','mines','outerGroth16ReceiptBytes',
   'outerGroth16ReceiptSha256','outerJournalDigestSha256','prover','rayonWorkers','releaseId',
   'releaseSpecific','randomxProverTranscriptSha256','randomxResourceLogSha256',
@@ -65,9 +67,9 @@ export const CHECKPOINT_ECONOMIC_BLOCK_PROGRAM_SHA256=
 export const CHECKPOINT_ECONOMIC_BLOCK_IMAGE_ID=
   '03dc111fee3c42a772f142c80d4a921a19bde10f932f86c888606503a28c22a7';
 export const CHECKPOINT_SEGMENT_PROGRAM_SHA256=
-  'c4cc41b0b53d787c46b9293d1515c2d0c4ded982c3ae7b98d33877dd142d2b38';
+  '426cc782490b8d680e5bd2266cc4a03b3e731194d92eda44875ea5d552cb5f74';
 export const CHECKPOINT_SEGMENT_IMAGE_ID=
-  '4e711490f3ab7dde97636687972456da58da4287ce5017e38d4acaa7263a02d6';
+  '371e408b360a0e4a0aae2cb994bddb2d66afcc5891a7ed574fa83119734bfbf7';
 
 function exact(value,fields) {
   return value && typeof value==='object' && !Array.isArray(value)
@@ -237,6 +239,10 @@ export function validateCheckpointProofCapacityReport(report,{
       || report.releaseId!==evidence?.releaseId) throw new Error('report releaseId mismatch');
   if(!sourceCommitPattern.test(report.sourceCommit)
       || report.sourceCommit!==evidence?.sourceCommit) throw new Error('report sourceCommit mismatch');
+  if(!runIdPattern.test(report.runId)||report.artifactManifestPath!=='artifact-manifest.json') {
+    throw new Error('checkpoint capacity run identity is invalid');
+  }
+  rawHash(report.artifactManifestSha256,'artifactManifestSha256');
   if(report.ethereumChainId!=='1' || report.ethereumChainId!==releaseConfig?.ethereumChainId) {
     throw new Error('report Ethereum chain mismatch');
   }
@@ -353,6 +359,7 @@ export function validateCheckpointProofCapacityReport(report,{
     report.randomxResourceLogSha256,report.riscZeroRuntimeArtifactSha256,
     report.isolatedEvmReceiptSha256,report.outerGroth16ReceiptSha256,report.evmSealSha256];
   let totalWall=0n;
+  const layerReceiptCounts=[];
   for(let index=0;index<expected.length;index++) {
     const layer=report.layers[index];
     const identity=expected[index];
@@ -383,6 +390,7 @@ export function validateCheckpointProofCapacityReport(report,{
     if(journalCount!==receiptCount || journalBytes!==journalCount*32n) {
       throw new Error(`${identity.name} must bind one 32-byte journal per receipt`);
     }
+    layerReceiptCounts.push(receiptCount);
     totalWall+=canonicalUint(
       layer.provingWallMilliseconds,64,`${identity.name}.provingWallMilliseconds`,
       {nonzero:true,maximum:30n*24n*60n*60n*1000n},
@@ -395,6 +403,16 @@ export function validateCheckpointProofCapacityReport(report,{
         || layer.segmentLimitPo2<16 || layer.segmentLimitPo2>22) {
       throw new Error(`${identity.name} proof execution claim is invalid`);
     }
+  }
+  const authenticatedBlockCount=span+depth;
+  if(layerReceiptCounts[0]!==authenticatedBlockCount
+      || layerReceiptCounts[3]!==authenticatedBlockCount
+      || layerReceiptCounts[2]<authenticatedBlockCount
+      || layerReceiptCounts[1]!==layerReceiptCounts[4]
+      || layerReceiptCounts[1]<2n
+      || layerReceiptCounts[1]>authenticatedBlockCount
+      || layerReceiptCounts[5]!==1n) {
+    throw new Error('checkpoint capacity layer receipt counts do not cover one complete proof graph');
   }
   if(new Set(artifactHashes).size!==artifactHashes.length) {
     throw new Error('checkpoint capacity artifact hashes must be distinct');
@@ -436,4 +454,16 @@ export function validateCheckpointProofCapacityReport(report,{
     throw new Error('checkpoint capacity execution claims are invalid');
   }
   return Object.freeze({...report,layers:Object.freeze(report.layers.map(layer=>Object.freeze({...layer})))});
+}
+
+export function validateCheckpointProofCapacityAuthority(report,authority,validation) {
+  if(!authority||!Buffer.isBuffer(authority.reportBytes)||!Buffer.isBuffer(authority.manifestBytes)
+      ||!authority.reconstructedReport) throw new Error('checkpoint capacity byte authority is required');
+  const parsed=parseStrictJsonBytes(authority.reportBytes,{label:'checkpoint capacity report authority',maxBytes:4*1024*1024,maxDepth:64});
+  if(JSON.stringify(parsed)!==JSON.stringify(report)
+      ||createHash('sha256').update(authority.manifestBytes).digest('hex')!==report.artifactManifestSha256
+      ||JSON.stringify(authority.reconstructedReport)!==JSON.stringify(report)) {
+    throw new Error('checkpoint capacity report differs from its byte-authoritative graph');
+  }
+  return validateCheckpointProofCapacityReport(report,validation);
 }

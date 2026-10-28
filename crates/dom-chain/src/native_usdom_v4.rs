@@ -881,10 +881,66 @@ pub fn rewind_persisted_usdom_v2_state_to_ancestor(
     ancestor: dom_core::Hash256,
     schedule: NativeUsdomV2ActivationSchedule,
 ) -> Result<StateCommitmentV2, DomError> {
+    schedule.validate()?;
     if canonical_tip == dom_core::Hash256::ZERO || ancestor == dom_core::Hash256::ZERO {
         return Err(DomError::Invalid(
             "native USDOM v2 rewind identity cannot be zero".into(),
         ));
+    }
+    let ancestor_header_bytes = store
+        .get_block_header(ancestor.as_bytes())?
+        .ok_or_else(|| DomError::Internal("native USDOM v2 rewind ancestor is missing".into()))?;
+    let ancestor_header = dom_consensus::block::BlockHeader::from_bytes(&ancestor_header_bytes)
+        .map_err(|error| {
+            DomError::Internal(format!(
+                "native USDOM v2 rewind ancestor is corrupt: {error}"
+            ))
+        })?;
+    let minimum_ancestor_height = schedule
+        .first_v2_height()
+        .checked_sub(1)
+        .ok_or_else(|| DomError::Invalid("invalid native USDOM v2 activation height".into()))?;
+    if ancestor_header.height.0 < minimum_ancestor_height
+        || crate::canonical_header_identifier(schedule.network_magic(), &ancestor_header_bytes)?
+            != ancestor
+        || store.get_hash_at_height(ancestor_header.height.0)? != Some(*ancestor.as_bytes())
+    {
+        return Err(DomError::Internal(
+            "native USDOM v2 rewind ancestor is not canonical at its declared height".into(),
+        ));
+    }
+    // The loop below authenticates every traversed record. When no traversal is
+    // needed, authenticate the supplied tip explicitly so a persisted side-chain
+    // package cannot be presented as a canonical ancestor by setting both
+    // identities to the same hash.
+    if canonical_tip == ancestor {
+        if canonical_tip == schedule.activation_parent() {
+            if current_state.root() != schedule.initial_v2_state_root() {
+                return Err(DomError::Internal(
+                    "native USDOM v2 rewind reached an invalid activation state".into(),
+                ));
+            }
+            return Ok(current_state);
+        }
+        let record =
+            load_persisted_usdom_v2_block_record(store, canonical_tip)?.ok_or_else(|| {
+                DomError::Internal("native USDOM v2 rewind block record is missing".into())
+            })?;
+        if record.schedule_commitment != schedule.commitment()
+            || record.block_identifier != canonical_tip
+            || record.next_state != current_state
+        {
+            return Err(DomError::Internal(
+                "native USDOM v2 rewind record does not match canonical state".into(),
+            ));
+        }
+        authenticate_persisted_usdom_v2_rewind_record(
+            store,
+            schedule.network_magic(),
+            canonical_tip,
+            record,
+        )?;
+        return Ok(current_state);
     }
     let mut cursor = canonical_tip;
     let mut state = current_state;
@@ -909,6 +965,12 @@ pub fn rewind_persisted_usdom_v2_state_to_ancestor(
                 "native USDOM v2 rewind record does not match canonical state".into(),
             ));
         }
+        authenticate_persisted_usdom_v2_rewind_record(
+            store,
+            schedule.network_magic(),
+            cursor,
+            record,
+        )?;
         state = record.previous_state;
         cursor = record.parent;
     }
@@ -918,6 +980,46 @@ pub fn rewind_persisted_usdom_v2_state_to_ancestor(
         ));
     }
     Ok(state)
+}
+
+fn authenticate_persisted_usdom_v2_rewind_record(
+    store: &DomStore,
+    network_magic: u32,
+    cursor: dom_core::Hash256,
+    record: PersistedUsdomV2BlockRecord,
+) -> Result<(), DomError> {
+    let package_bytes = load_persisted_usdom_v4_package(store, network_magic, cursor)?
+        .ok_or_else(|| DomError::Internal("native USDOM v2 rewind package is missing".into()))?;
+    let package = UsdomV4BlockPackage::from_bytes(&package_bytes).map_err(|error| {
+        DomError::Internal(format!(
+            "native USDOM v2 rewind package is corrupt: {error}"
+        ))
+    })?;
+    let block = package.block();
+    let header_bytes = DomSerialize::to_bytes(&block.header)?;
+    let computed = crate::canonical_header_identifier(network_magic, &header_bytes)?;
+    if computed != cursor
+        || record.block_identifier != cursor
+        || record.parent != block.header.prev_hash
+        || record.receipt.block_timestamp != block.header.timestamp.0
+        || blake2b_256_tagged(TAG_USDOM_BLOCK_PACKAGE_V4, &package_bytes)
+            != record.package_commitment
+        || store.get_hash_at_height(block.header.height.0)? != Some(*cursor.as_bytes())
+    {
+        return Err(DomError::Internal(
+            "native USDOM v2 rewind record is not bound to its canonical block".into(),
+        ));
+    }
+    let (_, _, raw_rangeproof_root) =
+        compute_block_pmmr_roots(block.header.height, &block.coinbase, &block.transactions)?;
+    if bind_usdom_batch_commitment(raw_rangeproof_root, record.receipt.header_commitment)?
+        != block.header.rangeproof_root
+    {
+        return Err(DomError::Internal(
+            "native USDOM v2 rewind receipt is not authenticated by its block header".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Return the fixed isolated Regtest schedule used by the current PoC runtime.
@@ -2863,6 +2965,72 @@ fn chunk_count_from_meta(
         .map(|(_, _, chunk_count)| chunk_count)
 }
 
+/// Remove canonical package chunks when a block is disconnected after its
+/// proof envelope has been copied into the immutable sidecar relation by the
+/// same reorganization transaction.
+pub(crate) fn native_usdom_v4_disconnected_package_deletion_updates(
+    store: &DomStore,
+    block: dom_core::Hash256,
+) -> Result<Vec<ConsensusStateUpdate>, DomError> {
+    let mut updates = Vec::new();
+    let package_meta_key = persistence_key(USDOM_V4_PACKAGE_META_PREFIX, block);
+    if let Some(meta) = store.get_consensus_state(&package_meta_key)? {
+        let chunks = chunk_count_from_meta(
+            &meta,
+            USDOM_V4_PACKAGE_META_BYTES,
+            USDOM_V4_PERSISTENCE_VERSION,
+            "package",
+        )?;
+        updates.push(ConsensusStateUpdate {
+            key: package_meta_key,
+            value: None,
+        });
+        for index in 0..chunks {
+            updates.push(ConsensusStateUpdate {
+                key: package_chunk_key(block, index),
+                value: None,
+            });
+        }
+    }
+    validate_consensus_state_updates(&updates)?;
+    Ok(updates)
+}
+
+/// Remove canonical-only V2 replay keys when a block is disconnected after its
+/// proof envelope and witnesses have been copied into the immutable sidecar
+/// relation by the same reorganization transaction.
+pub(crate) fn native_usdom_v2_disconnected_replay_deletion_updates(
+    store: &DomStore,
+    block: dom_core::Hash256,
+) -> Result<Vec<ConsensusStateUpdate>, DomError> {
+    let mut updates = native_usdom_v4_disconnected_package_deletion_updates(store, block)?;
+    let witness_meta_key = persistence_key(USDOM_V2_WITNESS_META_PREFIX, block);
+    if let Some(meta) = store.get_consensus_state(&witness_meta_key)? {
+        let chunks = chunk_count_from_meta(
+            &meta,
+            USDOM_V2_WITNESS_META_BYTES,
+            USDOM_V2_PERSISTENCE_VERSION,
+            "witness",
+        )?;
+        updates.push(ConsensusStateUpdate {
+            key: witness_meta_key,
+            value: None,
+        });
+        for index in 0..chunks {
+            updates.push(ConsensusStateUpdate {
+                key: v2_witness_chunk_key(block, index),
+                value: None,
+            });
+        }
+    }
+    updates.push(ConsensusStateUpdate {
+        key: persistence_key(USDOM_V2_BLOCK_RECORD_PREFIX, block),
+        value: None,
+    });
+    validate_consensus_state_updates(&updates)?;
+    Ok(updates)
+}
+
 /// Produce a bounded atomic deletion batch for V2 replay data below both an
 /// Ethereum-recognized DOM checkpoint and the local rolling-finality window.
 /// The compact burn archive and the checkpoint block record remain available.
@@ -3342,6 +3510,19 @@ pub fn restore_persisted_usdom_v4_state_for_schedule(
                 "native USDOM tip package does not match persisted tip".into(),
             ));
         }
+        let package = UsdomV4BlockPackage::from_bytes(&package).map_err(|error| {
+            DomError::Internal(format!(
+                "persisted native USDOM tip package is corrupt: {error}"
+            ))
+        })?;
+        let tip_height = package.block().header.height.0;
+        if tip_height < expected_schedule.first_v4_height()
+            || store.get_hash_at_height(tip_height)? != Some(*expected_chain_tip.as_bytes())
+        {
+            return Err(DomError::Internal(
+                "persisted native USDOM tip is not canonical at its declared height".into(),
+            ));
+        }
     }
     Ok(state)
 }
@@ -3417,8 +3598,12 @@ pub struct NativeUsdomV4SnapshotManifest {
 impl NativeUsdomV4SnapshotManifest {
     /// Encode the unique bounded version-5 representation.
     pub fn to_bytes(&self) -> Result<Vec<u8>, DomError> {
-        if self.network_magic != NETWORK_MAGIC_REGTEST
-            || self.canonical_tip == dom_core::Hash256::ZERO
+        if !matches!(
+            self.network_magic,
+            dom_core::NETWORK_MAGIC_MAINNET
+                | dom_core::NETWORK_MAGIC_TESTNET
+                | dom_core::NETWORK_MAGIC_REGTEST
+        ) || self.canonical_tip == dom_core::Hash256::ZERO
             || self.state_root == dom_core::Hash256::ZERO
             || self.state_entries_commitment == dom_core::Hash256::ZERO
             || self.oldest_audited_parent == dom_core::Hash256::ZERO
@@ -3619,6 +3804,39 @@ pub fn export_native_usdom_v4_snapshot_manifest(
         ));
     }
     let expected_schedule = native_usdom_v4_regtest_activation_schedule(expected_bridge)?;
+    export_native_usdom_v4_snapshot_manifest_for_schedule(
+        store,
+        network_magic,
+        expected_bridge,
+        canonical_tip,
+        expected_schedule,
+    )
+}
+
+/// Export a compact canonical manifest for any recognized DOM network under
+/// one exact ratified activation schedule.  Requiring the schedule explicitly
+/// prevents a transported snapshot from selecting its own chain, activation
+/// height or empty-state identity.
+pub fn export_native_usdom_v4_snapshot_manifest_for_schedule(
+    store: &DomStore,
+    network_magic: u32,
+    expected_bridge: BridgeIdentity,
+    canonical_tip: dom_core::Hash256,
+    expected_schedule: NativeUsdomV4ActivationSchedule,
+) -> Result<NativeUsdomV4SnapshotManifest, DomError> {
+    expected_schedule.validate()?;
+    if !matches!(
+        network_magic,
+        dom_core::NETWORK_MAGIC_MAINNET
+            | dom_core::NETWORK_MAGIC_TESTNET
+            | dom_core::NETWORK_MAGIC_REGTEST
+    ) || canonical_tip == dom_core::Hash256::ZERO
+        || expected_schedule.network_magic() != network_magic
+    {
+        return Err(DomError::PolicyRejected(
+            "native USDOM snapshot export does not match its ratified network schedule".into(),
+        ));
+    }
     let activation_parent_height = expected_schedule
         .first_v4_height()
         .checked_sub(1)
@@ -3681,11 +3899,12 @@ pub fn export_native_usdom_v4_snapshot_manifest(
             }
             None => dom_core::Hash256::ZERO,
         };
-    let audit = audit_persisted_usdom_v4_reorg_window(
+    let audit = audit_persisted_usdom_v4_reorg_window_for_schedule(
         store,
         network_magic,
         expected_bridge,
         canonical_tip,
+        expected_schedule,
     )?;
     let tip_header = store
         .get_block_header(canonical_tip.as_bytes())?
@@ -3769,11 +3988,42 @@ pub fn verify_native_usdom_v4_snapshot_manifest(
     expected_bridge: BridgeIdentity,
 ) -> Result<NativeUsdomV4SnapshotManifest, DomError> {
     let supplied = NativeUsdomV4SnapshotManifest::from_bytes(manifest_bytes)?;
-    let current = export_native_usdom_v4_snapshot_manifest(
+    if supplied.network_magic != NETWORK_MAGIC_REGTEST {
+        return Err(DomError::PolicyRejected(
+            "non-Regtest native USDOM snapshot verification requires an explicit ratified schedule"
+                .into(),
+        ));
+    }
+    let expected_schedule = native_usdom_v4_regtest_activation_schedule(expected_bridge)?;
+    verify_native_usdom_v4_snapshot_manifest_for_schedule(
+        manifest_bytes,
+        store,
+        expected_bridge,
+        expected_schedule,
+    )
+}
+
+/// Verify a transported snapshot against the current audited store and an
+/// independently supplied ratified schedule. The manifest may describe the
+/// network, but it never gains authority to choose that schedule.
+pub fn verify_native_usdom_v4_snapshot_manifest_for_schedule(
+    manifest_bytes: &[u8],
+    store: &DomStore,
+    expected_bridge: BridgeIdentity,
+    expected_schedule: NativeUsdomV4ActivationSchedule,
+) -> Result<NativeUsdomV4SnapshotManifest, DomError> {
+    let supplied = NativeUsdomV4SnapshotManifest::from_bytes(manifest_bytes)?;
+    if supplied.network_magic != expected_schedule.network_magic() {
+        return Err(DomError::PolicyRejected(
+            "native USDOM snapshot belongs to another ratified network schedule".into(),
+        ));
+    }
+    let current = export_native_usdom_v4_snapshot_manifest_for_schedule(
         store,
         supplied.network_magic,
         expected_bridge,
         supplied.canonical_tip,
+        expected_schedule,
     )?;
     if current != supplied {
         return Err(DomError::Invalid(
@@ -3802,6 +4052,28 @@ fn verified_issuance_deposit_ids(transitions: &[VerifiedTransition]) -> Vec<[u8;
             _ => None,
         })
         .collect()
+}
+
+fn has_issuance_deposit_overlap<'a>(
+    queued: impl IntoIterator<Item = &'a [u8; 32]>,
+    deposit_ids: &[[u8; 32]],
+) -> bool {
+    !deposit_ids.is_empty()
+        && queued
+            .into_iter()
+            .any(|queued| deposit_ids.contains(queued))
+}
+
+fn conflicts_with_queued_issuance(
+    candidates: &VecDeque<NativeUsdomV4MiningCandidate>,
+    deposit_ids: &[[u8; 32]],
+) -> bool {
+    has_issuance_deposit_overlap(
+        candidates
+            .iter()
+            .flat_map(|candidate| candidate.issuance_deposit_ids.iter()),
+        deposit_ids,
+    )
 }
 
 /// One fully revalidated native-v4 mining template. `candidate_id` is present
@@ -3840,6 +4112,7 @@ impl NativeUsdomV4MiningTemplate {
 struct NativeUsdomV2MiningCandidate {
     id: dom_core::Hash256,
     encoded_len: usize,
+    issuance_deposit_ids: Vec<[u8; 32]>,
     envelope: UsdomV4ProofEnvelope,
     witnesses: UsdomV2ExecutionWitnesses,
 }
@@ -4077,7 +4350,7 @@ impl NativeUsdomV4Runtime {
                 "native USDOM runtime attached to a different network".into(),
             ));
         }
-        if let Some(verifier) = self.spend_verifier.as_ref() {
+        let outcome = if let Some(verifier) = self.spend_verifier.as_ref() {
             chain.ingest_usdom_v4_package_for_schedule(
                 package_bytes,
                 now,
@@ -4088,7 +4361,7 @@ impl NativeUsdomV4Runtime {
                 self.closure_policy.as_ref(),
                 verifier,
                 self.schedule,
-            )
+            )?
         } else {
             chain.ingest_usdom_v4_package_regtest(
                 package_bytes,
@@ -4099,8 +4372,45 @@ impl NativeUsdomV4Runtime {
                 &self.deposit_policy,
                 self.closure_policy.as_ref(),
                 None,
-            )
-        }
+            )?
+        };
+        // Peer/canonical ingress does not pass through the local miner's
+        // `complete_mining_candidate` callback. Release every local envelope
+        // whose issuance is now consumed by the resulting canonical state so
+        // non-mining nodes cannot retain dead reservations and exhaust their
+        // bounded volatile pool indefinitely.
+        self.prune_consumed_issuance_candidates()?;
+        Ok(outcome)
+    }
+
+    fn prune_consumed_issuance_candidates(&mut self) -> Result<usize, DomError> {
+        let removed_bytes = self
+            .mining_candidates
+            .iter()
+            .filter(|candidate| {
+                candidate
+                    .issuance_deposit_ids
+                    .iter()
+                    .any(|deposit_id| self.state.has_consumed_deposit(deposit_id))
+            })
+            .try_fold(0usize, |total, candidate| {
+                total.checked_add(candidate.encoded_len).ok_or_else(|| {
+                    DomError::Internal("mining candidate prune byte total overflow".into())
+                })
+            })?;
+        let next_bytes = self
+            .mining_candidate_bytes
+            .checked_sub(removed_bytes)
+            .ok_or_else(|| DomError::Internal("mining candidate prune byte underflow".into()))?;
+        let before = self.mining_candidates.len();
+        self.mining_candidates.retain(|candidate| {
+            !candidate
+                .issuance_deposit_ids
+                .iter()
+                .any(|deposit_id| self.state.has_consumed_deposit(deposit_id))
+        });
+        self.mining_candidate_bytes = next_bytes;
+        Ok(before - self.mining_candidates.len())
     }
 
     fn verified_envelope_preview(
@@ -4163,10 +4473,11 @@ impl NativeUsdomV4Runtime {
                 "public-network native USDOM mining requires its committed spend verifier".into(),
             ));
         }
-        let envelope = UsdomV4ProofEnvelope::from_bytes(envelope_bytes)?;
-        if envelope.entries.is_empty() {
-            return Err(DomError::PolicyRejected(
-                "empty native USDOM envelopes are generated internally".into(),
+        if envelope_bytes.len() < USDOM_V4_ENVELOPE_HEADER_BYTES
+            || envelope_bytes.len() > MAX_USDOM_V4_ENVELOPE_BYTES
+        {
+            return Err(DomError::Malformed(
+                "invalid native USDOM v4 envelope framing".into(),
             ));
         }
         let id = blake2b_256_tagged(TAG_USDOM_V4_MINING_CANDIDATE, envelope_bytes);
@@ -4190,8 +4501,27 @@ impl NativeUsdomV4Runtime {
                 "native USDOM mining candidate pool is full".into(),
             ));
         }
+        // Decode and allocate retained proof payloads only after cheap raw
+        // bounds, exact retransmission and aggregate pool admission succeed.
+        let envelope = UsdomV4ProofEnvelope::from_bytes(envelope_bytes)?;
+        if envelope.entries.is_empty() {
+            return Err(DomError::PolicyRejected(
+                "empty native USDOM envelopes are generated internally".into(),
+            ));
+        }
         let (_, verified) = self.verified_envelope_preview(&envelope, candidate_timestamp)?;
         let issuance_deposit_ids = verified_issuance_deposit_ids(&verified.transitions);
+        // Canonical state prevents a deposit from being issued twice, but the
+        // volatile pool is not part of that state. Without this reservation,
+        // distinct otherwise-valid envelopes could queue the same deposit,
+        // consume every bounded candidate slot and create ambiguous status for
+        // competing candidate IDs. Preserve the first verified candidate until
+        // it is mined or evicted by normal template revalidation.
+        if conflicts_with_queued_issuance(&self.mining_candidates, &issuance_deposit_ids) {
+            return Err(DomError::PolicyRejected(
+                "native USDOM issuance deposit already has a queued candidate".into(),
+            ));
+        }
         self.mining_candidates
             .push_back(NativeUsdomV4MiningCandidate {
                 id,
@@ -4488,12 +4818,12 @@ impl NativeUsdomV2Runtime {
         )
     }
 
-    fn mining_header_commitment(
+    fn verified_mining_header_commitment(
         &self,
         envelope: &UsdomV4ProofEnvelope,
         witnesses: &UsdomV2ExecutionWitnesses,
         block_timestamp: Timestamp,
-    ) -> Result<dom_core::Hash256, DomError> {
+    ) -> Result<(dom_core::Hash256, Vec<[u8; 32]>), DomError> {
         let verified = verify_envelope_transitions(
             self.network_magic,
             block_timestamp.0,
@@ -4504,6 +4834,7 @@ impl NativeUsdomV2Runtime {
             Some(&self.spend_verifier),
             &envelope.entries,
         )?;
+        let issuance_deposit_ids = verified_issuance_deposit_ids(&verified.transitions);
         let (next, receipt) = apply_v2_transition_batch_with_receipt(
             self.state.root(),
             BlockContext {
@@ -4524,7 +4855,17 @@ impl NativeUsdomV2Runtime {
                 "native USDOM V2 mining preview produced inconsistent state roots".into(),
             ));
         }
-        Ok(receipt.header_commitment)
+        Ok((receipt.header_commitment, issuance_deposit_ids))
+    }
+
+    fn mining_header_commitment(
+        &self,
+        envelope: &UsdomV4ProofEnvelope,
+        witnesses: &UsdomV2ExecutionWitnesses,
+        block_timestamp: Timestamp,
+    ) -> Result<dom_core::Hash256, DomError> {
+        self.verified_mining_header_commitment(envelope, witnesses, block_timestamp)
+            .map(|(commitment, _)| commitment)
     }
 
     /// Admit one canonical nonempty proof-and-witness pair to the bounded
@@ -4537,18 +4878,6 @@ impl NativeUsdomV2Runtime {
         witness_bytes: &[u8],
         candidate_timestamp: Timestamp,
     ) -> Result<dom_core::Hash256, DomError> {
-        let envelope = UsdomV4ProofEnvelope::from_bytes(envelope_bytes)?;
-        let witnesses = UsdomV2ExecutionWitnesses::from_bytes(witness_bytes)?;
-        if envelope.entries.is_empty() {
-            return Err(DomError::PolicyRejected(
-                "empty native USDOM V2 candidates are generated internally".into(),
-            ));
-        }
-        if envelope.entries.len() != witnesses.witnesses().len() {
-            return Err(DomError::Invalid(
-                "native USDOM V2 mining proof/witness count mismatch".into(),
-            ));
-        }
         let encoded_len = envelope_bytes
             .len()
             .checked_add(witness_bytes.len())
@@ -4580,11 +4909,38 @@ impl NativeUsdomV2Runtime {
                 "native USDOM V2 mining candidate pool is full".into(),
             ));
         }
-        self.mining_header_commitment(&envelope, &witnesses, candidate_timestamp)?;
+        // Candidate identity validates the independent raw component ceilings.
+        // Avoid parsing/copying either component until exact retransmission and
+        // aggregate pool admission have succeeded.
+        let envelope = UsdomV4ProofEnvelope::from_bytes(envelope_bytes)?;
+        let witnesses = UsdomV2ExecutionWitnesses::from_bytes(witness_bytes)?;
+        if envelope.entries.is_empty() {
+            return Err(DomError::PolicyRejected(
+                "empty native USDOM V2 candidates are generated internally".into(),
+            ));
+        }
+        if envelope.entries.len() != witnesses.witnesses().len() {
+            return Err(DomError::Invalid(
+                "native USDOM V2 mining proof/witness count mismatch".into(),
+            ));
+        }
+        let (_, issuance_deposit_ids) =
+            self.verified_mining_header_commitment(&envelope, &witnesses, candidate_timestamp)?;
+        if has_issuance_deposit_overlap(
+            self.mining_candidates
+                .iter()
+                .flat_map(|candidate| candidate.issuance_deposit_ids.iter()),
+            &issuance_deposit_ids,
+        ) {
+            return Err(DomError::PolicyRejected(
+                "native USDOM V2 issuance deposit already has a queued candidate".into(),
+            ));
+        }
         self.mining_candidates
             .push_back(NativeUsdomV2MiningCandidate {
                 id,
                 encoded_len,
+                issuance_deposit_ids,
                 envelope,
                 witnesses,
             });
@@ -4760,6 +5116,11 @@ fn revert_authenticated_persisted_usdom_v4_block(
     if crate::canonical_header_identifier(network_magic, &header_bytes)? != cursor {
         return Err(DomError::Internal(
             "canonical native USDOM rewind block identifier mismatch".into(),
+        ));
+    }
+    if store.get_hash_at_height(block.header.height.0)? != Some(*cursor.as_bytes()) {
+        return Err(DomError::Internal(
+            "canonical native USDOM rewind block is absent from its declared height".into(),
         ));
     }
     let undo_bytes = store
@@ -5053,15 +5414,16 @@ pub fn rewind_persisted_usdom_v4_state_to_ancestor_for_schedule(
             "native USDOM state rewind does not match its activation schedule".into(),
         ));
     }
-    let ancestor_header = store
+    let ancestor_header_bytes = store
         .get_block_header(ancestor.as_bytes())?
-        .ok_or_else(|| DomError::Internal("native USDOM rewind ancestor header is missing".into()))
-        .and_then(|bytes| {
-            dom_consensus::block::BlockHeader::from_bytes(&bytes).map_err(|error| {
-                DomError::Internal(format!(
-                    "native USDOM rewind ancestor header is corrupt: {error}"
-                ))
-            })
+        .ok_or_else(|| {
+            DomError::Internal("native USDOM rewind ancestor header is missing".into())
+        })?;
+    let ancestor_header = dom_consensus::block::BlockHeader::from_bytes(&ancestor_header_bytes)
+        .map_err(|error| {
+            DomError::Internal(format!(
+                "native USDOM rewind ancestor header is corrupt: {error}"
+            ))
         })?;
     let minimum_ancestor_height = schedule
         .first_v4_height()
@@ -5070,6 +5432,13 @@ pub fn rewind_persisted_usdom_v4_state_to_ancestor_for_schedule(
     if ancestor_header.height.0 < minimum_ancestor_height {
         return Err(DomError::PolicyRejected(
             "native USDOM rewind crossed below the activation parent".into(),
+        ));
+    }
+    if crate::canonical_header_identifier(network_magic, &ancestor_header_bytes)? != ancestor
+        || store.get_hash_at_height(ancestor_header.height.0)? != Some(*ancestor.as_bytes())
+    {
+        return Err(DomError::Internal(
+            "native USDOM rewind ancestor is not canonical at its declared height".into(),
         ));
     }
     let mut state = restore_persisted_usdom_v4_state_for_schedule(
@@ -7983,6 +8352,141 @@ mod tests {
     }
 
     #[test]
+    fn queued_issuance_reserves_each_deposit_for_one_candidate() {
+        let queued_deposit = [0x41; 32];
+        let candidates = VecDeque::from([NativeUsdomV4MiningCandidate {
+            id: Hash256::from_bytes([0x42; 32]),
+            encoded_len: 1,
+            issuance_deposit_ids: vec![queued_deposit],
+            envelope: UsdomV4ProofEnvelope::empty(),
+        }]);
+
+        assert!(conflicts_with_queued_issuance(
+            &candidates,
+            &[queued_deposit]
+        ));
+        assert!(conflicts_with_queued_issuance(
+            &candidates,
+            &[[0x43; 32], queued_deposit]
+        ));
+        assert!(!conflicts_with_queued_issuance(&candidates, &[[0x44; 32]]));
+        assert!(!conflicts_with_queued_issuance(&candidates, &[]));
+        let v2_queued = [[0x71; 32], [0x72; 32]];
+        assert!(has_issuance_deposit_overlap(
+            v2_queued.iter(),
+            &[[0x73; 32], [0x72; 32]]
+        ));
+        assert!(!has_issuance_deposit_overlap(
+            v2_queued.iter(),
+            &[[0x74; 32]]
+        ));
+    }
+
+    #[test]
+    fn canonical_consumption_releases_queued_issuance_reservation() {
+        let bridge = bridge();
+        let schedule = native_usdom_v4_regtest_activation_schedule(bridge).unwrap();
+        let mut runtime = NativeUsdomV4Runtime {
+            network_magic: NETWORK_MAGIC_REGTEST,
+            schedule,
+            bridge,
+            checkpoint_policy: unused_checkpoint_policy(),
+            deposit_policy: unused_deposit_policy(),
+            closure_policy: None,
+            spend_verifier: None,
+            state: NativeUsdomState::new(bridge).unwrap(),
+            startup_audit: NativeUsdomV4HistoryAudit {
+                canonical_tip: Hash256::from_bytes([0x31; 32]),
+                oldest_audited_parent: Hash256::from_bytes([0x31; 32]),
+                audited_blocks: 0,
+                boundary_state_root: NativeUsdomState::new(bridge).unwrap().state_root(),
+                reached_activation_boundary: false,
+            },
+            mining_candidates: VecDeque::from([
+                NativeUsdomV4MiningCandidate {
+                    id: Hash256::from_bytes([0x51; 32]),
+                    encoded_len: 1,
+                    issuance_deposit_ids: vec![[0x44; 32]],
+                    envelope: UsdomV4ProofEnvelope::empty(),
+                },
+                NativeUsdomV4MiningCandidate {
+                    id: Hash256::from_bytes([0x52; 32]),
+                    encoded_len: 2,
+                    issuance_deposit_ids: Vec::new(),
+                    envelope: UsdomV4ProofEnvelope::empty(),
+                },
+            ]),
+            mining_candidate_bytes: 3,
+        };
+
+        assert_eq!(runtime.prune_consumed_issuance_candidates().unwrap(), 0);
+        assert_eq!(runtime.mining_candidate_stats(), (2, 3));
+        runtime
+            .state
+            .apply_batch(
+                BlockContext {
+                    timestamp: 1_800_000_000,
+                },
+                &[issuance()],
+            )
+            .unwrap();
+        assert_eq!(runtime.prune_consumed_issuance_candidates().unwrap(), 1);
+        assert_eq!(runtime.mining_candidate_stats(), (1, 2));
+        assert!(!conflicts_with_queued_issuance(
+            &runtime.mining_candidates,
+            &[[0x44; 32]]
+        ));
+    }
+
+    #[test]
+    fn full_candidate_pool_rejects_before_envelope_parsing() {
+        let bridge = bridge();
+        let state = NativeUsdomState::new(bridge).unwrap();
+        let mining_candidates = (0..MAX_USDOM_V4_MINING_CANDIDATES)
+            .map(|index| NativeUsdomV4MiningCandidate {
+                id: Hash256::from_bytes([index as u8 + 1; 32]),
+                encoded_len: 1,
+                issuance_deposit_ids: Vec::new(),
+                envelope: UsdomV4ProofEnvelope::empty(),
+            })
+            .collect();
+        let mut runtime = NativeUsdomV4Runtime {
+            network_magic: NETWORK_MAGIC_REGTEST,
+            schedule: native_usdom_v4_regtest_activation_schedule(bridge).unwrap(),
+            bridge,
+            checkpoint_policy: unused_checkpoint_policy(),
+            deposit_policy: unused_deposit_policy(),
+            closure_policy: None,
+            spend_verifier: None,
+            startup_audit: NativeUsdomV4HistoryAudit {
+                canonical_tip: Hash256::from_bytes([0x31; 32]),
+                oldest_audited_parent: Hash256::from_bytes([0x31; 32]),
+                audited_blocks: 0,
+                boundary_state_root: state.state_root(),
+                reached_activation_boundary: false,
+            },
+            state,
+            mining_candidates,
+            mining_candidate_bytes: MAX_USDOM_V4_MINING_CANDIDATES,
+        };
+        let malformed_but_bounded = vec![0; USDOM_V4_ENVELOPE_HEADER_BYTES];
+
+        assert_eq!(
+            runtime
+                .admit_mining_envelope(&malformed_but_bounded, Timestamp(1_800_000_000))
+                .unwrap_err(),
+            DomError::PolicyRejected("native USDOM mining candidate pool is full".into())
+        );
+        assert_eq!(
+            runtime.mining_candidate_stats(),
+            (
+                MAX_USDOM_V4_MINING_CANDIDATES,
+                MAX_USDOM_V4_MINING_CANDIDATES
+            )
+        );
+    }
+
+    #[test]
     fn bridge_committed_spend_verifier_authorizes_exact_serialized_transfer() {
         use dom_usdom_privacy::{
             chain_scalar,
@@ -9250,6 +9754,48 @@ mod tests {
         let mut broken_parent = bytes;
         broken_parent[USDOM_V4_SNAPSHOT_HEADER_BYTES + 40] ^= 1;
         assert!(NativeUsdomV4SnapshotManifest::from_bytes(&broken_parent).is_err());
+
+        // The transport is network-generic; authority comes from the exact
+        // independently supplied schedule in the schedule-bound APIs.
+        for network_magic in [
+            dom_core::NETWORK_MAGIC_MAINNET,
+            dom_core::NETWORK_MAGIC_TESTNET,
+            dom_core::NETWORK_MAGIC_REGTEST,
+        ] {
+            let mut network_manifest = manifest.clone();
+            network_manifest.network_magic = network_magic;
+            let network_bytes = network_manifest.to_bytes().unwrap();
+            assert_eq!(
+                NativeUsdomV4SnapshotManifest::from_bytes(&network_bytes).unwrap(),
+                network_manifest
+            );
+        }
+        let mut unknown_network = manifest;
+        unknown_network.network_magic = u32::MAX;
+        assert!(unknown_network.to_bytes().is_err());
+    }
+
+    #[test]
+    fn schedule_bound_snapshot_export_rejects_network_mismatch_before_store_access() {
+        let directory = TempDir::new().unwrap();
+        let store = DomStore::open_with_map_size(directory.path(), 64 << 20).unwrap();
+        let schedule = NativeUsdomV4ActivationSchedule::new(
+            dom_core::NETWORK_MAGIC_MAINNET,
+            dom_core::Hash256::from_bytes([0x91; 32]),
+            1,
+            bridge(),
+        )
+        .unwrap();
+        assert!(matches!(
+            export_native_usdom_v4_snapshot_manifest_for_schedule(
+                &store,
+                dom_core::NETWORK_MAGIC_TESTNET,
+                bridge(),
+                dom_core::Hash256::from_bytes([0x92; 32]),
+                schedule,
+            ),
+            Err(DomError::PolicyRejected(_))
+        ));
     }
 
     #[test]
@@ -10626,6 +11172,28 @@ mod tests {
             if let Ok(package) = UsdomV4BlockPackage::from_bytes(&bytes) {
                 prop_assert_eq!(package.to_bytes().unwrap(), bytes);
             }
+        }
+
+        #[test]
+        fn arbitrary_snapshot_manifest_bytes_never_gain_noncanonical_roundtrip_authority(
+            bytes in proptest::collection::vec(any::<u8>(), 0..4096)
+        ) {
+            if let Ok(manifest) = NativeUsdomV4SnapshotManifest::from_bytes(&bytes) {
+                prop_assert_eq!(manifest.to_bytes().unwrap(), bytes);
+            }
+        }
+
+        #[test]
+        fn arbitrary_v2_persistence_bytes_never_gain_noncanonical_roundtrip_authority(
+            bytes in proptest::collection::vec(any::<u8>(), 0..4096)
+        ) {
+            if let Ok(record) = PersistedUsdomV2BlockRecord::from_bytes(&bytes) {
+                let canonical = record.to_bytes().unwrap();
+                prop_assert_eq!(canonical.as_slice(), bytes.as_slice());
+            }
+            // The fixed-width runtime-tip decoder is included for panic and
+            // bounds coverage; deterministic tests above prove its exact bytes.
+            let _ = PersistedUsdomV2RuntimeTip::from_bytes(&bytes);
         }
     }
 

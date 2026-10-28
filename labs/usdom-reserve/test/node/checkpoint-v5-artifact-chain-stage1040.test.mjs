@@ -8,16 +8,16 @@ const audit=spawnSync('python3',[gate.pathname,'--audit-current'],{cwd:root,enco
 assert.equal(audit.status,0,audit.stderr);
 const report=JSON.parse(audit.stdout);
 assert.equal(report.schema,'usdom-checkpoint-v6-artifact-chain-audit-v1');
-assert.equal(report.ready,false);
-assert.ok(report.failures.includes('segment provenance is not UDCSTN04'));
-assert.ok(report.failures.includes('outer provenance is not UDCPST06'));
-assert.ok(report.failures.includes('burn provenance does not bind UDCPST06'));
-assert.ok(report.failures.includes('burn provenance does not pin the rebuilt outer ImageID'));
+assert.equal(report.ready,true);
+assert.deepEqual(report.failures,[]);
+for(const field of ['segmentImageId','outerImageId','finalizedBurnImageId']) {
+  assert.match(report[field],/^[0-9a-f]{64}$/);
+  assert.notEqual(report[field],'0'.repeat(64));
+}
 
-// Release mode must reject the same stale chain. This remains true until all
-// three guests and every downstream pin are rebuilt and reconciled together.
+// Release mode must independently accept the same fully reconciled chain.
 const release=spawnSync('python3',[gate.pathname],{cwd:root,encoding:'utf8'});
-assert.equal(release.status,1,'stale artifact chain unexpectedly passed release mode');
+assert.equal(release.status,0,release.stderr);
 assert.deepEqual(JSON.parse(release.stdout),report);
 
-console.log(`checkpoint V6 artifact chain stage1040: ${report.failures.length} stale bindings rejected`);
+console.log('checkpoint V6 artifact chain stage1040: complete V6/V4 chain accepted');

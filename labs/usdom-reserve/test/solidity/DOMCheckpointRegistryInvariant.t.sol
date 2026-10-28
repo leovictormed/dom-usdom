@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.37;
 
-import {DOMCheckpointRegistry, IDOMCheckpointVerifier} from "../../contracts/DOMCheckpointRegistry.sol";
+import {DOMCheckpointRegistry} from "../../contracts/DOMCheckpointRegistry.sol";
+import {IDOMCheckpointVerifier} from "../../contracts/IDOMCheckpointVerifier.sol";
 import {MockGovernance} from "./Mocks.sol";
 import {TestBase} from "./TestBase.sol";
 
@@ -35,6 +36,9 @@ contract CheckpointRegistryHandler is TestBase {
     bytes32 public ghostLatestStateRoot;
     bytes32 public ghostLatestContextHash;
     uint256 public ghostLatestTotalDifficulty;
+    uint128 public ghostLatestTotalIssued;
+    uint128 public ghostLatestTotalBurned;
+    bool public ghostLatestIssuanceClosed;
     uint64 public ghostCandidateReadyAt;
     bool public ghostHalted;
     bytes32 public haltedLatestBlock;
@@ -49,6 +53,9 @@ contract CheckpointRegistryHandler is TestBase {
         ghostLatestStateRoot = registry_.latestStateRoot();
         ghostLatestContextHash = registry_.latestContextHash();
         ghostLatestTotalDifficulty = registry_.latestTotalDifficulty();
+        ghostLatestTotalIssued = registry_.latestTotalIssued();
+        ghostLatestTotalBurned = registry_.latestTotalBurned();
+        ghostLatestIssuanceClosed = registry_.latestIssuanceClosed();
     }
 
     function submitBetter(uint256 work, bytes32 entropy) external {
@@ -88,7 +95,14 @@ contract CheckpointRegistryHandler is TestBase {
         bytes32 stateRoot = _candidateWord(4);
         bytes32 contextHash = _candidateWord(5);
         uint256 totalDifficulty = uint256(_candidateWord(6));
+        uint128 totalIssued = uint128(uint256(_candidateWord(7)));
+        uint128 totalBurned = uint128(uint256(_candidateWord(8)));
+        bool issuanceClosed = registry.candidateIssuanceClosed();
         if (statementHash == bytes32(0) || block.timestamp < readyAt) return;
+        if (ghostLatestIssuanceClosed) {
+            assertTrue(issuanceClosed);
+            assertEq(totalIssued, ghostLatestTotalIssued);
+        }
         registry.finalizeCheckpoint();
         ++finalizedCount;
         ghostLatestHeight = height;
@@ -96,6 +110,9 @@ contract CheckpointRegistryHandler is TestBase {
         ghostLatestStateRoot = stateRoot;
         ghostLatestContextHash = contextHash;
         ghostLatestTotalDifficulty = totalDifficulty;
+        ghostLatestTotalIssued = totalIssued;
+        ghostLatestTotalBurned = totalBurned;
+        ghostLatestIssuanceClosed = issuanceClosed;
         ghostCandidateReadyAt = 0;
     }
 
@@ -212,6 +229,14 @@ contract CheckpointRegistryHandler is TestBase {
         uint64 height = previousHeight + registry.checkpointInterval();
         uint64 confirmationHeight = height + registry.confirmationDepth();
         uint256 totalDifficulty = registry.latestTotalDifficulty() + 1 + work % 1_000_000;
+        uint128 latestIssued = registry.latestTotalIssued();
+        uint128 latestBurned = registry.latestTotalBurned();
+        bool alreadyClosed = registry.latestIssuanceClosed();
+        uint128 issueDelta = alreadyClosed ? 0 : uint128(uint256(entropy) & 0xffff);
+        uint128 totalIssued = latestIssued + issueDelta;
+        uint256 burnCapacity = uint256(totalIssued) - latestBurned;
+        uint128 burnDelta = uint128((uint256(entropy) >> 16) % (burnCapacity + 1));
+        bool issuanceClosed = alreadyClosed || ((uint256(entropy) >> 144) & 1 == 1);
         ++serial;
         checkpoint = DOMCheckpointRegistry.CheckpointInput({
             previousHeight: previousHeight,
@@ -224,9 +249,9 @@ contract CheckpointRegistryHandler is TestBase {
             stateRoot: keccak256(abi.encode("checkpoint state", serial, entropy)),
             contextHash: keccak256(abi.encode("checkpoint context", serial, entropy)),
             totalDifficulty: totalDifficulty,
-            totalIssued: 0,
-            totalBurned: 0,
-            issuanceClosed: false,
+            totalIssued: totalIssued,
+            totalBurned: latestBurned + burnDelta,
+            issuanceClosed: issuanceClosed,
             confirmationHeight: confirmationHeight,
             confirmationBlock: keccak256(abi.encode("checkpoint confirmation", serial, entropy)),
             confirmationTotalDifficulty: totalDifficulty + 1 + work % 1_000_000,
@@ -313,9 +338,15 @@ contract DOMCheckpointRegistryInvariantTest is TestBase {
         assertEq(registry.latestStateRoot(), handler.ghostLatestStateRoot());
         assertEq(registry.latestContextHash(), handler.ghostLatestContextHash());
         assertEq(registry.latestTotalDifficulty(), handler.ghostLatestTotalDifficulty());
+        assertEq(registry.latestTotalIssued(), handler.ghostLatestTotalIssued());
+        assertEq(registry.latestTotalBurned(), handler.ghostLatestTotalBurned());
+        assertTrue(registry.latestIssuanceClosed() == handler.ghostLatestIssuanceClosed());
         assertEq(registry.latestHeight(), INITIAL_HEIGHT + handler.finalizedCount() * INTERVAL);
         assertEq(registry.checkpointCount(), handler.finalizedCount() + 1);
         assertTrue(registry.latestTotalDifficulty() >= INITIAL_TOTAL_DIFFICULTY);
+        assertTrue(registry.latestTotalBurned() <= registry.latestTotalIssued());
+        assertTrue(registry.previousTotalIssued() <= registry.latestTotalIssued());
+        assertTrue(registry.previousTotalBurned() <= registry.latestTotalBurned());
         assertEq(vm.load(address(registry), bytes32(0)), registry.checkpointConfigHash());
         assertEq(address(registry.verifier()).codehash, registry.verifierCodeHash());
         assertEq(address(guardian).codehash, registry.guardianCodeHash());
@@ -332,6 +363,7 @@ contract DOMCheckpointRegistryInvariantTest is TestBase {
         uint256 totalDifficulty = uint256(handler._candidateWord(6));
         uint128 totalIssued = uint128(uint256(handler._candidateWord(7)));
         uint128 totalBurned = uint128(uint256(handler._candidateWord(8)));
+        bool issuanceClosed = registry.candidateIssuanceClosed();
         uint64 confirmationHeight = uint64(uint256(handler._candidateWord(9)));
         bytes32 confirmationBlock = handler._candidateWord(10);
         uint256 confirmationTotalDifficulty = uint256(handler._candidateWord(11));
@@ -354,6 +386,10 @@ contract DOMCheckpointRegistryInvariantTest is TestBase {
         assertTrue(totalIssued >= registry.latestTotalIssued());
         assertTrue(totalBurned >= registry.latestTotalBurned());
         assertTrue(totalBurned <= totalIssued);
+        if (registry.latestIssuanceClosed()) {
+            assertTrue(issuanceClosed);
+            assertEq(totalIssued, registry.latestTotalIssued());
+        }
         assertTrue(confirmationBlock != bytes32(0));
         assertTrue(confirmationBlock != blockHash);
         assertTrue(confirmationTotalDifficulty > totalDifficulty);

@@ -1,0 +1,39 @@
+USDOM mainnet readiness — Stage 1344
+Date: 2026-10-26
+
+Finding
+=======
+
+The mainnet preflight SDK already rejected proxy variables, custom CA paths,
+disabled certificate verification and unsafe Node TLS options. The private
+credential-hiding proxy reused catalog URL validation but did not invoke that
+transport-environment gate itself. A direct or misconfigured launcher carrying
+the expected marker could therefore weaken fetch TLS or route credential-bearing
+requests through an environment proxy. An invalid system clock could likewise
+undermine certificate expiry checks.
+
+Correction
+==========
+
+Immediately after consuming its one-shot launcher marker and before reading the
+runtime secret file, the proxy applies the shared secure HTTPS environment gate
+and operational TLS wall-clock gate. Existing endpoint validation still requires
+root HTTPS origins on canonical public DNS hostnames, catalog-pinned origin
+commitments, distinct provider infrastructure and redirect:error on every fetch.
+
+Validation
+==========
+
+- Node syntax check passed for the proxy.
+- Existing adversarial transport tests cover uppercase/lowercase proxy variables,
+  CA overrides, TLS verification disablement, unsafe Node options and invalid or
+  implausible clocks.
+- Proxy, TLS, catalog, capability, exact-envelope and readiness suite: 26/26 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No provider was contacted and no DNS lookup or transaction occurred. No network,
+signing, deployment, funds, production facts, Rust, Solidity, Cargo, Forge,
+commit or push occurred.

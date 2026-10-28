@@ -76,7 +76,7 @@ try {
     chainId:packageValue.chainId,releaseConfigSha256:packageValue.releaseConfigSha256,
     packageSha256:expectedSha,rpcCatalogSha256:catalogSha256,observationDocumentSha256:observationSha,
     observationHash:observation.observationHash,transaction};
-  validateMainnetDeploymentLedgerHandoff({handoff,packageValue,index:Number(process.argv[2]),
+  validateMainnetDeploymentLedgerHandoff({handoff,packageValue,packageBytes,index:Number(process.argv[2]),
     packageSha256:expectedSha});
   process.stdout.write(`${JSON.stringify(handoff)}\n`);
 } catch(error) {

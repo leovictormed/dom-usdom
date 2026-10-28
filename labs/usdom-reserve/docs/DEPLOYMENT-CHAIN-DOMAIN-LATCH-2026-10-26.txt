@@ -1,0 +1,49 @@
+DEPLOYMENT CHAIN DOMAIN LATCH — 2026-10-26
+
+Finding
+=======
+
+The RISC Zero verifier adapters permanently bind their deployment chain ID and
+reject proofs after a chain-ID change, but USDOMProofReserve used the live
+block.chainid for deposit IDs and all burn hashes. After a chain-ID change the
+reserve could still accept new collateral when its control accounts were direct
+contracts, even though the production verifier could never authorize its later
+redemption. The same change also altered the hash of an already queued debt, so
+executeWithdrawal would reject it with PendingMismatch.
+
+Fix
+===
+
+The reserve now stores deploymentChainId as an immutable. depositId, BurnIntent,
+FinalizedBurnDebt and FinalizedBurn statements use that immutable domain rather
+than a mutable environmental read. New deposits and first-time burn debts call
+_requireDeploymentChain and fail with ChainChanged if the live chain ID differs.
+
+Already queued debts remain executable because their exact statement identity
+does not change. This is deliberate: an environmental fork must not turn an
+already authenticated collateral obligation into an unpayable record. No new
+exposure can be admitted on the divergent chain.
+
+Security properties
+===================
+
+The immutable domain preserves cross-chain separation: it is the chain ID at
+deployment and is already part of the reserve configuration identities. The
+exact reserve address remains in every burn domain. A live chain-ID change does
+not silently migrate the deployment to another domain.
+
+Validation
+==========
+
+The regression changes the Foundry chain ID and proves that deposit ID and burn
+statement hashes remain unchanged, fresh deposit and fresh debt revert with
+ChainChanged, and the previously queued withdrawal still pays exactly once.
+Existing hash-domain tests were updated to assert the deployment-chain model.
+
+The complete offline Forge campaign passes: 201 tests across 14 suites, zero
+failures. USDOMProofReserve runtime is 20,903 bytes, leaving 3,673 bytes under
+EIP-170. DOMCheckpointRegistry remains 10,418 bytes. Whitespace validation
+passes.
+
+No Rust/Cargo, operational script, real network, signing, deployment, funds,
+commit or push was used.

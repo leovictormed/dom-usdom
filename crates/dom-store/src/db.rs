@@ -275,6 +275,41 @@ fn apply_consensus_state_updates(
     Ok(())
 }
 
+fn validate_reorg_update_keys(
+    height_updates: &[(u64, Option<[u8; 32]>)],
+    utxo_updates: &[([u8; 33], Option<Vec<u8>>)],
+    kernel_updates: &[([u8; 33], Option<[u8; 32]>)],
+) -> Result<(), DomError> {
+    let mut heights = BTreeSet::new();
+    if height_updates
+        .iter()
+        .any(|(height, _)| !heights.insert(*height))
+    {
+        return Err(DomError::Invalid(
+            "duplicate height in atomic reorg batch".into(),
+        ));
+    }
+    let mut utxos = BTreeSet::new();
+    if utxo_updates
+        .iter()
+        .any(|(commitment, _)| !utxos.insert(*commitment))
+    {
+        return Err(DomError::Invalid(
+            "duplicate UTXO commitment in atomic reorg batch".into(),
+        ));
+    }
+    let mut kernels = BTreeSet::new();
+    if kernel_updates
+        .iter()
+        .any(|(excess, _)| !kernels.insert(*excess))
+    {
+        return Err(DomError::Invalid(
+            "duplicate kernel excess in atomic reorg batch".into(),
+        ));
+    }
+    Ok(())
+}
+
 impl DomStore {
     /// Open (or create) the store at the given directory.
     pub fn open(data_dir: &Path) -> Result<Self, DomError> {
@@ -890,8 +925,18 @@ impl DomStore {
 
         // Store height → hash index
         let height_key = block_height.to_le_bytes();
-        txn.put(self.db_height, &height_key, block_hash, WriteFlags::empty())
-            .map_err(|e| DomError::Internal(format!("put height: {e}")))?;
+        txn.put(
+            self.db_height,
+            &height_key,
+            block_hash,
+            WriteFlags::NO_OVERWRITE,
+        )
+        .map_err(|e| match e {
+            lmdb::Error::KeyExist => DomError::Internal(format!(
+                "canonical height already exists — concurrent/stale commit? height={block_height}"
+            )),
+            other => DomError::Internal(format!("put height: {other}")),
+        })?;
 
         // Update chain tip
         txn.put(self.db_tip, b"tip", block_hash, WriteFlags::empty())
@@ -1184,6 +1229,7 @@ impl DomStore {
         sidecar_changes: ReorgSidecarChanges<'_>,
     ) -> Result<(), DomError> {
         validate_consensus_state_updates(consensus_updates)?;
+        validate_reorg_update_keys(height_updates, utxo_updates, kernel_updates)?;
         let mut sidecar_hashes = BTreeSet::new();
         let mut sidecar_bytes_total = 0usize;
         for (block_hash, sidecar) in sidecar_changes.inserts {

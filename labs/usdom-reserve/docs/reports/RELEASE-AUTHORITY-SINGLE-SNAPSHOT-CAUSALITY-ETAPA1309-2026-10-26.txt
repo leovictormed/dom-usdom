@@ -1,0 +1,35 @@
+USDOM closed-mainnet readiness — Stage 1309
+Date: 2026-10-26
+
+Finding
+=======
+
+The phase reconciler reopened proof-reserve.unconfigured.json at several phase
+boundaries. In particular, deployment identity validation parsed one read while
+the deployment package comparison hashed a later read. A concurrent file
+replacement could therefore make the accepted configuration object and its
+causal SHA-256 authority describe different generations.
+
+Correction
+==========
+
+The reconciler now obtains a strict, bounded local JSON snapshot containing the
+exact bytes, parsed value and SHA-256. Snapshots are cached by path for the whole
+invocation. Identity, deployment, deposit and redemption checks all consume the
+same proof-reserve snapshot. The finalized-burn verifier manifest uses the same
+regular-file, owner-only, bounded snapshot boundary for its hash authority.
+
+Validation
+==========
+
+- Node syntax check passed for check-closed-mainnet-phase-artifacts.mjs.
+- Static adversarial regression requires cached snapshot reuse and forbids the
+  old releaseBytes/verifierBytes second-read hashing patterns.
+- Broader closed-mainnet evidence and operator suite: 108/108 tests passed.
+- git diff --check passed for the files changed by this stage.
+
+Scope
+=====
+
+No production fact was changed. No Rust, Solidity, Cargo, Forge, network,
+Ledger, signing, deployment, funds, commit or push operation was performed.

@@ -32,6 +32,7 @@ function fixture() {
       {number:'0x64',hash:hash(6),parentHash:hash(8),receiptsRoot:hash(9),stateRoot:hash(10)},
       {number:'0x65',hash:hash(7),parentHash:hash(6),receiptsRoot:hash(11),stateRoot:hash(12)},
     ],
+    rawTransactions:['0x01'],transactionHash:keccak256('0x01'),
     receipts:['0x01'],reserveAccount:{address:reserve.toLowerCase(),balance:'0x1',codeHash:keccak256(runtimeBytecode),
       nonce:'0x1',storageHash:hash(13),accountProof:['0x01']},runtimeBytecode,
   };
@@ -76,6 +77,8 @@ test('finalized deposit source rejects ancestry, policy and proof substitutions'
     value=>{value.headers[1].number='0x66';},
     value=>{value.finality.finalized_header.execution.block_hash=hash(22);},
     value=>{value.receipts=[];},
+    value=>{value.rawTransactions=[];},
+    value=>{value.rawTransactions[0]='0x02';},
     value=>{value.transactionIndex=2;},
     value=>{value.reserveAccount.address=funder.toLowerCase();},
     value=>{value.reserveAccount.codeHash=hash(23);},
@@ -84,5 +87,23 @@ test('finalized deposit source rejects ancestry, policy and proof substitutions'
   ]) {
     const value=structuredClone(fixture()); mutate(value);
     assert.throws(()=>validateFinalizedDepositSource(value));
+  }
+});
+
+test('finalized deposit source bounds integers before conversion',()=>{
+  const outsideDecimal=(1n<<64n).toString(),outsideQuantity=`0x${(1n<<64n).toString(16)}`;
+  for(const mutate of [
+    value=>{value.amountBaseUnits='9'.repeat(100_000);},
+    value=>{value.depositBlockNumber='9'.repeat(100_000);},
+    value=>{value.headers[0].number=`0x${'f'.repeat(100_000)}`;},
+    value=>{value.reserveAccount.balance=`0x${'f'.repeat(100_000)}`;},
+    value=>{value.amountBaseUnits=outsideDecimal;},
+    value=>{value.depositBlockNumber=outsideDecimal;},
+    value=>{value.headers[0].number=outsideQuantity;},
+    value=>{value.finality.finalized_header.execution.block_number=outsideDecimal;},
+    value=>{value.reserveAccount.nonce=outsideQuantity;},
+  ]) {
+    const value=structuredClone(fixture()); mutate(value);
+    assert.throws(()=>validateFinalizedDepositSource(value),/(canonical|outside uint64)/);
   }
 });

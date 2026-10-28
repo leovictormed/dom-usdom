@@ -1,0 +1,33 @@
+ETAPA 1348 — IDENTIDADE LIMITADA DO LEDGER
+Data: 2026-10-26
+
+Problema
+
+Os dois executores liam `cast wallet address --ledger` por substituição de
+comando. Embora houvesse deadline e comparação de identidade, stdout ainda
+podia crescer sem teto dentro do shell antes dessa comparação.
+
+Correção
+
+Cada leitura agora grava no diretório privado temporário com byte sentinela de
+44 bytes e exige arquivo final de até 43 bytes. Um checker dedicado abre o
+arquivo com `O_NOFOLLOW`, exige arquivo regular 0600 do usuário, link único e
+snapshot estável, aceita exatamente um endereço Ethereum de 42 caracteres com
+no máximo um LF terminal e compara a identidade sem diferenciar maiúsculas.
+
+O checker não imprime o endereço. No resgate, o signatário passa a ser o
+destinatário já autenticado somente depois de a saída do Ledger confirmar essa
+mesma identidade. Deadline, excesso, troca de arquivo, modo incorreto, bytes
+residuais, endereço malformado ou identidade diferente abortam em modo fechado.
+
+Validação offline
+
+- Sintaxe Node e Bash: aprovada.
+- Regressão adversarial e suíte focal: 18/18 aprovadas.
+- Suíte ampla closed-mainnet/pilot/preflight: 75/75 aprovada.
+- Inventário estático: 2/2 leituras do endereço Ledger têm deadline, cap,
+  snapshot direto, schema exato e comparação de identidade.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

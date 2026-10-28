@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {readFile} from 'node:fs/promises';
+import {chmod,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 const hosts=[
@@ -61,13 +64,13 @@ test('packaged ProgramBinary files match the exact hashes pinned by proof hosts'
   ['../../../../crates/dom-usdom-economic-block-risc0-guest/elfs/usdom-economic-block.bin',
    'e16e6aea7d470baad85bec45578e0960c02c2d47bce267e26141a2f3fa4a6c1f'],
   ['../../../../crates/dom-usdom-checkpoint-segment-risc0-guest/elfs/usdom-checkpoint-segment.bin',
-   'c4cc41b0b53d787c46b9293d1515c2d0c4ded982c3ae7b98d33877dd142d2b38'],
+   '426cc782490b8d680e5bd2266cc4a03b3e731194d92eda44875ea5d552cb5f74'],
   ['../../../../crates/dom-usdom-checkpoint-outer-risc0-guest/elfs/usdom-checkpoint-outer.bin',
-   '8f9d0f1753172a9c1d3be22d105d08ea890cd566f18a81fb54c557f620f59b09'],
+   'ee707b6a1d2a135656ef9ee93a13487b6e1c24bafba8c66e9215708e184b9a90'],
   // This legacy-named file is already the packaged ProgramBinary consumed by
   // the finalized-burn host, not a raw RISC-V ELF (its pinned identity is kept).
   ['../../../../crates/dom-usdom-finalized-burn-risc0-guest/elfs/usdom-finalized-burn.elf',
-   '883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21'],
+   'bf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511'],
  ];
  for(const [file,expected] of artifacts) {
   const bytes=await readFile(new URL(file,import.meta.url));
@@ -79,14 +82,40 @@ test('the no-proof decoder inventory covers every prover ProgramBinary and binds
  const checker=await readFile(new URL('../../scripts/check-risc0-proof-program-binary.py',import.meta.url),'utf8');
  assert.match(checker,/ARTIFACTS = \(/);
  assert.equal([...checker.matchAll(/^    \("[^"]+", "crates\/[^\n]+$/gm)].length,7);
- assert.match(checker,/\[decoder, "--verify", path, expected_iid\]/);
+ assert.doesNotMatch(checker,/\[decoder, "--verify", path, expected_iid\]/);
  assert.match(checker,/actual_sha != expected_sha/);
  assert.match(checker,/result\.stdout != expected_iid \+ "\\n" or result\.stderr/);
+ assert.match(checker,/snapshot_decoder\(decoder, private_directory\)/);
+ assert.match(checker,/DECODER_SHA256 = "[0-9a-f]{64}"/);
+ assert.match(checker,/hashlib\.sha256\(payload\)\.hexdigest\(\) != DECODER_SHA256/);
+ assert.match(checker,/os\.O_EXCL \| os\.O_CLOEXEC, 0o500/);
+ assert.match(checker,/copied\.st_nlink != 1/);
+ assert.match(checker,/"st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns"/);
+ assert.match(checker,/\[decoder_snapshot, "--verify", path, expected_iid\]/);
  const packager=await readFile(new URL('../../../../crates/dom-risc0-program-packager/src/main.rs',import.meta.url),'utf8');
  assert.match(packager,/ProgramBinary::decode\(&bytes\)\?/);
  assert.match(packager,/program\.encode\(\) != bytes/);
  assert.match(packager,/program\.compute_image_id\(\)\?\.to_string\(\)/);
  assert.match(packager,/actual != expected/);
+});
+
+test('the ProgramBinary checker rejects a stable but unauthorized decoder',async()=>{
+ const directory=await mkdtemp(path.join(tmpdir(),'usdom-decoder-tamper-'));
+ try {
+  const candidate=path.join(directory,'decoder');
+  await writeFile(candidate,'#!/bin/sh\nprintf "%s\\n" "$3"\n',{mode:0o700,flag:'wx'});
+  await chmod(candidate,0o700);
+  const checker=new URL('../../scripts/check-risc0-proof-program-binary.py',import.meta.url);
+  const result=spawnSync('/usr/bin/python3',[checker.pathname,'--decoder',candidate],{
+   cwd:new URL('../../',import.meta.url),encoding:'utf8',timeout:30_000,
+   env:{PATH:'/usr/bin:/bin',LANG:'C',LC_ALL:'C'},
+  });
+  assert.equal(result.status,1);
+  assert.equal(result.stdout,'');
+  assert.match(result.stderr,/decoder SHA-256 differs from the source-controlled release pin/);
+ } finally {
+  await rm(directory,{recursive:true,force:true});
+ }
 });
 
 test('every future proof runner decodes its snapshotted ProgramBinary before proving',async()=>{

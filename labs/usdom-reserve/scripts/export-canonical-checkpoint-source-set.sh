@@ -4,6 +4,12 @@ umask 077
 
 LAB_ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)"
 REPOSITORY_ROOT="$(CDPATH='' cd -- "$LAB_ROOT/../.." && pwd -P)"
+for tool_boundary_command in stat realpath id dirname sha256sum cut; do command -v "$tool_boundary_command" >/dev/null; done
+source "$LAB_ROOT/scripts/pinned-shell-tool-functions.sh"
+pin_runtime_tool node
+node() { assert_runtime_tool node; "$node_bin" "$@"; }
+pin_runtime_tool cargo
+cargo() { assert_runtime_tool cargo; "$cargo_bin" "$@"; }
 RUNTIME_ROOT="$LAB_ROOT/evidence/native-runtime"
 MANIFEST="$RUNTIME_ROOT/native-usdom-v2.json"
 MANIFEST_PIN="$RUNTIME_ROOT/native-usdom-v2.manifest.sha256"
@@ -23,7 +29,21 @@ for required in "$MANIFEST" "$MANIFEST_PIN"; do
 done
 SNAPSHOT_DIRECTORY=$(mktemp -d -p /dev/shm usdom-checkpoint-source-set.XXXXXXXX)
 chmod 0700 -- "$SNAPSHOT_DIRECTORY"
-trap 'rm -rf -- "$SNAPSHOT_DIRECTORY"' EXIT HUP INT TERM
+SNAPSHOT_DIRECTORY_IDENTITY=$(/usr/bin/stat -c '%u:%d:%i:%a' "$SNAPSHOT_DIRECTORY")
+cleanup_snapshot() {
+  local status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' "$SNAPSHOT_DIRECTORY" 2>/dev/null) == "$SNAPSHOT_DIRECTORY_IDENTITY" ]]; then
+    /usr/bin/rm -rf -- "$SNAPSHOT_DIRECTORY" || status=1
+  else
+    status=1
+  fi
+  exit "$status"
+}
+trap 'cleanup_snapshot $?' EXIT
+trap 'cleanup_snapshot 129' HUP
+trap 'cleanup_snapshot 130' INT
+trap 'cleanup_snapshot 143' TERM
 node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST" \
   > "$SNAPSHOT_DIRECTORY/native-usdom-v2.json"
 node "$LAB_ROOT/scripts/read-release-config-file-stdout.mjs" "$MANIFEST_PIN" \

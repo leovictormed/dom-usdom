@@ -1,17 +1,33 @@
 #!/usr/bin/env bash
-set -euo pipefail
 # These entrypoints handle reusable wallet/RPC/TPM credentials.  Refuse shell
 # tracing inherited from `bash -x`, suppress Rust panic backtraces, and prevent
 # children from writing memory-bearing core dumps.
 set +x
 unset BASH_XTRACEFD 2>/dev/null || true
-for inherited_name in ${!LD_@}; do unset "$inherited_name"; done
+set -euo pipefail
+set +o history 2>/dev/null || true
+unset HISTFILE BASH_ENV ENV CDPATH \
+  LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH \
+  NODE_OPTIONS NODE_PATH NODE_DEBUG NODE_DEBUG_NATIVE SSLKEYLOGFILE \
+  PYTHONPATH PYTHONHOME PERL5LIB RUBYLIB GEM_HOME BUNDLE_GEMFILE \
+  SSH_AUTH_SOCK SSH_AGENT_PID GPG_AGENT_INFO \
+  HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy
+export HISTFILE=/dev/null
+for fd_path in /proc/$$/fd/*; do
+  inherited_fd=${fd_path##*/}
+  [[ $inherited_fd =~ ^[0-9]+$ ]] || exit 1
+  (( inherited_fd <= 2 )) && continue
+  [[ $inherited_fd == 255 ]] && continue
+  exec {inherited_fd}>&-
+done
+unset fd_path inherited_fd
 export RUST_BACKTRACE=0
 export RUST_LIB_BACKTRACE=0
 if ! ulimit -c 0; then
   printf '%s\n' 'Cannot disable core dumps for a credential-bearing operation.' >&2
   exit 1
 fi
+umask 077
 
 if (($# != 0)); then
   printf '%s\n' 'This command accepts no arguments or secret overrides.' >&2
@@ -86,6 +102,7 @@ command -v timeout >/dev/null
 
 SECRET_DIRECTORY=$(mktemp -d -p /dev/shm usdom-wallet-passphrase.XXXXXX)
 chmod 0700 -- "$SECRET_DIRECTORY"
+SECRET_DIRECTORY_IDENTITY=$(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY")
 PASSWORD_FILE="$SECRET_DIRECTORY/password"
 RAW_OUTPUT="$SECRET_DIRECTORY/public-output"
 RELEASE_CONFIG_SNAPSHOT="$SECRET_DIRECTORY/release-config.json"
@@ -100,10 +117,19 @@ cleanup() {
   trap - EXIT HUP INT TERM
   unset PASSPHRASE_FIRST PASSPHRASE_SECOND
   if [[ "$SECRET_DIRECTORY" == /dev/shm/usdom-wallet-passphrase.* \
-    && -d "$SECRET_DIRECTORY" && ! -L "$SECRET_DIRECTORY" ]]; then
-    assert_node_unchanged &&
-      "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
-      "$SECRET_DIRECTORY" || status=1
+    && $(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY" 2>/dev/null) == "$SECRET_DIRECTORY_IDENTITY" ]]; then
+    if assert_node_unchanged &&
+      run_pinned_timeout --foreground --signal=TERM --kill-after=5s 30s \
+        "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+        "$SECRET_DIRECTORY" > /dev/null 2> /dev/null &&
+      assert_node_unchanged && assert_runtime_tool timeout && test ! -e "$SECRET_DIRECTORY"; then
+      :
+    else
+      status=1
+    fi
+  else
+    # Do not erase a pathname that was replaced after collecting passphrases.
+    status=1
   fi
   exit "$status"
 }
@@ -300,10 +326,9 @@ jq -n \
   --arg chainScalar "0x$CHAIN_SCALAR" \
   --arg receivingCommitment "0x$RECEIVING_COMMITMENT" \
   --arg recipientAddress "$RECIPIENT_ADDRESS" \
-  --arg backupPath "$BACKUP_FILE" \
   '{schema:$schema,domDomain:$domDomain,privacyPolicyHash:$privacyPolicyHash,
     chainScalar:$chainScalar,receivingCommitment:$receivingCommitment,
-    recipientAddress:$recipientAddress,backupPath:$backupPath}' \
+    recipientAddress:$recipientAddress}' \
   > "$CANDIDATE_IDENTITY"
 
 assert_public_unchanged "$RELEASE_CONFIG" "$RELEASE_CONFIG_SNAPSHOT"

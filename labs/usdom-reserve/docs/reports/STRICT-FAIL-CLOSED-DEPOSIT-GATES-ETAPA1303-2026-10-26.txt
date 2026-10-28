@@ -1,0 +1,37 @@
+Stage 1303 — strict fail-closed deposit package/raw gates
+Date: 2026-10-26
+
+Finding
+-------
+Deposit package and raw-transaction gates used readFileSync before their strict
+parser could apply a byte bound and did not enforce a direct regular-file
+snapshot. More critically, the raw gate caught validation errors and wrote a
+diagnostic without setting process.exitCode, so it could return success to the
+`set -e` executor after rejecting a signed transaction.
+
+Correction
+----------
+Both gates now use readDirectFile with a 4-MiB ceiling and parseStrictJsonBytes
+with explicit byte, depth, node, string, object and array limits. The existing
+owner-only raw transaction reader remains unchanged. The raw gate sets exit code
+1 for every caught error, so rejection cannot fall through toward publication.
+
+Adversarial regression
+----------------------
+A canonical package passes and reproduces the exact object. Duplicate schema
+keys fail with nonzero status, empty stdout and no injected-value disclosure.
+The raw gate is exercised on rejected input and must return nonzero; source
+coverage requires direct/strict parsing and explicit exitCode while excluding
+readFileSync and JSON.parse.
+
+Validation
+----------
+- Deposit package and raw CLI Node syntax checks: pass.
+- Deposit/package/evidence, pilot DAG/evidence, private-raw and broad operator
+  suites: 104/104 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

@@ -1,0 +1,33 @@
+ETAPA 1343 — INGRESS ESTRITO E LIMITADO DOS RECIBOS RPC
+Data: 2026-10-26
+
+Problema
+
+As cinco chamadas `cast receipt` dos executores já tinham deadline, mas
+gravavam stdout diretamente em arquivos. Um RPC defeituoso ou hostil ainda podia
+produzir dados até o término do prazo, consumir espaço e entregar JSON ambíguo ao
+`jq` nativo.
+
+Correção
+
+Todas as cinco superfícies de recibo — espera com confirmações e releituras nos
+dois RPCs — agora leem no máximo 65.537 bytes, exigem tamanho final de até 65.536
+bytes e passam pelo checker privado de JSON estrito antes de qualquer consulta
+semântica com `jq`.
+
+O byte sentinela torna excesso observável. Com `set -euo pipefail`, timeout,
+falha do `cast`, excesso de saída, JSON duplicado ou malformado encerram a
+cerimônia antes de instalar recibo, avançar nonce ou produzir evidência de
+finalidade.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal de recibos e executores: 12/12 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 74/74 aprovada.
+- Inventário estático: 5/5 superfícies `cast receipt` possuem deadline, cap e
+  parsing estrito.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

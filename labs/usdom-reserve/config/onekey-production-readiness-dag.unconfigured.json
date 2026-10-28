@@ -1,0 +1,20 @@
+{
+  "schema": "usdom-onekey-production-readiness-dag-v2",
+  "status": "unconfigured-mobile-route",
+  "productionRoute": "onekey-ios-walletconnect-eip712-only",
+  "linuxBleProductionApplicable": false,
+  "facts": {
+    "classic1sPolicyPinned": false,
+    "iosWalletConnectAuthorityPinned": true,
+    "iosWalletConnectClientPinned": true,
+    "iosWalletConnectSessionRuntimeApproved": false,
+    "iosWalletConnectNetworkApproved": false,
+    "iosHardwareAccountObserved": false,
+    "physicalIdentityAndReconnectObserved": false,
+    "physicalFailureExercisesObserved": false,
+    "physicalExactEip712Observed": false,
+    "singleOperatorRatificationBound": false,
+    "usbFallbackDisabled": false,
+    "ledgerCompatibilityDisabled": false
+  }
+}

@@ -1,18 +1,19 @@
 import {getAddress} from 'ethers';
 import {checkpointRegistryConfigHash} from './checkpoint-registry.mjs';
 import {safeOwnersCommitment} from './configuration.mjs';
+import {PRODUCTION_SOLC_LONG_VERSION,PRODUCTION_SOLC_SHA256} from './reproducible-build-environment.mjs';
 
 const sha256=/^[0-9a-f]{64}$/;
 const bytes32=/^0x[0-9a-fA-F]{64}$/;
 const commit=/^[0-9a-f]{40}$/;
 const tag=/^usdom-v[0-9]+\.[0-9]+\.[0-9]+$/;
-const compiler=/^0\.8\.37\+commit\.[0-9a-f]{8}$/;
 const observationKeys=['artifactSha256','buildId','compilerExecutableSha256','compilerVersion','initcodeHash','runtimeCodeHash','sourceSetSha256'];
 export const CHECKPOINT_REGISTRY_REPRODUCIBLE_BUILD_REPORT_SCHEMA='usdom-checkpoint-registry-reproducible-build-report/v1';
 export const CHECKPOINT_REGISTRY_REPRODUCIBLE_BUILD_COMMAND=
-  'forge build contracts/DOMCheckpointRegistry.sol --root <release-root> --offline --no-auto-detect --use <sha256-pinned-solc-0.8.37> --evm-version cancun --optimize --optimizer-runs 200 --force --out <isolated> --cache-path <isolated> --ignored-error-codes 6335 -D warnings';
+  'forge build contracts/DOMCheckpointRegistry.sol --root <release-root> --offline --no-auto-detect --use <sha256-pinned-solc-0.8.37> --evm-version cancun --optimize --optimizer-runs 1 --via-ir --force --out <isolated> --cache-path <isolated> --ignored-error-codes 6335 -D warnings';
 
 function fail(message) { throw new Error(message); }
+function nonzeroSha256(value) { return sha256.test(value??'')&&!/^0{64}$/.test(value); }
 function exact(value,keys) { return value&&typeof value==='object'&&!Array.isArray(value)
   &&JSON.stringify(Object.keys(value).sort())===JSON.stringify([...keys].sort()); }
 function stable(value) { if(Array.isArray(value)) return value.map(stable);
@@ -20,10 +21,12 @@ function stable(value) { if(Array.isArray(value)) return value.map(stable);
   return value; }
 function hash(value,name) { if(!bytes32.test(value??'')||BigInt(value)===0n) fail(`${name} must be nonzero bytes32`); return value.toLowerCase(); }
 function document(value) { const expected='out/DOMCheckpointRegistry.sol/DOMCheckpointRegistry.json';
-  if(!exact(value,['path','sha256'])||value.path!==expected||!sha256.test(value.sha256??'')) fail('checkpointRegistryArtifact must be exact canonical hash-addressed evidence'); return {...value}; }
-function observation(value,id) { if(!exact(value,observationKeys)||value.buildId!==id||!compiler.test(value.compilerVersion??'')) fail(`${id} build identity is invalid`);
-  if(!sha256.test(value.artifactSha256??'')||!sha256.test(value.compilerExecutableSha256??'')
-      ||!sha256.test(value.sourceSetSha256??'')) fail(`${id} build hashes are invalid`);
+  if(!exact(value,['path','sha256'])||value.path!==expected||!nonzeroSha256(value.sha256)) fail('checkpointRegistryArtifact must be exact canonical nonzero hash-addressed evidence'); return {...value}; }
+function observation(value,id) { if(!exact(value,observationKeys)||value.buildId!==id
+    ||value.compilerVersion!==PRODUCTION_SOLC_LONG_VERSION
+    ||value.compilerExecutableSha256!==PRODUCTION_SOLC_SHA256) fail(`${id} build identity is invalid`);
+  if(!nonzeroSha256(value.artifactSha256)||!nonzeroSha256(value.compilerExecutableSha256)
+      ||!nonzeroSha256(value.sourceSetSha256)) fail(`${id} build hashes must be nonzero SHA-256`);
   return {...value,runtimeCodeHash:hash(value.runtimeCodeHash,`${id} runtimeCodeHash`),initcodeHash:hash(value.initcodeHash,`${id} initcodeHash`)}; }
 function registryConfiguration(c) { return {
   ethereumChainId:c.ethereumChainId,registry:c.checkpointRegistry,bridgeDomain:c.domDomain,

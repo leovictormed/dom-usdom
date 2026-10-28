@@ -1,0 +1,31 @@
+SAFE PRIVATE SNAPSHOT BOUNDED AUTHORITY — STAGE 1216
+Date: 2026-10-26
+
+Finding
+=======
+
+Every resumable and final Safe evidence read passes through `snapshot`, but the
+function directly streamed the generic private reader's 16 MiB allowance into
+its destination without an outer timeout or private stderr. The artifacts in
+this ceremony have substantially smaller semantic bounds.
+
+Correction
+==========
+
+All snapshots now reattest Node and timeout, run under a 30-second TERM/KILL
+deadline and capture stderr privately. Fatal UTF-8 decoding is required;
+artifact output is capped at 2 MiB and diagnostics at 64 KiB. Success requires
+nonempty output, empty stderr and mode 0600 before bytes reach comparison,
+parsing, resume reconstruction or the final evidence barrier.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/proxy/runtime-secret/environment/process tests: 17/17 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+The broad selection was slower under a concurrent root suite but completed
+without failure. No Rust, Cargo, Forge, Solidity, real network, hardware
+signing, broadcast, deployment, funds, commit or push was executed.

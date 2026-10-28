@@ -41,8 +41,9 @@ test('public statement binds V6 economics, predecessor, release and EVM identity
     'checkpoint.previousHeight','checkpoint.previousBlock','checkpoint.previousStateRoot',
     'checkpoint.previousContextHash','checkpoint.previousTotalDifficulty','checkpoint.totalIssued',
     'checkpoint.totalBurned','checkpoint.issuanceClosed','checkpoint.confirmationTotalDifficulty',
-    'block.chainid','address(this)','activationScheduleCommitment','checkpointConfigHash',
+    'deploymentChainId','address(this)','activationScheduleCommitment','checkpointConfigHash',
   ]) assert.ok(hash.includes(binding),`statement omits ${binding}`);
+  assert.match(registry,/deploymentChainId = block\.chainid/);
   assert.match(statement,/pub struct CheckpointStatementV6[\s\S]*pub total_issued: u128[\s\S]*pub total_burned: u128[\s\S]*pub issuance_closed: bool/);
   assert.match(outer,/execution\.target_total_issued != statement\.total_issued[\s\S]*execution\.target_total_burned != statement\.total_burned[\s\S]*execution\.target_issuance_closed != statement\.issuance_closed/);
   assert.match(transition,/self\.previous_issuance_closed && !self\.new_issuance_closed/);

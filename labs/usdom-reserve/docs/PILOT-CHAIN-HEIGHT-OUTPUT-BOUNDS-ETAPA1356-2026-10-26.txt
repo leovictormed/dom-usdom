@@ -1,0 +1,32 @@
+ETAPA 1356 — LIMITES DE CHAIN ID E ALTURA FINALIZADA
+Data: 2026-10-26
+
+Problema
+
+Sete verificações de chain ID e seis leituras de altura finalizada tinham
+deadline, porém ainda capturavam stdout sem teto. Esses valores definem o domínio
+de assinatura e o bloco comum usado para estado, taxas e finalidade.
+
+Correção
+
+As verificações de chain ID foram centralizadas em um boundary que limita a
+saída a 80 bytes, exige inteiro canônico e aceita exclusivamente Ethereum
+mainnet (`1`). Todas as seis alturas finalizadas também têm o mesmo teto e
+passam pelo parser canônico antes de comparações `BigInt` ou seleção do menor
+bloco comum.
+
+Os deadlines TERM/KILL de 120 segundos e `set -euo pipefail` permanecem. Falha,
+timeout, excesso, forma inválida, rede diferente ou altura incoerente abortam
+antes de assinatura, publicação ou reconciliação de fundos.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores e nonce: 17/17 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 7/7 gates de chain ID e 6/6 alturas finalizadas usam
+  deadline, cap e parser canônico.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

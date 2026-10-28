@@ -6,7 +6,7 @@ if (($# != 0)); then
   printf '%s\n' 'Usage: npm run --silent materialize:safe-control-release-metadata' >&2
   exit 64
 fi
-for command in node jq stat realpath mktemp flock sync mv cmp git; do command -v "$command" >/dev/null; done
+for command in node jq stat realpath mktemp flock sync mv cmp git sha256sum awk python3; do command -v "$command" >/dev/null; done
 pin_tool() {
  local name=$1 path parent owner mode size parent_owner parent_mode identity_name parent_identity_name
  path=$(realpath "$(command -v "$name")"); [[ -x $path && -f $path && ! -L $path ]]
@@ -19,10 +19,10 @@ pin_tool() {
 }
 assert_tool_unchanged() {
  local name=$1 bin_name="${1}_bin" identity_name="${1}_identity" parent_identity_name="${1}_parent_identity" sha_name="${1}_sha256" path parent; path=${!bin_name}; parent=$(dirname "$path")
- [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]]
- [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
+ [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]] || return 1
+ [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]] || return 1
 }
-pin_tool node; pin_tool jq
+pin_tool node; pin_tool jq; pin_tool timeout; pin_tool python3
 project=$(realpath "$(dirname "$0")/..")
 test "$PWD" = "$project"
 repository=$(git -C "$project" rev-parse --show-toplevel)
@@ -50,25 +50,69 @@ if ! flock -n 9; then
   printf '%s\n' 'Another release materializer holds the config-directory lock' >&2
   exit 75
 fi
-temporary=$(mktemp -p "$config_directory" .safe-release-metadata.XXXXXXXX)
-cleanup() { local status=${1:-$?}; trap - EXIT; assert_tool_unchanged node && "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$temporary" || status=1; exit "$status"; }
+target_sha256=$(sha256sum "$target" | awk '{print $1}')
+temporary=$(mktemp -d -p "$config_directory" .safe-release-metadata.XXXXXXXX)
+chmod 0700 "$temporary"
+prepared="$temporary/prepared.json"
+rechecked="$temporary/rechecked.json"
+installed="$temporary/installed.json"
+cleanup() {
+  local status=${1:-$?}
+  trap - EXIT
+  if assert_tool_unchanged node && assert_tool_unchanged timeout &&
+    "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+      "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+      "$temporary" > /dev/null 2> /dev/null &&
+    assert_tool_unchanged node && assert_tool_unchanged timeout && test ! -e "$temporary"; then
+    :
+  else
+    status=1
+  fi
+  exit "$status"
+}
 trap 'cleanup $?' EXIT
 assert_tool_unchanged node
-"$node_bin" scripts/prepare-safe-control-release-metadata-materialization.mjs > "$temporary"
+"$node_bin" scripts/prepare-safe-control-release-metadata-materialization.mjs > "$prepared"
 assert_tool_unchanged jq
 "$jq_bin" -e '.schema == 1 and .controlPlaneEvidenceBundle != null
   and .controlPlane.governance != null and .controlPlane.guardian != null
   and .controlPlane.checkpointGuardian != null
+  and .controlPlane.usdtCustody != null
   and .controlPlaneSeparationReport != null
-  and .controlPlaneRecoveryDrillReport != null' "$temporary" >/dev/null
-chmod 0600 "$temporary"
-sync -f "$temporary"
-if ! cmp -s "$temporary" "$target" || [[ $(stat -c '%a' "$target") != 644 ]]; then
+  and .controlPlaneRecoveryDrillReport != null' "$prepared" >/dev/null
+chmod 0600 "$prepared"
+sync -f "$prepared"
+assert_tool_unchanged node
+"$node_bin" scripts/prepare-safe-control-release-metadata-materialization.mjs > "$rechecked"
+chmod 0600 "$rechecked"
+assert_tool_unchanged jq
+"$jq_bin" -e '.schema == 1 and .controlPlaneEvidenceBundle != null
+  and .controlPlane.governance != null and .controlPlane.guardian != null
+  and .controlPlane.checkpointGuardian != null
+  and .controlPlane.usdtCustody != null
+  and .controlPlaneSeparationReport != null
+  and .controlPlaneRecoveryDrillReport != null' "$rechecked" >/dev/null
+cmp -s "$prepared" "$rechecked"
+if ! cmp -s "$prepared" "$target" || [[ $(stat -c '%a' "$target") != 644 ]]; then
   assert_tool_unchanged node
-  "$node_bin" "$project/scripts/install-release-config-stdin.mjs" "$target" < "$temporary"
+  assert_tool_unchanged python3
+  candidate_sha256=$(sha256sum "$prepared" | awk '{print $1}')
+  parent_device=$(stat -Lc '%d' "$config_directory")
+  parent_inode=$(stat -Lc '%i' "$config_directory")
+  "$node_bin" "$project/scripts/replace-locked-source-stdin.mjs" "$target" \
+    "$candidate_sha256" "$target_sha256" "$parent_device" "$parent_inode" \
+    "$python3_bin" "$python3_sha256" < "$prepared"
 fi
 sync -f "$target"
+assert_tool_unchanged node
+"$node_bin" scripts/read-release-config-file-stdout.mjs "$target" > "$installed"
+cmp -s "$prepared" "$installed"
 sync -f "$config_directory"
+assert_tool_unchanged node
+"$node_bin" scripts/read-release-config-file-stdout.mjs "$target" \
+  > "$temporary/installed.durable.json"
+cmp -s "$prepared" "$temporary/installed.durable.json"
 assert_tool_unchanged jq
+assert_tool_unchanged python3
 "$jq_bin" '{schema,controlPlaneEvidenceBundle,controlPlane,
   controlPlaneSeparationReport,controlPlaneRecoveryDrillReport}' "$target"

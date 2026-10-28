@@ -1,0 +1,13 @@
+USDⓄM — ETAPA 1435
+RPC admission final scan
+
+Verified corrected post-body admission:
+- public transaction submission;
+- V2 candidate submission;
+- V4 issuance submission and status;
+- V4 private transfer/burn submission.
+All expensive submitted work fails fast on worker-capacity exhaustion; detached V2/V4 asynchronous work retains owned admission through cancellation.
+
+Residual pre-body middleware exists only in distinct authenticated operational families: paged expensive scans, wallet mutations, regtest mining and isolated closed-mainnet mining. Their source locations are recorded for the next bounded hardening stage; they do not re-open the corrected native issuance/private/candidate or public transaction submission paths. Closed-mainnet mining remains the highest cancellation-sensitive residual because its authorized operation can outlive HTTP timeout.
+
+No additional tests were run beyond the Stage 1434 focused Rust test. No network/mining/sign/deploy/funds/commit/push.

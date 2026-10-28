@@ -1,0 +1,27 @@
+ETAPA 1331 — LIMITE DO GATE INICIAL DO PACOTE DE DEPÓSITO
+Data: 2026-10-26
+
+Problema
+
+O executor valida o pacote privado de depósito antes da prontidão e do Ledger.
+O checker estrito confirma rede, endereços, valor, autorização e calldata, mas
+seu processo não tinha deadline.
+
+Correção
+
+`check-closed-mainnet-deposit-package.mjs` agora executa sob deadline foreground
+TERM/KILL de 120 segundos. O gate permanece anterior ao readiness, à identidade
+Ledger, à assinatura e à publicação.
+
+Timeout, falha, arquivo ambíguo ou divergência do pacote interrompem o executor
+antes de qualquer estado operacional dependente.
+
+Validação offline
+
+- Sintaxe Bash do executor de depósito: aprovada.
+- Suíte focal: 19/19 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 74/74 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

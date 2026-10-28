@@ -1,0 +1,18 @@
+Stage 1198 — bounded closed-pilot monetary evidence
+Date: 2026-10-26
+
+Change
+- Deposit evidence, payout evidence and end-to-end financial conservation now require every canonical monetary/block decimal to fit uint256.
+- Values longer than 78 digits are rejected before BigInt conversion; the exact uint256 bound is then enforced.
+
+Security result
+- Closed-mainnet pilot evidence cannot force arbitrary-size integer conversion or represent values outside Ethereum's uint256 state domain.
+- Regressions cover 100,000-digit values and exact 2^256 in deposit, payout and conservation validation.
+- The validators remain fail closed and this local hardening does not authorize broadcast or real funds.
+
+Validation
+- /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/closed-mainnet-deposit-evidence.test.mjs test/node/closed-mainnet-payout-evidence.test.mjs test/node/closed-mainnet-financial-conservation.test.mjs
+- Result: 6/6 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

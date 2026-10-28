@@ -1,0 +1,16 @@
+Stage 1189 — Safe observation bounded uint256 parsing
+Date: 2026-10-26
+
+Persisted Safe baseline/recovery evidence used an unbounded canonical decimal
+regex before later BigInt comparisons and ABI commitments. The shared Safe
+observation parser now rejects beyond 78 digits before conversion and enforces
+the exact uint256 ceiling for finalized heights, recovery block numbers and
+Safe nonces.
+
+An internally rehashed recovery report carrying a 100,000-digit finalized
+height is rejected before BigInt comparison. Focused baseline, recovery and
+release-evidence tests pass 4/4 with pinned Node 24.19.0; targeted diff-check
+passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

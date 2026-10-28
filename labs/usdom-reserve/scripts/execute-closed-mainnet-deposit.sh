@@ -1,332 +1,61 @@
 #!/usr/bin/env bash
-set -euo pipefail
-set +x
-umask 077
-unset BASH_XTRACEFD 2>/dev/null || true
-unset LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH \
-  NODE_OPTIONS NODE_PATH NODE_DEBUG NODE_DEBUG_NATIVE SSLKEYLOGFILE \
-  HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy
-for inherited_name in ${!FOUNDRY_@} ${!CAST_@}; do unset "$inherited_name"; done
-ulimit -c 0
-if (($# != 0)) || [[ ! -t 0 || ! -t 1 ]]; then
-  printf '%s\n' 'Interactive closed-mainnet deposit executor accepts no arguments.' >&2; exit 64
-fi
-readonly project=/home/leonardov/usdom-security-audit-20261015/implementation-dom-protocol/labs/usdom-reserve
-readonly evidence=/home/leonardov/usdom-mainnet-private/control-plane
-readonly package="$evidence/closed-mainnet-deposit-package.json"
-readonly deposit_baseline="$evidence/closed-mainnet-deposit-financial-baseline.json"
-readonly rpc1=https://ethereum-rpc.publicnode.com
-readonly rpc2=https://rpc.mevblocker.io
-export PATH=/usr/lib/chatgpt/resources/cua_node/bin:/home/leonardov/.foundry/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-for fd_path in /proc/"$$"/fd/*; do
-  inherited_fd=${fd_path##*/}
-  [[ $inherited_fd =~ ^[0-9]+$ ]] || exit 1
-  (( inherited_fd<=2 )) && continue
-  [[ $inherited_fd == 255 ]] && continue
-  exec {inherited_fd}>&-
+set -euo pipefail; set +x; umask 077; ulimit -c 0
+unset BASH_XTRACEFD NODE_OPTIONS NODE_PATH LD_PRELOAD LD_LIBRARY_PATH
+(($#==0))||exit 64; test -t 0 && test -t 2||exit 2
+project=$(CDPATH='' cd -- "$(dirname -- "$0")/.."&&pwd -P); test "$PWD" = "$project"
+: "${USDOM_CONTROL_EVIDENCE_DIRECTORY:?required}" "${USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG:?required}" "${USDOM_ONEKEY_IOS_PHYSICAL_EVIDENCE_DIRECTORY:?required}" "${USDOM_SAFE_DEPOSIT_AUTHORITY:?required}" "${USDOM_SAFE_DEPOSIT_RELAYER_AUTHORITY:?required}" "${USDOM_SAFE_DEPOSIT_RELAYER_POLICY:?required}"
+evidence=$(realpath -ms "$USDOM_CONTROL_EVIDENCE_DIRECTORY"); test -d "$evidence" && test ! -L "$evidence" && test "$(stat -c '%u:%a' "$evidence")" = "$(id -u):700"
+exec 9<"$evidence"; flock -n 9||exit 75
+source scripts/pinned-shell-tool-functions.sh; pin_runtime_tool node; pin_runtime_tool jq
+for f in "$USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG" "$USDOM_SAFE_DEPOSIT_AUTHORITY" "$USDOM_SAFE_DEPOSIT_RELAYER_AUTHORITY" "$USDOM_SAFE_DEPOSIT_RELAYER_POLICY";do test -f "$f"&&test ! -L "$f"&&test "$(stat -c '%u:%a:%h' "$f")" = "$(id -u):600:1";done
+plan="$evidence/closed-mainnet-safe-deposit-plan.json"; pre="$evidence/closed-mainnet-safe-deposit-pre-state.json"
+test -f "$pre"&&test ! -L "$pre"&&test "$(stat -c '%u:%a:%h' "$pre")" = "$(id -u):600:1"
+if test ! -e "$plan";then "$node_bin" scripts/plan-onekey-ios-safe-usdt-deposit.mjs "$USDOM_SAFE_DEPOSIT_AUTHORITY" "$pre" "$plan";fi
+tmp=$(mktemp -d -p /dev/shm usdom-safe-deposit.XXXXXXXX);tid=$(stat -c '%u:%d:%i:%a' "$tmp");state=clean
+cleanup(){ s=${1:-$?};trap - EXIT HUP INT TERM;[[ $(stat -c '%u:%d:%i:%a' "$tmp") == "$tid" ]]&&rm -rf -- "$tmp"||s=1;[[ $state == clean || $s == 0 ]]||s=80;exit "$s";};trap 'cleanup $?' EXIT;trap 'cleanup 129' HUP;trap 'cleanup 130' INT;trap 'cleanup 143' TERM
+"$node_bin" scripts/plan-onekey-ios-safe-usdt-deposit.mjs "$USDOM_SAFE_DEPOSIT_AUTHORITY" "$pre" "$tmp/plan.json";cmp -s "$plan" "$tmp/plan.json"
+test "$($jq_bin -er .threshold "$USDOM_SAFE_DEPOSIT_AUTHORITY")" = 2
+for op in 0 1;do
+ kind=$($jq_bin -er ".operations[$op].kind" "$plan");envelope="$tmp/$kind-eip712.json"
+ $jq_bin -c --argjson op "$op" '{schema:"usdom-onekey-eip712-signing/v1",digest:.operations[$op].digest,typedData:.operations[$op].typedData}' "$plan">"$envelope"
+ for owner in 0 1;do
+  n=$((owner+1));expected=$($jq_bin -er ".owners[$owner]" "$USDOM_SAFE_DEPOSIT_AUTHORITY");physical="$USDOM_ONEKEY_IOS_PHYSICAL_EVIDENCE_DIRECTORY/owner-$n.json";request="$evidence/safe-deposit-$kind-owner-$n-wc-request.json";response="$evidence/safe-deposit-$kind-owner-$n-wc-response.json";signature="$evidence/safe-deposit-$kind-owner-$n-signature.json"
+  test -e "$request"||"$node_bin" scripts/prepare-onekey-ios-walletconnect-request.mjs "$USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG" "$envelope" "$physical" "$expected" "$request"
+  "$node_bin" scripts/check-onekey-ios-walletconnect-request.mjs "$USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG" "$envelope" "$physical" "$expected" "$request"
+  test -e "$response"||"$node_bin" scripts/sign-onekey-ios-walletconnect-typed-data.mjs "$USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG" "$request" "$physical" "$response"||{ state=signed-unresolved;exit 80;}
+  if test ! -e "$signature";then sig=$($node_bin scripts/extract-onekey-ios-walletconnect-signature.mjs "$request" "$response");$jq_bin -n --arg signer "$expected" --arg signature "$sig" '{signer:$signer,signature:$signature}'|"$node_bin" scripts/install-private-file-new-stdin.mjs --json "$signature";fi
+ done
+ snapshot="$evidence/safe-deposit-$kind-relayer-snapshot.json";fees="$evidence/safe-deposit-$kind-relayer-fees.json";test -f "$snapshot"&&test -f "$fees";bundle="$tmp/$kind-bundle.json"
+ "$node_bin" scripts/materialize-safe-deposit-relayer.mjs envelope "$plan" "$op" "$USDOM_SAFE_DEPOSIT_RELAYER_AUTHORITY" "$snapshot" "$evidence/safe-deposit-$kind-owner-1-signature.json" "$evidence/safe-deposit-$kind-owner-2-signature.json" "$fees">"$bundle"
+ for spec in "signerEnvelope:relayer-envelope" "input:relayer-input" "envelope:safe-envelope";do field=${spec%%:*};suffix=${spec#*:};dest="$evidence/safe-deposit-$kind-$suffix.json";current="$tmp/$kind-$suffix.current.json";$jq_bin -c ".$field" "$bundle">"$current";if test -e "$dest";then cmp -s "$current" "$dest"||{ echo "persisted Safe deposit artifact drifted: $dest" >&2;exit 80;};else "$node_bin" scripts/install-private-file-new-stdin.mjs --json "$dest"<"$current";fi;done
+ raw="$evidence/safe-deposit-$kind-relayer-raw.txt";test -e "$raw"||{ echo "RELAYER_SIGNATURE_REQUIRED: sign-operational-gas-relayer.sh safe-deposit:$kind" >&2;exit 78;}
+ validation="$evidence/safe-deposit-$kind-relayer-validation.json";test -e "$validation"||"$node_bin" scripts/materialize-safe-deposit-relayer.mjs raw "$evidence/safe-deposit-$kind-safe-envelope.json" "$evidence/safe-deposit-$kind-relayer-input.json" "$USDOM_SAFE_DEPOSIT_RELAYER_POLICY" "$raw"|"$node_bin" scripts/install-private-file-new-stdin.mjs --json "$validation"
+ journal="$evidence/safe-deposit-$kind-broadcast-journal.json";test -e "$journal"||$jq_bin -n --slurpfile v "$validation" --arg kind "$kind" '{schema:"usdom-safe-deposit-broadcast-journal/v1",kind:$kind,state:"signed-unresolved",validation:$v[0]}'|"$node_bin" scripts/install-private-file-new-stdin.mjs --json "$journal"
+ completion="$evidence/safe-deposit-$kind-finalized.json"
+ if test -e "$completion";then $jq_bin -e --arg kind "$kind" 'keys==["blockHash","blockNumber","finalizedRpcCount","kind","schema","state","transactionHash"] and .schema=="usdom-safe-deposit-finalized/v1" and .kind==$kind and .finalizedRpcCount==2' "$completion">/dev/null;state=clean;continue;fi
+ state=signed-unresolved;echo "BROADCAST_REVALIDATION_REQUIRED: run publish-safe-deposit-relayer.sh $kind" >&2;exit 80
 done
-cd "$project"
-exec 9<"$evidence"; flock -n 9 || exit 75
-shopt -s nullglob
-for abandoned in /dev/shm/usdom-closed-deposit.*; do
-  [[ -d $abandoned && ! -L $abandoned && $(stat -c '%u:%a' "$abandoned") == "$(id -u):700" ]] || exit 1
-  rm -rf -- "$abandoned"
-done
-shopt -u nullglob
-check_pilot_budget() {
-  local proposed=${1-} deposit_costs='' separator=''
-  for budget_index in 0 1 2; do
-    local budget_file="$evidence/closed-deposit-$budget_index-validation.json"
-    if [[ -f $budget_file ]]; then
-      deposit_costs+="$separator$(jq -er '.maximumCost' "$budget_file")"; separator=,
-    fi
-  done
-  if [[ -n $proposed ]]; then deposit_costs+="$separator$proposed"; fi
-  node scripts/check-closed-mainnet-pilot-budget.mjs "$deposit_costs" '' >/dev/null
-}
-recheck_live_authorities() {
-  local report="$temporary/live-authorities.json"
-  local finalized_hash checkpoint_hash
-  finalized_hash=$(tr -d '\n' < "$evidence/contract-deployment-0-submission-hash.txt")
-  checkpoint_hash=$(tr -d '\n' < "$evidence/contract-deployment-1-submission-hash.txt")
-  USDOM_MAINNET_DEPLOYMENT_EVIDENCE_DIRECTORY="$evidence" \
-  USDOM_MAINNET_PREFLIGHT_RPC_SOURCES_FILE="$evidence/mainnet-preflight-rpc-sources.json" \
-  USDOM_FINALIZED_BURN_VERIFIER_DEPLOYMENT_TX_HASH="$finalized_hash" \
-  USDOM_CHECKPOINT_VERIFIER_DEPLOYMENT_TX_HASH="$checkpoint_hash" \
-    node scripts/check-mainnet-preflight.mjs authority-recheck > "$report"
-  jq -e '.phase=="authority-recheck" and .ready==true and .blockerCount==0' "$report" >/dev/null
-}
-refresh_consensus_block() {
-  local finalized1 finalized2 hash1 hash2
-  finalized1=$(cast block finalized --field number --rpc-url "$rpc1")
-  finalized2=$(cast block finalized --field number --rpc-url "$rpc2")
-  consensus_block=$(node -e 'let a=BigInt(process.argv[1]),b=BigInt(process.argv[2]);process.stdout.write(String(a<b?a:b))' "$finalized1" "$finalized2")
-  hash1=$(cast block "$consensus_block" --field hash --rpc-url "$rpc1" | tr '[:upper:]' '[:lower:]')
-  hash2=$(cast block "$consensus_block" --field hash --rpc-url "$rpc2" | tr '[:upper:]' '[:lower:]')
-  test "$hash1" = "$hash2"; test "$hash1" != 0x0000000000000000000000000000000000000000000000000000000000000000
-}
-check_funder_not_blacklisted() {
-  local blacklisted1 blacklisted2
-  blacklisted1=$(cast call "$token" 'isBlackListed(address)(bool)' "$funder" --block "$consensus_block" --rpc-url "$rpc1")
-  blacklisted2=$(cast call "$token" 'isBlackListed(address)(bool)' "$funder" --block "$consensus_block" --rpc-url "$rpc2")
-  test "$blacklisted1" = false; test "$blacklisted2" = false
-}
-test -f "$package" && test ! -L "$package" && test "$(stat -c '%a:%h' "$package")" = '600:1'
-node scripts/check-mainnet-toolchain.mjs >/dev/null
-node scripts/check-closed-mainnet-deposit-package.mjs "$package" >/dev/null
-temporary=$(mktemp -d -p /dev/shm usdom-closed-deposit.XXXXXXXX); chmod 0700 "$temporary"
-cleanup() { local status=${1:-$?}; trap - EXIT HUP INT TERM; unset USDOM_CLOSED_MAINNET_DEPOSIT_RAW_FILE; rm -rf -- "$temporary"; exit "$status"; }
-trap 'cleanup $?' EXIT; trap 'cleanup 129' HUP; trap 'cleanup 130' INT; trap 'cleanup 143' TERM
-gate="$temporary/readiness.json"
-node scripts/check-mainnet-readiness.mjs real-funds >"$gate"
-jq -e '.ready==true and .blockerCount==0' "$gate" >/dev/null
-package_sha=$(sha256sum "$package"|awk '{print $1}')
-test "$(jq -er '.releaseConfigSha256' "$package")" = "$(sha256sum config/proof-reserve.unconfigured.json|awk '{print $1}')"
-funder=$(jq -er '.funder' "$package"); token=$(jq -er '.token' "$package"); reserve=$(jq -er '.reserve' "$package")
-amount=$(jq -er '.amountBaseUnits' "$package"); test "$amount" = 1000000
-deposit_id=$(jq -er '.depositId' "$package"); commitment=$(jq -er '.receivingCommitment' "$package")
-test "$(cast wallet address --ledger)" = "$funder"
-for rpc in "$rpc1" "$rpc2"; do test "$(cast chain-id --rpc-url "$rpc")" = 1; done
-consensus_block=''; refresh_consensus_block
-check_funder_not_blacklisted
-if [[ -e $deposit_baseline ]]; then
-  test -f "$deposit_baseline" && test ! -L "$deposit_baseline" && test "$(stat -c '%a:%h' "$deposit_baseline")" = '600:1'
-  jq -e --arg packageSha256 "$package_sha" --arg funder "$funder" --arg token "$token" --arg reserve "$reserve" '
-    (keys|sort)==(["allowanceBaseUnits","chainId","funder","funderBalanceBaseUnits","observedAt","outstandingBaseUnits","packageSha256","reserve","reserveBalanceBaseUnits","rpcCount","schema","token","totalDepositedBaseUnits"]|sort)
-    and .schema=="usdom-closed-mainnet-deposit-financial-baseline-v1" and .chainId=="1"
-    and .packageSha256==$packageSha256 and (.funder|ascii_downcase)==($funder|ascii_downcase)
-    and (.token|ascii_downcase)==($token|ascii_downcase) and (.reserve|ascii_downcase)==($reserve|ascii_downcase)
-    and .allowanceBaseUnits=="0" and .observedAt=="finalized" and .rpcCount==2
-    and ([.funderBalanceBaseUnits,.reserveBalanceBaseUnits,.totalDepositedBaseUnits,.outstandingBaseUnits]
-      | all(type=="string" and test("^(0|[1-9][0-9]*)$")))' "$deposit_baseline" >/dev/null
-else
-  f1=$(cast call "$token" 'balanceOf(address)(uint256)' "$funder" --block "$consensus_block" --rpc-url "$rpc1"); f2=$(cast call "$token" 'balanceOf(address)(uint256)' "$funder" --block "$consensus_block" --rpc-url "$rpc2")
-  r1=$(cast call "$token" 'balanceOf(address)(uint256)' "$reserve" --block "$consensus_block" --rpc-url "$rpc1"); r2=$(cast call "$token" 'balanceOf(address)(uint256)' "$reserve" --block "$consensus_block" --rpc-url "$rpc2")
-  d1=$(cast call "$reserve" 'totalDeposited()(uint256)' --block "$consensus_block" --rpc-url "$rpc1"); d2=$(cast call "$reserve" 'totalDeposited()(uint256)' --block "$consensus_block" --rpc-url "$rpc2")
-  o1=$(cast call "$reserve" 'outstanding()(uint256)' --block "$consensus_block" --rpc-url "$rpc1"); o2=$(cast call "$reserve" 'outstanding()(uint256)' --block "$consensus_block" --rpc-url "$rpc2")
-  a1=$(cast call "$token" 'allowance(address,address)(uint256)' "$funder" "$reserve" --block "$consensus_block" --rpc-url "$rpc1"); a2=$(cast call "$token" 'allowance(address,address)(uint256)' "$funder" "$reserve" --block "$consensus_block" --rpc-url "$rpc2")
-  test "$f1" = "$f2"; test "$r1" = "$r2"; test "$d1" = "$d2"; test "$o1" = "$o2"; test "$a1" = 0; test "$a2" = 0
-  jq -n --arg packageSha256 "$package_sha" --arg funder "$funder" --arg token "$token" --arg reserve "$reserve" --arg funderBalance "$f1" --arg reserveBalance "$r1" --arg totalDeposited "$d1" --arg outstanding "$o1" '{schema:"usdom-closed-mainnet-deposit-financial-baseline-v1",chainId:"1",packageSha256:$packageSha256,funder:$funder,token:$token,reserve:$reserve,funderBalanceBaseUnits:$funderBalance,reserveBalanceBaseUnits:$reserveBalance,totalDepositedBaseUnits:$totalDeposited,outstandingBaseUnits:$outstanding,allowanceBaseUnits:"0",observedAt:"finalized",rpcCount:2}' | node scripts/install-private-file-new-stdin.mjs --json "$deposit_baseline"
+observer_a="$evidence/safe-deposit-observer-a.json";observer_b="$evidence/safe-deposit-observer-b.json"
+if test ! -e "$observer_a" || test ! -e "$observer_b";then
+ mapfile -t observer_ids < <("$jq_bin" -er '.rpcOrigins|if length==2 then .[].id else error("exactly two origins required") end' "$USDOM_SAFE_DEPOSIT_AUTHORITY");test "${#observer_ids[@]}" = 2
+ for index in 0 1;do
+  target=$([[ $index == 0 ]]&&printf '%s' "$observer_a"||printf '%s' "$observer_b")
+  test -e "$target"&&continue
+  read -r -s -p "RPC HTTPS privado para observer ${observer_ids[$index]}: " rpc_url </dev/tty;printf '\n' >&2
+  printf '%s\n' "$rpc_url"|"$node_bin" scripts/collect-safe-deposit-accounting-observer.mjs "$USDOM_SAFE_DEPOSIT_AUTHORITY" "$plan" "$evidence/safe-deposit-approve-safe-envelope.json" "$evidence/safe-deposit-deposit-safe-envelope.json" "$evidence/safe-deposit-approve-finalized.json" "$evidence/safe-deposit-deposit-finalized.json" "${observer_ids[$index]}" "$target"
+  unset rpc_url
+ done
 fi
-check_deposit_state() {
-  local step=$1 rpc=$2 allowance_expected=0
-  [[ $step == 1 ]] && allowance_expected=1000000
-  local funder_expected reserve_expected deposited_expected outstanding_expected
-  funder_expected=$(jq -er '.funderBalanceBaseUnits' "$deposit_baseline")
-  reserve_expected=$(jq -er '.reserveBalanceBaseUnits' "$deposit_baseline")
-  deposited_expected=$(jq -er '.totalDepositedBaseUnits' "$deposit_baseline")
-  outstanding_expected=$(jq -er '.outstandingBaseUnits' "$deposit_baseline")
-  if [[ $step == 2 ]]; then
-    funder_expected=$(node -e 'let v=BigInt(process.argv[1]);if(v<1000000n)process.exit(1);process.stdout.write(String(v-1000000n))' "$funder_expected")
-    reserve_expected=$(node -e 'process.stdout.write(String(BigInt(process.argv[1])+1000000n))' "$reserve_expected")
-    deposited_expected=$(node -e 'process.stdout.write(String(BigInt(process.argv[1])+1000000n))' "$deposited_expected")
-    outstanding_expected=$(node -e 'process.stdout.write(String(BigInt(process.argv[1])+1000000n))' "$outstanding_expected")
-  fi
-  test "$(cast call "$token" 'allowance(address,address)(uint256)' "$funder" "$reserve" --block "$consensus_block" --rpc-url "$rpc")" = "$allowance_expected"
-  test "$(cast call "$token" 'balanceOf(address)(uint256)' "$funder" --block "$consensus_block" --rpc-url "$rpc")" = "$funder_expected"
-  test "$(cast call "$token" 'balanceOf(address)(uint256)' "$reserve" --block "$consensus_block" --rpc-url "$rpc")" = "$reserve_expected"
-  test "$(cast call "$reserve" 'totalDeposited()(uint256)' --block "$consensus_block" --rpc-url "$rpc")" = "$deposited_expected"
-  test "$(cast call "$reserve" 'outstanding()(uint256)' --block "$consensus_block" --rpc-url "$rpc")" = "$outstanding_expected"
-}
-base_nonce=''
-if test -f "$evidence/closed-deposit-0-validation.json"; then
-  test ! -L "$evidence/closed-deposit-0-validation.json"
-  test "$(stat -c '%a:%h' "$evidence/closed-deposit-0-validation.json")" = '600:1'
-  base_nonce=$(jq -er '.nonce' "$evidence/closed-deposit-0-validation.json")
+for observer in "$observer_a" "$observer_b";do test -f "$observer"&&test ! -L "$observer"&&test "$(stat -c '%u:%a:%h' "$observer")" = "$(id -u):600:1"||{ echo "FINAL_ACCOUNTING_OBSERVATION_REQUIRED: $observer" >&2;exit 78;};done
+collected="$evidence/safe-deposit-collected-evidence.json";observation="$evidence/safe-deposit-custody-observation.json";approval="$evidence/safe-deposit-ratification-approval.json";ratification="$evidence/safe-deposit-final-ratification.json"
+current_collected="$tmp/collected.current.json";"$node_bin" scripts/collect-onekey-ios-safe-usdt-deposit.mjs "$USDOM_SAFE_DEPOSIT_AUTHORITY" "$plan" "$observer_a" "$observer_b" "$current_collected"||exit 80;if test -e "$collected";then cmp -s "$current_collected" "$collected"||exit 80;else "$node_bin" scripts/install-private-file-new-stdin.mjs --json "$collected"<"$current_collected";fi
+current_observation="$tmp/observation.current.json";"$node_bin" scripts/materialize-onekey-ios-safe-usdt-custody.mjs "$USDOM_SAFE_DEPOSIT_AUTHORITY" "$collected" "$current_observation"||exit 80;if test -e "$observation";then cmp -s "$current_observation" "$observation"||exit 80;else "$node_bin" scripts/install-private-file-new-stdin.mjs --json "$observation"<"$current_observation";fi
+if test ! -e "$approval";then
+ approval_candidate="$tmp/ratification-approval.json";"$node_bin" scripts/prepare-safe-deposit-ratification-approval.mjs "$plan" "$observation">"$approval_candidate";approval_hash=$(sha256sum "$approval_candidate"|cut -d ' ' -f1)
+ echo "FINAL SAFE DEPOSIT ACCOUNTING REVIEW plan=$plan observation=$observation approvalSha256=$approval_hash" >&2;read -r -p "Digite AUTORIZO RATIFICAR DEPOSITO SAFE AUTH $approval_hash: " answer </dev/tty;test "$answer" = "AUTORIZO RATIFICAR DEPOSITO SAFE AUTH $approval_hash"
+ "$node_bin" scripts/install-private-file-new-stdin.mjs --json "$approval"<"$approval_candidate"
 fi
-for index in 0 1 2; do
-  name=$(jq -er ".transactions[$index].name" "$package")
-  to=$(jq -er ".transactions[$index].to" "$package")
-  data=$(jq -er ".transactions[$index].data" "$package")
-  if [[ -z $base_nonce ]]; then
-    n1=$(cast nonce "$funder" --block pending --rpc-url "$rpc1")
-    n2=$(cast nonce "$funder" --block pending --rpc-url "$rpc2")
-    test "$n1" = "$n2"; base_nonce=$n1
-  fi
-  nonce=$(node -e 'process.stdout.write(String(BigInt(process.argv[1])+BigInt(process.argv[2])))' "$base_nonce" "$index")
-  expected_next_nonce=$(node -e 'process.stdout.write(String(BigInt(process.argv[1])+1n))' "$nonce")
-  raw_file="$evidence/closed-deposit-$index-raw.txt"; validation="$evidence/closed-deposit-$index-validation.json"
-  receipt_record="$evidence/closed-deposit-$index-receipt.json"
-  finality_record="$evidence/closed-deposit-$index-finality.json"
-  if [[ -e $raw_file && ! -e $validation ]]; then
-    export USDOM_CLOSED_MAINNET_DEPOSIT_RAW_FILE=$raw_file
-    recovered_validation="$temporary/recovered-validation-$index.json"
-    node scripts/check-closed-mainnet-deposit-raw.mjs "$package" "$index" "$nonce" >"$recovered_validation"
-    node scripts/install-private-file-new-stdin.mjs --json "$validation" <"$recovered_validation"
-    unset USDOM_CLOSED_MAINNET_DEPOSIT_RAW_FILE
-  fi
-  if test -f "$receipt_record"; then
-    test ! -L "$receipt_record" && test "$(stat -c '%a:%h' "$receipt_record")" = '600:1'
-    test -f "$validation" && test ! -L "$validation" && test "$(stat -c '%a:%h' "$validation")" = '600:1'
-    test "$(jq -er '.nonce' "$validation")" = "$nonce"
-    if [[ -e $raw_file ]]; then
-      export USDOM_CLOSED_MAINNET_DEPOSIT_RAW_FILE=$raw_file
-      node scripts/check-closed-mainnet-deposit-raw.mjs "$package" "$index" "$nonce" | cmp -s - "$validation"
-      unset USDOM_CLOSED_MAINNET_DEPOSIT_RAW_FILE
-    fi
-    tx_hash=$(jq -er '.transactionHash' "$validation")
-    receipt_block=$(jq -er '.blockNumber' "$receipt_record"); receipt_hash=$(jq -er '.blockHash|ascii_downcase' "$receipt_record")
-    receipt_gas=$(jq -er '.gasUsed' "$receipt_record"); receipt_price=$(jq -er '.effectiveGasPrice' "$receipt_record")
-    refresh_consensus_block
-    for rpc in "$rpc1" "$rpc2"; do
-      rpc_receipt="$temporary/receipt-existing-$index-${rpc//[^a-zA-Z0-9]/_}.json"; cast receipt "$tx_hash" --json --rpc-url "$rpc" >"$rpc_receipt"
-      jq -e --arg tx "$tx_hash" --arg block "$receipt_block" --arg hash "$receipt_hash" --arg gas "$receipt_gas" --arg price "$receipt_price" \
-        '(.transactionHash|ascii_downcase)==($tx|ascii_downcase) and .status=="0x1" and .blockNumber==$block and (.blockHash|ascii_downcase)==$hash and .gasUsed==$gas and .effectiveGasPrice==$price' "$rpc_receipt" >/dev/null
-      finalized_number=$(cast block finalized --field number --rpc-url "$rpc")
-      node -e 'if(BigInt(process.argv[1])>BigInt(process.argv[2]))process.exit(1)' "$receipt_block" "$finalized_number"
-      # Earlier receipts authenticate history, but their transient allowance and
-      # nonce states are no longer expected after a later finalized step.
-      if (( index == 2 )) || { [[ ! -e $evidence/closed-deposit-$((index+1))-validation.json ]] && [[ ! -e $evidence/closed-deposit-$((index+1))-receipt.json ]]; }; then
-        test "$(cast nonce "$funder" --block pending --rpc-url "$rpc")" = "$expected_next_nonce"
-        check_deposit_state "$index" "$rpc"
-      fi
-    done
-    cost=$(node scripts/check-pilot-receipt-cost.mjs "$(jq -er '.gasUsed' "$receipt_record")" "$(jq -er '.effectiveGasPrice' "$receipt_record")" "$(jq -er '.maximumCost' "$validation")")
-    if [[ ! -e $finality_record ]]; then
-      jq -n --arg tx "$tx_hash" --arg block "$receipt_block" --arg hash "$receipt_hash" --argjson cost "$cost" '{schema:"usdom-closed-mainnet-deposit-finality-v1",transactionHash:$tx,blockNumber:$block,blockHash:$hash,finalizedRpcCount:2}+$cost' | node scripts/install-private-file-new-stdin.mjs --json "$finality_record"
-    else
-      test -f "$finality_record" && test ! -L "$finality_record" && test "$(stat -c '%a:%h' "$finality_record")" = '600:1'
-      jq -e --arg tx "$tx_hash" --arg block "$receipt_block" --arg hash "$receipt_hash" --argjson cost "$cost" '.schema=="usdom-closed-mainnet-deposit-finality-v1" and (.transactionHash|ascii_downcase)==($tx|ascii_downcase) and .blockNumber==$block and (.blockHash|ascii_downcase)==$hash and .finalizedRpcCount==2 and .gasUsed==$cost.gasUsed and .effectiveGasPrice==$cost.effectiveGasPrice and .actualCost==$cost.actualCost and .maximumCost==$cost.maximumCost' "$finality_record" >/dev/null
-    fi
-    rm -f -- "$raw_file"
-    continue
-  fi
-  if [[ ! -e $raw_file ]]; then
-   refresh_consensus_block
-   for rpc in "$rpc1" "$rpc2"; do
-    test "$(cast nonce "$funder" --block pending --rpc-url "$rpc")" = "$nonce"
-    allowance=$(cast call "$token" 'allowance(address,address)(uint256)' "$funder" "$reserve" --rpc-url "$rpc" --block "$consensus_block")
-    case $index in 0) : ;; 1) test "$allowance" = 0 ;; 2) test "$allowance" = 1000000 ;; esac
-   done
-   estimate1=$(cast estimate "$to" "$data" --from "$funder" --value 0 --rpc-url "$rpc1")
-  estimate2=$(cast estimate "$to" "$data" --from "$funder" --value 0 --rpc-url "$rpc2")
-  gas=$(node -e 'let a=BigInt(process.argv[1]),b=BigInt(process.argv[2]);let m=a>b?a:b,marg=(m*125n+99n)/100n;if(marg>500000n)process.exit(1);process.stdout.write(String(marg))' "$estimate1" "$estimate2")
-  base1=$(cast block "$consensus_block" --field baseFeePerGas --rpc-url "$rpc1")
-  base2=$(cast block "$consensus_block" --field baseFeePerGas --rpc-url "$rpc2")
-  test "$base1" = "$base2"
-  fee=$(node -e 'let a=BigInt(process.argv[1]),b=BigInt(process.argv[2]),f=a>b?a:b;for(let i=0;i<12;i++)f=(f*9n+7n)/8n;f+=2000000000n;if(f>100000000000n||f*BigInt(process.argv[3])>50000000000000000n)process.exit(1);process.stdout.write(String(f))' "$base1" "$base2" "$gas")
-    proposed_cost=$(node -e 'process.stdout.write(String(BigInt(process.argv[1])*BigInt(process.argv[2])))' "$gas" "$fee")
-    check_pilot_budget "$proposed_cost"
-    gas_balance1=$(cast balance "$funder" --block pending --rpc-url "$rpc1"); gas_balance2=$(cast balance "$funder" --block pending --rpc-url "$rpc2")
-    node scripts/check-pilot-gas-funding.mjs "$gas_balance1" "$gas_balance2" "$(node -e 'process.stdout.write(String(BigInt(process.argv[1])*BigInt(process.argv[2])))' "$gas" "$fee")" >/dev/null
-    if [[ $index == 0 ]]; then recheck_live_authorities; fi
-    read -r -p "Digite AUTORIZO ASSINAR DEPOSITO MAINNET ETAPA $index para assinar $name: " answer
-    test "$answer" = "AUTORIZO ASSINAR DEPOSITO MAINNET ETAPA $index"
-    recheck_live_authorities
-    refresh_consensus_block
-    check_funder_not_blacklisted
-    for rpc in "$rpc1" "$rpc2"; do
-      test "$(cast chain-id --rpc-url "$rpc")" = 1
-      test "$(cast nonce "$funder" --block "$consensus_block" --rpc-url "$rpc")" = "$nonce"
-      test "$(cast nonce "$funder" --block pending --rpc-url "$rpc")" = "$nonce"
-    done
-    live_base1=$(cast block "$consensus_block" --field baseFeePerGas --rpc-url "$rpc1"); live_base2=$(cast block "$consensus_block" --field baseFeePerGas --rpc-url "$rpc2")
-    test "$live_base1" = "$live_base2"
-    node -e 'let f=BigInt(process.argv[1]);for(let i=0;i<12;i++)f=(f*9n+7n)/8n;f+=2000000000n;if(BigInt(process.argv[2])<f)process.exit(1)' "$live_base1" "$fee"
-    data_hash=$(jq -er ".transactions[$index].dataKeccak256" "$package")
-    printf 'LEDGER CLEAR REVIEW action=%s chainId=1 signer=%s to=%s nonce=%s value=0 selector=%s dataHash=%s gas=%s maxFee=%s priorityFee=2000000000\n' \
-      "$name" "$funder" "$to" "$nonce" "${data:0:10}" "$data_hash" "$gas" "$fee"
-    read -r -p "Digite CONFIRMO CLEAR SIGNING DEPOSITO ETAPA $index somente se o Ledger exibir a mesma ação; blind signing é proibido: " clear_answer
-    test "$clear_answer" = "CONFIRMO CLEAR SIGNING DEPOSITO ETAPA $index"
-    raw_candidate="$temporary/raw-$index.txt"
-    cast mktx "$to" --chain 1 --from "$funder" --nonce "$nonce" --value 0 --data "$data" \
-      --gas-limit "$gas" --gas-price "$fee" --priority-gas-price 2000000000 --ledger --rpc-url "$rpc1" | tr '[:upper:]' '[:lower:]' >"$raw_candidate"
-    chmod 0600 "$raw_candidate"
-    export USDOM_CLOSED_MAINNET_DEPOSIT_RAW_FILE=$raw_candidate
-    candidate="$temporary/validation-$index.json"
-    node scripts/check-closed-mainnet-deposit-raw.mjs "$package" "$index" "$nonce" >"$candidate"
-    test "$(jq -er '.from' "$candidate")" = "$funder"
-    node scripts/install-private-file-new-stdin.mjs "$raw_file" <"$raw_candidate"
-    node scripts/install-private-file-new-stdin.mjs --json "$validation" <"$candidate"
-    unset USDOM_CLOSED_MAINNET_DEPOSIT_RAW_FILE
-  fi
-  export USDOM_CLOSED_MAINNET_DEPOSIT_RAW_FILE=$raw_file
-  node scripts/check-closed-mainnet-deposit-raw.mjs "$package" "$index" "$nonce" | cmp -s - "$validation"
-  unset USDOM_CLOSED_MAINNET_DEPOSIT_RAW_FILE
-  test "$(sha256sum "$package"|awk '{print $1}')" = "$package_sha"
-  expected_hash=$(jq -er '.transactionHash' "$validation")
-  finalized1=$(cast nonce "$funder" --block "$consensus_block" --rpc-url "$rpc1"); finalized2=$(cast nonce "$funder" --block "$consensus_block" --rpc-url "$rpc2")
-  current1=$(cast nonce "$funder" --block pending --rpc-url "$rpc1"); current2=$(cast nonce "$funder" --block pending --rpc-url "$rpc2")
-  known1=$(cast tx "$expected_hash" --field hash --rpc-url "$rpc1" 2>/dev/null || true)
-  known2=$(cast tx "$expected_hash" --field hash --rpc-url "$rpc2" 2>/dev/null || true)
-  nonce_action=$(node scripts/check-pilot-nonce-recovery.mjs "$nonce" "$finalized1" "$current1" "$finalized2" "$current2" "$expected_hash" "$known1" "$known2")
-  if test "$nonce_action" = publish; then
-    maximum_cost=$(jq -er '.maximumCost' "$validation"); gas_balance1=$(cast balance "$funder" --block pending --rpc-url "$rpc1"); gas_balance2=$(cast balance "$funder" --block pending --rpc-url "$rpc2")
-    node scripts/check-pilot-gas-funding.mjs "$gas_balance1" "$gas_balance2" "$maximum_cost" >/dev/null
-    check_pilot_budget
-    read -r -p "Digite AUTORIZO TRANSMITIR DEPOSITO MAINNET ETAPA $index para publicar: " answer
-    test "$answer" = "AUTORIZO TRANSMITIR DEPOSITO MAINNET ETAPA $index"
-    recheck_live_authorities
-    refresh_consensus_block
-    check_funder_not_blacklisted
-    for rpc in "$rpc1" "$rpc2"; do
-      test "$(cast chain-id --rpc-url "$rpc")" = 1
-      test "$(cast nonce "$funder" --block "$consensus_block" --rpc-url "$rpc")" = "$nonce"
-      test "$(cast nonce "$funder" --block pending --rpc-url "$rpc")" = "$nonce"
-    done
-    signed_fee=$(jq -er '.maxFeePerGas' "$validation")
-    live_base1=$(cast block "$consensus_block" --field baseFeePerGas --rpc-url "$rpc1"); live_base2=$(cast block "$consensus_block" --field baseFeePerGas --rpc-url "$rpc2")
-    test "$live_base1" = "$live_base2"
-    node -e 'let f=BigInt(process.argv[1]);for(let i=0;i<12;i++)f=(f*9n+7n)/8n;f+=2000000000n;if(BigInt(process.argv[2])<f)process.exit(1)' "$live_base1" "$signed_fee"
-    tx_hash=$(node scripts/publish-private-raw-transaction.mjs "$raw_file" "$rpc1")
-    test "${tx_hash,,}" = "${expected_hash,,}"
-  elif test "$nonce_action" = recover-receipt; then
-    tx_hash=$expected_hash
-  else
-    exit 76
-  fi
-  receipt_candidate="$temporary/receipt-$index.json"
-  cast receipt "$tx_hash" --confirmations 2 --json --rpc-url "$rpc1" >"$receipt_candidate"
-  jq -e --arg tx "$tx_hash" --arg from "$funder" --arg to "$to" '.status=="0x1" and (.transactionHash|ascii_downcase)==($tx|ascii_downcase) and (.from|ascii_downcase)==($from|ascii_downcase) and (.to|ascii_downcase)==($to|ascii_downcase)' "$receipt_candidate" >/dev/null
-  receipt_block=$(jq -er '.blockNumber' "$receipt_candidate")
-  receipt_hash=$(jq -er '.blockHash|ascii_downcase' "$receipt_candidate")
-  receipt_gas=$(jq -er '.gasUsed' "$receipt_candidate"); receipt_price=$(jq -er '.effectiveGasPrice' "$receipt_candidate")
-  refresh_consensus_block
-  for rpc in "$rpc1" "$rpc2"; do
-    rpc_receipt="$temporary/receipt-$index-${rpc//[^a-zA-Z0-9]/_}.json"; cast receipt "$tx_hash" --json --rpc-url "$rpc" >"$rpc_receipt"
-    jq -e --arg tx "$tx_hash" --arg from "$funder" --arg to "$to" --arg block "$receipt_block" --arg hash "$receipt_hash" --arg gas "$receipt_gas" --arg price "$receipt_price" \
-      '.status=="0x1" and (.transactionHash|ascii_downcase)==($tx|ascii_downcase) and (.from|ascii_downcase)==($from|ascii_downcase) and (.to|ascii_downcase)==($to|ascii_downcase) and .blockNumber==$block and (.blockHash|ascii_downcase)==$hash and .gasUsed==$gas and .effectiveGasPrice==$price' "$rpc_receipt" >/dev/null
-    finalized_number=$(cast block finalized --field number --rpc-url "$rpc")
-    node -e 'if(BigInt(process.argv[1])>BigInt(process.argv[2]))process.exit(1)' "$receipt_block" "$finalized_number"
-    test "$(cast block "$receipt_block" --field hash --rpc-url "$rpc" | tr '[:upper:]' '[:lower:]')" = "$receipt_hash"
-    test "$(cast nonce "$funder" --block pending --rpc-url "$rpc")" = "$expected_next_nonce"
-    allowance=$(cast call "$token" 'allowance(address,address)(uint256)' "$funder" "$reserve" --rpc-url "$rpc" --block "$consensus_block")
-    case $index in 0) test "$allowance" = 0 ;; 1) test "$allowance" = 1000000 ;; 2) test "$allowance" = 0 ;; esac
-    check_deposit_state "$index" "$rpc"
-  done
-  node scripts/install-private-file-new-stdin.mjs --json "$evidence/closed-deposit-$index-receipt.json" <"$receipt_candidate"
-  cost=$(node scripts/check-pilot-receipt-cost.mjs "$(jq -er '.gasUsed' "$receipt_record")" "$(jq -er '.effectiveGasPrice' "$receipt_record")" "$(jq -er '.maximumCost' "$validation")")
-  if [[ ! -e $finality_record ]]; then
-    jq -n --arg tx "$tx_hash" --arg block "$receipt_block" --arg hash "$receipt_hash" --argjson cost "$cost" '{schema:"usdom-closed-mainnet-deposit-finality-v1",transactionHash:$tx,blockNumber:$block,blockHash:$hash,finalizedRpcCount:2}+$cost' | node scripts/install-private-file-new-stdin.mjs --json "$finality_record"
-  else
-    test -f "$finality_record" && test ! -L "$finality_record" && test "$(stat -c '%a:%h' "$finality_record")" = '600:1'
-    jq -e --arg tx "$tx_hash" --arg block "$receipt_block" --arg hash "$receipt_hash" --argjson cost "$cost" '.schema=="usdom-closed-mainnet-deposit-finality-v1" and (.transactionHash|ascii_downcase)==($tx|ascii_downcase) and .blockNumber==$block and (.blockHash|ascii_downcase)==$hash and .finalizedRpcCount==2 and .gasUsed==$cost.gasUsed and .effectiveGasPrice==$cost.effectiveGasPrice and .actualCost==$cost.actualCost and .maximumCost==$cost.maximumCost' "$finality_record" >/dev/null
-  fi
-  rm -f -- "$raw_file"
-done
-refresh_consensus_block
-for rpc in "$rpc1" "$rpc2"; do
-  test "$(cast call "$token" 'allowance(address,address)(uint256)' "$funder" "$reserve" --rpc-url "$rpc" --block "$consensus_block")" = 0
-  before_funder=$(jq -er '.funderBalanceBaseUnits' "$deposit_baseline"); before_reserve=$(jq -er '.reserveBalanceBaseUnits' "$deposit_baseline"); before_deposited=$(jq -er '.totalDepositedBaseUnits' "$deposit_baseline"); before_outstanding=$(jq -er '.outstandingBaseUnits' "$deposit_baseline")
-  expected_funder=$(node -e 'let v=BigInt(process.argv[1]);if(v<1000000n)process.exit(1);process.stdout.write(String(v-1000000n))' "$before_funder")
-  expected_reserve=$(node -e 'process.stdout.write(String(BigInt(process.argv[1])+1000000n))' "$before_reserve")
-  expected_deposited=$(node -e 'process.stdout.write(String(BigInt(process.argv[1])+1000000n))' "$before_deposited")
-  expected_outstanding=$(node -e 'process.stdout.write(String(BigInt(process.argv[1])+1000000n))' "$before_outstanding")
-  test "$(cast call "$token" 'balanceOf(address)(uint256)' "$funder" --block "$consensus_block" --rpc-url "$rpc")" = "$expected_funder"
-  test "$(cast call "$token" 'balanceOf(address)(uint256)' "$reserve" --block "$consensus_block" --rpc-url "$rpc")" = "$expected_reserve"
-  test "$(cast call "$reserve" 'totalDeposited()(uint256)' --block "$consensus_block" --rpc-url "$rpc")" = "$expected_deposited"
-  test "$(cast call "$reserve" 'outstanding()(uint256)' --block "$consensus_block" --rpc-url "$rpc")" = "$expected_outstanding"
-  record=$(cast call "$reserve" 'deposits(bytes32)(address,uint64,bytes32)' "$deposit_id" --block "$consensus_block" --rpc-url "$rpc")
-  test "$(printf '%s\n' "$record"|sed -n '1p'|tr '[:upper:]' '[:lower:]')" = "${funder,,}"
-  test "$(printf '%s\n' "$record"|sed -n '2{s/ .*//;p;}')" = 1000000
-  test "$(printf '%s\n' "$record"|sed -n '3p'|tr '[:upper:]' '[:lower:]')" = "${commitment,,}"
-done
-baseline_sha=$(sha256sum "$deposit_baseline"|awk '{print $1}')
-execution="$evidence/closed-mainnet-deposit-execution.json"; execution_candidate=$gate
-jq -n --arg packageSha256 "$package_sha" --arg amount "$amount" --arg baselineSha256 "$baseline_sha" --arg funderBefore "$before_funder" --arg funderAfter "$expected_funder" --arg reserveBefore "$before_reserve" --arg reserveAfter "$expected_reserve" --arg totalDepositedBefore "$before_deposited" --arg totalDepositedAfter "$expected_deposited" --arg outstandingBefore "$before_outstanding" --arg outstandingAfter "$expected_outstanding" '{schema:"usdom-closed-mainnet-deposit-execution-v1",chainId:"1",packageSha256:$packageSha256,amountBaseUnits:$amount,financialBaselineSha256:$baselineSha256,funderBalanceBefore:$funderBefore,funderBalanceAfter:$funderAfter,reserveBalanceBefore:$reserveBefore,reserveBalanceAfter:$reserveAfter,totalDepositedBefore:$totalDepositedBefore,totalDepositedAfter:$totalDepositedAfter,outstandingBefore:$outstandingBefore,outstandingAfter:$outstandingAfter,steps:3,allowanceBefore:"0",allowanceAfter:"0",outputLast:true}' >"$execution_candidate"
-if [[ -e $execution ]]; then
-  test -f "$execution" && test ! -L "$execution" && test "$(stat -c '%a:%h' "$execution")" = '600:1'
-  cmp -s "$execution_candidate" "$execution"
-else
-  node scripts/install-private-file-new-stdin.mjs --json "$execution" <"$execution_candidate"
-fi
+current_ratification="$tmp/ratification.current.json";"$node_bin" scripts/ratify-onekey-ios-safe-usdt-deposit.mjs "$USDOM_SAFE_DEPOSIT_AUTHORITY" "$plan" "$collected" "$observation" "$approval" "$current_ratification"||exit 80;if test -e "$ratification";then cmp -s "$current_ratification" "$ratification"||exit 80;else "$node_bin" scripts/install-private-file-new-stdin.mjs --json "$ratification"<"$current_ratification";fi
+$jq_bin -e '.schema=="usdom-onekey-ios-safe-usdt-deposit-ratification-v1" and .status=="ratified-specific-observed-deposit" and ([.gates[]]|all(.==true))' "$ratification">/dev/null
+state=clean
+printf '%s\n' 'Safe deposit complete: dual-RPC finality, Deposited event and accounting ratification agree.'

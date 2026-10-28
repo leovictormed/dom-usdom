@@ -1,0 +1,27 @@
+{
+  "schema": "usdom-onekey-ios-relayer-authority-v1",
+  "status": "unconfigured",
+  "chainId": "1",
+  "relayer": null,
+  "safe": null,
+  "token": null,
+  "governance": null,
+  "guardian": null,
+  "owners": [],
+  "notaries": [],
+  "threshold": null,
+  "allowedTargets": [],
+  "allowedSelectors": [],
+  "maxRelayerBalanceWei": null,
+  "maxOuterGasLimit": null,
+  "maxFeePerGasWei": null,
+  "emergencyReplacementRelayer": null,
+  "gates": {
+    "relayerRoleSeparationVerified": false,
+    "relayerNoTokenCustodyVerified": false,
+    "signedSafeTxExactCalldataVerified": false,
+    "relayerEconomicCapsVerified": false,
+    "relayerNonceAndNoBlindRetryVerified": false,
+    "emergencyRelayerRotationVerified": false
+  }
+}

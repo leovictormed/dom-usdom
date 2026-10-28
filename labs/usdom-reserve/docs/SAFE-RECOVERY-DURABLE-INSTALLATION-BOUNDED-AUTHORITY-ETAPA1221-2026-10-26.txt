@@ -1,0 +1,39 @@
+ETAPA 1221 — AUTORIDADE LIMITADA PARA INSTALAÇÃO DURÁVEL NA RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema
+
+O executor de recuperação Safe persistia envelopes, transações brutas, hashes de
+submissão e evidências finalizadas pelo instalador privado create-once. O destino já
+era protegido contra links e substituição, mas a chamada ao instalador ainda podia
+permanecer ativa sem prazo, não limitava stdout/stderr e não exigia silêncio desses
+canais antes de aceitar o artefato persistido.
+
+Correção
+
+`persist_private_new`, em `scripts/execute-recoverable-safe-recovery.sh`, agora:
+
+- reatesta Node e timeout imediatamente antes da instalação;
+- executa o instalador com limite de 30 segundos, TERM e KILL após cinco segundos;
+- mantém stdout e stderr separados em arquivos privados;
+- rejeita cada canal acima de 64 KiB ou com UTF-8 inválido;
+- exige status zero e ambos os canais vazios;
+- revalida tipo, proprietário, modo e número de links do destino;
+- relê o destino pelo leitor privado e exige igualdade byte a byte usando o `cmp`
+  pinado e reatestado.
+
+Essa função atende tanto criações novas quanto a ramificação retomável
+create-once-or-identical. Falhas não imprimem diagnósticos potencialmente sensíveis
+do instalador.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais de pinning, snapshots e paridade de autoridades: 6/6 aprovados;
+- conjunto focal mais `operator-runbook`: 90/90 aprovado;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, assinatura, transmissão, implantação, fundo, Rust, Solidity,
+Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

@@ -26,6 +26,11 @@ test('Safe deployment raw journal binds signer, nonce, chain, target and calldat
     const valid=run(); assert.equal(valid.status,0,valid.stderr);
     const observed=JSON.parse(valid.stdout); assert.equal(observed.transactionHash,keccak256(raw));
     assert.notEqual(run('8').status,0);
+    assert.notEqual(run('9007199254740992').status,0);
+    assert.notEqual(run('9'.repeat(100000)).status,0);
+    await writeFile(rawPath,`0x${raw.slice(2).toUpperCase()}\n`,{mode:0o600});
+    assert.notEqual(run().status,0);
+    await writeFile(rawPath,raw,{mode:0o600}); assert.notEqual(run().status,0);
     const changed=await wallet.signTransaction({...tx,data:'0xabcdef01'});
     await writeFile(rawPath,changed+'\n',{mode:0o600}); assert.notEqual(run().status,0);
   } finally { await rm(dir,{recursive:true,force:true}); }

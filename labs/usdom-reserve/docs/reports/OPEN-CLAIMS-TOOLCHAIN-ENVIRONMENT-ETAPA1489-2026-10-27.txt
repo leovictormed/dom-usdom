@@ -1,0 +1,12 @@
+Etapa 1489 — pinagem de ferramentas e ambiente
+
+- Os três comandos de cada claim iniciam Bash por caminho absoluto, sem
+  profile/rc, removendo BASH_ENV, ENV, NODE_OPTIONS e NODE_PATH antes do shell.
+- Cada programa gerado fixa PATH, locale C, timezone UTC, IFS e umask 077;
+  remove configurações Git/Rust/Ethereum/chaves herdadas e limpa o hash de
+  comandos.
+- Antes de tocar evidência, confere os caminhos exatos de Bash, Node, npm, jq,
+  stat, install, sha256sum, git, Forge, Cargo e Python. O toolchain checker
+  continua responsável pelos hashes/versionamento da release.
+- O checker 33/33 exige essas barreiras em todas as fases e em generate,
+  validate e execute. Nenhuma fase operacional foi executada.

@@ -286,6 +286,61 @@ test('recoverable Safe control preparation requires cataloged independent RPC ag
   assert.doesNotMatch(source,/process\.env\.ETHEREUM_RPC_URL\b/);
 });
 
+test('Safe preparation CLI uses a fresh provider per observation and rejects RPC disagreement',async t=>{
+  const cli=new URL('../../scripts/prepare-recoverable-safe-controls.mjs',import.meta.url).href;
+  for(const mode of ['consistent','source-drift','cross-source-drift'])await t.test(mode,()=>{
+    const identities={schema:'usdom-safe-owner-identities/v2',threshold:2,singleOperator:true,
+      singleOperatorResidualRisk:true,custodySignaturesStatus:'awaiting-safe-package-for-12-custody-signatures',
+      ownersByRole:{},evidenceSha256ByOwner:{}};
+    const mocked={
+      '../sdk/direct-project-file.mjs':`export async function readDirectProjectFile(){return Buffer.from('{}');}
+        export async function readDirectFile(){return Buffer.from(${JSON.stringify(JSON.stringify(identities))});}`,
+      '../sdk/runtime-secret-json.mjs':`export function readRuntimeSecretJsonFile(){return [];}`,
+      '../sdk/mainnet-preflight-rpc.mjs':`export class BoundedMainnetPreflightProvider {
+        constructor(url){this.url=url;this.closed=false;this.id=++globalThis.calls.created;}
+        destroy(){if(this.closed)throw new Error('provider closed twice');this.closed=true;globalThis.calls.closed.push(this.id);}
+      }
+      export function matchMainnetPreflightRpcSources(){return [{url:'https://first.invalid'},{url:'https://second.invalid'}];}`,
+      '../sdk/safe-control-deployment.mjs':`export async function prepareRecoverableSafeControlDeployments(options){
+        const provider=options.providerFactory();
+        if(provider.closed)throw new Error('destroyed provider reused');
+        try{
+          globalThis.calls.observed.push(provider.url);
+          const mode=${JSON.stringify(mode)};
+          const changed=mode==='source-drift'&&globalThis.calls.observed.length===2
+            ||mode==='cross-source-drift'&&provider.url==='https://second.invalid';
+          return {fixture:changed?'changed':'canonical'};
+        }finally{provider.destroy();}
+      }`,
+    };
+    const bootstrap=`import {registerHooks} from 'node:module';
+      const cli=${JSON.stringify(cli)},mocked=${JSON.stringify(mocked)};
+      globalThis.calls={created:0,closed:[],observed:[]};
+      registerHooks({resolve(specifier,context,next){
+        if(context.parentURL===cli&&Object.hasOwn(mocked,specifier))return {
+          url:'data:text/javascript,'+encodeURIComponent(mocked[specifier]),shortCircuit:true};
+        return next(specifier,context);
+      }});
+      process.env.USDOM_SAFE_OWNER_IDENTITIES='/fixture/owners.json';
+      await import(cli);
+      process.stderr.write(JSON.stringify(globalThis.calls)+'\\n');`;
+    const result=spawnSync(process.execPath,['--input-type=module','-e',bootstrap],{
+      cwd:component,encoding:'utf8',timeout:10000});
+    const lines=result.stderr.trim().split('\n');
+    const calls=JSON.parse(lines.at(-1));
+    const count=mode==='source-drift'?2:4;
+    assert.equal(calls.created,count,result.stderr);
+    assert.deepEqual(calls.closed,Array.from({length:count},(_,i)=>i+1));
+    assert.deepEqual(calls.observed,Array.from({length:count},(_,i)=>i<2?'https://first.invalid':'https://second.invalid'));
+    if(mode==='consistent'){
+      assert.equal(result.status,0,result.stderr);assert.deepEqual(JSON.parse(result.stdout),{fixture:'canonical'});
+    }else{
+      assert.equal(result.status,1,result.stderr);assert.equal(result.stdout,'');
+      assert.match(result.stderr,/RELEASE_OPERATION_REJECTED/);
+    }
+  });
+});
+
 test('recoverable Safe envelope uses the bounded catalog source set',async()=>{
   const source=await readSource(path.join(component,'scripts',
     'prepare-recoverable-safe-recovery-envelope.mjs'),'utf8');

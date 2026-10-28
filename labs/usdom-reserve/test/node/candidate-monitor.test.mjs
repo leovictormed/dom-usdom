@@ -179,7 +179,24 @@ test('candidate monitor binds each public burn field and rejects unsafe normaliz
   assert.throws(() => compareViews([view, {...view, records: [{...view.records[0], debug: 'unexpected'}]}], config),/unexpected fields/);
   assert.throws(() => compareViews([view, {...view, records: [view.records[0],
     {...view.records[0],burnId:fresh()}]}], config),/duplicate burn request/);
+  for(const mutated of [
+    {...view,height:'9'.repeat(100_000)},
+    {...view,height:(1n<<256n).toString()},
+    {...view,records:[{...view.records[0],amount:'9'.repeat(100_000)}]},
+    {...view,records:[{...view.records[0],confirmations:(1n<<256n).toString()}]},
+  ]) assert.throws(()=>compareViews([mutated,structuredClone(mutated)],config),/uint256/);
   assert.throws(() => snapshotReader({url: 'https://example.com', binary: '/tmp/verifier', networkDirectory: '/tmp/network', networkId}));
+});
+
+test('reserve insolvency cannot be reported healthy and triggers emergency pause', async t => {
+  const f=await fixture(t);
+  await (await f.token.confiscate(f.reserve.target,1n)).wait();
+  const outcome=await f.monitor();
+  assert.equal(outcome.status,'paused');
+  assert.equal(outcome.emergency,true);
+  assert.equal(outcome.reason,'reserve accounting or solvency invariant violated');
+  assert.equal(await f.reserve.paused(),true);
+  assert.equal(await f.reserve.recoveryRequired(),true);
 });
 
 test('candidate monitor bounds sources, timeouts, event pages and canonical log identity',async()=>{

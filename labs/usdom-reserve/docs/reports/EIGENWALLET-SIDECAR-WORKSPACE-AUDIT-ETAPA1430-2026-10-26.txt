@@ -1,0 +1,33 @@
+Etapa 1430 — auditoria do workspace do sidecar Eigenwallet
+Data: 2026-10-26
+
+Conclusão arquitetural
+
+external-gpl/dom-xmr-sidecar/Cargo.toml é um template GPL, não um crate autônomo nem membro do workspace DOM. O README e scripts/install-sidecar-into-eigenwallet.py determinam que ele seja copiado para o checkout eigenwallet/core no commit 0e17c7f7cd8f0657af176c8852aa4c9949586051. Nesse destino, monero-wallet-ng é um irmão e as dependências workspace=true herdam as versões do workspace Eigenwallet.
+
+Por isso, adicionar o sidecar ao workspace DOM ou inventar versões locais produziria uma arquitetura diferente da revisada. O Cargo.lock verificável deve ser o lock do checkout Eigenwallet após a injeção.
+
+Limite offline comprovado
+
+- o checkout Eigenwallet fixado não está presente;
+- o diretório irmão monero-wallet-ng não está presente;
+- sidecar-gpl/xmr-live-sidecar-eigenwallet, usado pelo build, não está presente;
+- não existe Cargo.lock adjacente ao template;
+- o Cargo.lock raiz não contém as crates monero-address, monero-daemon-rpc, monero-oxide-wallet ou monero-simple-request-rpc;
+- a busca local não encontrou checkout/cache capaz de resolver o grafo host.
+
+Sem esses bytes não é possível gerar nem validar offline o lock do workspace host. O fechamento restante exige obter o checkout no commit já fixado e materializar/verificar seu lock em uma janela autorizada.
+
+Correção independente concluída
+
+O instalador aceitava DOM_XMR_ALLOW_SOURCE_DRIFT=1 e, assim, podia injetar o sidecar em qualquer commit Eigenwallet. Esse bypass foi removido. A identidade agora é uma igualdade obrigatória e exata com EXPECTED_COMMIT. Um self-test aceita somente o pin e rejeita vazio, outro SHA, caixa alterada e SHA truncado/alterado.
+
+Validação
+
+- py_compile do instalador: aprovado;
+- self-test do instalador: aprovado;
+- ausência do antigo escape: aprovada;
+- self-test da política de dependências: aprovado;
+- política viva: 36 Cargo locks/15.017 entradas, 234 manifests e quatro npm locks/241 entradas aprovados.
+
+Não houve rede, build pesado, rematerialização de inventários globais, assinatura, deploy, fundos, commit ou push.

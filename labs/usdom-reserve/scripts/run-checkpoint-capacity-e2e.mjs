@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {ContractFactory,JsonRpcProvider,hexlify,id,keccak256} from 'ethers';
-import {collectCheckpointCapacityArtifacts} from '../sdk/checkpoint-capacity-artifact-collector.mjs';
+import {buildCheckpointCapacityArtifactManifest,collectCheckpointCapacityArtifacts} from '../sdk/checkpoint-capacity-artifact-collector.mjs';
 import {
   buildCheckpointProofCapacityReport,checkpointIsolatedEvmReceiptCommitment,
 } from '../sdk/checkpoint-proof-capacity-report.mjs';
@@ -31,6 +31,13 @@ import {
 import {validateReleaseSourceBoundary} from '../sdk/release-source-boundary.mjs';
 import {readDirectFile,readDirectProjectFile} from '../sdk/direct-project-file.mjs';
 import {writePrivateFileDurable,writePrivateJsonDurable} from '../sdk/durable-private-file.mjs';
+import {assertExecutableUnchanged,snapshotExecutablePath} from '../sdk/stable-executable.mjs';
+
+const CARGO='/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo';
+const NPM='/usr/lib/chatgpt/resources/cua_node/bin/npm';
+const GIT='/usr/bin/git';
+const ANVIL='/home/leonardov/.foundry/bin/anvil';
+const TIME='/usr/bin/time';
 
 const labRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const repositoryRoot=path.resolve(labRoot,'../..');
@@ -91,20 +98,30 @@ async function atomicJson(target,value) {
   await writePrivateJsonDurable(target,value);
 }
 
-async function runCommand(command,args,{cwd,env=process.env,log}) {
+async function runCommand(command,args,{cwd,env=process.env,log,timeout=12*60*60*1000}) {
+  const executable=await snapshotExecutablePath(command);
   const output=await open(log,'w',0o600);
+  let child,timer;
   try {
-    const child=spawn(command,args,{cwd,env,stdio:['ignore',output.fd,output.fd]});
+    child=spawn(executable.path,args,{cwd,env,detached:true,stdio:['ignore',output.fd,output.fd]});
+    timer=setTimeout(()=>{ try { process.kill(-child.pid,'SIGKILL'); } catch {} },timeout);
     const result=await new Promise((resolve,reject)=>{
       child.once('error',reject);
       child.once('close',(code,signal)=>resolve({code,signal}));
     });
     if(result.code!==0) fail(`${path.basename(command)} failed (${result.signal??result.code}); see ${log}`);
-  } finally { await output.close(); }
+  } finally {
+    clearTimeout(timer);
+    if(child?.exitCode===null) { try { process.kill(-child.pid,'SIGKILL'); } catch {} }
+    await output.close();
+    await assertExecutableUnchanged(executable);
+  }
 }
 
 async function captureCommand(command,args,{cwd,maximum=1024*1024}={}) {
-  const child=spawn(command,args,{cwd,stdio:['ignore','pipe','pipe']});
+  const executable=await snapshotExecutablePath(command);
+  const child=spawn(executable.path,args,{cwd,detached:true,stdio:['ignore','pipe','pipe']});
+  const timer=setTimeout(()=>{ try { process.kill(-child.pid,'SIGKILL'); } catch {} },30_000);
   const chunks=[];
   let length=0,captured=0;
   const append=chunk=>{
@@ -116,6 +133,8 @@ async function captureCommand(command,args,{cwd,maximum=1024*1024}={}) {
   const result=await new Promise((resolve,reject)=>{
     child.once('error',reject); child.once('close',(code,signal)=>resolve({code,signal}));
   });
+  clearTimeout(timer);
+  await assertExecutableUnchanged(executable);
   if(length>maximum || result.code!==0) {
     fail(`${path.basename(command)} inspection failed (${result.signal??result.code})`);
   }
@@ -150,7 +169,8 @@ async function requireCapacity() {
 async function copyPrivateTree(source,destination,state={files:0,bytes:0n}) {
   await requireDirectory(source);
   await ensurePrivateDirectory(destination);
-  const entries=(await readdir(source,{withFileTypes:true})).sort((a,b)=>a.name.localeCompare(b.name));
+  const entries=(await readdir(source,{withFileTypes:true}))
+    .sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   for(const entry of entries) {
     if(entry.name==='' || entry.name==='.' || entry.name==='..' || entry.name.includes('\0')) {
       fail('noncanonical checkpoint source filename');
@@ -197,7 +217,7 @@ async function copyGuestArtifacts(workRoot) {
 
 async function timedCargo(name,args,{cwd,runRoot,env}) {
   await requireCapacity();
-  await runCommand('/usr/bin/time',['-v','-o',path.join(runRoot,`${name}-time.log`),'cargo',...args],{
+  await runCommand(TIME,['-v','-o',path.join(runRoot,`${name}-time.log`),CARGO,...args],{
     cwd,env,log:path.join(runRoot,`${name}.log`),
   });
 }
@@ -263,10 +283,10 @@ async function waitForAnvil(provider,child) {
 
 async function terminate(child) {
   if(child.exitCode!==null) return;
-  child.kill('SIGTERM');
+  try { process.kill(-child.pid,'SIGTERM'); } catch {}
   await Promise.race([new Promise(resolve=>child.once('close',resolve)),
     new Promise(resolve=>setTimeout(resolve,5000))]);
-  if(child.exitCode===null) child.kill('SIGKILL');
+  if(child.exitCode===null) { try { process.kill(-child.pid,'SIGKILL'); } catch {} }
 }
 
 async function verifyOnIsolatedEvm({observation,seal,statementHash,release,verifier,runRoot,
@@ -276,9 +296,11 @@ async function verifyOnIsolatedEvm({observation,seal,statementHash,release,verif
   }
   const port=await freePort();
   const anvilLog=await open(path.join(runRoot,'anvil.log'),'w',0o600);
-  const child=spawn(process.env.USDOM_ANVIL??'anvil',[
+  if(Object.hasOwn(process.env,'USDOM_ANVIL')) fail('USDOM_ANVIL override is forbidden');
+  const anvil=await snapshotExecutablePath(ANVIL);
+  const child=spawn(anvil.path,[
     '--host','127.0.0.1','--port',String(port),'--chain-id','1','--silent',
-  ],{stdio:['ignore',anvilLog.fd,anvilLog.fd]});
+  ],{detached:true,stdio:['ignore',anvilLog.fd,anvilLog.fd]});
   const provider=new JsonRpcProvider(`http://127.0.0.1:${port}`,1,{staticNetwork:true,cacheTimeout:-1});
   try {
     await waitForAnvil(provider,child);
@@ -333,6 +355,7 @@ async function verifyOnIsolatedEvm({observation,seal,statementHash,release,verif
       isolatedEvmReceiptSha256:receiptTranscript.sha256};
   } finally {
     provider.destroy(); await terminate(child); await anvilLog.close();
+    await assertExecutableUnchanged(anvil);
   }
 }
 
@@ -412,8 +435,8 @@ async function loadConfiguredInputs() {
 }
 
 async function assertExactSourceBoundary(sourceCommit) {
-  const head=(await captureCommand('git',['rev-parse','HEAD'],{cwd:repositoryRoot})).trim();
-  const status=await captureCommand('git',['status','--porcelain=v1','-z','--untracked-files=all'],{
+  const head=(await captureCommand(GIT,['rev-parse','HEAD'],{cwd:repositoryRoot})).trim();
+  const status=await captureCommand(GIT,['status','--porcelain=v1','-z','--untracked-files=all'],{
     cwd:repositoryRoot,maximum:16*1024*1024,
   });
   validateReleaseSourceBoundary({head,sourceCommit,status,projectRelative});
@@ -472,10 +495,10 @@ async function main() {
 
   const recursionArtifact=await requireRisc0RecursionArtifact({environment:proverEnvironment()});
   const environment=recursionArtifact.environment;
-  await runCommand('npm',['run','--silent','check:provenance'],{
+  await runCommand(NPM,['run','--silent','check:provenance'],{
     cwd:labRoot,env:environment,log:path.join(runRoot,'provenance.log'),
   });
-  await runCommand('npm',['run','--silent','pretest'],{
+  await runCommand(NPM,['run','--silent','pretest'],{
     cwd:labRoot,env:environment,log:path.join(runRoot,'pretest.log'),
   });
   for(const crate of [
@@ -483,12 +506,12 @@ async function main() {
     'dom-usdom-checkpoint-proof-host',
   ]) {
     await requireCapacity();
-    await runCommand('cargo',[
+    await runCommand(CARGO,[
       'build','--quiet','--release','--locked','--manifest-path',
       path.join(repositoryRoot,'Cargo.toml'),'-p',crate,'--features','prove','--bins',
     ],{cwd:repositoryRoot,env:environment,log:path.join(runRoot,`${crate}-build.log`)});
   }
-  const plan=async(name,args)=>runCommand('cargo',args,{
+  const plan=async(name,args)=>runCommand(CARGO,args,{
     cwd:tempLab,env:environment,log:path.join(runRoot,`${name}.log`),
   });
   await plan('randomx-plan',cargoRun('dom-usdom-randomx-proof-host',
@@ -560,7 +583,12 @@ async function main() {
   const hostIdentity=JSON.stringify({platform:os.platform(),release:os.release(),arch:os.arch(),
     cpuModel:os.cpus()[0]?.model??'',logicalCpus:os.availableParallelism(),
     memoryTotalKiB:Math.floor(os.totalmem()/1024)});
+  const artifactManifest=await buildCheckpointCapacityArtifactManifest(tempLab,identifier);
+  const artifactManifestPath=path.join(runRoot,'artifact-manifest.json');
+  await atomicJson(artifactManifestPath,artifactManifest.manifest);
   const base={
+    runId:identifier,artifactManifestPath:'artifact-manifest.json',
+    artifactManifestSha256:rawSha(artifactManifest.bytes),
     releaseId:configured.evidence.releaseId,sourceCommit:configured.evidence.sourceCommit,
     ethereumChainId:'1',checkpointRegistry:configured.release.checkpointRegistry,
     adapter:configured.release.checkpointVerifier,

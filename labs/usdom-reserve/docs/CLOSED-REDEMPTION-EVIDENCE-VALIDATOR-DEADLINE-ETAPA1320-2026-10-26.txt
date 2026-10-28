@@ -1,0 +1,29 @@
+ETAPA 1320 — LIMITE DO VALIDADOR DE EVIDÊNCIA TERMINAL DE RESGATE
+Data: 2026-10-26
+
+Problema
+
+A evidência financeira terminal do resgate era validada semanticamente antes da
+instalação, mas o subprocesso não tinha deadline e o arquivo candidato não
+passava por uma verificação JSON estrita explícita nesse boundary final.
+
+Correção
+
+O candidato `output-last` agora passa primeiro pelo checker privado de JSON
+estrito. Em seguida, `check-closed-mainnet-payout-evidence.mjs` executa sob
+deadline foreground TERM/KILL de 120 segundos antes de qualquer comparação ou
+instalação.
+
+Timeout, falha do validador, JSON duplicado/malformado ou inconsistência nas
+variações de saldo, contabilidade, dívida, snapshot e pacote interrompem a
+cerimônia sem persistir conclusão terminal.
+
+Validação offline
+
+- Sintaxe Bash do executor de resgate: aprovada.
+- Suíte focal: 10/10 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 73/73 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

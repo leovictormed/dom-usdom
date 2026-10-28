@@ -24,6 +24,9 @@ unset LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH \
 for inherited_name in ${!FOUNDRY_@} ${!CAST_@}; do unset "$inherited_name"; done
 export RUST_BACKTRACE=0
 export RUST_LIB_BACKTRACE=0
+# Never resolve credential-bearing helpers from an operator-controlled PATH.
+# In particular, sha256sum reads recovery and TPM credential files below.
+export PATH=/usr/lib/chatgpt/resources/cua_node/bin:/home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin:/home/leonardov/.foundry/bin:/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 if ! ulimit -c 0; then
   printf '%s\n' 'Cannot disable core dumps for a credential-bearing operation.' >&2
   exit 1
@@ -41,6 +44,8 @@ for tool_boundary_command in stat realpath id dirname sha256sum cut timeout; do 
 source "$LAB_ROOT/scripts/pinned-shell-tool-functions.sh"
 pin_runtime_tool timeout
 run_pinned_timeout() { assert_runtime_tool timeout; "$timeout_bin" "$@"; }
+pin_runtime_tool cargo
+cargo() { assert_runtime_tool cargo; "$cargo_bin" "$@"; }
 RUNTIME_ROOT="$LAB_ROOT/evidence/native-runtime"
 MANIFEST="$RUNTIME_ROOT/native-usdom-v2.json"
 MANIFEST_PIN="$RUNTIME_ROOT/native-usdom-v2.manifest.sha256"
@@ -155,6 +160,7 @@ for required in "$RECOVERY_FILE" "$PUBLIC_IDENTITY" "$KEYSTORE_CREDENTIAL" "$KEY
 done
 SECRET_DIRECTORY=$(mktemp -d -p /dev/shm usdom-tpm-bootstrap.XXXXXXXX)
 chmod 0700 -- "$SECRET_DIRECTORY"
+SECRET_DIRECTORY_IDENTITY=$(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY")
 RECOVERY_PASSWORD_FILE="$SECRET_DIRECTORY/recovery-password"
 STATE_PASSWORD_FILE="$SECRET_DIRECTORY/state-password"
 OWNER_AUTH_FILE="$SECRET_DIRECTORY/tpm-owner-auth"
@@ -163,9 +169,19 @@ cleanup() {
   trap - EXIT HUP INT TERM
   unset recovery_password tpm_owner_authorization
   if [[ "$SECRET_DIRECTORY" == /dev/shm/usdom-tpm-bootstrap.* \
-    && -d "$SECRET_DIRECTORY" && ! -L "$SECRET_DIRECTORY" ]]; then
-    assert_node_unchanged &&
-      "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$SECRET_DIRECTORY" || status=1
+    && $(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY" 2>/dev/null) == "$SECRET_DIRECTORY_IDENTITY" ]]; then
+    if assert_node_unchanged &&
+      run_pinned_timeout --foreground --signal=TERM --kill-after=5s 30s \
+        "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+        "$SECRET_DIRECTORY" > /dev/null 2> /dev/null &&
+      assert_node_unchanged && assert_runtime_tool timeout && test ! -e "$SECRET_DIRECTORY"; then
+      :
+    else
+      status=1
+    fi
+  else
+    # The TPM bootstrap may erase only the secret directory it created.
+    status=1
   fi
   exit "$status"
 }
@@ -195,8 +211,21 @@ if [[ ! "$manifest_sha256" =~ ^[0-9a-f]{64}$ \
   exit 1
 fi
 state_tree_commitment() {
+  local directory unsafe_entries="$SECRET_DIRECTORY/unsafe-state-tree-entries"
   for directory in "$REGISTERED_STATE" "$OBSERVED_STATE" "$PREPARED_STATE"; do
-    (cd "$directory" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum)
+    : > "$unsafe_entries"
+    chmod 0600 -- "$unsafe_entries"
+    # The former `find -type f` commitment silently omitted symlinks, device
+    # nodes, sockets and hard-linked files.  Refuse every uncommitted entry so
+    # an attacker cannot change the state tree without changing its digest.
+    (cd "$directory" && find . -mindepth 1 \
+      \( -type d -o \( -type f -links 1 \) \) -user "$(id -u)" ! -perm /022 \
+      -o -print0 > "$unsafe_entries")
+    if [[ -s "$unsafe_entries" ]]; then
+      printf 'Native state tree contains an unsafe or uncommitted entry: %s\n' "$directory" >&2
+      return 1
+    fi
+    (cd "$directory" && find . -type f -links 1 -print0 | sort -z | xargs -0 -r sha256sum)
   done | sha256sum | cut -d ' ' -f 1
 }
 fixed_input_commitment() {
@@ -225,7 +254,7 @@ if [[ ! -d "$TPM_RUNTIME" || -L "$TPM_RUNTIME" \
 fi
 
 cd "$REPOSITORY_ROOT"
-run_pinned_timeout --signal=TERM --kill-after=30s 3600s cargo build --quiet --release --locked -p dom-node \
+run_pinned_timeout --signal=TERM --kill-after=30s 3600s cargo build --quiet --release --locked --offline --no-default-features -p dom-node \
   --features usdom-wallet-operator \
   --bin dom-usdom-wallet-tpm-keystore \
   --bin dom-usdom-bootstrap-tpm-wallet-authority </dev/null

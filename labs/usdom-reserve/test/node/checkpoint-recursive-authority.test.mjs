@@ -19,7 +19,7 @@ test('recursive authority substitutions fail closed',()=>{
     ['aggregateGuest','env::commit_slice(&aggregate.commitment()','env::commit_slice(&transition.commitment()'],
     ['segmentGuest','env::commit_slice(&executed.transition_commitment())','env::commit_slice(&[0; 32])'],
     ['segmentGuest','verify_checkpoint_segment_randomx_bindings_in_guest(executed.randomx_bindings())','Ok::<(), core::convert::Infallible>(())'],
-    ['outerGuest','validate_checkpoint_outer_chain(&statement, &chain, &policy, &opening, SEGMENT_IMAGE_ID)','validate_checkpoint_outer_chain(&statement, &chain, &policy, &opening, [0; 32])'],
+    ['outerGuest','validate_checkpoint_outer_chain_v6(&statement, &chain, &policy, &opening, SEGMENT_IMAGE_ID)','validate_checkpoint_outer_chain_v6(&statement, &chain, &policy, &opening, [0; 32])'],
     ['outerGuest','env::commit_slice(&executed.statement_hash())','env::commit_slice(&[0; 32])'],
     ['outerProgram','transition.previous != current','false'],
     ['outerProgram','current.block_hash != public.confirmation_block','false'],

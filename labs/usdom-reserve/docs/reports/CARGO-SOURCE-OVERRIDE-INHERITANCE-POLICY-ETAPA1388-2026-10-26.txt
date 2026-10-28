@@ -1,0 +1,30 @@
+Stage 1388 — Cargo source override and inheritance policy
+Date: 2026-10-26
+
+Finding
+Exact dependency declarations and locks could still be redirected by an unreviewed Cargo
+patch/replace/config source override. Workspace-inherited dependencies were also not checked
+against the root workspace authority, allowing a member declaration to be disconnected from
+that reviewed dependency map.
+
+Correction
+- The only repository patch is now an exact structural allowlist entry: Helios crates-io
+  ethereum_hashing at HTTPS git revision 7ee70944ed4fabe301551da8c447e4f4ae5e6c35.
+- Any additional/changed patch or any legacy replace table fails closed.
+- Repository .cargo config inventory is closed to the one reviewed Helios config and its exact
+  SHA-256; a new registry replacement or altered build configuration fails closed.
+- Main workspace members using workspace=true must reference an existing root workspace
+  dependency and cannot add git/path/version/registry/branch/tag/rev source selectors locally.
+- External standalone manifests are not incorrectly treated as root workspace members.
+
+Adversarial coverage
+Rejects an unreviewed path patch, replace table, repository Cargo source config, unknown inherited
+workspace dependency and an inherited dependency with a local version override.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live coverage: 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No repository hash was frozen. No network, signing, deployment, funds, commit or push occurred.

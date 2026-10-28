@@ -1,0 +1,22 @@
+Etapa 1442 — cleanup bounded da autorização de release
+
+Problema
+
+A cerimônia que produz autorizações de release mantém material de assinatura em
+um diretório temporário privado, mas seu cleanup executava Node sem deadline. Um
+filho travado poderia impedir a remoção dos segredos e bloquear a saída.
+
+Correção
+
+O cleanup agora reatesta Node e timeout, executa rmSync pelo timeout pinado com
+TERM em 30 segundos e KILL após cinco, descarta stdout/stderr e exige que o
+temporário deixe de existir. Falha de ferramenta, deadline ou pós-condição força
+status de falha; o status original é preservado quando a limpeza termina.
+
+Validação
+
+- Sintaxe shell: aprovada.
+- Cleanup, pinning, escrita durável, ambiente e descritores: 17/17 aprovados.
+- git diff --check: aprovado.
+
+Nenhuma rede, Ledger, assinatura, deploy, fundos, commit ou push foi executado.

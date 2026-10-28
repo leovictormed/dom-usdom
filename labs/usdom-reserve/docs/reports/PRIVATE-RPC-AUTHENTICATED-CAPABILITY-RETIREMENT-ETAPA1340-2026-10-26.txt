@@ -1,0 +1,37 @@
+USDOM mainnet readiness — Stage 1340
+Date: 2026-10-26
+
+Finding
+=======
+
+The readiness file contains the unguessable loopback capability used to reach
+credential-bearing providers. The proxy created it safely, while removal was
+left to each parent executor's temporary-directory cleanup. A standalone crash
+or orderly proxy exit could therefore leave a stale capability pathname until
+its parent cleaned the workspace.
+
+Correction
+==========
+
+After writing and fsyncing readiness, the proxy validates and records the file's
+device, inode, owner, mode and link count. Its shared close/exit cleanup removes
+the pathname only when lstat still identifies that exact regular inode. A
+substituted file or symlink is left untouched. If publication itself fails after
+creation, the still-open descriptor is compared with the pathname and its own
+matching inode is removed before the error escapes.
+
+Validation
+==========
+
+- Node syntax check passed for the proxy.
+- Lifecycle assertions require descriptor identity capture, five-field pathname
+  comparison and capability removal in the common secret-cleanup path.
+- Proxy capability, socket, cleanup, exact-envelope and readiness suite: 10/10 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No provider was contacted and no transaction was transmitted. No network,
+signing, deployment, funds, production facts, Rust, Solidity, Cargo, Forge,
+commit or push occurred.

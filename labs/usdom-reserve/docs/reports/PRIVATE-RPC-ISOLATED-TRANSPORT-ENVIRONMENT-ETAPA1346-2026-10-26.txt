@@ -1,0 +1,45 @@
+USDOM mainnet readiness — Stage 1346
+Date: 2026-10-26
+
+Finding
+=======
+
+The shared HTTPS transport gate rejected common proxy, CA and selected Node TLS
+overrides, but accepted arbitrary NODE_OPTIONS and process variables capable of
+changing OpenSSL configuration, DNS resolver behavior, module resolution,
+debug/key logging or dynamic loading. A direct or misconfigured proxy launcher
+could therefore reach runtime credential ingress with a transport process whose
+startup or resolution policy differed from the reviewed production launcher.
+
+Correction
+==========
+
+The gate now rejects every nonempty proxy/bypass, CA, OpenSSL configuration and
+engine, TLS key-log, Node options/module/debug, resolver/alias, and Linux/macOS
+dynamic-loader override. The private proxy already invokes this gate before it
+reads the runtime provider secret. Production wrappers continue to start it via
+an allowlisted env -i environment; that outer boundary prevents pre-start hooks,
+while the in-process check rejects direct or incomplete launchers before secret
+ingress or provider contact.
+
+Existing endpoint controls remain unchanged: only root HTTPS origins on
+canonical public DNS hostnames are accepted, their origins are committed in the
+catalog, redirects are refused, and Node performs normal hostname/SNI certificate
+validation. No local-only result is represented as DNS-address pinning or as
+production network evidence.
+
+Validation
+==========
+
+- Node syntax checks passed for the transport SDK and private proxy.
+- Adversarial cases cover arbitrary NODE_OPTIONS, OpenSSL config/engine,
+  SSLKEYLOGFILE, NODE_PATH/debug, resolver options, aliases and dynamic preload.
+- Proxy, transport, catalog, capability, envelope and readiness suite: 26/26.
+- git diff --check passed.
+
+Scope
+=====
+
+No provider request or DNS lookup occurred. No network, transaction, signing,
+deployment, funds, production fact, Rust, Solidity, Cargo, Forge, commit or push
+occurred.

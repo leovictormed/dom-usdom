@@ -1,5 +1,31 @@
 #!/usr/bin/env bash
+# This command invokes ssh-keygen's passphrase prompt.  Establish the secret
+# boundary before resolving or executing any caller-selected tool.
+set +x
+unset BASH_XTRACEFD 2>/dev/null || true
 set -euo pipefail
+set +o history 2>/dev/null || true
+unset HISTFILE BASH_ENV ENV CDPATH \
+  LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH \
+  NODE_OPTIONS NODE_PATH NODE_DEBUG NODE_DEBUG_NATIVE SSLKEYLOGFILE \
+  PYTHONPATH PYTHONHOME PERL5LIB RUBYLIB GEM_HOME BUNDLE_GEMFILE \
+  SSH_AUTH_SOCK SSH_AGENT_PID GPG_AGENT_INFO \
+  HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy
+export HISTFILE=/dev/null
+export RUST_BACKTRACE=0 RUST_LIB_BACKTRACE=0
+if ! ulimit -c 0; then
+  printf '%s\n' 'FAIL: cannot disable core dumps for release-key configuration' >&2
+  exit 1
+fi
+for fd_path in /proc/$$/fd/*; do
+  inherited_fd=${fd_path##*/}
+  [[ $inherited_fd =~ ^[0-9]+$ ]] || exit 1
+  (( inherited_fd <= 2 )) && continue
+  [[ $inherited_fd == 255 ]] && continue
+  exec {inherited_fd}>&-
+done
+unset fd_path inherited_fd
+umask 077
 
 component="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 key_name=usdom-release-signing-ed25519
@@ -53,8 +79,6 @@ case "${component}/" in
     exit 1
     ;;
 esac
-
-umask 077
 
 ensure_private_directory() {
   python3 - "$1" <<'PY'

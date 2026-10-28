@@ -1,0 +1,78 @@
+ETAPA 1251 — external returndata and state-transition audit
+Date: 2026-10-26
+
+Scope
+-----
+
+Adversarial review of every remaining Solidity call boundary and the state
+transitions surrounding it: Safe identity/policy getters, finalized-burn and
+checkpoint proof adapters, registry reads, USDT policy/balance/transfer calls,
+queue mutation, settlement, pause/resume and terminal shutdown. No Rust,
+production script, network, signing, deployment, funds, commit or push operation
+was performed.
+
+Result
+------
+
+No new material authorization, accounting, reentrancy or returndata-copy defect
+was found.
+
+- Every Safe getter has a fixed gas cap, copies at most its expected fixed
+  response and checks exact returndata length plus canonical offset/count/value.
+- Verifier/config/capability and token/registry scalar calls copy one word and
+  reject every other length. Proof verifier calls that must return nothing copy
+  zero bytes and require zero returndata.
+- Token mutations accept only the historical USDT empty return or an exact
+  canonical `true`; failure, false, short, trailing and return-bomb responses
+  revert the complete transaction.
+- External proof and identity interactions are STATICCALLs. They cannot mutate
+  or reenter state transitions. Deposit, queue and payout token callbacks are
+  protected by `nonReentrant`, and every failed postcondition rolls back replay,
+  debt, queue, bucket and accounting writes.
+- Queue removal validates accounting, generation, head/tail and reciprocal
+  links before writes. Proved debt is reduced only after an exact permanent
+  burn/request/debt/finality match and remains unchanged by pause, expiry or
+  pruning.
+- The stage-1244 deployment-chain correction remains effective; current-chain
+  drift cannot select a weaker Safe policy.
+
+Regression expansion
+--------------------
+
+The test Safe now supplies adversarial auxiliary responses independently for:
+
+- `getThreshold()`: 31-byte short, 33-byte trailing and one-megabyte bomb;
+- `getModulesPaginated()`: 95-byte short, 97-byte trailing, one-megabyte bomb
+  and wrong dynamic offset with an otherwise exact response length; and
+- `getStorageAt()`: 95-byte short, 97-byte trailing, one-megabyte bomb and wrong
+  dynamic byte length with an otherwise exact response length.
+
+New Reserve and Registry regressions exercise all eleven malformed modes through
+their public health predicates and prove exact restoration. The stage-1244
+owner tests continue to cover revert, short/trailing/bomb, wrong offset/count
+and dirty address padding. The new code is confined to test mocks and tests;
+production runtime semantics and ABI did not change in this stage.
+
+Verification
+------------
+
+- Complete Foundry suite: 204/204 tests passed in 14 suites, 0 failed, 0
+  skipped.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 reverts.
+- ProofReserve runtime: 20,003 bytes; EIP-170 margin 4,573 bytes; 477-byte
+  surplus over the mandatory project margin.
+- ProofReserve initcode: 25,671 bytes; margin 23,481 bytes.
+- Registry runtime: 10,605 bytes; margin 13,971 bytes.
+- Quorum prototype runtime: 14,609 bytes; margin 9,967 bytes.
+- Formatting, full Forge execution, size measurement and `git diff --check`
+  passed.
+
+Release impact
+--------------
+
+This stage adds executable negative evidence without changing production
+bytecode beyond the already documented stage-1244 correction. It does not
+authorize deployment or real funds and does not replace outstanding release,
+proof, identity or operator evidence gates.

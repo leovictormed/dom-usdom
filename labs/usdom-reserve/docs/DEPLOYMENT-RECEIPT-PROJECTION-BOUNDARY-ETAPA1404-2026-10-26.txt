@@ -1,0 +1,36 @@
+ETAPA 1404 — PROJEÇÃO LIMITADA DE RECIBOS DE IMPLANTAÇÃO
+Data: 2026-10-26
+
+Problema
+
+`project_receipt` alterava o modo do recibo de entrada com `chmod 0600`,
+executava diretamente o projetor Node com stdout redirecionado e corrigia o
+modo do output. O padrão podia mascarar input/output inseguros e não aplicava
+deadline, limites de streams, UTF-8 fatal ou JSON estrito à projeção usada nas
+comparações de finalidade.
+
+Correção
+
+O helper agora exige que o recibo de entrada já satisfaça
+`assert_private_file`: arquivo regular, não symlink, UID atual, modo 0600 e link
+count um. Nenhuma permissão do input é modificada.
+
+O projetor executa por `run_node_json_authority`, com Node/timeout reatestados,
+deadline foreground TERM/KILL de 120 segundos, stdout máximo de 2 MiB, stderr
+máximo de 64 KiB, UTF-8 fatal, status/streams exatos, metadados privados do
+output e parser JSON estrito. As cinco projeções do fluxo passam pelo boundary.
+
+Validação offline
+
+- Sintaxe Bash: aprovada.
+- Regressões focais: 16/16 aprovadas.
+- Suíte ampla de implantação, sem a medição de gas independente: 65/65.
+- Inventário confirma cinco chamadas e nenhum chmod ou Node direto dentro do
+  helper.
+- `git diff --check`: aprovado.
+
+A medição local de gas permanece separadamente vermelha pela alteração Solidity
+concorrente no `checkpointRegistry`; nenhum teto ou Solidity mudou aqui.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

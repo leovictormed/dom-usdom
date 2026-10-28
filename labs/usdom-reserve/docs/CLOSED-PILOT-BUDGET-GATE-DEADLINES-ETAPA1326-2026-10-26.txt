@@ -1,0 +1,27 @@
+ETAPA 1326 — LIMITES DOS GATES DE ORÇAMENTO DO PILOTO
+Data: 2026-10-26
+
+Problema
+
+Depósito e resgate recalculam o orçamento acumulado antes de assinatura e
+publicação. Os dois pontos estáticos que executam o validador não tinham deadline.
+
+Correção
+
+Cada invocação de `check-closed-mainnet-pilot-budget.mjs` agora executa sob
+deadline foreground TERM/KILL de 120 segundos. Como todas as chamadas ao helper
+passam por esses pontos únicos, a cobertura inclui todas as revalidações antes
+de assinar e transmitir.
+
+Timeout, falha ou violação dos tetos por transação, fase ou piloto abortam antes
+da autorização correspondente. As regras numéricas permanecem inalteradas.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 74/74 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

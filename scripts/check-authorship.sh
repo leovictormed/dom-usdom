@@ -73,42 +73,10 @@ while IFS= read -r commit; do
     continue
   fi
 
-  while IFS= read -r trailer; do
-    [[ -z "$trailer" ]] && continue
-    if [[ "$trailer" != *:* ]]; then
-      echo "$commit contains an unparseable canonical trailer" >&2
-      failures=$((failures + 1))
-      continue
-    fi
-    trailer_key="${trailer%%:*}"
-    trailer_value="${trailer#*:}"
-    trailer_key="${trailer_key#"${trailer_key%%[![:space:]]*}"}"
-    trailer_key="${trailer_key%"${trailer_key##*[![:space:]]}"}"
-    trailer_value="${trailer_value#"${trailer_value%%[![:space:]]*}"}"
-    trailer_value="${trailer_value%"${trailer_value##*[![:space:]]}"}"
-    trailer_key="${trailer_key,,}"
-
-    if [[ "$trailer_key" == "co-authored-by" ]]; then
-      echo "$commit contains a forbidden Co-authored-by trailer" >&2
-      failures=$((failures + 1))
-      continue
-    fi
-    if [[ "$trailer_key" == *-by || "$trailer_key" == "author" \
-          || "$trailer_key" == "committer" || "$trailer_key" == "cc" \
-          || "$trailer_key" == "from" ]]; then
-      if [[ "$trailer_value" != "$expected_identity" ]]; then
-        echo "$commit has an unauthorized identity trailer: $trailer" >&2
-        failures=$((failures + 1))
-      fi
-      continue
-    fi
-    identity_address_pattern='<[^<>[:space:]]+@[^<>[:space:]]+>'
-    if [[ "$trailer_value" =~ $identity_address_pattern \
-          && "$trailer_value" != "$expected_identity" ]]; then
-      echo "$commit has an unauthorized identity trailer: $trailer" >&2
-      failures=$((failures + 1))
-    fi
-  done <<<"$parsed_trailers"
+  if [[ -n "$parsed_trailers" ]]; then
+    echo "$commit contains forbidden commit trailer(s): $parsed_trailers" >&2
+    failures=$((failures + 1))
+  fi
 done <<<"$commit_list"
 
 if [[ $failures -ne 0 ]]; then

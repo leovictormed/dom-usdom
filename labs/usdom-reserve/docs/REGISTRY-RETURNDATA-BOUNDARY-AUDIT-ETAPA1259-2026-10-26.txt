@@ -1,0 +1,69 @@
+ETAPA 1259 — registry returndata boundary audit
+Date: 2026-10-26
+
+Scope
+-----
+
+Adversarial review of the ProofReserve boundary to the immutable checkpoint
+registry, including ingress gating, registry identity, issuance closure,
+economic totals and terminal shutdown. The pass also rechecked proof adapter,
+token, Safe, queue and replay transitions for a new real-funds issue. No Rust,
+production script, network, signing, deployment, funds, commit or push operation
+was performed.
+
+Result
+------
+
+No new material production defect was found. Registry reads use the shared
+bounded one-word STATICCALL decoder: at most 32 return bytes are copied, success
+requires exactly 32 bytes, and booleans additionally require the canonical
+values zero or one. Code hash, registry configuration, bridge domain and
+activation schedule are revalidated before creating collateral or first proved
+debt. Terminal shutdown independently requires exact canonical registry flags
+and exact issued/burned/deposited totals.
+
+Malformed registry responses therefore revert before deposit credit, proved
+debt, terminal status or replay state can move. Existing proved debt settlement
+intentionally does not depend on later registry availability, preserving payout
+liveness after a registry halt or failure.
+
+Regression expansion
+--------------------
+
+The test registry now provides selector-specific hostile return modes without
+changing its normal ABI:
+
+- 31-byte short response;
+- 33-byte response with trailing data;
+- one-megabyte return bomb; and
+- a full word containing noncanonical boolean value `2`.
+
+A new regression applies these modes to configuration and halt reads during a
+deposit, and to graceful-shutdown, issuance-closed, total-issued and total-burned
+reads during terminal shutdown. Every attempt reverts without state movement.
+After the exact normal response is restored, the same reserve completes terminal
+shutdown successfully. Production contracts and ABI were unchanged in this
+stage.
+
+Verification
+------------
+
+- Complete Foundry suite: 205/205 tests passed in 14 suites, 0 failed, 0
+  skipped.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 reverts.
+- ProofReserve runtime: 20,003 bytes; EIP-170 margin 4,573 bytes; 477-byte
+  surplus over the mandatory project margin.
+- ProofReserve initcode: 25,671 bytes; margin 23,481 bytes.
+- Registry runtime: 10,605 bytes; margin 13,971 bytes.
+- Quorum prototype runtime: 14,609 bytes; margin 9,967 bytes.
+- Formatting, full Forge execution, size measurement and `git diff --check`
+  passed.
+
+Release impact
+--------------
+
+This stage adds executable negative evidence only. Production bytecode remains
+the stage-1244 result. This evidence does not authorize deployment or real funds
+and does not replace outstanding release, proof, identity or operator gates.

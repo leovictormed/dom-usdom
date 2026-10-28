@@ -5,13 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readDirectFile,readDirectProjectFile} from '../sdk/direct-project-file.mjs';
-import {writePrivateFileDurable,writePrivateFileDurableNew} from '../sdk/durable-private-file.mjs';
+import {writePrivateFileDurableNew} from '../sdk/durable-private-file.mjs';
+import {durableReplacementFailureExitCode,replaceLockedParentFileDurable}
+  from '../sdk/durable-locked-parent-replacement.mjs';
 import {
   FINALIZED_BURN_E2E_EVIDENCE_PATH,prepareFinalizedBurnReleaseEvidenceMaterialization,
 } from '../sdk/finalized-burn-release-evidence-materialization.mjs';
 import {validateReleaseSourceBoundary} from '../sdk/release-source-boundary.mjs';
 import {PINNED_RISC0_MAINNET_V3} from '../sdk/risc0-verifier-reference.mjs';
-import {parseStrictJson} from '../sdk/strict-json.mjs';
+import {parseStrictJsonBytes} from '../sdk/strict-json.mjs';
 import {captureFinalizedBurnReleaseRun} from '../sdk/release-run-snapshot.mjs';
 import {snapshotExecutable} from '../sdk/stable-executable.mjs';
 import {runPinnedExecutable} from '../sdk/pinned-executable-child.mjs';
@@ -28,6 +30,7 @@ const releasePath='config/proof-reserve.unconfigured.json';
 const verifierPath='config/finalized-burn-verifier.unconfigured.json';
 const evidencePath='config/mainnet-release-evidence.unconfigured.json';
 const gitExecutable=await snapshotExecutable('git');
+const pythonExecutable=await snapshotExecutable('python3');
 
 const rawSha=value=>createHash('sha256').update(value).digest('hex');
 function fail(message) { throw new Error(message); }
@@ -85,7 +88,7 @@ async function latestCompletedRun(sourceCommit) {
   const snapshot=await captureFinalizedBurnReleaseRun(runRoot);
   try {
     const {statusBytes,reportBytes}=snapshot;
-    const status=parseStrictJson(statusBytes.toString('utf8'),{label:'finalized-burn run status'});
+    const status=parseStrictJsonBytes(statusBytes,{label:'finalized-burn run status'});
     exact(status,['recordedAt','reportSha256','runId','schema','sourceCommit','status'],
       'finalized-burn run status');
     if(status.schema!=='usdom-finalized-burn-release-run-v1' || status.status!=='succeeded'
@@ -96,7 +99,7 @@ async function latestCompletedRun(sourceCommit) {
       fail('latest finalized-burn release run is not a canonical success for this source commit');
     }
     return {runId,runRoot,statusBytes,reportBytes,snapshot,
-      report:parseStrictJson(reportBytes.toString('utf8'),{
+      report:parseStrictJsonBytes(reportBytes,{
         label:'finalized-burn E2E report',maxBytes:4*1024*1024,maxDepth:48,
       })};
   } catch(error) {
@@ -123,13 +126,20 @@ async function ensureDirectParent(relative) {
   }
 }
 
-async function atomicWrite(relative,content) {
+async function compareAndSwapEvidence(relative,content,previousBytes) {
   if(typeof relative!=='string' || relative==='' || relative.startsWith('/') || relative.includes('\\')
       || relative.split('/').some(part=>part==='' || part==='.' || part==='..')) {
     fail('materialization path is not canonical');
   }
   await ensureDirectParent(relative);
-  await writePrivateFileDurable(path.join(root,relative),content);
+  const target=path.join(root,relative),parent=path.dirname(target),metadata=await lstat(parent);
+  if(!metadata.isDirectory()||metadata.isSymbolicLink()||metadata.uid!==currentUid
+      ||(metadata.mode&0o022)!==0) fail('release evidence parent is unsafe');
+  const bytes=Buffer.from(content);
+  await replaceLockedParentFileDurable({target,contents:bytes,expectedSha256:rawSha(bytes),
+    expectedPreviousSha256:rawSha(previousBytes),expectedParentDevice:String(metadata.dev),
+    expectedParentInode:String(metadata.ino),metadataInspectorExecutable:pythonExecutable.path,
+    metadataInspectorSha256:pythonExecutable.sha256,expectedMode:0o600});
 }
 
 async function immutableWrite(relative,content) {
@@ -162,14 +172,15 @@ async function main() {
     readDirectProjectFile(root,releasePath),readDirectProjectFile(root,verifierPath),
     readDirectProjectFile(root,evidencePath),
   ]);
-  const releaseConfig=parseStrictJson(releaseBytes.toString('utf8'),{label:releasePath});
-  const verifierConfig=parseStrictJson(verifierBytes.toString('utf8'),{label:verifierPath});
-  const evidence=parseStrictJson(evidenceBytes.toString('utf8'),{label:evidencePath});
+  const releaseConfig=parseStrictJsonBytes(releaseBytes,{label:releasePath});
+  const verifierConfig=parseStrictJsonBytes(verifierBytes,{label:verifierPath});
+  const evidence=parseStrictJsonBytes(evidenceBytes,{label:evidencePath});
   if(!/^[0-9a-f]{40}$/.test(evidence.sourceCommit??'')) {
     fail('release evidence sourceCommit is not configured');
   }
   await assertSourceBoundary(evidence.sourceCommit);
   const latest=await latestCompletedRun(evidence.sourceCommit);
+  let primaryError=null,successRecord=null;
   try {
     const prepared=prepareFinalizedBurnReleaseEvidenceMaterialization({report:latest.report,evidence,
       releaseConfig,verifierConfig,riscZeroReference:PINNED_RISC0_MAINNET_V3});
@@ -180,7 +191,7 @@ async function main() {
     await assertSourceBoundary(evidence.sourceCommit);
     await assertInputsUnchanged({releaseBytes,verifierBytes,evidenceBytes});
     await assertRunUnchanged(latest);
-    await atomicWrite(evidencePath,prepared.evidenceContent);
+    await compareAndSwapEvidence(evidencePath,prepared.evidenceContent,evidenceBytes);
     await assertSourceBoundary(evidence.sourceCommit);
     await assertInputsUnchanged({releaseBytes,verifierBytes,evidenceBytes:Buffer.from(prepared.evidenceContent)});
     await assertRunUnchanged(latest);
@@ -196,15 +207,20 @@ async function main() {
         ||!installedEvidence.equals(Buffer.from(prepared.evidenceContent))) {
       fail('installed finalized-burn release generation differs from prepared bytes');
     }
-    console.log(JSON.stringify({ok:true,runId:latest.runId,path:FINALIZED_BURN_E2E_EVIDENCE_PATH,
-      sha256:prepared.sha256,broadcastAuthorized:false},null,2));
+    successRecord={ok:true,runId:latest.runId,path:FINALIZED_BURN_E2E_EVIDENCE_PATH,
+      sha256:prepared.sha256,broadcastAuthorized:false};
+  } catch(error) {
+    primaryError=error;
+    throw error;
   } finally {
-    await latest.snapshot.cleanup();
+    try { await latest.snapshot.cleanup(); }
+    catch(cleanupError) { if(primaryError===null) throw cleanupError; }
   }
+  console.log(JSON.stringify(successRecord,null,2));
 }
 
 try { await main(); }
 catch(error) {
   writePilotFailure('finalized-burn-evidence-materialize',error);
-  process.exitCode=1;
+  process.exitCode=durableReplacementFailureExitCode(error);
 }

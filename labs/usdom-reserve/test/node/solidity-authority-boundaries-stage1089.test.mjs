@@ -20,7 +20,8 @@ test('reserve constructor enforces disjoint infrastructure and control roles',()
 test('ordinary recovery requires governance and revalidates the whole control plane',()=>{
   assert.match(reserve,/function scheduleResume\(\) external onlyGovernance[\s\S]*_requireControlPlaneUnchanged\(\)/);
   assert.match(reserve,/function executeResume\(\) external[\s\S]*_requireControlPlaneUnchanged\(\)[\s\S]*_requireVerifierUnchanged\(\)[\s\S]*_requireTokenUsable/);
-  assert.match(reserve,/function _safePolicyIntact[\s\S]*CONTROL_PLANE_THRESHOLD[\s\S]*_safeOwnersIntact[\s\S]*_safeModulesEmpty[\s\S]*_safeGuardEmpty[\s\S]*_safeFallbackHandlerIntact/);
+  assert.match(reserve,/function _controlPlaneUnchanged[\s\S]*_safeOwnersIdentity[\s\S]*_safePolicyWithoutOwnersIntact/);
+  assert.match(reserve,/function _safePolicyWithoutOwnersIntact[\s\S]*CONTROL_PLANE_THRESHOLD[\s\S]*_safeModulesEmpty[\s\S]*_safeGuardEmpty[\s\S]*_safeFallbackHandlerIntact/);
 });
 
 test('checkpoint emergency halt is guardian-only while graceful closure is proof-state authorized',()=>{

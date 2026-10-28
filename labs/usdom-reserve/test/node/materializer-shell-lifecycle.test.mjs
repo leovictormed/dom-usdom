@@ -17,7 +17,7 @@ test('catalog and finalized-event writers bound every Node child and exit on sig
     for(const [signal,status] of [['HUP','129'],['INT','130'],['TERM','143']]) {
       assert.match(source,new RegExp(`trap 'cleanup ${status}' ${signal}`),name);
     }
-    assert.match(source,/cleanup\(\) \{ local status=\$\{1:-\$\?\}; trap - EXIT HUP INT TERM;/,name);
+    assert.match(source,/cleanup\(\) \{\s*local status=\$\{1:-\$\?\};?\s*trap - EXIT HUP INT TERM;?/,name);
     assert.doesNotMatch(source,/(?:^|\s)&\s*(?:#.*)?$/m,name);
   }
 });

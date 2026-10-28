@@ -9,7 +9,7 @@ export function validateDepositIssuanceAuthority({reserve,finality,state,chain})
   }
   const failures=[];
   requirePattern(failures,reserve,
-    /function depositId[\s\S]*?abi\.encode\(block\.chainid, address\(this\), funder, salt\)/,
+    /uint256 public immutable deploymentChainId[\s\S]*?deploymentChainId = block\.chainid[\s\S]*?function depositId[\s\S]*?abi\.encode\(deploymentChainId, address\(this\), funder, salt\)/,
     'deposit_id_not_deployment_bound');
   requirePattern(failures,reserve,
     /deposits\[id\] = Deposit\(msg\.sender, amount, receivingCommitment\)[\s\S]*?totalDeposited \+= amount[\s\S]*?_tokenBalanceOf\(address\(this\)\) != reserveBefore \+ amount[\s\S]*?emit Deposited\(id, msg\.sender, amount, receivingCommitment\)/,

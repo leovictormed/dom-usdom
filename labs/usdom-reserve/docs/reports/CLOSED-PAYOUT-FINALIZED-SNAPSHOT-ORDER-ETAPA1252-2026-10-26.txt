@@ -1,0 +1,33 @@
+Stage 1252 — bounded and ordered finalized snapshots for closed payout evidence
+Date: 2026-10-26
+
+Finding
+-------
+Closed-mainnet payout evidence accepted baseline and post-execution Ethereum
+snapshot block positions across the uint256 domain. It also verified monetary
+deltas and hashes without requiring the post-execution finalized snapshot to be
+later than the pre-signing baseline. An internally consistent artifact could
+therefore claim an impossible equal or regressed observation order.
+
+Correction
+----------
+Both finalized snapshot block numbers now require canonical uint64. The
+post-execution snapshot must be strictly greater than the baseline before the
+artifact can establish the one-USDT payout delta. Existing dual-RPC counts,
+package binding, balances, debt, supply and output-order checks remain intact.
+
+Adversarial regression
+----------------------
+Regressions reject 100,000-digit and exact 2^64 values independently in both
+snapshot channels, plus equal and regressed post-execution block positions.
+
+Validation
+----------
+- Node syntax check: pass.
+- Closed payout, pilot DAG, redemption and gas-funding suites: 10/10 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

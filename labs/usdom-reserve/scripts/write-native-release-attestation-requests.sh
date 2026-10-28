@@ -39,7 +39,7 @@ flock -n 9 || { printf '%s\n' 'Another native-attestation writer holds the lock'
 temporary=$(mktemp -p "$output" .requests.XXXXXXXX)
 trap 'rm -f -- "$temporary"' EXIT
 node scripts/prepare-native-release-attestation-requests.mjs > "$temporary"
-jq -e '.schema == "usdom-native-release-attestation-requests/v2"
+jq -e '.schema == "usdom-native-release-attestation-requests/v3"
   and ([.requests[].attestation.signature] | all(. == null))
   and ([.requests[].digest] | all(test("^0x[0-9a-fA-F]{64}$")))' "$temporary" >/dev/null
 chmod 0600 "$temporary"; sync -f "$temporary"

@@ -11,6 +11,9 @@ import {buildVerifierReproducibleBuildReport,serializeVerifierReproducibleBuildR
   validateVerifierReproducibleBuildReport,
 } from '../../sdk/verifier-reproducible-build-report.mjs';
 import {parseStrictJsonBytes} from '../../sdk/strict-json.mjs';
+import {PINNED_RISC0_MAINNET_V3} from '../../sdk/risc0-verifier-reference.mjs';
+import {PRODUCTION_SOLC_LONG_VERSION,PRODUCTION_SOLC_SHA256}
+  from '../../sdk/reproducible-build-environment.mjs';
 
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const hash=byte=>'0x'+byte.repeat(32);
@@ -26,7 +29,8 @@ const verifierConfig={schema:VERIFIER_CONFIG_SCHEMA,statementVersion:'1',
  verifyingKeySha256:hash('1e'),trustedSetupRequired:true,trustedSetupTranscriptSha256:hash('1f'),
  provingProgramSha256:hash('20'),sourceManifestSha256:hash('21'),verifierArtifactSha256:hash('22'),
  maxProofBytes:'260',minimumFinalityBeaconSlot:'1',ethereumChainId:'1',
- riscZeroVerifier:'0x'+'22'.repeat(20),riscZeroVerifierCodeHash:hash('23'),
+ riscZeroVerifier:PINNED_RISC0_MAINNET_V3.verifier_address,
+ riscZeroVerifierCodeHash:PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash,
  riscZeroVerifierSelector:FINALIZED_BURN_RISC0_GROTH16_V3_SELECTOR,
  finalizedBurnGuestImageId:hash('24'),journalSchemaHash:FINALIZED_BURN_RISC0_JOURNAL_SCHEMA_HASH};
 const computed=finalizedBurnVerifierConfigHash(verifierConfig);
@@ -38,7 +42,8 @@ const evidence={schema:1,releaseId:'release-1',sourceCommit:'a'.repeat(40),sourc
 const releaseConfig={ethereumChainId:'1',verifier:'0x'+'33'.repeat(20),
  verifierConfigHash:computed.verifierConfigHash,verifierCodeHash:hash('34'),
  verifierInitcodeHash:hash('35')};
-const observed=id=>({buildId:id,compilerExecutableSha256:sha('solc'),compilerVersion:'0.8.37+commit.f401782d',
+const observed=id=>({buildId:id,compilerExecutableSha256:PRODUCTION_SOLC_SHA256,
+ compilerVersion:PRODUCTION_SOLC_LONG_VERSION,
  artifactSha256:artifactSha,sourceSetSha256:sourceSha,runtimeCodeHash:releaseConfig.verifierCodeHash,
  initcodeHash:releaseConfig.verifierInitcodeHash});
 const context={releaseEvidence:evidence,releaseConfig,verifierConfig,observations:[
@@ -58,6 +63,7 @@ test('verifier report rejects artifact, runtime, config, compiler and source sub
   value=>{value.observations[1].artifactSha256=sha('other');},
   value=>{value.observations[1].runtimeCodeHash=hash('99');},
   value=>{value.observations[1].compilerVersion='0.8.36+commit.00000000';},
+  value=>{for(const observation of value.observations) observation.compilerExecutableSha256=sha('other-solc');},
   value=>{value.observations[1].sourceSetSha256=sha('other');},
   value=>{value.verifierConfigHash=hash('98');},
   value=>{value.extra=true;},
@@ -78,6 +84,17 @@ test('verifier report rejects release and manifest drift',()=>{
   {verifierConfig:{...verifierConfig,maxProofBytes:1048575}},
   {observations:[observed('isolated-build-a'),observed('isolated-build-a')]},
  ]) assert.throws(()=>buildVerifierReproducibleBuildReport({...context,...input}));
+});
+
+test('verifier report rejects zero artifact and source-set SHA-256 placeholders',()=>{
+ const zero='0'.repeat(64);
+ const zeroArtifact=structuredClone(context);
+ zeroArtifact.releaseEvidence.verifierArtifact.sha256=zero;
+ for(const observation of zeroArtifact.observations) observation.artifactSha256=zero;
+ assert.throws(()=>buildVerifierReproducibleBuildReport(zeroArtifact),/nonzero/);
+ const zeroSources=structuredClone(context);
+ for(const observation of zeroSources.observations) observation.sourceSetSha256=zero;
+ assert.throws(()=>buildVerifierReproducibleBuildReport(zeroSources),/nonzero/);
 });
 
 test('fixed verifier writer uses two isolated create-once builds without live capability',async()=>{

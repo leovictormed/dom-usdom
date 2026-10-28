@@ -1,4 +1,5 @@
 import {Transaction,getAddress,getCreateAddress,keccak256} from 'ethers';
+import {validateMainnetDeploymentLedgerHandoff} from './deployment-package.mjs';
 
 export const MAINNET_DEPLOYMENT_MAX_GAS_LIMIT=20_000_000n;
 export const MAINNET_DEPLOYMENT_SEQUENCE_MAX_GAS_LIMIT=12_500_000n;
@@ -11,12 +12,12 @@ const deploymentNames=['finalizedBurnVerifier','checkpointVerifier','checkpointR
 // still required and must fit below these values. The publication gate proves
 // each ceiling remains above the rebuilt runtime's unavoidable 200 gas/byte
 // code-deposit cost; a larger rebuild therefore fails closed before signing.
-// Fresh pinned-Anvil solc-0.8.37/via-IR transactions measured 2,545,275 gas
-// for Registry CREATE and 4,707,900 for Reserve CREATE at the current 20,100 B
+// Fresh pinned-Anvil solc-0.8.37/via-IR transactions measured 2,659,546 gas
+// for Registry CREATE and 4,764,316 for Reserve CREATE at the current 20,339 B
 // Reserve runtime. These ceilings round upward before the
 // planner independently adds calldata/EIP-3860 charges and a further 25%.
 const auditedCreateGas={finalizedBurnVerifier:750_000n,checkpointVerifier:750_000n,
-  checkpointRegistry:2_600_000n,reserve:4_800_000n};
+  checkpointRegistry:2_700_000n,reserve:4_800_000n};
 
 export function auditedDeploymentCreateGasCeiling(name) {
   if(!(name in auditedCreateGas)) throw new Error('unknown deployment gas policy');
@@ -45,6 +46,11 @@ export function auditedDeploymentGasLimit(name,data) {
 }
 
 export function planMainnetDeploymentGas({name,data,maximumEstimate}) {
+  if(typeof maximumEstimate==='string'&&(maximumEstimate.length>8
+      ||!/^(0|[1-9][0-9]*)$/.test(maximumEstimate))
+      ||typeof maximumEstimate!=='string'&&typeof maximumEstimate!=='bigint') {
+    throw new Error('deployment gas estimate is malformed');
+  }
   let estimate;
   try { estimate=BigInt(maximumEstimate); }
   catch { throw new Error('deployment gas estimate is malformed'); }
@@ -59,8 +65,12 @@ export function planMainnetDeploymentGas({name,data,maximumEstimate}) {
   return limit;
 }
 
-export function validateMainnetDeploymentRawTransaction({raw,expected,index}) {
+export function validateMainnetDeploymentRawTransaction({raw,packageValue,packageBytes,
+  packageSha256,handoff,index}) {
   if(typeof index!=='string'||!(/^[0-3]$/).test(index)) throw new Error('invalid deployment index');
+  validateMainnetDeploymentLedgerHandoff({handoff,packageValue,packageBytes,
+    packageSha256,index:Number(index)});
+  const expected=packageValue.transactions[Number(index)];
   if(typeof raw!=='string'||!/^0x[0-9a-f]+$/.test(raw)||raw.length%2!==0) {
     throw new Error('deployment raw transaction must be canonical lowercase hex');
   }
@@ -73,6 +83,9 @@ export function validateMainnetDeploymentRawTransaction({raw,expected,index}) {
   let expectedFrom;
   let expectedContract;
   let expectedNonce;
+  if(expected.nonce.length>20||!/^(0|[1-9][0-9]*)$/.test(expected.nonce)) {
+    throw new Error('deployment plan is malformed');
+  }
   try {
     expectedFrom=getAddress(expected.from);
     expectedContract=getAddress(expected.expectedContract);
@@ -80,7 +93,7 @@ export function validateMainnetDeploymentRawTransaction({raw,expected,index}) {
   } catch {
     throw new Error('deployment plan is malformed');
   }
-  if(!/^(0|[1-9][0-9]*)$/.test(expected.nonce)||expectedNonce>2n**64n-1n
+  if(expectedNonce>2n**64n-1n
       ||BigInt(expectedFrom)===0n||BigInt(expectedContract)===0n
       ||!/^0x[0-9a-f]+$/.test(expected.data)||expected.data.length%2!==0
       ||!/^0x[0-9a-f]{64}$/.test(expected.initcodeHash)

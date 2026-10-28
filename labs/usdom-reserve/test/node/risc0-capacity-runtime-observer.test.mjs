@@ -49,4 +49,9 @@ test('capacity observer rejects source, chain, block and runtime substitutions',
   }}),/disagree/);
   await assert.rejects(observePinnedRiscZeroRuntime({reference,sources,rpc:async value=>
     value.method==='eth_getCode'?'0x6000':rpc(value)}),/reviewed pin/);
+  for(const number of [`0x${'f'.repeat(100000)}`,'0x10000000000000000','0x20'.toUpperCase()]) {
+    await assert.rejects(observePinnedRiscZeroRuntime({reference,sources,rpc:async value=>
+      value.method==='eth_getBlockByNumber'&&value.params[0]==='finalized'
+        ?{number,hash}:rpc(value)}),/canonical Ethereum block/);
+  }
 });

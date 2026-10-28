@@ -18,6 +18,7 @@ node() { assert_runtime_tool node; "$node_bin" "$@"; }
 pin_runtime_tool jq
 jq() { assert_runtime_tool jq; "$jq_bin" "$@"; }
 pin_runtime_tool timeout
+pin_runtime_tool python3
 config_directory="$project/config"
 metadata="$config_directory/mainnet-release-evidence.unconfigured.json"
 evidence_root="$project/evidence"
@@ -34,22 +35,55 @@ exec 8<"$config_directory"
 flock -n 8 || { printf '%s\n' 'Another release materializer holds the config lock' >&2; exit 75; }
 exec 9<"$output"
 flock -n 9 || { printf '%s\n' 'Another security-validation writer holds the output lock' >&2; exit 75; }
+metadata_sha256=$(sha256sum "$metadata" | awk '{print $1}')
+parent_device=$(stat -Lc '%d' "$config_directory")
+parent_inode=$(stat -Lc '%i' "$config_directory")
 
 # The report and its metadata pointer form one derived completion pair. Clear
 # the pointer first, then durably remove the old report, so a failed retry
 # cannot leave a stale report advertised as current.
 invalidation=$(mktemp -p "$output" .invalidate.XXXXXXXX)
-trap 'rm -f -- "$invalidation"' EXIT
+invalidation_identity=$(/usr/bin/stat -c '%u:%d:%i:%a' -- "$invalidation")
+temporary=''
+temporary_identity=''
+cleanup() {
+  local status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ -n $temporary ]]; then
+    if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' -- "$temporary" 2>/dev/null) == "$temporary_identity" ]]; then
+      /usr/bin/rm -rf -- "$temporary" || { (( status != 0 )) || status=1; }
+    else
+      (( status != 0 )) || status=1
+    fi
+  fi
+  if [[ -e $invalidation || -L $invalidation ]]; then
+    if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' -- "$invalidation" 2>/dev/null) == "$invalidation_identity" ]]; then
+      /usr/bin/rm -f -- "$invalidation" || { (( status != 0 )) || status=1; }
+    else
+      (( status != 0 )) || status=1
+    fi
+  fi
+  exit "$status"
+}
+trap 'cleanup $?' EXIT
+trap 'cleanup 129' HUP
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
 assert_runtime_tool node; assert_runtime_tool timeout; "$timeout_bin" --signal=TERM --kill-after=2s 120s "$node_bin" "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" \
   | jq '.securityValidationReport=null' > "$invalidation"
 chmod 0600 "$invalidation"; sync -f "$invalidation"
-assert_runtime_tool node; assert_runtime_tool timeout; "$timeout_bin" --signal=TERM --kill-after=2s 120s "$node_bin" "$project/scripts/install-release-config-stdin.mjs" "$metadata" < "$invalidation"
+candidate_sha256=$(sha256sum "$invalidation" | awk '{print $1}')
+assert_runtime_tool node; assert_runtime_tool timeout; assert_runtime_tool python3
+"$timeout_bin" --signal=TERM --kill-after=2s 120s "$node_bin" "$project/scripts/replace-locked-source-stdin.mjs" "$metadata" \
+ "$candidate_sha256" "$metadata_sha256" "$parent_device" "$parent_inode" \
+ "$python3_bin" "$python3_sha256" < "$invalidation"
+metadata_sha256=$candidate_sha256
 assert_runtime_tool node; assert_runtime_tool timeout; "$timeout_bin" --signal=TERM --kill-after=2s 120s "$node_bin" "$project/scripts/remove-private-file-durable.mjs" \
   "$output/security-validation-report.json"
 sync -f "$metadata"; sync -f "$output"; sync -f "$config_directory"
 
 temporary=$(mktemp -d -p "$output" .build.XXXXXXXX)
-trap 'rm -f -- "$invalidation"; rm -rf -- "$temporary"' EXIT
+temporary_identity=$(/usr/bin/stat -c '%u:%d:%i:%a' -- "$temporary")
 report="$temporary/security-validation-report.json"
 next_metadata="$temporary/mainnet-release-evidence.json"
 metadata_snapshot="$temporary/mainnet-release-evidence.input.json"
@@ -76,7 +110,11 @@ sync -f "$target"
 assert_runtime_tool node; assert_runtime_tool timeout; "$timeout_bin" --signal=TERM --kill-after=2s 120s "$node_bin" "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_current"
 cmp -s "$metadata_snapshot" "$metadata_current"
 if ! cmp -s "$next_metadata" "$metadata_snapshot"; then
-  assert_runtime_tool node; assert_runtime_tool timeout; "$timeout_bin" --signal=TERM --kill-after=2s 120s "$node_bin" "$project/scripts/install-release-config-stdin.mjs" "$metadata" < "$next_metadata"
+  candidate_sha256=$(sha256sum "$next_metadata" | awk '{print $1}')
+  assert_runtime_tool node; assert_runtime_tool timeout; assert_runtime_tool python3
+  "$timeout_bin" --signal=TERM --kill-after=2s 120s "$node_bin" "$project/scripts/replace-locked-source-stdin.mjs" "$metadata" \
+   "$candidate_sha256" "$metadata_sha256" "$parent_device" "$parent_inode" \
+   "$python3_bin" "$python3_sha256" < "$next_metadata"
 fi
 assert_runtime_tool node; assert_runtime_tool timeout; "$timeout_bin" --signal=TERM --kill-after=2s 120s "$node_bin" "$project/scripts/read-release-config-file-stdout.mjs" "$metadata" > "$metadata_installed"
 cmp -s "$next_metadata" "$metadata_installed"

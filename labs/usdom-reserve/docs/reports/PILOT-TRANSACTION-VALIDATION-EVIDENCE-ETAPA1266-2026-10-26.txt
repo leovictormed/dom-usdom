@@ -1,0 +1,42 @@
+Stage 1266 — exact and bounded pilot transaction-validation evidence
+Date: 2026-10-26
+
+Finding
+-------
+The closed-mainnet phase reconciler trusted selected fields from deposit and
+redemption raw-validation documents, but did not require the writer-defined
+field set or independently bound the persisted nonce and signed gas envelope.
+An altered validation could therefore carry ambiguous extra fields, substitute
+deposit token/reserve metadata, or send an oversized nonce into later BigInt
+arithmetic before the DAG rejected it.
+
+Correction
+----------
+Both validation schemas are now exact. Nonce is canonical uint64 text before
+conversion. Gas limit, maximum fee, priority fee and maximum cost are canonical
+bounded uint256 text, their product is exact, and the existing phase-specific
+gas, fee and transaction-cost ceilings are independently applied. Deposit
+validation token and reserve are rebound to the exact deposit package before a
+receipt contributes to phase state.
+
+Adversarial regression
+----------------------
+Tests reject leading-zero, 100,000-digit and uint64-overflow nonces, injected
+fields, token/reserve substitutions, zero or excessive gas/fee, priority above
+maximum fee, and forged maximum cost. A separate redemption fixture proves its
+narrower schema and independent phase limits.
+
+Validation
+----------
+- SDK and phase-checker Node syntax checks: pass.
+- Pilot evidence, DAG, command generation, receipt-cost and deposit/redemption
+  executor suites: 10/10 pass.
+- Targeted diff check: pass.
+- A complete `test/node/*.test.mjs` sample was attempted. It remained red in
+  unrelated concurrently changing artifact/source and RPC-boundary tests; no
+  reported failure referenced the files changed by this stage.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

@@ -1,0 +1,13 @@
+{
+  "schema": "usdom-onekey-ble-physical-ceremony-authority-v1",
+  "status": "unconfigured",
+  "observationCollectionApproved": false,
+  "hardwareSigningApproved": false,
+  "expectedDeviceId": null,
+  "expectedAddress": null,
+  "firmwareAllowlist": [],
+  "appAuthoritySha256": null,
+  "packageAuthoritySha256": null,
+  "appArtifactSha256": null,
+  "packageArtifactSha256": null
+}

@@ -1,0 +1,37 @@
+USDOM mainnet readiness — Stage 1367
+Date: 2026-10-26
+
+Finding
+=======
+
+The deployment sequence-cost checker securely captured and strictly parsed each
+previous raw-validation record, but accepted the record after inspecting only
+schema, index and maximumCost. A synthetic minimal object could replace the full
+validation evidence and contribute an arbitrarily smaller canonical cost to the
+aggregate one-ETH deployment cap.
+
+Correction
+==========
+
+Before consuming maximumCost, every previous record now passes the same exact
+18-field validator used by the deployment evidence pipeline. It binds deployment
+order and contract name, Ethereum mainnet chain, sender and expected CREATE
+address, nonce, transaction hash, release/package/RPC/observation/raw hashes,
+gas limit, fee fields, and the exact gasLimit times maxFeePerGas cost relation.
+
+The sequence checker retains its expected-index check and separate lexical and
+numeric maximum-cost cap before BigInt arithmetic.
+
+Validation
+==========
+
+- Regression accepts one complete canonical prior deployment record.
+- Extra-field/minimal substitution is rejected before cost accumulation.
+- Deployment evidence, sequence-cost and execution suites passed 19/19.
+- Node syntax, 256-source critical inventory and git diff --check passed.
+
+Scope
+=====
+
+No production evidence or financial limit changed. No hash freeze, network,
+deployment, signing, funds, commit or push occurred.

@@ -1,0 +1,38 @@
+ETAPA 1414 — CLEANUP LIMITADO DOS PACKAGERS EVM
+Data: 2026-10-26
+
+Problema
+
+Os packagers EVM do checkpoint externo e da queima finalizada removiam suas
+árvores privadas em traps com `rm -rf` direto. Não havia binário autenticado,
+deadline, confinamento ao prefixo de snapshot, comprovação de ausência ou
+preservação explícita dos códigos de sinal. Uma falha podia reter inputs e
+receipts privados ou permitir deriva perigosa do pathname recursivo.
+
+Correção
+
+`rm` e `timeout` passaram ao conjunto pinado pelos dois scripts. O cleanup
+aceita somente a raiz exata do respectivo packager em `/dev/shm`, exige
+diretório real e não symlink, e reatesta os dois binários antes da remoção.
+
+A única exclusão recursiva usa timeout foreground TERM/KILL de 120 segundos e
+o `rm_bin` autenticado. Depois exige ausência tanto do path quanto de symlink.
+EXIT preserva o status original somente com limpeza comprovada; HUP, INT e TERM
+usam respectivamente 129, 130 e 143. Falha de remoção retorna falha.
+
+Inventário adicional
+
+Permanecem ferramentas diretas na construção/publicação (`mkdir`, hashes,
+`sync`, contadores e remoções individuais). Elas foram identificadas para as
+próximas etapas; este estágio fecha atomicamente o boundary de cleanup secreto.
+
+Validação offline
+
+- Sintaxe Bash dos dois packagers: aprovada.
+- Regressões focais e integração leve, sem geração de prova: 9/9 aprovadas.
+- Inventário exige rm/timeout pinados, prefixos fechados, deadline, pós-condição
+  e traps com status explícito.
+- `git diff --check`: aprovado.
+
+Nenhuma prova pesada, rede externa, Ledger, assinatura, deploy, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

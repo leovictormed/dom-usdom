@@ -1,0 +1,33 @@
+ETAPA 1284 — PRAZOS EXTERNOS PARA OPERAÇÕES LEDGER DO PILOTO
+Data: 2026-10-26
+
+Problema
+
+Os executores de depósito e resgate aguardavam indefinidamente tanto a leitura do
+endereço Ledger quanto a assinatura clear-signing por `cast mktx`. Uma falha de USB,
+aplicativo ou transporte podia reter a cerimônia e seus snapshots privados sem um
+limite operacional.
+
+Correção
+
+As leituras de endereço agora usam timeout de 300 segundos em foreground, com TERM
+e KILL após cinco segundos. As duas assinaturas `cast mktx --ledger` usam timeout de
+900 segundos com o mesmo escalonamento. O prazo maior da assinatura acomoda a revisão
+manual no dispositivo, enquanto ainda limita o ciclo completo do subprocesso.
+
+O pipeline conserva `set -o pipefail`, portanto timeout, recusa ou falha do Ledger
+impedem a criação/aceitação da transação. As verificações de identidade do endereço,
+clear-signing, validação independente do raw e autorização de publicação permanecem
+inalteradas. Nenhum dispositivo foi acessado durante esta etapa.
+
+Validação local
+
+- sintaxe Bash dos dois executores: aprovada;
+- suíte focal do piloto: 23/23 aprovada;
+- suíte ampliada closed-mainnet/pilot: 67/67 aprovada;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

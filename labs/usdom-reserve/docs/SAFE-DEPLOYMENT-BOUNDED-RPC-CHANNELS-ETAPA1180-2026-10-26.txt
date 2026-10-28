@@ -1,0 +1,31 @@
+SAFE DEPLOYMENT BOUNDED RPC CHANNELS — STAGE 1180
+Date: 2026-10-26
+
+Finding
+=======
+
+The three-Safe executor bounded RPC execution time but allowed Cast stdout and
+stderr to flow directly into command substitutions and evidence files. A
+malicious or defective RPC response could therefore cause unbounded shell
+memory or disk growth; successful commands could also inject unexpected stderr
+outside the authenticated evidence path.
+
+Correction
+==========
+
+Every Cast RPC call now writes stdout and stderr to owner-only files in the
+executor's tmpfs directory. Node verifies fatal UTF-8 decoding and strict limits
+of 2 MiB for stdout and 64 KiB for stderr. Success requires empty stderr and
+stdout is returned only through the pinned private-file reader. Failure emits
+only a generic bounded status, without reflecting RPC-controlled content.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/receipt/process tests: 7/7 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

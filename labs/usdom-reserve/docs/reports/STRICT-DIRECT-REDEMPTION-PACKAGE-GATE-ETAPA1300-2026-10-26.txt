@@ -1,0 +1,35 @@
+Stage 1300 — strict direct redemption-package gate
+Date: 2026-10-26
+
+Finding
+-------
+The package builder and signed-raw validator for closed-mainnet redemption read
+the authenticated submission and private package with unbounded readFileSync and
+ordinary JSON.parse. It also destructured arguments without an arity gate, so
+extra or incomplete invocation shapes were not rejected at the command boundary.
+
+Correction
+----------
+The command now permits only submission-only, submission-plus-package, or the
+exact raw-validation form with index and nonce. Submission and package use
+readDirectFile with a 4-MiB cap and parseStrictJsonBytes with explicit byte,
+depth, node, string, object and array limits. Existing private raw-transaction
+boundary remains, and all failures use redacted pilot diagnostics.
+
+Adversarial regression
+----------------------
+A behavioral test proves canonical submission bytes derive the exact SDK package.
+An extra/incomplete argument form fails with empty stdout. Duplicate submission
+schema keys fail with nonzero status, empty stdout and no injected-value leak.
+
+Validation
+----------
+- Redemption package CLI Node syntax check: pass.
+- Redemption, finalized-burn submission, pilot DAG/evidence and broad operator
+  suites: 104/104 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

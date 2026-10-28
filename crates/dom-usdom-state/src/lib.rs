@@ -7622,7 +7622,13 @@ mod tests {
             .expect("apply issuance");
         let populated = state.state_commitment_v2().expect("populated v2");
         let populated_bytes = populated.to_bytes().expect("encode populated v2");
-        assert_eq!(populated_bytes.len(), MAX_STATE_COMMITMENT_V2_BYTES);
+        // Ordinary issuance carries the historical anchor extension. The
+        // larger protocol maximum additionally reserves the optional,
+        // terminal issuance-closure record and must not be required here.
+        assert_eq!(
+            populated_bytes.len(),
+            HISTORICAL_MAX_STATE_COMMITMENT_V2_BYTES
+        );
         let restored =
             StateCommitmentV2::from_bytes(&populated_bytes).expect("decode populated v2");
         assert_eq!(restored, populated);

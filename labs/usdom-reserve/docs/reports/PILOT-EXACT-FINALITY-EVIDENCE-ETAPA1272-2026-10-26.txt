@@ -1,0 +1,36 @@
+Stage 1272 — exact self-contained pilot finality evidence
+Date: 2026-10-26
+
+Finding
+-------
+Pilot finality validation selected only receipt identity fields from the
+finality document. Ambiguous extra fields were accepted, and the four gas-cost
+claims were checked only later by one caller rather than by the evidence
+validator that authorized the finalized transaction chain.
+
+Correction
+----------
+Deposit and redemption finality evidence now requires the exact nine-field
+writer schema. Transaction and block hashes must use canonical lowercase bytes32
+encoding. The validator independently computes gas used, effective gas price
+and actual cost from the receipt and binds them, plus maximum cost, to the
+finality document and signed raw-validation envelope.
+
+Adversarial regression
+----------------------
+Regressions reject injected and missing fields, uppercase receipt/finality
+hashes, forged actual cost and zero receipt gas. Both deposit and redemption
+fixtures remain accepted through their distinct schemas.
+
+Validation
+----------
+- SDK Node syntax check: pass.
+- Pilot evidence, DAG, command generation, receipt-cost, deposit/redemption
+  executors and terminal financial evidence suites: 14/14 pass.
+- Targeted evidence regression: 2/2 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

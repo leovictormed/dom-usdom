@@ -1,0 +1,36 @@
+Stage 1279 — exact finalized-deposit witness-index authority
+Date: 2026-10-26
+
+Finding
+-------
+The finalized-deposit witness index was checked field by field but did not
+require its writer-defined schema to be exact. The terminal pilot conservation
+check consumed an even smaller subset. Ambiguous extensions or malformed
+unconsumed witness metadata could therefore cross the issuance-to-payout
+evidence boundary.
+
+Correction
+----------
+A shared index validator now requires exactly twelve fields and validates the
+canonical manifest/witness hashes, fixed witness filename, positive safe-integer
+size capped at 4 MiB, execution and no-broadcast flags, exact one-USDT amount,
+lowercase deposit ID and a nonzero BN254-field receiving commitment. Full native
+issuance and terminal financial conservation both invoke this authority.
+
+Adversarial regression
+----------------------
+Financial-conservation regressions reject injected and missing index fields,
+zero witness length and a length above 4 MiB. Existing issuance substitutions,
+witness-byte identity and registration bindings remain covered.
+
+Validation
+----------
+- Issuance and conservation SDK Node syntax checks: pass.
+- Issuance, conservation, deposit/payout evidence, pilot DAG, wallet receipt
+  and finalized-source suites: 21/21 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

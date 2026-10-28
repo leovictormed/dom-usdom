@@ -1,0 +1,44 @@
+Stage 1290 — isolated regtest PoW environment (2026-10-26)
+
+Finding
+=======
+
+`native_usdom_v4_runtime.rs` selected fast regtest hashing and real RandomX by
+mutating `DOM_REGTEST_FAST_MINING` and `DOM_REGTEST_REAL_RANDOMX` directly.
+Rust integration tests in one test binary may execute concurrently, while
+environment variables are process-global. In addition, the variables were not
+restored. Because `DOM_REGTEST_REAL_RANDOMX=1` has precedence, a real-RandomX
+test could silently switch an otherwise fast test to RandomX, causing severe
+runtime variance and order-dependent failures.
+
+Correction
+==========
+
+The integration test now uses `RegtestPowEnvGuard` for every mutation of the
+two PoW mode variables. A process-local mutex serializes those tests. Each mode
+explicitly clears its opposite variable, and RAII restores both original
+values on success, panic unwind or early return. The long fixture migration and
+resume branches acquire no guard because they return before mining.
+
+`mine_regtest_header_parallel` was audited separately. It constructs
+`MinerVm` directly, calculates RandomX directly and independently validates the
+winning hash; it neither reads nor writes either environment variable. No
+change to that helper was required.
+
+Evidence
+========
+
+- `rustfmt --edition 2021 --check` passes for the edited integration test.
+- `git diff --check` passes for the edited integration test.
+- A static scope check confirms no mining-mode environment mutation exists
+  outside `RegtestPowEnvGuard` and confirms the parallel helper has no
+  `std::env` dependency.
+- A short regression test verifies mutually exclusive fast/real selection and
+  exact restoration of both pre-existing environment values.
+- The regression was not executed during this stage because an existing,
+  independently started real-RandomX test was active. Starting another Cargo
+  test would violate the requirement not to interfere with that proof. It must
+  be included in the next isolated `native_usdom_v4_runtime` run.
+
+No production consensus behavior, Solidity, operator script, network, signing,
+deployment, funds, commit or push changed or ran.

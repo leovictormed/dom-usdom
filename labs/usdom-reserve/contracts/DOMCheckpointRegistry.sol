@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.37;
 
-/// @notice A verifier implementation must prove that `statementHash` names a
-/// valid DOM consensus extension from the previous checkpoint to the proposed
-/// checkpoint. Returning any value other than `PROOF_ACCEPTED` is rejection.
-interface IDOMCheckpointVerifier {
-    function verifierConfigHash() external view returns (bytes32);
-    function verifyDOMCheckpoint(bytes32 statementHash, bytes calldata proof) external view returns (bytes32);
-}
+import {IDOMCheckpointVerifier} from "./IDOMCheckpointVerifier.sol";
 
 /// @title Immutable, delayed work-selected DOM checkpoint registry
 /// @notice Permissionless relayers compete with proof-authorized candidates at
@@ -67,6 +61,9 @@ contract DOMCheckpointRegistry {
     bytes32 public constant PRODUCTION_CHECKPOINT_CONFIG_HASH = bytes32(0);
 
     bytes32 public immutable bridgeDomain;
+    /// @notice Statement identity remains bound to the chain that deployed this
+    /// registry even if a later network fork changes the EVM chain ID.
+    uint256 public immutable deploymentChainId;
     uint32 public immutable domNetworkMagic;
     bytes32 public immutable domChainId;
     uint64 public immutable firstV4Height;
@@ -227,8 +224,10 @@ contract DOMCheckpointRegistry {
     error Unauthorized();
     error IsHalted();
     error NotGracefullyClosable();
+    error ChainChanged();
 
     constructor(Config memory config) {
+        deploymentChainId = block.chainid;
         address verifierAddress = address(config.verifier);
         bytes32 codeHash = verifierAddress.codehash;
         bytes32 guardianHash = config.guardian.codehash;
@@ -336,7 +335,7 @@ contract DOMCheckpointRegistry {
                     checkpoint.confirmationBlock,
                     checkpoint.confirmationTotalDifficulty,
                     checkpoint.confirmationTimestamp,
-                    block.chainid,
+                    deploymentChainId,
                     address(this),
                     activationScheduleCommitment,
                     checkpointConfigHash
@@ -357,6 +356,10 @@ contract DOMCheckpointRegistry {
     /// Only finalization emits the Checkpoint event consumed by burn witnesses.
     function submitCheckpointCandidate(CheckpointInput calldata checkpoint, bytes calldata proof) external {
         if (halted) revert IsHalted();
+        // A chain-ID fork must not admit a new checkpoint under the deployment's
+        // old domain. Candidates proved before the fork remain finalizable so a
+        // drift cannot retroactively erase an already authenticated transition.
+        if (block.chainid != deploymentChainId) revert ChainChanged();
         uint256 expectedHeight = uint256(latestHeight) + checkpointInterval;
         uint256 expectedConfirmationHeight = expectedHeight + confirmationDepth;
         if (
@@ -479,6 +482,9 @@ contract DOMCheckpointRegistry {
             readyAt,
             statementHash
         );
+        // Same STATICCALL-only reasoning as the preceding event; this second
+        // log is part of the same atomic candidate publication.
+        // forge-lint: disable-next-item(reentrancy-events)
         emit CheckpointCandidateEconomics(
             statementHash, checkpoint.totalIssued, checkpoint.totalBurned, checkpoint.issuanceClosed
         );
@@ -513,6 +519,9 @@ contract DOMCheckpointRegistry {
         emit Checkpoint(
             bridgeDomain, domNetworkMagic, current.height, current.blockHash, current.stateRoot, checkpointConfigHash
         );
+        // The verifier identity probe is STATICCALL-only and all effects are
+        // complete before this companion finalization log.
+        // forge-lint: disable-next-item(reentrancy-events)
         emit CheckpointFinalizedV2(
             current.statementHash,
             current.contextHash,
@@ -632,11 +641,12 @@ contract DOMCheckpointRegistry {
         }
         if (
             block.chainid == 1
-                && (account.codehash != SAFE_MAINNET_PROXY_CODE_HASH || implementation != SAFE_MAINNET_SINGLETON
+                && (account.codehash != SAFE_MAINNET_PROXY_CODE_HASH
+                    || implementation != SAFE_MAINNET_SINGLETON
                     || codeHash != SAFE_MAINNET_SINGLETON_CODE_HASH)
         ) revert InvalidConfiguration();
-        if (!_safePolicyIntact(account)) revert InvalidConfiguration();
-        (bool ownersIntact, bytes32 currentOwnersCommitment) = _safeOwnersIdentity(account);
+        if (!_safePolicyIntact(account, true)) revert InvalidConfiguration();
+        (bool ownersIntact, bytes32 currentOwnersCommitment) = _safeOwnersIdentity(account, true);
         if (!ownersIntact) revert InvalidConfiguration();
         ownersCommitment = currentOwnersCommitment;
     }
@@ -651,24 +661,28 @@ contract DOMCheckpointRegistry {
         if (account.codehash != accountCodeHash) return false;
         if (implementation == account) return implementation.codehash == implementationCodeHash;
         (bool ok, bytes32 word) = _staticcallWord(account, CONTROL_PLANE_GAS_LIMIT, hex"a619486e");
-        (bool ownersIntact, bytes32 currentOwnersCommitment) = _safeOwnersIdentity(account);
+        (bool ownersIntact, bytes32 currentOwnersCommitment) = _safeOwnersIdentity(account, false);
         return ok && uint256(word) <= type(uint160).max && address(uint160(uint256(word))) == implementation
-            && implementation.codehash == implementationCodeHash && _safePolicyIntact(account) && ownersIntact
+            && implementation.codehash == implementationCodeHash && _safePolicyIntact(account, false) && ownersIntact
             && currentOwnersCommitment == ownersCommitment;
     }
 
-    function _safePolicyIntact(address account) private view returns (bool) {
+    function _safePolicyIntact(address account, bool requireCodeFree) private view returns (bool) {
         (bool thresholdOk, bytes32 thresholdWord) = _staticcallWord(account, CONTROL_PLANE_GAS_LIMIT, hex"e75235b8");
-        return thresholdOk && uint256(thresholdWord) == CONTROL_PLANE_THRESHOLD && _safeOwnersIntact(account)
-            && _safeModulesEmpty(account) && _safeGuardEmpty(account)
-            && (block.chainid != 1 || _safeFallbackHandlerIntact(account));
+        return thresholdOk && uint256(thresholdWord) == CONTROL_PLANE_THRESHOLD
+            && _safeOwnersIntact(account, requireCodeFree) && _safeModulesEmpty(account) && _safeGuardEmpty(account)
+            && (deploymentChainId != 1 || _safeFallbackHandlerIntact(account));
     }
 
-    function _safeOwnersIntact(address account) private view returns (bool intact) {
-        (intact,) = _safeOwnersIdentity(account);
+    function _safeOwnersIntact(address account, bool requireCodeFree) private view returns (bool intact) {
+        (intact,) = _safeOwnersIdentity(account, requireCodeFree);
     }
 
-    function _safeOwnersIdentity(address account) private view returns (bool intact, bytes32 commitment) {
+    function _safeOwnersIdentity(address account, bool requireCodeFree)
+        private
+        view
+        returns (bool intact, bytes32 commitment)
+    {
         bytes memory callData = hex"a0e67e2b";
         bytes32 offset;
         bytes32 count;
@@ -692,10 +706,17 @@ contract DOMCheckpointRegistry {
         intact = intact && returnSize == 160 && uint256(offset) == 32 && uint256(count) == CONTROL_PLANE_OWNER_COUNT
             && uint256(first) <= type(uint160).max && uint256(second) <= type(uint160).max
             && uint256(third) <= type(uint160).max && first != bytes32(0) && second != bytes32(0) && third != bytes32(0)
-            && first != second && first != third && second != third && firstOwner != address(1)
-            && secondOwner != address(1) && thirdOwner != address(1) && firstOwner != account && secondOwner != account
-            && thirdOwner != account && firstOwner.code.length == 0 && secondOwner.code.length == 0
-            && thirdOwner.code.length == 0;
+            && first != second && first != third && second != third && uint160(firstOwner) > 0x11
+            && uint160(secondOwner) > 0x11 && uint160(thirdOwner) > 0x11 && firstOwner != account
+            && secondOwner != account && thirdOwner != account && firstOwner != address(this)
+            && secondOwner != address(this) && thirdOwner != address(this);
+        // Preserve code-free admission for direct ECDSA owners. Live health is
+        // based on the pinned owner set and Safe policy so unilateral EIP-7702
+        // code appearance cannot freeze checkpoints below the 2-of-3 threshold.
+        if (
+            intact && requireCodeFree
+                && (firstOwner.code.length != 0 || secondOwner.code.length != 0 || thirdOwner.code.length != 0)
+        ) intact = false;
         if (intact) commitment = _canonicalOwnerSetCommitment(firstOwner, secondOwner, thirdOwner);
     }
 
@@ -827,6 +848,9 @@ contract DOMCheckpointRegistry {
     }
 
     function _timestampAfter(uint256 delay) private view returns (uint64) {
+        // This comparison is an arithmetic overflow guard against the uint64
+        // storage boundary, not a timing or authorization decision.
+        // forge-lint: disable-next-line(block-timestamp)
         if (delay > type(uint64).max || block.timestamp > type(uint64).max - delay) revert InvalidCheckpoint();
         return _checkedTimestamp(block.timestamp + delay);
     }

@@ -1,0 +1,22 @@
+Etapa 1444 — reconciliação do lifecycle de filhos finitos
+
+Achados e correções
+
+Os testes de proof/report estavam presos à grafia literal antiga de timeout e
+ignoravam helpers ou binários pinados. Foram atualizados para contar chamadas
+semanticamente equivalentes, preservando TERM, KILL e 120 segundos. Dois novos
+sites legítimos de export/planejamento elevaram o inventário de 45 para 47.
+
+Nos materializadores, duas implementações realmente continuavam com trap rm
+direto. Ambas agora pinam timeout e removem temporários por Node autenticado sob
+TERM em 30 segundos e KILL após cinco, exigindo ausência e preservando status de
+sinais. A regressão aceita tanto o helper legado autenticado quanto a infraestrutura
+runtime atual, exigindo cleanup bounded desta última.
+
+Validação
+
+- Três regressões focais: 3/3 aprovadas.
+- Sintaxe dos dois materializadores alterados: aprovada.
+- git diff --check: aprovado.
+
+Nenhuma rede, assinatura, deploy, fundos, commit ou push foi executado.

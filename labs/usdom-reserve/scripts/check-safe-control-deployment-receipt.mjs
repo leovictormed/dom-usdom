@@ -3,11 +3,13 @@ import path from 'node:path';
 import {getAddress} from 'ethers';
 import {readDirectFile} from '../sdk/direct-project-file.mjs';
 import {parseStrictJsonBytes} from '../sdk/strict-json.mjs';
-import {canonicalEthereumQuantity} from '../sdk/ethereum-quantity.mjs';
+import {canonicalEthereumQuantity,canonicalUnsignedDecimal} from '../sdk/ethereum-quantity.mjs';
 import {writeReleaseFailure} from '../sdk/pilot-safe-diagnostics.mjs';
 
 const bytes32=/^0x[0-9a-fA-F]{64}$/;
-const outputKeys=['schema','role','transactionHash','blockNumber','blockHash','status','from','to'];
+const outputKeys=['schema','role','transactionHash','blockNumber','blockHash','transactionIndex','status','from','to'];
+const validationKeys=['schema','role','safe','from','nonce','to','dataHash','transactionHash',
+  'gasLimit','maxFeePerGas','rawHash'];
 
 try {
   const [role,receiptPath,validationPath]=process.argv.slice(2);
@@ -23,7 +25,20 @@ try {
   const receipt=parseStrictJsonBytes(receiptBytes,{label:'Safe receipt',maxDepth:32});
   const validation=parseStrictJsonBytes(validationBytes,{label:'Safe raw validation',maxDepth:8});
   const control=packageDocument.controls?.find(value=>value.role===role);
-  if(!control||validation?.schema!=='usdom-safe-deployment-raw/v1'||validation.role!==role) {
+  const exactValidation=validation&&typeof validation==='object'&&!Array.isArray(validation)
+    &&JSON.stringify(Object.keys(validation).sort())===JSON.stringify([...validationKeys].sort());
+  let validationNonce,validationGas,validationFee;
+  try {
+    validationNonce=canonicalUnsignedDecimal(validation?.nonce,{maximum:BigInt(Number.MAX_SAFE_INTEGER)});
+    validationGas=canonicalUnsignedDecimal(validation?.gasLimit,{maximum:1_000_000n});
+    validationFee=canonicalUnsignedDecimal(validation?.maxFeePerGas,{maximum:100_000_000_000n});
+  } catch { throw new Error('Safe receipt authority is invalid'); }
+  if(!control||!exactValidation||validation.schema!=='usdom-safe-deployment-raw/v1'
+      ||validation.role!==role||getAddress(validation.safe)!==getAddress(control.safe)
+      ||getAddress(validation.to)!==getAddress(control.to)
+      ||validationNonce!==validation.nonce||validationGas==='0'||validationFee==='0'
+      ||![validation.dataHash,validation.transactionHash,validation.rawHash].every(value=>
+        bytes32.test(value??'')&&BigInt(value)!==0n)) {
     throw new Error('Safe receipt authority is invalid');
   }
   if(receipt?.schema!==undefined
@@ -34,6 +49,7 @@ try {
   const transactionHash=String(receipt.transactionHash??'').toLowerCase();
   const blockHash=String(receipt.blockHash??'').toLowerCase();
   canonicalEthereumQuantity(receipt.blockNumber);
+  canonicalEthereumQuantity(receipt.transactionIndex);
   const blockNumber=receipt.blockNumber;
   const from=getAddress(receipt.from),to=getAddress(receipt.to);
   if(!bytes32.test(transactionHash)||BigInt(transactionHash)===0n||!bytes32.test(blockHash)
@@ -43,7 +59,7 @@ try {
     throw new Error('Safe receipt differs from the authenticated deployment transaction');
   }
   const projected={schema:'usdom-safe-deployment-receipt/v1',role,transactionHash,
-    blockNumber,blockHash,status:'0x1',from,to};
+    blockNumber,blockHash,transactionIndex:receipt.transactionIndex,status:'0x1',from,to};
   const [packageAfter,receiptAfter,validationAfter]=await Promise.all([
     readDirectFile(packagePath,{minimum:packageBytes.length,maximum:packageBytes.length,exactMode:0o600,label:'Safe package'}),
     readDirectFile(receiptPath,{minimum:receiptBytes.length,maximum:receiptBytes.length,exactMode:0o600,label:'Safe receipt'}),

@@ -1,0 +1,35 @@
+ETAPA 1250 — CICLO DE VIDA LIMITADO DO CLEANUP TEMPORÁRIO SAFE
+Data: 2026-10-26
+
+Problema
+
+O trap de cleanup da recuperação Safe encerrava e aguardava o proxy corretamente,
+mas removia a árvore privada com uma chamada Node sem prazo. Se essa remoção travasse
+ou ignorasse o encerramento, o processo podia não preservar a saída por sinal e os
+segredos temporários podiam permanecer em `/dev/shm`.
+
+Correção
+
+Depois de encerrar e aguardar o grupo do proxy, `cleanup` agora:
+
+- reatesta Node e timeout;
+- limita a remoção recursiva a 30 segundos em foreground, com TERM e KILL após cinco;
+- descarta os canais da remoção sem mesclá-los ou expor conteúdo sensível;
+- exige ausência final do diretório temporário;
+- converte qualquer falha de reatestação, prazo, remoção ou pós-condição em status 1;
+- preserva o status original, inclusive 129/130/143, quando o cleanup termina com
+  sucesso.
+
+A ordem permanece: desarmar traps, parar/aguardar o proxy, apagar segredos e sair.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais de cleanup, processo, pinning e paridade: 9/9 aprovados;
+- focais mais `operator-runbook`: 93/93 aprovados;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

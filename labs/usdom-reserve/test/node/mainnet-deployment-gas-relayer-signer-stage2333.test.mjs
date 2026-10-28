@@ -1,0 +1,13 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import {fileURLToPath} from 'node:url';
+const root=fileURLToPath(new URL('../..',import.meta.url));
+test('deployment relayer signer uses only encrypted keystore and never broadcasts',async()=>{const source=await readFile(`${root}/scripts/sign-mainnet-deployment-gas-relayer.sh`,'utf8');
+ assert.match(source,/--keystore "\$keystore"/);assert.match(source,/--no-hash "\$unsigned_hash"/);
+ assert.match(source,/assemble-gas-relayer-eip1559\.mjs/);assert.match(source,/install-private-file-new-stdin\.mjs/);
+ assert.doesNotMatch(source,/--private-key|--mnemonic|--unsafe-password|--ledger|cast send|eth_sendRawTransaction|publish-private/);
+ assert.ok(source.indexOf('AUTORIZO ASSINAR RELAYER DEPLOY')<source.indexOf('wallet sign --no-hash'));
+});
+test('relayer creator writes only an encrypted keystore and public identity',async()=>{const source=await readFile(`${root}/scripts/create-mainnet-gas-relayer.sh`,'utf8');
+ assert.match(source,/wallet new "\$root" relayer-keystore/);assert.match(source,/wallet address --keystore "\$keystore"/);
+ assert.match(source,/custodyAuthority:false,tokenCustody:false/);
+ assert.doesNotMatch(source,/--private-key|--mnemonic|--unsafe-password|privateKey|mnemonic/);
+});

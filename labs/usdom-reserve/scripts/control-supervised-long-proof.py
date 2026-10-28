@@ -3,6 +3,8 @@
 
 import argparse, datetime as dt, hashlib, json, os, re, signal, stat, subprocess, sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from durable_create_once import install_create_once
 
 RUN_ID = re.compile(r"[0-9a-f]{64}\Z")
 
@@ -84,20 +86,8 @@ def unit_show(unit):
     return dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
 
 def durable_request(path, value):
-    temporary=path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW, 0o400)
-    try:
-        write_all(fd,canonical(value)); os.fsync(fd)
-    except Exception:
-        try: os.unlink(temporary)
-        except FileNotFoundError: pass
-        raise
-    finally: os.close(fd)
-    try: os.link(temporary,path,follow_symlinks=False)
-    finally: os.unlink(temporary)
-    dfd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
-    try: os.fsync(dfd)
-    finally: os.close(dfd)
+    install_create_once(path,canonical(value),mode=0o400,maximum=1024*1024,
+                        private_parent=True,allow_equal=False)
 
 def adjacent(cmdline,key,value):
     needle=key.encode(); expected=value.encode()

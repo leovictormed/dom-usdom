@@ -1,0 +1,28 @@
+Stage 1172 — locale-independent RPC source ordering
+Date: 2026-10-26
+
+Finding
+RPC source-set commitments and several release evidence producers used
+String.localeCompare() to define canonical operator order. ICU collation is a
+display-language operation rather than byte ordering: under pinned Node 24,
+for example, it orders `a_` before `a0`, opposite ASCII/UTF-8 byte order. Its
+result can also vary with runtime locale data, making a protocol commitment
+dependent on the host environment.
+
+Change
+All RPC operator/source ordering in SDK evidence, collectors, catalogs,
+checkpoint consensus, RISC Zero health/incident evidence and candidate monitor
+now uses explicit lexical code-unit ordering. The accepted identifier alphabets
+are ASCII, so this is identical to UTF-8 byte ordering and independent of ICU.
+
+Validation
+- Added a regression with `a0` and `a_` that proves the canonical byte order
+  succeeds and the reversed order fails even though Node locale collation is
+  opposite.
+- Affected RPC/preflight/checkpoint suites pass 39/39.
+- Syntax checks pass for all ten modified SDK modules and candidate-monitor.
+- Static audit confirms no operator/source localeCompare remains in sdk/scripts.
+- Targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

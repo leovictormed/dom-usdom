@@ -1,0 +1,21 @@
+ETAPAS 1516B/1517B — cerimônia e instalação da verifying key
+
+Foi implementado um envelope autenticado para transcript multi-participante: cadeia de
+contribuições, identidades Ethereum distintas, assinaturas de cada contribuição, atestação
+assinada de destruição/separação do toxic waste, beacon final, assinatura unânime da
+finalização e hashes do circuito, release, proving key e verifying key. O instalador é
+create-once/resumível, publica o recibo por último e exige que o manifesto runtime ligue
+spend_verifying_key_sha256 e privacy_verifier_config_hash ao transcript.
+
+Comandos completos de validação e instalação, após uma cerimônia externa real gerar os
+quatro artefatos nos caminhos indicados:
+
+  cd /home/leonardov/usdom-security-audit-20261015/implementation-dom-protocol/labs/usdom-reserve
+  cargo build --offline --locked --release -p dom-usdom-privacy --bin dom-usdom-groth16-ceremony
+  npm run --silent check:native-privacy-ceremony -- /home/leonardov/usdom-mainnet-private/native-privacy/ceremony-transcript.json /home/leonardov/usdom-mainnet-private/native-privacy/spend-circuit.bin /home/leonardov/usdom-mainnet-private/native-privacy/final-proving-key.bin /home/leonardov/usdom-mainnet-private/native-privacy/spend-verifying-key.bin /home/leonardov/usdom-mainnet-private/native-privacy/contributions /home/leonardov/usdom-security-audit-20261015/implementation-dom-protocol/target/release/dom-usdom-groth16-ceremony
+  npm run --silent install:native-privacy-verifying-key -- /home/leonardov/usdom-mainnet-private/native-privacy/ceremony-transcript.json /home/leonardov/usdom-mainnet-private/native-privacy/spend-circuit.bin /home/leonardov/usdom-mainnet-private/native-privacy/final-proving-key.bin /home/leonardov/usdom-mainnet-private/native-privacy/spend-verifying-key.bin /home/leonardov/usdom-mainnet-private/native-privacy/native-usdom-v2.json /home/leonardov/usdom-mainnet-private/native-privacy/installed-release /home/leonardov/usdom-mainnet-private/native-privacy/contributions /home/leonardov/usdom-security-audit-20261015/implementation-dom-protocol/target/release/dom-usdom-groth16-ceremony
+
+O motor Arkworks integrado posteriormente verifica matematicamente cada transformação
+Phase 2, recompõe o fingerprint R1CS/Poseidon e deriva a VK da PK final. Os claims seguem
+false porque nenhuma cerimônia real foi executada; PK0 e suas atestações externas também
+precisam existir nos caminhos privados antes dos comandos acima.

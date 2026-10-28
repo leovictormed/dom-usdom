@@ -1,0 +1,24 @@
+Stage 1420 — Cargo workspace/lock inventory closure
+Date: 2026-10-26
+
+Finding
+Cargo locks and manifests were each validated, but their inventories were not joined. A new
+standalone workspace could therefore omit Cargo.lock and fall outside frozen resolution, while
+an orphan lock could be counted without an adjacent reviewed manifest authority.
+
+Correction
+- Every discovered Cargo.lock must have an adjacent Cargo.toml in the same authenticated manifest
+  inventory.
+- Every manifest declaring a workspace must have an adjacent Cargo.lock.
+- The only unlocked workspace exceptions are two isolated fuzz/corpus tools; their exact manifest
+  path, package name and version are structurally allowlisted.
+- A new unlocked workspace, changed exception identity or orphan lock fails closed.
+- Adversarial coverage proves the exact exceptions and rejects an extra workspace and orphan lock.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No global inventory was rematerialized. No network, signing, deployment, funds, commit or push occurred.

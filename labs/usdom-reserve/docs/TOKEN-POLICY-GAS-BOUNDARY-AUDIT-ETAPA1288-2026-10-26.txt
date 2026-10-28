@@ -1,0 +1,46 @@
+USDOM Solidity adversarial audit - stage 1288
+Date: 2026-10-26
+Scope: gas exhaustion at USDT policy getter boundaries
+
+Conclusion
+==========
+
+No new material production defect was found. All six token-policy observations use
+the same bounded one-word STATICCALL decoder with TOKEN_GAS_LIMIT = 500,000. A token
+getter that never returns exhausts only that allowance, fails closed as
+UnsupportedToken, and cannot leave a partial reserve transition.
+
+Coverage added
+==============
+
+The selector-specific hostile token gas-exhaustion mode was applied to paused(),
+deprecated(), upgradedAddress(), basisPointsRate(), maximumFee(), and
+isBlackListed(address). The regression exercises every getter during deposit and the
+recipient blacklist getter during payout. It proves:
+
+- a failed policy observation cannot consume a deposit ID or create collateral credit;
+- failed payout policy checks cannot mark a burn paid, reduce pending debt, or spend
+  rate-limit capacity; and
+- exact restoration permits the original payout to complete.
+
+Production contracts and ABI were unchanged.
+
+Validation
+==========
+
+- Focused Forge regressions: 2 passed, 0 failed (including registry isolation check).
+- Full Forge run: 209 passed, 0 failed, 0 skipped across 14 suites.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 handler reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 handler reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 handler reverts.
+- Runtime sizes remained unchanged:
+  - USDOMProofReserve: 20,003 bytes; EIP-170 margin 4,573 bytes.
+  - DOMCheckpointRegistry: 10,605 bytes; margin 13,971 bytes.
+  - USDOMReserve: 14,609 bytes; margin 9,967 bytes.
+- Repository git diff --check passed.
+
+Operational constraints
+=======================
+
+No Rust, production script, network, signing, deployment, funds, commit, or push was
+performed.

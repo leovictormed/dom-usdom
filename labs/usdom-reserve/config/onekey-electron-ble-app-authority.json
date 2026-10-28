@@ -1,0 +1,72 @@
+{
+  "schema": "usdom-onekey-electron-ble-app-authority-v1",
+  "status": "test-only-linux-ble-bundle-runtime-and-production-unapproved",
+  "hardwareSigningApproved": false,
+  "runtimeTransport": "desktop-web-ble",
+  "approvedFirmwareVersions": [],
+  "runtimeLauncher": {
+    "electronExecutable": null,
+    "electronExecutableSha256": null,
+    "mainPath": "electron/onekey-ble/main.mjs",
+    "mainSha256": "3e50c129940256c959cf83905c76d98acf9a299c82248e2562e38deeac6cdc9d"
+  },
+  "officialAppReference": {
+    "repository": "https://github.com/OneKeyHQ/app-monorepo",
+    "gitHead": "1632460b39c8eab0cf70adf146e6aa086c28bfdc"
+  },
+  "gates": {
+    "nativeBleAdapterApproved": true,
+    "electronRuntimeApproved": false,
+    "rendererBundleApproved": true,
+    "physicalCeremonyApproved": false,
+    "productionTransportApproved": false
+  },
+  "rendererBundle": {
+    "allowedOneKeyPackages": [
+      "@onekeyfe/hd-common-connect-sdk",
+      "@onekeyfe/hd-core",
+      "@onekeyfe/hd-shared",
+      "@onekeyfe/hd-transport",
+      "@onekeyfe/hd-transport-web-device"
+    ],
+    "forbiddenModules": [
+      "@onekeyfe/hd-transport-usb",
+      "usb",
+      "@onekeyfe/hd-transport-http",
+      "@onekeyfe/hd-transport-emulator",
+      "@onekeyfe/hd-transport-lowlevel",
+      "@onekeyfe/hwk-desktop-noble-ble"
+    ]
+  },
+  "artifacts": {
+    "electron/onekey-ble/index.html": "d9f1ef298162442dcef51f5489889eb7b8fe427128b68de009d7c80dce2f75b2",
+    "electron/onekey-ble/main.mjs": "3e50c129940256c959cf83905c76d98acf9a299c82248e2562e38deeac6cdc9d",
+    "electron/onekey-ble/native-adapter.mjs": "2dee4c779d4997b1a3250c78a305dc615214c694baf96670348edf8f0d02e9e6",
+    "electron/onekey-ble/preload.mjs": "0c39a061534b870355897741a390576265ed0fd99f2d9fc08fd32da5c13f78b2",
+    "electron/onekey-ble/renderer.mjs": "f3ee13a5c3c2149ee2d2fd475fe57a0fde86b7e901eaf29fb4323d76dae6cebe",
+    "scripts/launch-onekey-electron-ble-ceremony.mjs": "ad71f8a7123e497680d340f990a555a556f400e219a9808071a270f567c38ca3",
+    "sdk/onekey-linux-noble-adapter.mjs": "4622a6811c2f95fe643bc22b8b3bbc0708c49a264ee0e34dff4b0b72ea231720",
+    "sdk/onekey-bluetooth-factory.mjs": "9adfad819ec00878c06e6b86a425ab44b55fb66d458cc38ad390f23bcc774d0a",
+    "electron/onekey-ble/blocked-module.mjs": "cec19055cec27b2148ea821d427a0d23a5763869431ea5c1501401a8e3eb1623",
+    "electron/onekey-ble/renderer.bundle.mjs": "ed20072e97c18ab456ed2cb89ab70d30f34482f091f45feb29cb12f045153a51",
+    "electron/onekey-ble/renderer.bundle.meta.json": "64bfdab1f5c11b690b35e95ab07059337390b2301c5fe2a87df524e2424107c4",
+    "scripts/build-onekey-electron-ble-renderer.mjs": "d815ef2f0e4f6c08317ebe051d8911b8060e5a7c199960731135f44510094c15",
+    "scripts/check-onekey-electron-ble-bundle.mjs": "f809448ba387e474414c448076ac6efa77945c583a6b39200cba47d0be74e98a"
+  },
+  "electronRuntimePackage": {
+    "version": "44.10.0",
+    "integrity": "sha512-ss4pCfrQKV4TWkuVYtWB4HmeysPZgB96cSYNKYZv1UVCRP4vQMGNW5oopFbvx6Bbfce1XtP5pm5RDuKehp0svQ==",
+    "license": "MIT",
+    "executablePath": "node_modules/electron/dist/electron",
+    "executableSha256": null,
+    "installedExecutableVerified": false
+  },
+  "rendererBuild": {
+    "builder": "esbuild",
+    "version": "0.25.12",
+    "integrity": "sha512-bbPBYYrtZbkt6Os6FiTLCTFxvq4tt3JKall1vRwshA3fdVztsLAatFaZobhkBC8/BrPetoa0oksYoKXoG4ryJg==",
+    "platformPackage": "@esbuild/linux-x64",
+    "platformVersion": "0.25.12",
+    "platformIntegrity": "sha512-uqZMTLr/zR/ed4jIGnwSLkaHmPjOjJvnm6TVVitAa08SLS9Z0VM8wIRx7gWbJB5/J54YuIMInDquWyYvQLZkgw=="
+  }
+}

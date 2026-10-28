@@ -1,0 +1,36 @@
+Stage 1261 — bounded RPC quantities in the mainnet preflight collector
+Date: 2026-10-26
+
+Finding
+-------
+The production preflight collector converted `eth_chainId` directly with
+`BigInt` and converted the finalized block again when building its observation.
+Snapshot pinning later bounded the block, and time consensus later bounded the
+timestamp, but the collector did not establish all three numeric authorities at
+the RPC ingress before using the finalized tag for its broad contract reads.
+
+Correction
+----------
+The collector now canonicalizes chain ID as a bounded uint256 Ethereum quantity
+and requires exact mainnet 1. It canonicalizes finalized block number and
+timestamp as uint64 immediately after the concurrent RPC response and before
+snapshot pinning or contract access. The already canonical decimal block value
+is placed in the observation; former direct conversions are absent.
+
+Adversarial regression
+----------------------
+Static collector regression proves the three bounded-reader calls and absence
+of the two direct conversion patterns. Shared quantity and transport regressions
+exercise oversized, overflow, leading-zero, uppercase and malformed responses.
+
+Validation
+----------
+- Preflight collector Node syntax check: pass.
+- Mainnet preflight collector, transport, assessment, quantity and direct-input
+  suites: 45/45 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

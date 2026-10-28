@@ -1,0 +1,31 @@
+SAFE PACKAGE REBUILD BOUNDED CHANNELS — STAGE 1202
+Date: 2026-10-26
+
+Finding
+=======
+
+The independently regenerated Safe package was time bounded, but its stdout
+flowed directly into a file without a size or encoding limit and stderr flowed
+to the operator terminal. Because regeneration reads multiple RPC sources, a
+defective response or diagnostic could grow local state or expose unreviewed
+remote-controlled text before the byte comparison.
+
+Correction
+==========
+
+Package rebuild now captures stdout and stderr in owner-only tmpfs files,
+requires fatal UTF-8 decoding, limits package output to 1 MiB and diagnostics
+to 64 KiB, emits only a generic bounded status on failure and requires empty
+stderr on success. The output receives mode 0600, passes the strict private JSON
+checker and only then reaches the exact package comparison.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/environment/finality/raw/receipt tests: 9/9 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

@@ -9,7 +9,8 @@ import {parseStrictJsonBytes} from '../../sdk/strict-json.mjs';
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const doc=name=>({path:`evidence/${name}.json`,sha256:sha(name)});
 const evidence={schema:1,releaseId:'release-1',sourceCommit:'a'.repeat(40),sourceTag:'usdom-v1.2.3',
- securityValidationReport:doc('security'),riscZeroHealthSourceCatalog:doc('health'),
+ securityValidationReport:doc('security'),releaseValidationReport:doc('release-validation'),
+ riscZeroHealthSourceCatalog:doc('health'),
  realFinalizedEndToEndReport:doc('burn'),checkpointProofCapacityReport:doc('checkpoint'),
  controlPlaneEvidenceBundle:doc('controls'),controlPlaneSeparationReport:doc('separation'),
  controlPlaneRecoveryDrillReport:doc('control-recovery'),
@@ -49,12 +50,21 @@ test('operations report rejects incomplete, duplicated and ambiguous inputs',()=
  for(const input of [
   {releaseEvidence:{...evidence,sourceCommit:null}},
   {releaseEvidence:{...evidence,securityValidationReport:null}},
+  {releaseEvidence:{...evidence,releaseValidationReport:null}},
   {releaseEvidence:{...evidence,nativeScheduledRuntimeActivationAttestationReport:
     {...evidence.securityValidationReport}}},
   {releaseConfig:{...releaseConfig,ethereumChainId:'31337'}},
   {releaseConfig:{...releaseConfig,governance:address('00')}},
   {runbookSha256:'bad'},
  ]) assert.throws(()=>buildOperationsReviewReport({...context,...input}));
+});
+
+test('operations review cannot assert release validation without binding its exact document',()=>{
+ const report=buildOperationsReviewReport(context);
+ const changedEvidence=structuredClone(evidence);
+ changedEvidence.releaseValidationReport=doc('other-release-validation');
+ assert.throws(()=>validateOperationsReviewReport(report,{...context,releaseEvidence:changedEvidence}),
+  /canonical release binding/);
 });
 
 test('operations-review JSON boundary rejects duplicate escaped keys and invalid UTF-8',()=>{

@@ -36,7 +36,8 @@ test('authenticated current completion is promotable and emits one immutable han
  assert.equal(result.status,0,result.stderr); const report=JSON.parse(result.stdout);
  assert.equal(report.classification,'current-complete'); assert.equal(report.releaseAllowed,true);
  assert.equal(report.promotionAllowed,true); assert.deepEqual(JSON.parse(await readFile(recipe)),report);
- const repeated=run(root,'--recipe',recipe); assert.notEqual(repeated.status,0); assert.match(repeated.stderr,/already exists/);
+ const repeated=run(root,'--recipe',recipe); assert.equal(repeated.status,0,repeated.stderr);
+ assert.deepEqual(JSON.parse(await readFile(recipe)),report);
 });
 
 test('successful proof from an old source/schema is historical and can release without promotion',async()=>{
@@ -56,6 +57,16 @@ test('receipt, index, status and target substitution fail closed',async()=>{
  for(const name of ['receipt.bin','receipt-index.json','status.json','target.bin']) {
   const root=await fixture(); await writeFile(path.join(root,name),'tampered');
   const result=run(root); assert.notEqual(result.status,0,name); assert.match(result.stderr,/refused/);
+ }
+});
+
+test('duplicate keys and floating-point control values fail before handoff classification',async()=>{
+ for(const raw of [
+  '{"schema":"usdom-long-proof-run-v1","schema":"shadow"}',
+  '{"schema":"usdom-long-proof-run-v1","pid":1.0}',
+ ]) {
+  const root=await fixture(); await writeFile(path.join(root,'run-manifest.json'),raw);
+  const result=run(root); assert.notEqual(result.status,0); assert.match(result.stderr,/duplicate JSON key|floating-point/);
  }
 });
 

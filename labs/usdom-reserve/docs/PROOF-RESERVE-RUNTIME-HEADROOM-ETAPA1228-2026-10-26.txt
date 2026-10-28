@@ -1,0 +1,80 @@
+ETAPA 1228 — ProofReserve runtime headroom
+Date: 2026-10-26
+
+Objective
+---------
+
+Replace the operationally fragile 19-byte surplus above the project's
+mandatory 4,096-byte EIP-170 margin with substantial headroom, without removing
+any check, event, invariant or diagnostic and without changing the public ABI
+or security semantics. No Rust, script, network, signing, deployment, funds,
+commit or push operation was performed.
+
+Finding
+-------
+
+The stage-1224 runtime was 20,461 bytes. Although deployable and policy
+compliant, a routine compiler or source change could consume its 19-byte policy
+surplus. The remaining Safe control-plane decoder still paid runtime bytecode
+for generic dynamic ABI allocation even though every accepted request and
+response has an exact, fixed canonical shape.
+
+Correction
+----------
+
+The Safe-only boundary now writes fixed calldata directly into bounded scratch
+memory for `masterCopy()`, `getThreshold()`, `getOwners()`,
+`getModulesPaginated(0x1,1)` and `getStorageAt(slot,1)`. It still caps call gas,
+copies only the exact expected response size and rejects short, long, dirty or
+noncanonical responses.
+
+Owner validation performs the same predicates directly on the five decoded ABI
+words: exact offset/count/return length, clean 160-bit addresses, values above
+the zero/sentinel range, three distinct owners, no self owner, and no owner with
+deployed code. The three valid addresses are sorted numerically and hashed as
+the same 96-byte `abi.encode(address,address,address)` representation. Threshold,
+modules, guard, fallback-handler, proxy, singleton and code-hash checks remain
+unchanged. These are private implementation changes; no external signature,
+event or error was changed.
+
+Size evidence
+-------------
+
+Canonical Foundry profile (`solc 0.8.37`, Cancun, optimizer runs 1, via-IR):
+
+- stage-1224 runtime: 20,461 bytes; EIP-170 margin 4,115 bytes;
+- stage-1228 runtime: 19,971 bytes; EIP-170 margin 4,605 bytes;
+- total reduction from stage 1224: 490 bytes;
+- project maximum runtime: 20,480 bytes;
+- project minimum margin: 4,096 bytes;
+- policy surplus after correction: 509 bytes;
+- target surplus: at least 256 bytes; achieved;
+- ideal surplus: 512 bytes; result is 3 bytes below that optional ideal;
+- initcode: 25,633 bytes; initcode margin 23,519 bytes.
+
+The Registry remains 10,573 runtime bytes and the quorum prototype remains
+14,609 runtime bytes.
+
+Behavioral evidence
+-------------------
+
+- Complete Foundry suite: 202/202 tests passed in 14 suites, 0 failed and 0
+  skipped.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 reverts.
+- Existing adversarial Safe tests cover malformed/oversized owner responses,
+  dirty addresses, wrong owner cardinality, zero/sentinel/self/contract owners,
+  duplicate or replaced owners, singleton/threshold/module/guard/fallback drift,
+  exact restoration, construction, value paths and delayed resume.
+- `forge fmt`, `forge build --sizes` and `git diff --check` passed.
+
+Release impact
+--------------
+
+The ProofReserve runtime and creation hashes changed, so release artifacts that
+commit either bytecode must be rematerialized after concurrent source work is
+stable. The mandatory headroom gate now has a 509-byte surplus, materially
+reducing accidental release breakage. This result does not authorize deployment
+or real funds and does not replace the remaining proof, identity and operator
+evidence gates.

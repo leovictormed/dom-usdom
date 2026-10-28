@@ -1,0 +1,14 @@
+Etapa 1488 — retomada e limpeza autenticada
+
+- As publicações das fases usam install create-once/immutable ou comparam bytes
+  existentes antes de aceitar retomada. Os executores mantêm journals e
+  reconciliam estado finalizado antes de prosseguir.
+- A falha encontrada estava nos diretórios temporários do gerador: traps com
+  `rm -rf` confiavam apenas no pathname. Uma troca concorrente do diretório
+  poderia fazer a limpeza atingir outro inode.
+- Cada diretório privado em /dev/shm agora captura owner, device, inode e mode
+  depois do chmod 0700. A limpeza recursiva ocorre apenas se a identidade ainda
+  coincide, inclusive em HUP, INT e TERM; sinais encerram com status próprio.
+- O checker rejeita trap recursivo direto e exige autenticação de inode. A
+  regressão adversarial fixa a presença das barreiras e traps de sinal.
+- Nenhuma fase operacional foi executada e nenhuma evidência foi sobrescrita.

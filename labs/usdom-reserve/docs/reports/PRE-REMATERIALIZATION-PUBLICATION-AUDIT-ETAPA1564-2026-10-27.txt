@@ -1,0 +1,28 @@
+Etapa 1564B — auditoria pré-rematerialização
+
+- O inventário crítico foi ampliado para 315 fontes locais e 273 fontes/artefatos
+  do repositório. Foram incorporadas as dependências operacionais novas de
+  cerimônia Groth16, witness de checkpoint, plano de 33 rotas, capacidade,
+  completions e seus validadores.
+- Quatro fontes Rust novas agora são pins obrigatórios: os três componentes da
+  cerimônia Groth16 e o produtor de witness Ethereum.
+- Dois executores dinâmicos novos foram classificados com fronteira fechada:
+  restart witness e CLI MPC por descritor hash-pinado.
+- O scanner de publicação confundia nomes de fonte contendo witness/credential
+  com artefatos privados. Ele agora permite extensões de fonte revisáveis, mas
+  continua examinando o conteúdo e rejeitando segredos; binários/JSON privados
+  continuam proibidos. Matriz focal 5/5 passou e os 446 arquivos não rastreados
+  atuais foram examinados sem achado de segredo ou caminho proibido.
+- Estado deliberadamente não rematerializado: 11 pins repositoryCriticalSources,
+  3 entradas do PROOF-PROGRAM-MANIFEST, 48 digests e 96 caminhos do MANIFEST
+  principal, 3 digests do manifest privacy, 1 do state e 2 do finality estão
+  desatualizados. Isso é esperado enquanto há edições concorrentes.
+- Os sete ProgramBinary publicados têm hashes internos de PROVENANCE compatíveis
+  com os bytes atuais. O decoder local em target é regenerável, tem hardlink e
+  foi corretamente recusado; deve ser reconstruído como arquivo direto antes
+  do checker final e nunca publicado.
+- Nenhum target/cache/out/evidence, segredo, arquivo não regular ou arquivo
+  não rastreado maior que 16 MiB foi encontrado. Runtime inputs operator-intent
+  e mainnet-release-evidence permanecem explicitamente fora do source manifest
+  e nunca devem entrar no snapshot público.
+- Nenhum manifest foi escrito/rematerializado nesta etapa.

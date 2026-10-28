@@ -1,0 +1,19 @@
+USDⓄM — ETAPA 1428
+Cross-domain replay gate aligned to deployment identity and checkpoint statement V6
+Date: 2026-10-26
+
+Finding
+The source-level replay gate still described the pre-deployment-identity and pre-closure checkpoint layouts. It expected live `block.chainid` inside hash encoders and the former DOMCheckpointV3/V4 Rust offsets. Current contracts intentionally capture immutable `deploymentChainId`, and the closure-aware CheckpointStatementV6 hashes DOMCheckpointV4 with totalIssued, totalBurned and issuanceClosed. The stale gate therefore rejected the correct implementation and its mutation anchors no longer exercised the live boundaries.
+
+Correction
+- Bound deposit, burn statement, burn intent and checkpoint hashing checks to immutable `deploymentChainId` plus the deployment address.
+- Updated the exact checkpoint ABI type to DOMCheckpointV4 including `issuanceClosed`.
+- Scoped the Rust field-order audit to `CheckpointStatementV6::statement_hash`, checking V6 native/transition versions, economic totals, closure flag, Ethereum chain ID, registry, schedule and configuration in order.
+- Updated mutation tests to remove the current deployment-chain binding and corrupt the current V6 Ethereum-chain and closure slots.
+- Preserved all existing reserve, bridge, finality, nullifier and checkpoint target mutations.
+
+Evidence
+`/home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test labs/usdom-reserve/test/node/cross-domain-replay-bindings.test.mjs`
+PASS: 2 tests, 2 passed, 0 failed, 86 ms.
+
+No network, commit, push, deployment, signature or funds were used.

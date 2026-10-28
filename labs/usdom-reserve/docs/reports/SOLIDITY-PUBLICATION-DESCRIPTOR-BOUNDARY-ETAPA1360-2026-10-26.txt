@@ -1,0 +1,39 @@
+USDOM mainnet readiness — Stage 1360
+Date: 2026-10-26
+
+Finding
+=======
+
+The Solidity publication gate consumed compiler artifacts through unbounded
+Path.read_bytes plus native json.loads. Duplicate JSON keys could therefore
+create ambiguous metadata or bytecode authority. Source verification first used
+lstat and then reopened each file by pathname, so the bytes hashed could differ
+from the filesystem object whose type had been checked.
+
+Correction
+==========
+
+Artifacts now cross one 8 MiB descriptor snapshot and strict UTF-8 JSON parser.
+Every path component is opened beneath the selected root through dir_fd and
+O_NOFOLLOW. Regular type, single-link identity, owner, size, complete read, stat
+stability and final pathname inode are all enforced.
+
+Every metadata source uses the same capture with a 4 MiB cap before keccak
+comparison. Canonical relative paths reject traversal. This retains all exact
+compiler, EVM, optimizer, compilation-target, source-set, link-reference,
+bytecode-size and immutable-layout checks.
+
+Validation
+==========
+
+- Adversarial self-test rejects duplicate artifact keys and hard-linked source.
+- Self-test and live Solidity publication checks passed.
+- Critical publication inventory passed for 256 sources.
+- Publication and reserve artifact regressions passed 6/6.
+- Python compilation and git diff --check passed.
+
+Scope
+=====
+
+No artifact or source hash was frozen or regenerated. No network, deployment,
+signing, funds, production fact, commit or push occurred.

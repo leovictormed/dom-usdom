@@ -1,0 +1,18 @@
+Stage 1211 — bounded closed-pilot gas quantities
+Date: 2026-10-26
+
+Change
+- Dual-RPC funding balances and maximum cost now reject decimals longer than the uint256 lexical ceiling before BigInt and enforce exact uint256.
+- Receipt gas used, effective gas price and signed maximum cost now accept only bounded canonical decimal or hexadecimal uint256 quantities.
+
+Security result
+- RPC or receipt artifacts cannot force arbitrary-size integer conversion through the pilot's last funding and actual-cost checks.
+- Regressions reject 100,000-digit decimals and exact uint256 overflow encodings.
+- Existing dual-RPC agreement, nonzero cost and signed maximum-cost relationships remain unchanged.
+
+Validation
+- Focused semantic selection: node --test --test-name-pattern='gas funding requires|receipt cost is exact' test/node/pilot-gas-funding.test.mjs test/node/pilot-receipt-cost.test.mjs
+- Result: 2/2 pass; Node syntax and targeted git diff --check pass.
+- The combined files also ran 3/4 before isolation. The unrelated static executor-order assertion failed against scripts being concurrently changed by another authorized task; it does not exercise these validators and is not counted as evidence for this stage.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

@@ -1,0 +1,15 @@
+Etapa 1485 — integridade estática do plano 33/33
+
+- O checker recompõe o plano, exige exatamente 33 claims únicas e valida a
+  ordem explícita das fases.
+- Cada fase é gerada pelo gerador real e passa por `bash -n`, sem executar seu
+  conteúdo operacional.
+- Todos os comandos `npm run` referenciados precisam existir; seus alvos Bash,
+  Node ou Python precisam existir no checkout. Caminhos `forge --match-path`
+  também precisam existir.
+- Cada entrada deve apontar para fase conhecida, comandos canônicos sem campos
+  manuais, evidência descrita e a chave exata em production-requirements.json.
+- A auditoria encontrou e corrigiu uma divergência: o plano citava o contrato
+  inexistente `USDOMMainnetGasTest`; agora usa o arquivo real e versionado
+  `test/solidity/USDOMProofReserve.t.sol`.
+- O checker integra `check:provenance`. Nenhuma fase operacional foi executada.

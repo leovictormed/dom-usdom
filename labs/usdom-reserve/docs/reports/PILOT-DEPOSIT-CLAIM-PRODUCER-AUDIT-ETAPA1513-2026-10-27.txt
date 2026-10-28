@@ -1,0 +1,36 @@
+ETAPA 1513B — AUDITORIA DOS PRODUTORES DO PILOTO DE DEPÓSITO
+
+Escopo: as quatro claims atualmente roteadas para execute-pilot-deposit-secret.
+
+Resultado fail-closed:
+
+1. native_privacy_production_verifying_key_installed
+   Validador real existente: requireNativeRuntimeManifest recompõe a validação do
+   manifesto pelo binário Rust e exige o SHA-256 do spend verifying key publicado.
+   Produtor operacional ausente: nenhum comando instala/materializa o manifesto e
+   a verifying key de produção em mainnet-release-evidence. A fase de depósito não
+   lê nem produz esses artefatos.
+
+2. native_privacy_trusted_setup_ceremony_completed
+   Validador real parcial existente: a readiness valida uma atestação governamental
+   ligada ao privacy_verifier_config_hash. Isso comprova aprovação do compromisso,
+   mas não comprova uma cerimônia Groth16. Não existe produtor de transcript da
+   cerimônia nativa nem validador de contribuições. Um relatório ou assinatura
+   sintética não pode fechar esta claim.
+
+3. native_private_mining_real_finalized_deposit_vector_implemented
+   Produtores e validadores reais existem separadamente: coleta finalizada,
+   UDOMDPW1, registro da carteira, submissão ao pool, produção isolada de um bloco
+   e observação autenticada da nota. A fase mapeada executava apenas as três
+   transações Ethereum e portanto não alcançava nenhum deles.
+
+4. real_finalized_reserve_deposit_native_block_vector_implemented
+   Os mesmos produtores reais vinculam depósito Ethereum finalizado, testemunha,
+   bloco DOM e saldo observado. A fase mapeada encerrava antes da coleta finalizada
+   e não possuía um validador agregado do conjunto.
+
+Conclusão: nenhuma das quatro claims pode ser promovida pelo fluxo atual. As duas
+claims de privacidade exigem primeiro artefato de produção e cerimônia externa
+verificável. As duas claims de vetor podem ser implementadas ligando os produtores
+operacionais existentes e adicionando validação agregada completion-last. Até isso
+ocorrer, os quatro valores devem permanecer false.

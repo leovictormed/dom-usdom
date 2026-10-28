@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import test from 'node:test';
+const executor=fileURLToPath(new URL('../../scripts/execute-recoverable-safe-recovery.sh',import.meta.url));
+test('Safe recovery executor uses an external gas-only raw boundary',async()=>{const source=await readFile(executor,'utf8');
+ assert.equal(spawnSync('bash',['-n',executor],{encoding:'utf8'}).status,0);
+ assert.doesNotMatch(source,/--ledger|wallet address|wallet sign|prepare-ledger|assemble-ledger/i);
+ assert.match(source,/USDOM_SAFE_RECOVERY_RELAYER_POLICY/);assert.match(source,/check-safe-recovery-relayer-policy\.mjs/);
+ assert.match(source,/RAW externa do relayer ausente/);assert.match(source,/exit 78/);
+ assert.match(source,/safe_broadcast_state=signed-unresolved/);assert.match(source,/AUTORIZO TRANSMITIR SWAPOWNER/);
+ assert.match(source,/check-recoverable-safe-recovery-raw-transaction\.mjs/);
+ assert.match(source,/prepare-recoverable-safe-recovery-envelope\.mjs/);});

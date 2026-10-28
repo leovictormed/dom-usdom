@@ -1,0 +1,37 @@
+Stage 1236 — bounded finalized authority anchors for release authorization
+Date: 2026-10-26
+
+Finding
+-------
+The release-authorization RPC collector accepted unbounded hexadecimal chain,
+block and timestamp strings and converted the finalized values directly with
+`BigInt`. Its pre-signing comparison likewise converted arbitrary decimal block
+strings. A faulty or hostile authority source could force oversized conversion,
+and the pre-signing check also admitted noncanonical decimal spellings.
+
+Correction
+----------
+The finalized RPC anchor now canonicalizes chain ID, block number and timestamp
+with the shared bounded Ethereum-quantity parser before comparison or storage.
+Block positions and timestamps are bounded to uint64. The pre-signing network
+comparison now requires both authorized and observed block numbers to be
+canonical decimal uint64 before enforcing monotonic finality.
+
+Adversarial regression
+----------------------
+RPC regressions reject 100,000-digit chain/block/timestamp quantities, exact
+2^64 block/timestamp values and a leading-zero block quantity. Pre-signing
+regressions reject 100,000 decimal digits, exact 2^64, a leading zero and a
+negative block number.
+
+Validation
+----------
+- Node syntax check: pass.
+- Release authorization, RPC input, native attestation and mainnet preflight RPC
+  suites: 30/30 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

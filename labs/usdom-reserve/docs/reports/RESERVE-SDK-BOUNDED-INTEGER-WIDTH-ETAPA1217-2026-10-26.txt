@@ -1,0 +1,19 @@
+Stage 1217 — bounded reserve-SDK integer width and values
+Date: 2026-10-26
+
+Change
+- The reserve SDK integer normalizer now accepts only integer widths from 1 through 256.
+- Canonical decimal strings are rejected above the precise digit ceiling for the selected width before BigInt conversion.
+- Exact numeric range checks remain authoritative for bigint and string inputs.
+
+Security result
+- Burn certificates and EIP-712 domains cannot force arbitrary-size decimal conversion or an unbounded exponent through a malformed width.
+- Regressions reject a 100,000-digit uint64 value, invalid widths, a 100,000-digit chain ID and exact 2^256.
+- Quorum, digest and typed-data behavior remains unchanged.
+
+Validation
+- Artifact-independent reserve SDK suite: 3/3 pass.
+- Node syntax and targeted git diff --check pass.
+- A broader SDK+EVM attempt reached the compiled-runtime origin gate and produced 3/4 pass; its EVM case was rejected because a concurrent authorized compilation changed the shared `out/` immutable-reference layout. No result from that transient artifact state is used as evidence here.
+
+No Rust, Solidity, Cargo, Forge, real network, signing, deployment, funds, commit or push ran.

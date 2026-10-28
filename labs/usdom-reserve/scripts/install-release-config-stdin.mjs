@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import {writeFileDurable} from '../sdk/durable-private-file.mjs';
-import {parseStrictJson} from '../sdk/strict-json.mjs';
+import path from 'node:path';
+import {parseStrictJsonBytes} from '../sdk/strict-json.mjs';
+import {isExactReleaseEvidenceShape} from '../sdk/release-evidence-schema.mjs';
+import {collectReleaseEvidenceDocumentPaths} from '../sdk/release-evidence-document-paths.mjs';
 
 const MAXIMUM_BYTES=16*1024*1024;
 
@@ -23,9 +26,16 @@ for await(const chunk of process.stdin) {
 }
 if(size===0) throw new Error('release-config input is empty');
 const bytes=Buffer.concat(chunks,size);
-const text=bytes.toString('utf8');
-if(!Buffer.from(text,'utf8').equals(bytes)) {
-  throw new Error('release-config input is not exact UTF-8');
+const value=parseStrictJsonBytes(bytes,{
+  label:'release-config input',maxBytes:MAXIMUM_BYTES,maxDepth:128,
+});
+if(path.basename(target)==='mainnet-release-evidence.unconfigured.json') {
+  if(!isExactReleaseEvidenceShape(value) || value.schema!==1) {
+    throw new Error('mainnet release evidence input has an incompatible schema');
+  }
+  // This shared installation boundary is used by every shell materializer.
+  // Reject zero commitments, path aliasing and byte-identical independent
+  // evidence before the mutable aggregate can advance.
+  collectReleaseEvidenceDocumentPaths(value);
 }
-parseStrictJson(text,{label:'release-config input',maxBytes:MAXIMUM_BYTES,maxDepth:128});
 await writeFileDurable(target,bytes,{maximum:MAXIMUM_BYTES,mode:0o644});

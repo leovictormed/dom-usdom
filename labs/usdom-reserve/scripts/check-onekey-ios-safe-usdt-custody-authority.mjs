@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+import {resolve} from 'node:path';import {readDirectFile} from '../sdk/direct-project-file.mjs';import {parseStrictJsonBytes} from '../sdk/strict-json.mjs';import {validateSafeUsdtCustodyAuthority} from '../sdk/onekey-ios-safe-usdt-custody.mjs';
+const p=resolve(import.meta.dirname,'../config/onekey-ios-safe-usdt-custody-authority.unconfigured.json');validateSafeUsdtCustodyAuthority(parseStrictJsonBytes(await readDirectFile(p,{minimum:2,maximum:65536,exactMode:0o644,label:'Safe custody authority'}),{label:'Safe custody authority'}));process.stdout.write('PASS: Safe USDT custody authority is unconfigured, single-operator disclosed, and all real gates are closed\n');

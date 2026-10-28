@@ -91,6 +91,79 @@ function boundedIndex(value,label,{maximum=4095}={}) {
   return value;
 }
 
+async function checkpointOriginInventory(root) {
+  const fixed=[
+    'evidence/randomx-proof-jobs/randomx-proof-job-index.json',
+    'evidence/randomx-aggregate-jobs/randomx-aggregate-job-index.json',
+    'evidence/economic-proof-jobs/economic-proof-job-index.json',
+    'evidence/checkpoint-segment-proof-jobs/checkpoint-segment-proof-job-index.json',
+    'evidence/checkpoint-outer-proof-job/checkpoint-outer-proof-job-index.json',
+    'evidence/checkpoint-outer-proof-job/checkpoint-statement-v6.bin',
+    'evidence/checkpoint-source-set/checkpoint-source-set-index.json',
+    'evidence/checkpoint-outer-evm-proof/checkpoint-outer-groth16-receipt.bin',
+    'evidence/checkpoint-outer-evm-proof/checkpoint-outer-evm-seal.bin',
+  ];
+  const indexes=[
+    ['evidence/randomx-receipt-set/randomx-receipt-set-index.json','receipts',
+      'evidence/randomx-receipt-set'],
+    ['evidence/randomx-aggregate-receipt-set/randomx-aggregate-receipt-set-index.json','receipts',
+      'evidence/randomx-aggregate-receipt-set'],
+    ['evidence/economic-receipt-set/economic-receipt-set-index.json','chunk_receipts',
+      'evidence/economic-receipt-set'],
+    ['evidence/economic-receipt-set/economic-receipt-set-index.json','block_receipts',
+      'evidence/economic-receipt-set'],
+    ['evidence/checkpoint-segment-receipt-set/checkpoint-segment-receipt-set-index.json','receipts',
+      'evidence/checkpoint-segment-receipt-set'],
+    ['evidence/checkpoint-outer-receipt-set/checkpoint-outer-receipt-set-index.json',null,
+      'evidence/checkpoint-outer-receipt-set'],
+    ['evidence/checkpoint-outer-evm-proof/checkpoint-outer-evm-proof-index.json',null,null],
+  ];
+  const parsed=new Map();
+  for(const [relative] of indexes) {
+    if(!parsed.has(relative)) parsed.set(relative,(await strictIndex(root,relative)).value);
+  }
+  const paths=new Set([...fixed,...parsed.keys()]);
+  for(const [relative,field,directory] of indexes) {
+    if(directory===null) continue;
+    const value=parsed.get(relative);
+    const records=field===null?[value]:value?.[field];
+    if(!Array.isArray(records)) throw new Error(`invalid checkpoint origin catalog: ${relative}`);
+    for(const record of records) {
+      if(typeof record?.receipt_file!=='string') {
+        throw new Error(`invalid checkpoint origin receipt name: ${relative}`);
+      }
+      paths.add(`${directory}/${record.receipt_file}`);
+    }
+  }
+  const inventory=new Map();
+  for(const relative of [...paths].sort()) {
+    const maximum=relative.endsWith('.json')?64*1024*1024:maximumArtifactBytes;
+    const artifact=await privateArtifact(root,relative,{maximum});
+    inventory.set(relative,Object.freeze({sha256:artifact.record.sha256,size:artifact.bytes.length}));
+  }
+  return inventory;
+}
+
+export async function buildCheckpointCapacityArtifactManifest(root,runId) {
+  if(typeof runId!=='string'||!/^[0-9]{8}T[0-9]{6}Z-[1-9][0-9]*$/.test(runId)) {
+    throw new Error('checkpoint capacity run ID is invalid');
+  }
+  const inventory=await checkpointOriginInventory(path.resolve(root));
+  const manifest={schema:'usdom-checkpoint-capacity-artifact-manifest/v1',runId,
+    files:[...inventory].map(([relative,value])=>({path:relative,sha256:value.sha256,bytes:value.size}))};
+  return Object.freeze({manifest:Object.freeze(manifest),bytes:Buffer.from(JSON.stringify(manifest,null,2)+'\n')});
+}
+
+async function assertCheckpointOriginsUnchanged(root,inventory) {
+  for(const [relative,expected] of inventory) {
+    const maximum=relative.endsWith('.json')?64*1024*1024:maximumArtifactBytes;
+    const artifact=await privateArtifact(root,relative,{maximum});
+    if(artifact.record.sha256!==expected.sha256 || artifact.bytes.length!==expected.size) {
+      throw new Error(`checkpoint capacity artifact changed during collection: ${relative}`);
+    }
+  }
+}
+
 function boundedHeight(value,label) {
   if(!Number.isSafeInteger(value) || value<1) {
     throw new Error(`${label} must be a positive safe integer`);
@@ -169,8 +242,12 @@ async function strictIndex(root,relative) {
 
 function metric(value,label) {
   exact(value,['peakResidentKiB','provingWallMilliseconds'],`${label} metrics`);
-  if(!/^[1-9][0-9]*$/.test(value.provingWallMilliseconds)
-      || !/^[1-9][0-9]*$/.test(value.peakResidentKiB)) {
+  if(typeof value.provingWallMilliseconds!=='string'||value.provingWallMilliseconds.length>20
+      ||typeof value.peakResidentKiB!=='string'||value.peakResidentKiB.length>20
+      || !/^[1-9][0-9]*$/.test(value.provingWallMilliseconds)
+      || !/^[1-9][0-9]*$/.test(value.peakResidentKiB)
+      || BigInt(value.provingWallMilliseconds)>=1n<<64n
+      || BigInt(value.peakResidentKiB)>=1n<<64n) {
     throw new Error(`${label} metrics must be canonical positive decimal strings`);
   }
   return value;
@@ -226,6 +303,43 @@ async function simpleLayer(root,name,metrics) {
   const records=index[specification.recordsField];
   if(!Array.isArray(records) || records.length!==count) throw new Error(`${name} receipt count mismatch`);
   validateOrderedRecords(name,records);
+  if(name==='randomx') {
+    const previous=boundedHeight(index.previous_height,'randomx previous height');
+    const target=boundedHeight(index.target_height,'randomx target height');
+    const confirmation=boundedHeight(index.confirmation_height,'randomx confirmation height');
+    const segmentCount=boundedCount(index.segment_count,'randomx segment count');
+    rawHash(index.manifest_sha256,'randomx manifest SHA-256');
+    rawHash(index.randomx_user_elf_sha256,'randomx user ELF SHA-256');
+    if(!(previous<target && target<confirmation)
+        || count!==confirmation-previous || records[0].block_height!==previous+1
+        || records.at(-1).block_height!==confirmation) {
+      throw new Error('randomx receipt set does not cover the complete checkpoint window');
+    }
+    let expectedSegment=0,expectedBlock=0,targetBoundarySeen=false;
+    for(const [position,record] of records.entries()) {
+      if(record.block_height!==previous+position+1) {
+        throw new Error('randomx receipt heights must cover every checkpoint block');
+      }
+      if(record.segment_index===expectedSegment) {
+        if(record.block_index!==expectedBlock) {
+          throw new Error('randomx block indexes must be contiguous within each segment');
+        }
+      } else if(record.segment_index===expectedSegment+1 && record.block_index===0) {
+        expectedSegment++; expectedBlock=0;
+      } else {
+        throw new Error('randomx segment order must be contiguous from zero');
+      }
+      if(record.block_height===target) targetBoundarySeen=true;
+      if(record.block_height===target+1
+          && (record.segment_index===records[position-1]?.segment_index || record.block_index!==0)) {
+        throw new Error('randomx confirmation phase must start a new segment');
+      }
+      expectedBlock++;
+    }
+    if(expectedSegment+1!==segmentCount || !targetBoundarySeen) {
+      throw new Error('randomx receipts do not cover every declared segment and target boundary');
+    }
+  }
   const artifacts=[];
   for(let index=0;index<records.length;index++) {
     artifacts.push(await receiptRecord(root,specification.directory,records[index],index,
@@ -237,7 +351,42 @@ async function simpleLayer(root,name,metrics) {
     receipts:artifacts.map(item=>item.receipt),receiptKind:'succinct',receiptVerified:true,
     segmentLimitPo2:18,provingWallMilliseconds:resources.provingWallMilliseconds,
     peakResidentKiB:resources.peakResidentKiB},receiptIndexSha256:indexRecord.sha256,
-    jobIndexSha256:job.record.sha256,receiptCount:count};
+    jobIndexSha256:job.record.sha256,receiptCount:count,records,index};
+}
+
+function validateCheckpointReceiptGraph(randomx,aggregate,economic,segment) {
+  const previous=randomx.index.previous_height,target=randomx.index.target_height;
+  const confirmation=randomx.index.confirmation_height,segmentCount=randomx.index.segment_count;
+  for(const [name,layer] of [['aggregate',aggregate],['segment',segment]]) {
+    if(layer.receiptCount!==segmentCount || layer.records[0].previous_height!==previous
+        || layer.records.at(-1).next_height!==confirmation) {
+      throw new Error(`${name} receipt spans do not cover the complete checkpoint window`);
+    }
+  }
+  for(let index=0;index<segmentCount;index++) {
+    const aggregateRecord=aggregate.records[index],segmentRecord=segment.records[index];
+    if(aggregateRecord.previous_height!==segmentRecord.previous_height
+        || aggregateRecord.next_height!==segmentRecord.next_height
+        || aggregateRecord.block_count!==segmentRecord.block_count) {
+      throw new Error('aggregate and checkpoint-segment receipt spans disagree');
+    }
+  }
+  const targetSegments=segment.records.filter(record=>record.next_height===target);
+  if(targetSegments.length!==1 || segment.records.some(record=>
+    record.previous_height<target && record.next_height>target)) {
+    throw new Error('checkpoint target must be one exact segment boundary');
+  }
+  if(economic.blockRecords.length!==randomx.records.length) {
+    throw new Error('economic block receipts do not cover every RandomX-authenticated block');
+  }
+  for(let index=0;index<randomx.records.length;index++) {
+    const proof=randomx.records[index],economicBlock=economic.blockRecords[index];
+    if(economicBlock.segment_index!==proof.segment_index
+        || economicBlock.block_index!==proof.block_index
+        || economicBlock.block_height!==proof.block_height) {
+      throw new Error('economic and RandomX block receipt coverage disagree');
+    }
+  }
 }
 
 const economicIndexFields=Object.freeze([
@@ -314,7 +463,26 @@ async function economicLayers(root) {
       provingWallMilliseconds:resources.provingWallMilliseconds,
       peakResidentKiB:resources.peakResidentKiB};
   };
-  return [
+  const blockByPosition=new Map();
+  for(const record of index.block_receipts) {
+    const key=`${record.segment_index}:${record.block_index}`;
+    if(blockByPosition.has(key)) throw new Error('economic block positions must be unique');
+    blockByPosition.set(key,record);
+  }
+  const nextChunkByPosition=new Map();
+  for(const record of index.chunk_receipts) {
+    const key=`${record.segment_index}:${record.block_index}`,block=blockByPosition.get(key);
+    if(!block || block.block_height!==record.block_height) {
+      throw new Error('economic chunk does not belong to an indexed economic block');
+    }
+    const expected=nextChunkByPosition.get(key)??0;
+    if(record.chunk_index!==expected) throw new Error('economic chunk indexes must be contiguous from zero');
+    nextChunkByPosition.set(key,expected+1);
+  }
+  if(nextChunkByPosition.size!==blockByPosition.size) {
+    throw new Error('every economic block must have at least one economic chunk');
+  }
+  return {layers:[
     await build('economic-chunk',index.chunk_receipts,index.chunk_receipt_count,
       'economic-chunk-receipt-',CHECKPOINT_ECONOMIC_CHUNK_PROGRAM_SHA256,
       CHECKPOINT_ECONOMIC_CHUNK_IMAGE_ID,index.chunk_proving_wall_milliseconds,
@@ -323,7 +491,7 @@ async function economicLayers(root) {
       'economic-block-receipt-',CHECKPOINT_ECONOMIC_BLOCK_PROGRAM_SHA256,
       CHECKPOINT_ECONOMIC_BLOCK_IMAGE_ID,index.block_proving_wall_milliseconds,
       index.block_peak_resident_kib),
-  ];
+  ],blockRecords:index.block_receipts};
 }
 
 const outerIndexFields=Object.freeze([
@@ -332,7 +500,7 @@ const outerIndexFields=Object.freeze([
   'segment_receipts_verified','statement_hash',
 ]);
 
-async function outerLayer(root,metrics,checkpointVerifierConfig) {
+async function outerLayer(root,metrics,checkpointVerifierConfig,expectedSegmentCount) {
   const indexPath='evidence/checkpoint-outer-receipt-set/checkpoint-outer-receipt-set-index.json';
   const jobPath='evidence/checkpoint-outer-proof-job/checkpoint-outer-proof-job-index.json';
   const [receiptIndex,job]=await Promise.all([
@@ -353,6 +521,9 @@ async function outerLayer(root,metrics,checkpointVerifierConfig) {
     throw new Error('invalid outer receipt-set execution claims');
   }
   boundedCount(index.segment_receipt_count,'outer segment receipt count');
+  if(index.segment_receipt_count!==expectedSegmentCount) {
+    throw new Error('outer receipt segment count differs from the verified segment catalog');
+  }
   if(!Number.isSafeInteger(index.receipt_bytes) || index.receipt_bytes<1
       || index.receipt_bytes>maximumArtifactBytes) {
     throw new Error('outer receipt byte count is invalid');
@@ -444,8 +615,13 @@ async function outerEvmArtifacts(root,indexRecord,statementHash,checkpointVerifi
 }
 
 /** Verify the exact on-disk receipt graph and return measured report layers. */
-export async function collectCheckpointCapacityArtifacts(root,{metrics,checkpointVerifierConfig}) {
+export async function collectCheckpointCapacityArtifacts(root,{metrics,checkpointVerifierConfig,
+  beforeOriginRecheck}) {
   const canonicalRoot=path.resolve(root);
+  if(beforeOriginRecheck!==undefined && typeof beforeOriginRecheck!=='function') {
+    throw new Error('beforeOriginRecheck must be a function');
+  }
+  const originInventory=await checkpointOriginInventory(canonicalRoot);
   exact(metrics,['compression','outer','randomx','randomxAggregate','segment'],
     'checkpoint phase metrics');
   const compressionMetrics=metric(metrics.compression,'compression');
@@ -456,11 +632,26 @@ export async function collectCheckpointCapacityArtifacts(root,{metrics,checkpoin
   const aggregate=await simpleLayer(canonicalRoot,'randomx-aggregate',metrics.randomxAggregate);
   const economic=await economicLayers(canonicalRoot);
   const segment=await simpleLayer(canonicalRoot,'segment',metrics.segment);
-  const outer=await outerLayer(canonicalRoot,metrics.outer,checkpointVerifierConfig);
+  validateCheckpointReceiptGraph(randomx,aggregate,economic,segment);
+  const nextEconomicBlockBySegment=new Map();
+  for(const block of economic.blockRecords) {
+    const span=segment.records[block.segment_index];
+    const expectedBlock=nextEconomicBlockBySegment.get(block.segment_index)??0;
+    if(block.block_index!==expectedBlock || !span || block.block_index>=span.block_count
+        || block.block_height!==span.previous_height+block.block_index+1
+        || block.block_height>span.next_height) {
+      throw new Error('economic block does not match the verified segment span');
+    }
+    nextEconomicBlockBySegment.set(block.segment_index,expectedBlock+1);
+  }
+  const outer=await outerLayer(canonicalRoot,metrics.outer,checkpointVerifierConfig,
+    segment.receiptCount);
   const evmArtifacts=await outerEvmArtifacts(canonicalRoot,outer.receiptIndex,
     outer.statementHash,checkpointVerifierConfig);
+  if(beforeOriginRecheck) await beforeOriginRecheck();
+  await assertCheckpointOriginsUnchanged(canonicalRoot,originInventory);
   return Object.freeze({measuredLayers:Object.freeze([
-    randomx.layer,aggregate.layer,...economic,segment.layer,outer.layer,
+    randomx.layer,aggregate.layer,...economic.layers,segment.layer,outer.layer,
   ]),statementHash:outer.statementHash,compressionMetrics:Object.freeze(compressionMetrics),
   randomxVerifiedGraph:Object.freeze({receiptCount:randomx.receiptCount,
     jobIndexSha256:randomx.jobIndexSha256,receiptIndexSha256:randomx.receiptIndexSha256}),

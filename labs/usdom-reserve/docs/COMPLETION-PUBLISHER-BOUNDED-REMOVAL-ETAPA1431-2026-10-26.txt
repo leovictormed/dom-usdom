@@ -1,0 +1,25 @@
+Etapa 1431 — inventário de publicação com remoção bounded
+
+Conclusão
+
+Os dois packagers EVM já invalidavam seus índices de conclusão por helpers mais
+fortes que o `rm` direto esperado pelo teste. O inventário estava obsoleto.
+
+Correção
+
+O inventário distingue os dois packagers endurecidos dos demais publicadores e
+exige, para cada um: índice final na allowlist do helper; rejeição de caminhos
+fora da lista; reatestação de rm e timeout; deadline TERM de 120 segundos e KILL
+após cinco; ausência de arquivo e link como pós-condição; sync pinado e bounded;
+e identidade estável do diretório antes/depois do sync. Os outros publicadores
+continuam obrigados ao fluxo direto anterior. A ordem invalidação, persistência e
+instalação final continua verificada.
+
+Validação
+
+- Inventário focal de publicadores: 1/1 aprovado.
+- Inventário com boundaries EVM e temporários privados: 3/3 aprovado.
+- git diff --check: aprovado.
+
+Nenhuma prova pesada, rede, Ledger, assinatura, deploy, fundos, commit ou push foi
+executado.

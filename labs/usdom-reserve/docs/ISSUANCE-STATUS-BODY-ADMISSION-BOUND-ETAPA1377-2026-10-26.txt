@@ -1,0 +1,48 @@
+Stage 1377 — bounded issuance-status body admission
+Date: 2026-10-26
+
+Finding
+
+Stage 1373 isolated slow issuance-status bodies from unrelated scans, but body
+delivery itself had no concurrency bound. The route's one-worker semaphore is
+intentionally acquired only after successful JSON extraction. Therefore up to
+the independent read-rate burst (100 by default) could keep authenticated body
+streams incomplete concurrently for the ordinary 30-second timeout. They did
+not consume canonical lookup capacity, but they still retained HTTP request
+tasks, body state and connection resources.
+
+Correction
+
+The route now has a distinct four-permit fail-fast admission bound around body
+delivery, parsing and the request future. A fifth request receives HTTP 503
+without queueing. This semaphore is deliberately separate from:
+
+- the shared expensive-scan capacity, so slow status bodies cannot starve
+  history, transfer, burn or chain scans; and
+- the one-permit blocking-worker capacity, whose permit remains inside the
+  canonical lookup across client cancellation.
+
+Related boundary review
+
+- The production server's outer canonical-framing middleware rejects duplicate
+  Authorization, Content-Length and Content-Type fields, all Transfer-Encoding
+  and Content-Encoding fields, oversized headers/URI and bodies on GET/HEAD.
+- The route-specific 1,024-byte layer bounds fixed and HTTP/2 DATA bodies;
+  declared oversize is rejected before backend work.
+- Bearer comparison uses `subtle::ConstantTimeEq`; unauthenticated requests are
+  rejected without waiting for body delivery.
+- JSON syntax/schema errors reveal no chain state. Valid authenticated status
+  lookups return the explicit pair-state model; the fixed response has no
+  attacker-controlled list or unbounded field.
+
+Evidence
+
+- `cargo test -p dom-rpc issuance_status --lib`: 9 passed, 0 failed in 0.46s.
+- The new regression holds four authenticated bodies permanently pending and
+  proves the fifth is rejected with HTTP 503 in under 100 ms.
+- Existing regressions prove unrelated scans remain available, oversize bodies
+  do not enter the backend and unauthenticated pending bodies return promptly.
+- `cargo fmt --all -- --check` and `git diff --check` pass.
+- No RandomX mining, external network, wallet, signature, deployment, funds,
+  commit or push occurred.
+

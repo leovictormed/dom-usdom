@@ -5,7 +5,8 @@ import {parseStrictJson} from './strict-json.mjs';
 export const MAINNET_PREFLIGHT_RPC_CATALOG_SCHEMA='usdom-mainnet-preflight-rpc-catalog-v2';
 const operator=/^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/;
 const hash=/^0x[0-9a-f]{64}$/;
-const quantity=/^0x(?:0|[1-9a-f][0-9a-f]*)$/;
+const quantity=/^0x(?:0|[1-9a-f][0-9a-f]{0,63})$/;
+const uint64Quantity=/^0x(?:0|[1-9a-f][0-9a-f]{0,15})$/;
 const TLS_POLICY='node-default-ca-hostname-expiry-origin-pinned-v1';
 const CLOCK_POLICY='utc-wall-clock-sane-v1';
 const ethereumMainnetGenesisBlockHash=
@@ -24,15 +25,17 @@ function sanitizeRpcError(value) {
   return {code:value.code,message:'JSON-RPC request failed'};
 }
 export function requireSecureHttpsTransportEnvironment(environment=process.env) {
-  for(const name of ['HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy',
-    'NODE_EXTRA_CA_CERTS','SSL_CERT_FILE','SSL_CERT_DIR']) {
+  for(const name of ['HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','NO_PROXY',
+    'http_proxy','https_proxy','all_proxy','no_proxy',
+    'NODE_EXTRA_CA_CERTS','SSL_CERT_FILE','SSL_CERT_DIR','OPENSSL_CONF','OPENSSL_ENGINES',
+    'SSLKEYLOGFILE','NODE_OPTIONS','NODE_PATH','NODE_DEBUG','NODE_DEBUG_NATIVE',
+    'RES_OPTIONS','LOCALDOMAIN','HOSTALIASES','LD_PRELOAD','LD_LIBRARY_PATH',
+    'DYLD_INSERT_LIBRARIES','DYLD_LIBRARY_PATH']) {
     if(typeof environment[name]==='string'&&environment[name].length!==0) {
       fail(`unsafe HTTPS transport environment: ${name}`);
     }
   }
-  if(environment.NODE_TLS_REJECT_UNAUTHORIZED==='0'
-      ||/(?:^|\s)--(?:use-env-proxy|use-openssl-ca|use-system-ca|use-bundled-ca|openssl-config)(?:=|\s|$)/
-        .test(environment.NODE_OPTIONS??'')) {
+  if(environment.NODE_TLS_REJECT_UNAUTHORIZED==='0') {
     fail('unsafe HTTPS transport environment');
   }
 }
@@ -55,7 +58,7 @@ export function validateMainnetPreflightTimeConsensus(samples,{nowMs=Date.now(),
   const parsed=samples.map((sample,index)=>{
     if(!sample||typeof sample!=='object'||Array.isArray(sample)
         ||Object.keys(sample).sort().join(',')!=='collectedAfterMs,collectedBeforeMs,finalizedTimestamp,sourceId'
-        ||!operator.test(sample.sourceId??'')||!quantity.test(sample.finalizedTimestamp??'')
+        ||!operator.test(sample.sourceId??'')||!uint64Quantity.test(sample.finalizedTimestamp??'')
         ||!Number.isSafeInteger(sample.collectedBeforeMs)||!Number.isSafeInteger(sample.collectedAfterMs)
         ||sample.collectedAfterMs<sample.collectedBeforeMs) {
       fail(`RPC operational time sample ${index+1} is invalid`);
@@ -120,7 +123,7 @@ function rows(catalog) {
       ||new Set(result.map(row=>row.providerId)).size!==result.length
       ||new Set(result.map(row=>row.infrastructureId)).size!==result.length
       ||new Set(result.map(row=>row.originKeccak256)).size!==result.length) fail('preflight sources must be distinct');
-  const sorted=[...result].sort((a,b)=>a.operatorId.localeCompare(b.operatorId));
+  const sorted=[...result].sort((a,b)=>a.operatorId<b.operatorId?-1:a.operatorId>b.operatorId?1:0);
   if(result.some((row,index)=>row.operatorId!==sorted[index].operatorId)) fail('preflight sources must be sorted');
   return result;
 }
@@ -142,7 +145,7 @@ export function buildMainnetPreflightRpcCatalog(sources) {
       infrastructureId:source.infrastructureId,tlsPolicy:source.tlsPolicy,clientPolicy:source.clientPolicy,
       clockPolicy:source.clockPolicy,
       originKeccak256:keccak256(toUtf8Bytes(url.origin.toLowerCase()))};
-  }).sort((a,b)=>a.operatorId.localeCompare(b.operatorId))};
+  }).sort((a,b)=>a.operatorId<b.operatorId?-1:a.operatorId>b.operatorId?1:0)};
   if(new Set(hostnames).size!==hostnames.length) fail('runtime preflight hostnames must be distinct');
   rows(catalog); return catalog;
 }
@@ -198,7 +201,9 @@ export function validateMainnetPreflightClientIdentity(value,policy) {
 async function limitedJson(response,maxBytes) {
   if(!response||response.status!==200) fail('JSON-RPC returned a non-200 response');
   const declared=response.headers?.get?.('content-length');
-  if(declared!=null&&(!/^(?:0|[1-9][0-9]*)$/.test(declared)||BigInt(declared)>BigInt(maxBytes))) {
+  const maximumDeclaredDigits=String(maxBytes).length;
+  if(declared!=null&&(declared.length>maximumDeclaredDigits
+      ||!/^(?:0|[1-9][0-9]*)$/.test(declared)||BigInt(declared)>BigInt(maxBytes))) {
     fail('JSON-RPC response exceeds size limit');
   }
   if(!response.body?.getReader) fail('JSON-RPC response body is unavailable');
@@ -252,7 +257,15 @@ export class BoundedMainnetPreflightProvider extends JsonRpcApiProvider {
   }
   pinFinalizedSnapshot(blockNumber,blockHash,{allowPendingNonce=false}={}) {
     let tag;
-    try { tag=toQuantity(BigInt(blockNumber)); } catch { fail('finalized snapshot number is invalid'); }
+    try {
+      const lexical=typeof blockNumber==='string'
+        &&(/^(?:0|[1-9][0-9]{0,19})$/.test(blockNumber)||uint64Quantity.test(blockNumber));
+      const numeric=typeof blockNumber==='number'&&Number.isSafeInteger(blockNumber)&&blockNumber>=0;
+      if(!lexical&&!numeric&&typeof blockNumber!=='bigint') fail('finalized snapshot number is invalid');
+      const parsed=BigInt(blockNumber);
+      if(parsed<0n||parsed>=(1n<<64n)) fail('finalized snapshot number is invalid');
+      tag=toQuantity(parsed);
+    } catch { fail('finalized snapshot number is invalid'); }
     if(!hash.test(String(blockHash??'').toLowerCase())) fail('finalized snapshot hash is invalid');
     if(typeof allowPendingNonce!=='boolean') fail('pending nonce policy is invalid');
     const next={tag,hash:String(blockHash).toLowerCase(),allowPendingNonce};
@@ -290,8 +303,8 @@ export class BoundedMainnetPreflightProvider extends JsonRpcApiProvider {
     const requested=payload.params?.[0];
     if(requested!==this.finalizedSnapshot.tag&&requested!=='finalized') return;
     if(!result||typeof result!=='object'||Array.isArray(result)
-        ||!quantity.test(result.number??'')||!hash.test(String(result.hash??'').toLowerCase())
-        ||!quantity.test(result.timestamp??'')) {
+        ||!uint64Quantity.test(result.number??'')||!hash.test(String(result.hash??'').toLowerCase())
+        ||!uint64Quantity.test(result.timestamp??'')) {
       fail('JSON-RPC finalized block identity is invalid');
     }
     const observed=BigInt(result.number),pinned=BigInt(this.finalizedSnapshot.tag);

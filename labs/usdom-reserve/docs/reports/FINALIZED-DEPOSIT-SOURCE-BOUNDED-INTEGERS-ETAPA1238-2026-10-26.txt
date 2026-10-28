@@ -1,0 +1,35 @@
+Stage 1238 — bounded integer decoding in finalized deposit sources
+Date: 2026-10-26
+
+Finding
+-------
+The finalized-deposit source validator checked decimal and Ethereum-quantity
+syntax but passed unbounded strings directly to `BigInt`. This affected receipt,
+header, finalized-block and reserve-account proof channels. A malformed source
+could consume excessive CPU/memory before rejection, while some chain positions
+and native deposit values also lacked their protocol uint64 ceiling.
+
+Correction
+----------
+The shared local decimal and Ethereum-quantity readers now impose lexical limits
+before conversion and reject values outside an explicit integer width. Their
+default is uint256. Deposit amount, source count, deposit block, execution header
+numbers, finalized execution block and reserve nonce use uint64. Existing
+canonical framing, ancestry, finality, proof and runtime bindings remain intact.
+
+Adversarial regression
+----------------------
+Regressions inject 100,000-digit decimal and hexadecimal values through deposit,
+header and account channels. Additional cases inject exact 2^64 into amount,
+block, finalized block and nonce fields. Every case fails closed.
+
+Validation
+----------
+- Node syntax check: pass.
+- Finalized-deposit source, catalog, issuance and collector suites: 12/12 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

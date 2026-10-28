@@ -1,0 +1,35 @@
+USDOM mainnet readiness — Stage 1318
+Date: 2026-10-26
+
+Finding
+=======
+
+The solc lock materializer read mainnet-toolchain-lock.json through its pathname
+before applying lstat policy. Later drift checks also reopened the pathname
+without O_NOFOLLOW and compared only content. A symlink or inode substitution
+could therefore cross the validation/use boundary while preserving equivalent
+bytes.
+
+Correction
+==========
+
+The materializer now opens the lock with O_NOFOLLOW, validates the descriptor as
+a regular, owner-owned, mode-0600, single-link file, and captures device, inode,
+owner, mode, link count and exact bytes. Both pre-publication checks reopen with
+O_NOFOLLOW and require the same identity and content before installation.
+
+Validation
+==========
+
+- Node syntax checks passed for the materializer and regression.
+- Regression requires descriptor reads, full identity checks and exactly two
+  unchanged assertions; it forbids the former pathname content comparisons.
+- Broad mainnet command and operator suite: 85/85 tests passed.
+- git diff --check passed for the stage files.
+
+Scope
+=====
+
+The materializer itself was not executed, so no compiler ran and no toolchain
+lock changed. No production fact, Rust, Solidity, Cargo, Forge, network, Ledger,
+signing, deployment, funds, commit or push operation occurred.

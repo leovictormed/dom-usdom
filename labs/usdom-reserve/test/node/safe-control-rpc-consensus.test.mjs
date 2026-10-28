@@ -27,6 +27,18 @@ test('RPC consensus evidence rejects omission, substitution and duplicate origin
  }
 });
 
+test('RPC consensus evidence uses locale-independent ASCII source ordering',()=>{
+ const punctuated=[
+  {sourceId:'a0',originKeccak256:'0x'+'33'.repeat(32)},
+  {sourceId:'a_',originKeccak256:'0x'+'44'.repeat(32)},
+ ];
+ assert.equal(validateRpcConsensusEvidence(rpcConsensusEvidence(punctuated)),true);
+ assert.throws(()=>rpcConsensusEvidence([...punctuated].reverse()),/not ordered/);
+ // ICU collation places these identifiers in the opposite order on Node 24;
+ // the protocol order must remain the ASCII/UTF-8 byte order above.
+ assert.ok(punctuated[0].sourceId.localeCompare(punctuated[1].sourceId)>0);
+});
+
 test('Safe snapshot consensus rechecks every cataloged source',async()=>{
   const calls=new Map(); const destroyed=[];
   const snapshot={schema:'fixture',finalizedBlockHash:'0x01'};

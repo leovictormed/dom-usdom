@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {Interface,TypedDataEncoder,Wallet,concat,keccak256,zeroPadValue} from 'ethers';
+import {Interface,TypedDataEncoder,Wallet,concat,getBytes,hashMessage,keccak256,zeroPadValue} from 'ethers';
 import {
   SAFE_FALLBACK_HANDLER_STORAGE_SLOT,
   SAFE_GUARD_STORAGE_SLOT,
@@ -18,6 +18,7 @@ import {
   SAFE_RECOVERY_TRANSACTION_PACKAGE_SCHEMA,
   assembleRecoverableSafeRecoveryTransactions,
   prepareRecoverableSafeRecoveryPlan,
+  validateRecoverableSafeRecoveryPlan,
   validateRecoverableSafeRecoveryTransactionPackage,
 } from '../../sdk/safe-control-recovery-plan.mjs';
 import {
@@ -29,6 +30,7 @@ import {
 import {
   SAFE_RECOVERY_ENVELOPE_SCHEMA,
   prepareRecoverableSafeRecoveryEnvelope,
+  validateRecoverableSafeRecoveryEnvelope,
 } from '../../sdk/safe-control-recovery-envelope.mjs';
 import {bindRpcConsensusEvidence} from '../../sdk/rpc-consensus-evidence.mjs';
 import {
@@ -54,15 +56,11 @@ const durableRecovery=value=>bindRpcConsensusEvidence(value,durableRpcSources,'r
 const durablePlan=value=>bindRpcConsensusEvidence(value,durableRpcSources,'planHash');
 
 const owners=[
-  '0x0000000000000000000000000000000000000011',
-  '0x0000000000000000000000000000000000000022',
-  '0x0000000000000000000000000000000000000033',
+  '0x0000000000000000000000000000000000010011',
+  '0x0000000000000000000000000000000000010022',
+  '0x0000000000000000000000000000000000010033',
 ];
-const ownersByRole={
-  governance:owners,
-  reserveGuardian:['0x0000000000000000000000000000000000000044','0x0000000000000000000000000000000000000055','0x0000000000000000000000000000000000000066'],
-  checkpointGuardian:['0x0000000000000000000000000000000000000077','0x0000000000000000000000000000000000000088','0x0000000000000000000000000000000000000099'],
-};
+const ownersByRole={governance:[...owners],reserveGuardian:[...owners],checkpointGuardian:[...owners],usdtCustody:[...owners]};
 const factory='0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67';
 const singleton='0x41675C099F32341bf84BFc5382aF534df5C7461a';
 const fallbackHandler='0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99';
@@ -145,7 +143,7 @@ async function packageFixture(fixture=providerFixture()) {
   return {fixture,packageDocument};
 }
 
-test('collects three recoverable Safe roles from one immutable finalized snapshot',async()=>{
+test('collects four recoverable Safe roles from one immutable finalized snapshot',async()=>{
   const {fixture,packageDocument}=await packageFixture();
   fixture.calls.length=0;
   const report=await collectRecoverableSafeControlSnapshot({
@@ -158,8 +156,9 @@ test('collects three recoverable Safe roles from one immutable finalized snapsho
   assert.match(report.snapshotHash,/^0x[0-9a-f]{64}$/);
   assert.deepEqual(report.roles.map(role=>[role.role,role.threshold,role.nonce]),[
     ['governance','2','0'],['reserveGuardian','2','0'],['checkpointGuardian','2','0'],
+    ['usdtCustody','2','0'],
   ]);
-  assert.equal(new Set(report.roles.map(role=>role.configurationHash)).size,3);
+  assert.equal(new Set(report.roles.map(role=>role.configurationHash)).size,4);
   assert.ok(report.roles.every(role=>role.guard==='0x0000000000000000000000000000000000000000'));
   assert.ok(fixture.calls.every(call=>call.blockTag===21000000));
   assert.ok(fixture.storage.every(read=>read.blockTag===21000000));
@@ -186,13 +185,13 @@ test('rejects any Safe package substitution before accepting on-chain state',asy
     value=>{value.controls[0].safe=value.controls[1].safe;},
     value=>{value.controls[0].data=value.controls[0].data+'00';},
     value=>{value.ownersByRole.governance.reverse();},
-    value=>{value.ownersByRole.reserveGuardian[0]=value.ownersByRole.governance[0];},
+    value=>{value.ownersByRole.reserveGuardian[0]='0x0000000000000000000000000000000000010044';},
   ]) {
     const changed=structuredClone(packageDocument);
     mutate(changed);
     await assert.rejects(collectRecoverableSafeControlSnapshot({
       packageDocument:changed,rpcUrl:'https://rpc.invalid',providerFactory:fixture.providerFactory,
-    }),/source-derived finalized reconstruction|globally distinct/);
+    }),/Safe package policy|source-derived finalized reconstruction|same ratified|deployment control|canonical order|not be reused|globally distinct/);
   }
 });
 
@@ -275,10 +274,10 @@ function encodedLog(address,event,args) {
 }
 
 async function buildRecoveryCase() {
-  const wallets=Array.from({length:12},(_,index)=>new Wallet(`0x${(index+1).toString(16).padStart(64,'0')}`));
-  const roleNames=['governance','reserveGuardian','checkpointGuardian'];
-  const sourceOwnersByRole=Object.fromEntries(roleNames.map((role,index)=>[role,
-    wallets.slice(index*3,index*3+3).map(wallet=>wallet.address)
+  const wallets=Array.from({length:13},(_,index)=>new Wallet(`0x${(index+1).toString(16).padStart(64,'0')}`));
+  const roleNames=['governance','reserveGuardian','checkpointGuardian','usdtCustody'];
+  const sourceOwnersByRole=Object.fromEntries(roleNames.map(role=>[role,
+    wallets.slice(0,3).map(wallet=>wallet.address)
       .sort((left,right)=>BigInt(left)<BigInt(right)?-1:1)]));
   const sourceOwners=Object.values(sourceOwnersByRole).flat();
   const walletByAddress=new Map(wallets.map(wallet=>[wallet.address.toLowerCase(),wallet]));
@@ -318,9 +317,9 @@ async function buildRecoveryCase() {
       control.safe,0n,inner,0,0n,0n,0n,'0x0000000000000000000000000000000000000000',
       '0x0000000000000000000000000000000000000000',signatures,
     ]);
-    transactions.set(transactionHash,{hash:transactionHash,to:control.safe,value:0n,data,
+    transactions.set(transactionHash,{hash:transactionHash,to:control.safe,value:0n,data,index,
       blockNumber,blockHash:receiptBlockHash});
-    receipts.set(transactionHash,{hash:transactionHash,status:1,to:control.safe,blockNumber,
+    receipts.set(transactionHash,{hash:transactionHash,status:1,to:control.safe,blockNumber,index,
       blockHash:receiptBlockHash,logs:[
         encodedLog(control.safe,'RemovedOwner',[lostOwner]),
         encodedLog(control.safe,'AddedOwner',[replacementOwner]),
@@ -350,15 +349,15 @@ async function buildRecoveryCase() {
     finalizedHash};
 }
 
-test('verifies an exact finalized three-role loss-of-one-key recovery drill',async()=>{
+test('verifies an exact finalized four-role loss-of-one-key recovery drill',async()=>{
   const fixture=await buildRecoveryCase();
   const report=durableRecovery(await collectRecoverableSafeControlRecovery(fixture.input));
   assert.equal(report.schema,SAFE_CONTROL_RECOVERY_SCHEMA);
   assert.equal(report.afterSnapshot.finalizedBlockHash,fixture.finalizedHash);
-  assert.deepEqual(report.afterSnapshot.roles.map(role=>role.nonce),['1','1','1']);
+  assert.deepEqual(report.afterSnapshot.roles.map(role=>role.nonce),['1','1','1','1']);
   assert.deepEqual(report.recoveries.map(role=>role.signers),[
     fixture.sourceOwnersByRole.governance.slice(1),fixture.sourceOwnersByRole.reserveGuardian.slice(1),
-    fixture.sourceOwnersByRole.checkpointGuardian.slice(1),
+    fixture.sourceOwnersByRole.checkpointGuardian.slice(1),fixture.sourceOwnersByRole.usdtCustody.slice(1),
   ]);
   assert.match(report.recoveryHash,/^0x[0-9a-f]{64}$/);
   assert.equal(validateRecoverableSafeControlRecoveryReport(
@@ -375,6 +374,32 @@ test('persisted Safe recovery report rejects after-state and transaction substit
     [value=>{value.recoveries[0].signers.reverse();},/transaction evidence mismatch/],
     [value=>{value.recoveries[2].transactionHash=value.recoveries[1].transactionHash;},
       /transaction hashes are not distinct/],
+    [value=>{value.recoveries[0].transactionHash='0x'+'00'.repeat(32);},
+      /transaction evidence mismatch/],
+    [value=>{value.recoveries[0].blockHash='0x'+'00'.repeat(32);},
+      /transaction evidence mismatch/],
+    [value=>{value.afterSnapshot.finalizedBlockNumber='9'.repeat(100000);},
+      /canonical uint64 decimal/],
+    [value=>{value.afterSnapshot.finalizedBlockNumber=(1n<<64n).toString();},
+      /canonical uint64 decimal/],
+    [value=>{value.recoveries[0].blockNumber='9'.repeat(100000);},
+      /canonical uint64 decimal/],
+    [value=>{value.recoveries[0].blockNumber=(1n<<64n).toString();},
+      /canonical uint64 decimal/],
+    [value=>{value.recoveries[1].blockNumber=value.recoveries[0].blockNumber;
+      value.recoveries[1].transactionIndex=value.recoveries[0].transactionIndex;},
+      /strict canonical chain order/],
+    [value=>{value.transitionsByRole.governance.replacementOwner=
+      '0x0000000000000000000000000000000000000000';},/owner transition is invalid/],
+    [value=>{value.transitionsByRole.governance.replacementOwner=
+      '0x0000000000000000000000000000000000000001';},/owner transition is invalid/],
+    [value=>{value.transitionsByRole.governance.replacementOwner=
+      '0x0000000000000000000000000000000000000011';},/owner transition is invalid/],
+    [value=>{value.transitionsByRole.governance.replacementOwner=
+      fixture.input.packageDocument.controls[2].safe;},/owner transition is invalid/],
+    [value=>{value.transitionsByRole.governance.replacementOwner=factory;},/owner transition is invalid/],
+    [value=>{value.transitionsByRole.governance.replacementOwner=singleton;},/owner transition is invalid/],
+    [value=>{value.transitionsByRole.governance.replacementOwner=fallbackHandler;},/owner transition is invalid/],
   ]) {
     const changed=structuredClone(source);
     mutate(changed);
@@ -397,10 +422,10 @@ test('builds one cross-bound canonical Safe release-evidence set',async()=>{
   });
   assert.equal(bundle.schema,SAFE_CONTROL_RELEASE_EVIDENCE_SCHEMA);
   assert.deepEqual(Object.keys(bundle.roleReports),[
-    'governance','guardian','checkpointGuardian',
+    'governance','guardian','checkpointGuardian','usdtCustody',
   ]);
   assert.equal(bundle.roleReports.guardian.safeRole,'reserveGuardian');
-  assert.equal(bundle.recoveryDrillReport.roles.length,3);
+  assert.equal(bundle.recoveryDrillReport.roles.length,4);
   assert.equal(bundle.baselineRpcConsensus.sourceCount,'2');
   assert.deepEqual(bundle.recoveryRpcConsensus,bundle.baselineRpcConsensus);
   assert.equal(validateRecoverableSafeControlReleaseEvidence(bundle),bundle);
@@ -475,7 +500,7 @@ function fragmentForBundle(bundle) {
     schema:SAFE_CONTROL_RELEASE_FRAGMENT_SCHEMA,
     bundleHash:bundle.bundleHash,
     controlPlaneEvidenceBundle:pointer(SAFE_CONTROL_EVIDENCE_PATHS.bundle),
-    controlPlane:Object.fromEntries(['governance','guardian','checkpointGuardian'].map(role=>[
+    controlPlane:Object.fromEntries(['governance','guardian','checkpointGuardian','usdtCustody'].map(role=>[
       role,{address:bundle.roleReports[role].address,
         runtimeCodeHash:bundle.roleReports[role].runtimeCodeHash,
         configurationHash:bundle.roleReports[role].configurationHash,
@@ -536,6 +561,11 @@ test('materializes Safe source identities and evidence metadata in separate phas
   assert.throws(()=>materializeSafeControlReleaseMetadata({
     releaseEvidence,fragment:substituted,artifactSet,
   }),/disagrees/);
+  const zeroDocumentCommitment=structuredClone(fragment);
+  zeroDocumentCommitment.controlPlaneEvidenceBundle.sha256='0'.repeat(64);
+  assert.throws(()=>materializeSafeControlReleaseMetadata({
+    releaseEvidence,fragment:zeroDocumentCommitment,artifactSet,
+  }),/identity is invalid/);
 });
 
 test('rejects unsafe payment fields and any Safe recovery event substitution',async()=>{
@@ -575,6 +605,24 @@ test('rejects a lost-key signature, preapproved signature and noncanonical recei
     const transaction=fixture.transactions.get(hash);
     const outer=safeInterface.decodeFunctionData('execTransaction',transaction.data);
     const safeTxHash=fixture.safeTxHashes.get(transaction.to.toLowerCase());
+    const signatures=fixture.survivorWallets.map(wallet=>{
+      const direct=wallet.signingKey.sign(hashMessage(getBytes(safeTxHash))).serialized;
+      const v=Number.parseInt(direct.slice(-2),16)+4;
+      return {address:wallet.address,signature:`${direct.slice(0,-2)}${v.toString(16)}`};
+    }).sort((left,right)=>BigInt(left.address)<BigInt(right.address)?-1:1);
+    transaction.data=safeInterface.encodeFunctionData('execTransaction',[
+      outer.to,outer.value,outer.data,outer.operation,outer.safeTxGas,outer.baseGas,outer.gasPrice,
+      outer.gasToken,outer.refundReceiver,concat(signatures.map(value=>value.signature)),
+    ]);
+    await assert.rejects(collectRecoverableSafeControlRecovery(fixture.input),
+      /direct EIP-712 hardware signatures/);
+  }
+  {
+    const fixture=await buildRecoveryCase();
+    const hash=fixture.input.transactions.governance;
+    const transaction=fixture.transactions.get(hash);
+    const outer=safeInterface.decodeFunctionData('execTransaction',transaction.data);
+    const safeTxHash=fixture.safeTxHashes.get(transaction.to.toLowerCase());
     const lostWallet=fixture.walletByAddress.get(
       fixture.input.transitionsByRole.governance.lostOwner.toLowerCase());
     const wrong=[lostWallet,fixture.survivorWallets[0]].map(wallet=>({
@@ -597,7 +645,8 @@ test('rejects a lost-key signature, preapproved signature and noncanonical recei
       outer.to,outer.value,outer.data,outer.operation,outer.safeTxGas,outer.baseGas,outer.gasPrice,
       outer.gasToken,outer.refundReceiver,`0x${bytes.toString('hex')}`,
     ]);
-    await assert.rejects(collectRecoverableSafeControlRecovery(fixture.input),/preapproved Safe signatures/);
+    await assert.rejects(collectRecoverableSafeControlRecovery(fixture.input),
+      /direct EIP-712 hardware signatures/);
   }
   {
     const fixture=await buildRecoveryCase();
@@ -610,11 +659,11 @@ test('rejects a lost-key signature, preapproved signature and noncanonical recei
 });
 
 async function buildPlanCase() {
-  const wallets=Array.from({length:12},(_,index)=>
+  const wallets=Array.from({length:13},(_,index)=>
     new Wallet(`0x${(index+1).toString(16).padStart(64,'0')}`));
-  const roleNames=['governance','reserveGuardian','checkpointGuardian'];
-  const sourceOwnersByRole=Object.fromEntries(roleNames.map((role,index)=>[role,
-    wallets.slice(index*3,index*3+3).map(wallet=>wallet.address)
+  const roleNames=['governance','reserveGuardian','checkpointGuardian','usdtCustody'];
+  const sourceOwnersByRole=Object.fromEntries(roleNames.map(role=>[role,
+    wallets.slice(0,3).map(wallet=>wallet.address)
       .sort((left,right)=>BigInt(left)<BigInt(right)?-1:1)]));
   const sourceOwners=Object.values(sourceOwnersByRole).flat();
   const walletByAddress=new Map(wallets.map(wallet=>[wallet.address.toLowerCase(),wallet]));
@@ -647,33 +696,126 @@ async function buildPlanCase() {
         .sign(role.safeTxHash).serialized,
     })),
   ]));
-  return {plan,signatures,sourceOwners,sourceOwnersByRole,walletByAddress,transitionsByRole};
+  return {plan,signatures,sourceOwners,sourceOwnersByRole,walletByAddress,transitionsByRole,
+    packageDocument,baselineSnapshot,providerFactory:fixture.providerFactory};
 }
 
 test('prepares typed Safe recovery payloads and assembles exact unsigned executions',async()=>{
   const fixture=await buildPlanCase();
   assert.equal(fixture.plan.schema,SAFE_RECOVERY_PLAN_SCHEMA);
-  assert.deepEqual(fixture.plan.roles.map(role=>role.safeTransaction.nonce),['0','0','0']);
+  assert.deepEqual(fixture.plan.roles.map(role=>role.safeTransaction.nonce),['0','0','0','0']);
   assert.ok(fixture.plan.roles.every(role=>
     TypedDataEncoder.hash(role.typedData.domain,{SafeTx:role.typedData.types.SafeTx},
       role.typedData.message)===role.safeTxHash));
   const assembled=assembleRecoverableSafeRecoveryTransactions(fixture);
   assert.equal(assembled.schema,SAFE_RECOVERY_TRANSACTION_PACKAGE_SCHEMA);
   assert.equal(assembled.planHash,fixture.plan.planHash);
-  assert.equal(assembled.transactions.length,3);
+  assert.equal(assembled.transactions.length,4);
   assert.ok(assembled.transactions.every(transaction=>
     transaction.signers.length===2&&transaction.value==='0'));
+});
+
+test('persisted recovery plan bounds its finalized height before downstream use',async()=>{
+  const fixture=await buildPlanCase();
+  for(const finalizedBlockNumber of ['9'.repeat(100000),(1n<<64n).toString()]) {
+    const changed=structuredClone(fixture.plan); changed.finalizedBlockNumber=finalizedBlockNumber;
+    const unsigned={...changed}; delete unsigned.planHash;
+    changed.planHash=_safeControlObservationInternals.documentHash(unsigned);
+    assert.throws(()=>validateRecoverableSafeRecoveryPlan(changed),/identity is invalid/);
+  }
+});
+
+test('Safe recovery rejects reserved replacement owners before signing',async()=>{
+  const fixture=await buildPlanCase();
+  for(const replacementOwner of [
+    '0x0000000000000000000000000000000000000000',
+    '0x0000000000000000000000000000000000000001',
+    '0x0000000000000000000000000000000000000002',
+    '0x0000000000000000000000000000000000000011',
+  ]) {
+    const transitionsByRole=structuredClone(fixture.transitionsByRole);
+    transitionsByRole.governance.replacementOwner=replacementOwner;
+    await assert.rejects(prepareRecoverableSafeRecoveryPlan({
+      packageDocument:fixture.packageDocument,baselineSnapshot:fixture.baselineSnapshot,
+      transitionsByRole,rpcUrl:'https://rpc.invalid',providerFactory:fixture.providerFactory,
+    }),/lost\/replacement owner policy is invalid/);
+
+    const changed=structuredClone(fixture.plan);
+    changed.transitionsByRole.governance.replacementOwner=replacementOwner;
+    changed.roles[0].newOwner=replacementOwner;
+    const swap=safeInterface.encodeFunctionData('swapOwner',[
+      changed.roles[0].previousOwner,changed.roles[0].oldOwner,replacementOwner,
+    ]).toLowerCase();
+    changed.roles[0].safeTransaction.data=swap;
+    const unsigned={...changed}; delete unsigned.planHash;
+    changed.planHash=_safeControlObservationInternals.documentHash(unsigned);
+    assert.throws(()=>validateRecoverableSafeRecoveryPlan(changed),
+      /recovery role policy is invalid/);
+  }
+});
+
+test('Safe recovery rejects a control Safe as replacement owner before signing',async()=>{
+  const fixture=await buildPlanCase();
+  const replacementOwner=fixture.plan.roles[2].safe;
+  const transitionsByRole=structuredClone(fixture.transitionsByRole);
+  transitionsByRole.governance.replacementOwner=replacementOwner;
+  await assert.rejects(prepareRecoverableSafeRecoveryPlan({
+    packageDocument:fixture.packageDocument,baselineSnapshot:fixture.baselineSnapshot,
+    transitionsByRole,rpcUrl:'https://rpc.invalid',providerFactory:fixture.providerFactory,
+  }),/lost\/replacement owner policy is invalid/);
+
+  const changed=structuredClone(fixture.plan);
+  changed.transitionsByRole.governance.replacementOwner=replacementOwner;
+  const role=changed.roles[0];
+  role.newOwner=replacementOwner;
+  role.safeTransaction.data=safeInterface.encodeFunctionData('swapOwner',[
+    role.previousOwner,role.oldOwner,replacementOwner,
+  ]).toLowerCase();
+  role.typedData.message.data=role.safeTransaction.data;
+  role.safeTxHash=TypedDataEncoder.hash(role.typedData.domain,
+    {SafeTx:role.typedData.types.SafeTx},role.typedData.message);
+  const unsigned={...changed}; delete unsigned.planHash;
+  changed.planHash=_safeControlObservationInternals.documentHash(unsigned);
+  assert.throws(()=>validateRecoverableSafeRecoveryPlan(changed),
+    /replacement owners must remain distinct/);
+});
+
+test('Safe recovery offline plan rejects pinned Safe contracts as replacement owners',async()=>{
+  const fixture=await buildPlanCase();
+  for(const replacementOwner of [factory,singleton,fallbackHandler]) {
+    const transitionsByRole=structuredClone(fixture.transitionsByRole);
+    transitionsByRole.governance.replacementOwner=replacementOwner;
+    await assert.rejects(prepareRecoverableSafeRecoveryPlan({
+      packageDocument:fixture.packageDocument,baselineSnapshot:fixture.baselineSnapshot,
+      transitionsByRole,rpcUrl:'https://rpc.invalid',providerFactory:fixture.providerFactory,
+    }),/lost\/replacement owner policy is invalid/);
+
+    const changed=structuredClone(fixture.plan);
+    changed.transitionsByRole.governance.replacementOwner=replacementOwner;
+    const role=changed.roles[0];
+    role.newOwner=replacementOwner;
+    role.safeTransaction.data=safeInterface.encodeFunctionData('swapOwner',[
+      role.previousOwner,role.oldOwner,replacementOwner,
+    ]).toLowerCase();
+    role.typedData.message.data=role.safeTransaction.data;
+    role.safeTxHash=TypedDataEncoder.hash(role.typedData.domain,
+      {SafeTx:role.typedData.types.SafeTx},role.typedData.message);
+    const unsigned={...changed}; delete unsigned.planHash;
+    changed.planHash=_safeControlObservationInternals.documentHash(unsigned);
+    assert.throws(()=>validateRecoverableSafeRecoveryPlan(changed),
+      /recovery role policy is invalid/);
+  }
 });
 
 test('recovery assembly rejects lost-key, preapproved and typed-data substitutions',async()=>{
   {
     const fixture=await buildPlanCase();
-    const [governance,reserveGuardian]=fixture.plan.roles;
-    governance.requiredSigners=[...reserveGuardian.requiredSigners];
+    const [governance]=fixture.plan.roles;
+    governance.requiredSigners=[governance.requiredSigners[0],governance.requiredSigners[0]];
     const unsigned={...fixture.plan}; delete unsigned.planHash;
     fixture.plan.planHash=_safeControlObservationInternals.documentHash(unsigned);
     await assert.throws(()=>assembleRecoverableSafeRecoveryTransactions(fixture),
-      /globally separated by role/);
+      /recovery role policy|two surviving owners|distinct|signer or typed-data handoff/);
   }
   {
     const fixture=await buildPlanCase();
@@ -691,6 +833,14 @@ test('recovery assembly rejects lost-key, preapproved and typed-data substitutio
       signature:lostWallet.signingKey.sign(role.safeTxHash).serialized};
     await assert.throws(()=>assembleRecoverableSafeRecoveryTransactions(fixture),
       /two surviving owners/);
+  }
+  {
+    const fixture=await buildPlanCase();
+    const role=fixture.plan.roles[0];
+    fixture.signatures[role.role][0].signature=
+      `0x${fixture.signatures[role.role][0].signature.slice(2).toUpperCase()}`;
+    await assert.throws(()=>assembleRecoverableSafeRecoveryTransactions(fixture),
+      /signature encoding is invalid/);
   }
   {
     const fixture=await buildPlanCase();
@@ -719,10 +869,10 @@ test('recovers one exact execution from finalized logs and rejects absence or re
   const executionBlockHash='0x'+'d2'.repeat(32);
   const finalizedHash='0x'+'d3'.repeat(32);
   const log={...encodedLog(role.safe,'ExecutionSuccess',[role.safeTxHash,0n]),
-    transactionHash,blockNumber:21000001,blockHash:executionBlockHash};
-  const transaction={hash:transactionHash,to:role.safe,value:0n,data:expected.data,
+    transactionHash,blockNumber:21000001,blockHash:executionBlockHash,transactionIndex:7};
+  const transaction={hash:transactionHash,to:role.safe,value:0n,data:expected.data,index:7,
     blockNumber:21000001,blockHash:executionBlockHash};
-  const receipt={hash:transactionHash,status:1,to:role.safe,blockNumber:21000001,
+  const receipt={hash:transactionHash,status:1,to:role.safe,blockNumber:21000001,index:7,
     blockHash:executionBlockHash,logs:[log]};
   const provider={
     getNetwork:async()=>({chainId:1n}),
@@ -737,6 +887,7 @@ test('recovers one exact execution from finalized logs and rejects absence or re
   const observed=await observeFinalizedSafeRecoveryExecution(input);
   assert.equal(observed.transactionHash,transactionHash);
   assert.equal(observed.safeTxHash,role.safeTxHash);
+  assert.equal(observed.transactionIndex,'7');
   const consensus=bindRpcConsensusEvidence(observed,[
     {sourceId:'operator-a',originKeccak256:'0x'+'01'.repeat(32)},
     {sourceId:'operator-b',originKeccak256:'0x'+'02'.repeat(32)},
@@ -749,8 +900,12 @@ test('recovers one exact execution from finalized logs and rejects absence or re
     value=>{value.blockNumber='021000001';},
     value=>{value.finalizedObservationBlockNumber=(2n**64n).toString();},
     value=>{value.blockNumber='21000006';},
+    value=>{value.transactionIndex='07';},
     value=>{value.safe=fixture.plan.roles[1].safe;},
     value=>{value.safeTxHash=fixture.plan.roles[1].safeTxHash;},
+    value=>{value.transactionHash='0x'+'00'.repeat(32);},
+    value=>{value.blockHash='0x'+'00'.repeat(32);},
+    value=>{value.finalizedObservationBlockHash='0x'+'00'.repeat(32);},
     value=>{value.rpcConsensus.sourceCount='3';},
   ]) {
     const changed=structuredClone(consensus); mutate(changed);
@@ -765,6 +920,13 @@ test('recovers one exact execution from finalized logs and rejects absence or re
     ?{number:21000005,hash:finalizedHash}:{number:Number(tag),hash:'0x'+'ff'.repeat(32)}};
   await assert.rejects(observeFinalizedSafeRecoveryExecution({...input,providerFactory:()=>drifted}),
     /transaction or receipt mismatch/);
+  const wrongIndex={...provider,getTransactionReceipt:async()=>({...receipt,index:8})};
+  await assert.rejects(observeFinalizedSafeRecoveryExecution({...input,
+    providerFactory:()=>wrongIndex}),/transaction or receipt mismatch/);
+  const sameHeight=structuredClone(consensus);
+  sameHeight.finalizedObservationBlockNumber=sameHeight.blockNumber;
+  assert.throws(()=>validateFinalizedSafeRecoveryExecution({plan:fixture.plan,transactionPackage,
+    execution:sameHeight}),/hash differs/);
 });
 
 test('persisted recovery transaction package rejects recomputed calldata substitution',async()=>{
@@ -779,12 +941,12 @@ test('persisted recovery transaction package rejects recomputed calldata substit
     fixture.plan,transactionPackage),/fields mismatch/);
 });
 
-test('raw recovery journal is bound to chain, surviving relayer and exact Safe calldata',async()=>{
+test('raw recovery journal is bound to chain, gas-only relayer and exact Safe calldata',async()=>{
   const fixture=await buildPlanCase();
   const transactionPackage=assembleRecoverableSafeRecoveryTransactions(fixture);
   const expected=transactionPackage.transactions[0];
-  const relayer=fixture.plan.roles[0].requiredSigners[0];
-  const wallet=fixture.walletByAddress.get(relayer.toLowerCase());
+  const wallet=Wallet.createRandom();
+  const relayer=wallet.address;
   const envelopeProvider=(url,pendingNonce=7,finalizedNumber=22000000)=>({
     getNetwork:async()=>({chainId:1n}),
     getTransactionCount:async(_address,tag)=>tag==='pending'?pendingNonce:7,
@@ -851,11 +1013,23 @@ test('raw recovery journal is bound to chain, surviving relayer and exact Safe c
   assert.throws(()=>validateRecoverableSafeRecoveryRawTransaction(
     {...input,rawTransaction:outsiderRaw}),/envelope mismatch/);
   assert.throws(()=>validateRecoverableSafeRecoveryRawTransaction(
-    {...input,relayerOwner:outsider.address}),/must be one of the two surviving owners/);
+    {...input,relayerOwner:fixture.plan.roles[0].requiredSigners[0]}),/overlaps a Safe or control owner/);
   const changedEnvelope=structuredClone(envelopePlan);
   changedEnvelope.gasLimit=String(BigInt(changedEnvelope.gasLimit)+1n);
   assert.throws(()=>validateRecoverableSafeRecoveryRawTransaction(
     {...input,envelopePlan:changedEnvelope}),/envelope hash mismatch/);
+  for(const mutate of [
+    value=>{value.maximumCost='9'.repeat(100000);},
+    value=>{value.rpcObservations[0].finalizedBlockNumber=(1n<<64n).toString();
+      value.rpcObservations[1].finalizedBlockNumber=(1n<<64n).toString();
+      value.rpcObservations[2].finalizedBlockNumber=(1n<<64n).toString();},
+  ]) {
+    const changed=structuredClone(envelopePlan); mutate(changed);
+    const unsignedChanged={...changed}; delete unsignedChanged.envelopeHash;
+    changed.envelopeHash=_safeControlObservationInternals.documentHash(unsignedChanged);
+    assert.throws(()=>validateRecoverableSafeRecoveryEnvelope(
+      fixture.plan,transactionPackage,changed));
+  }
   const substitutedSources=structuredClone(envelopePlan);
   substitutedSources.rpcConsensus.sources[0].originKeccak256='0x'+'91'.repeat(32);
   const unsignedSubstitution={...substitutedSources}; delete unsignedSubstitution.envelopeHash;

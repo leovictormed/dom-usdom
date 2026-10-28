@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+import {readFile} from 'node:fs/promises';import {writePrivateFileDurableNew} from '../sdk/durable-private-file.mjs';import {prepareRecoveryV3RelayerEnvelope} from '../sdk/safe-recovery-roster-execution-v3.mjs';
+try{const [planPath,ordinalRaw,assembledPath,policyPath,observationsPath,output]=process.argv.slice(2),[plan,assembled,policy,rpcObservations]=await Promise.all([planPath,assembledPath,policyPath,observationsPath].map(x=>readFile(x,'utf8').then(JSON.parse))),result=prepareRecoveryV3RelayerEnvelope({plan,ordinal:Number(ordinalRaw),assembled,policy,rpcObservations});await writePrivateFileDurableNew(output,`${JSON.stringify(result)}\n`);}catch(e){console.error(e.message);process.exit(1)}

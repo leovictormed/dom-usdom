@@ -1,0 +1,26 @@
+OPEN CLAIMS PROVENANCE CI GATE — ETAPA 1481
+Date: 2026-10-27
+
+The open-readiness classifier is now part of the standard `check:provenance`
+command executed by repository CI.  The fixed checker reads the strict
+production-requirements document, intersects it with the actual real-funds
+requirement list and fails if any false blocking claim is not explicitly
+classified as release configuration or operational evidence.
+
+The same gate rejects release-blocking keys whose names indicate external
+audit, independent review or a zero-risk guarantee.  Technical internal checks
+remain unchanged.
+
+Current result: 33 false claims are accepted as six configuration dependencies
+and 27 operational-evidence dependencies.  A regression changes the currently
+true `native_consensus_implemented` claim to false and proves the checker rejects
+it as unclassified.  A second integration assertion binds the checker into the
+standard provenance command immediately after implementation-claims checking.
+
+Validation:
+- check-readiness-open-claims.mjs: PASS, 33 classified.
+- readiness-open-claims.test.mjs: 3 passed, 0 failed.
+- git diff --check: passed.
+
+No claims were promoted.  No manifest modification, network use, receipt
+generation, signing, deployment, funds, commit or push occurred.

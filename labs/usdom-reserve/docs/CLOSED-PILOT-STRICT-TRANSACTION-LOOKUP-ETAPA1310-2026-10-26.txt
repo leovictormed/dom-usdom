@@ -1,0 +1,32 @@
+ETAPA 1310 — CONSULTA ESTRITA E LIMITADA DE TRANSAÇÃO NA RETOMADA
+Data: 2026-10-26
+
+Problema
+
+A retomada usava `cast tx ... || true` em dois RPCs. O padrão misturava ausência
+legítima da transação com timeout, erro de transporte ou erro do provedor,
+podendo alimentar a decisão de publicação com uma falsa ausência.
+
+Correção
+
+Cada executor agora possui uma consulta fechada por `eth_getTransactionByHash`:
+
+- prazo foreground TERM/KILL de 120 segundos;
+- captura limitada a 65.537 bytes e rejeição acima de 64 KiB;
+- validação JSON estrita, incluindo chaves duplicadas;
+- aceitação somente de `null` ou objeto cujo `hash` seja exatamente o esperado;
+- propagação de timeout, falha do RPC, JSON inválido e resposta ambígua.
+
+As duas fontes continuam alimentando a classificação de nonce. Somente `null`
+válido representa ausência; hash conhecido precisa concordar exatamente. O
+antigo mascaramento `|| true` e todas as chamadas `cast tx` foram removidos.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 16/16 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 73/73 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

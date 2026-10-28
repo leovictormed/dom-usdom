@@ -26,6 +26,13 @@ test('catalog rejects duplicate infrastructure and fewer than two operators',()=
   assert.throws(()=>buildFinalizedDepositSourceCatalog([runtime[0],{
     ...runtime[1],executionUrl:'https://exec-a.example/different-secret',
   }]),/independent/);
+  assert.throws(()=>buildFinalizedDepositSourceCatalog([
+    {...runtime[0],executionUrl:'https://shared.example:443/key-a'},
+    {...runtime[1],executionUrl:'https://shared.example:444/key-b'},
+  ]),/independent execution and Beacon hostnames/);
+  assert.throws(()=>buildFinalizedDepositSourceCatalog([
+    {...runtime[0],beaconUrl:'https://127.0.0.1/key-a'},runtime[1],
+  ]),/public DNS hostname/);
 });
 
 test('observation consensus fails closed on any mutation',()=>{

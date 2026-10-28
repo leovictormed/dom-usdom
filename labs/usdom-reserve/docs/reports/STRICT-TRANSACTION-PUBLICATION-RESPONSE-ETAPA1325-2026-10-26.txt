@@ -1,0 +1,35 @@
+USDOM closed-mainnet readiness — Stage 1325
+Date: 2026-10-26
+
+Finding
+=======
+
+The only component that transmits a signed private raw transaction bounded its
+RPC response to 64 KiB, but decoded it with JSON.parse. Duplicate JSON authority
+keys were silently resolved, so an ambiguous response containing multiple result
+or error meanings could be reported as successful publication.
+
+Correction
+==========
+
+The SDK now owns response parsing. It accepts only a nonempty Buffer no larger
+than 64 KiB, applies strict UTF-8/JSON parsing with depth 8, requires exactly
+jsonrpc, id and result, fixes jsonrpc to 2.0 and id to 1, and requires one 32-byte
+transaction hash. Response bytes are zeroed in a finally block whether parsing
+or semantic validation succeeds or fails.
+
+Validation
+==========
+
+- Node syntax checks passed for the SDK and publisher.
+- Direct adversarial tests reject duplicate result, mixed error/result and extra
+  fields, and verify buffer zeroization on success and rejection.
+- Focused publisher, deposit, redemption and strict-JSON suite: 18/18 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No RPC call or raw transaction publication occurred. No network, Ledger,
+signing, deployment, funds, production facts, Rust, Solidity, Cargo, Forge,
+commit or push operation occurred.

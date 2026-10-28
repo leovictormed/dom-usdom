@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {
   deriveCheckpointRegistryArtifactBinding,
   deriveCheckpointVerifierArtifactBinding,deriveFinalizedBurnVerifierArtifactBinding,
-  deriveReserveArtifactBinding,
+  deriveReserveArtifactBinding,validateImmutablePatchManifest,
 } from '../sdk/compiled-runtime.mjs';
 import {buildMainnetDeploymentPackage} from '../sdk/deployment-package.mjs';
 import {parseStrictJson} from '../sdk/strict-json.mjs';
@@ -13,6 +13,7 @@ import {readDirectFile,readDirectProjectFile} from '../sdk/direct-project-file.m
 import {validateMainnetDeploymentIdentityObservation}
   from '../sdk/mainnet-deployment-identity.mjs';
 import {auditReserveArtifact} from '../sdk/reserve-artifact-safety.mjs';
+import {requireReleaseArtifact} from '../sdk/deployment-artifact-evidence.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const inputSnapshots=new Map();
@@ -28,7 +29,8 @@ async function loadJson(relative) {
 }
 
 async function loadArtifact(relative) {
-  const artifact=await loadJson(relative);
+  const artifactBytes=await readStable(relative,{maximum:64*1024*1024,label:'deployment artifact'});
+  const artifact=parseStrictJson(artifactBytes.toString('utf8'),{label:relative,maxBytes:64*1024*1024,maxDepth:256});
   const sourceContents=Object.create(null);
   for(const source of Object.keys(artifact?.metadata?.sources??{})) {
     const absolute=path.resolve(root,source);
@@ -42,7 +44,7 @@ async function loadArtifact(relative) {
   if(relative==='out/USDOMProofReserve.sol/USDOMProofReserve.json') {
     auditReserveArtifact(artifact,{sourceContents});
   }
-  return {artifact,sourceContents};
+  return {artifact,sourceContents,artifactSha256:createHash('sha256').update(artifactBytes).digest('hex')};
 }
 
 function assertEqual(actual,expected,label) {
@@ -73,12 +75,14 @@ if(process.argv.length!==2) {
       label:'config/proof-reserve.unconfigured.json',
     });
     validateMainnetDeploymentIdentityObservation({observation,releaseConfigAfter:releaseConfig});
-    if(releaseConfig.productionReady!==true || releaseConfig.ethereumChainId!=='1'
+    if(releaseConfig.productionReady!==true || releaseConfig.realFundsAuthorized!==false
+        || releaseConfig.ethereumChainId!=='1'
         || releaseConfig.deploymentMethod!=='CREATE') {
       throw new Error('the exact Ethereum mainnet CREATE release is not production-ready');
     }
-    const [verifierConfig,checkpointVerifierConfig,finalizedBuild,checkpointBuild,registryBuild,reserveBuild]
+    const [releaseEvidence,verifierConfig,checkpointVerifierConfig,finalizedBuild,checkpointBuild,registryBuild,reserveBuild]
       =await Promise.all([
+        loadJson('config/mainnet-release-evidence.unconfigured.json'),
         loadJson('config/finalized-burn-verifier.unconfigured.json'),
         loadJson('config/checkpoint-verifier.unconfigured.json'),
         loadArtifact('out/DOMFinalizedBurnRiscZeroVerifier.sol/DOMFinalizedBurnRiscZeroVerifier.json'),
@@ -86,17 +90,28 @@ if(process.argv.length!==2) {
         loadArtifact('out/DOMCheckpointRegistry.sol/DOMCheckpointRegistry.json'),
         loadArtifact('out/USDOMProofReserve.sol/USDOMProofReserve.json'),
       ]);
+    requireReleaseArtifact(releaseEvidence,'verifierArtifact',
+      'out/DOMFinalizedBurnRiscZeroVerifier.sol/DOMFinalizedBurnRiscZeroVerifier.json',
+      finalizedBuild.artifactSha256);
+    requireReleaseArtifact(releaseEvidence,'checkpointVerifierArtifact',
+      'out/DOMCheckpointRiscZeroVerifier.sol/DOMCheckpointRiscZeroVerifier.json',checkpointBuild.artifactSha256);
+    requireReleaseArtifact(releaseEvidence,'checkpointRegistryArtifact',
+      'out/DOMCheckpointRegistry.sol/DOMCheckpointRegistry.json',registryBuild.artifactSha256);
+    requireReleaseArtifact(releaseEvidence,'reserveArtifact',
+      'out/USDOMProofReserve.sol/USDOMProofReserve.json',reserveBuild.artifactSha256);
+    if(typeof verifierConfig.finalizedBurnGuestImageId!=='string'
+        ||typeof checkpointVerifierConfig.checkpointGuestImageId!=='string'
+        ||verifierConfig.finalizedBurnGuestImageId.toLowerCase()
+          ===checkpointVerifierConfig.checkpointGuestImageId.toLowerCase()) {
+      throw new Error('finalized-burn and checkpoint adapters require distinct guest ImageIDs');
+    }
     const finalizedBinding=deriveFinalizedBurnVerifierArtifactBinding({...finalizedBuild,verifierConfig,
       expectedConfigHash:releaseConfig.verifierConfigHash});
     const checkpointBinding=deriveCheckpointVerifierArtifactBinding({...checkpointBuild,
       verifierConfig:checkpointVerifierConfig,expectedConfigHash:releaseConfig.checkpointVerifierConfigHash});
     const registryBinding=deriveCheckpointRegistryArtifactBinding({...registryBuild,releaseConfig});
     const reserveBinding=deriveReserveArtifactBinding({...reserveBuild,releaseConfig});
-    if(reserveBinding.immutableReferenceCount!==68
-        ||reserveBinding.immutablePatchManifest?.length!==23
-        ||!/^0x[0-9a-f]{64}$/.test(reserveBinding.immutablePatchManifestHash??'')) {
-      throw new Error('reserve immutable patch manifest is incomplete');
-    }
+    validateImmutablePatchManifest(reserveBinding);
     assertEqual(finalizedBinding.runtimeCodeHash,releaseConfig.verifierCodeHash,'finalized-burn verifier runtime');
     assertEqual(finalizedBinding.initcodeHash,releaseConfig.verifierInitcodeHash,
       'finalized-burn verifier initcode');

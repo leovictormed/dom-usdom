@@ -1,0 +1,39 @@
+Stage 1373 — issuance-status slow-body isolation
+Date: 2026-10-26
+
+Finding
+
+The authenticated issuance-status route shared the two-permit expensive-scan
+middleware with history, transfer and burn scans. That middleware acquired its
+permit before Axum's JSON extractor had received the complete request body.
+Two authenticated clients could therefore keep partial JSON bodies open for
+the 30-second request timeout, occupy all shared permits without starting an
+issuance lookup, and make unrelated authenticated scans fail with HTTP 503.
+The generic 1,024,000-byte request ceiling also allowed far more buffering than
+the fixed issuance-status request schema needs.
+
+Correction
+
+- The route is isolated from the shared expensive-scan admission semaphore and
+  has an independent read rate limiter.
+- Its existing one-job issuance semaphore still protects the canonical lookup;
+  acquisition occurs after complete JSON extraction, and Stage 1369 keeps the
+  permit in the blocking worker across client cancellation.
+- A route-specific 1,024-byte transport ceiling rejects oversized bodies before
+  deserialization or backend work.
+- Bearer authentication remains outside route extraction, so unauthenticated
+  clients are rejected without the server waiting for their body.
+
+Evidence
+
+- `cargo test -p dom-rpc issuance_status --lib`: 8 passed, 0 failed in 0.46s.
+- The slow-body regression holds two authenticated status bodies permanently
+  pending and confirms `/chain/scan` still returns HTTP 200 within 250 ms.
+- The size regression sends a declared 1,025-byte body, receives HTTP 413 and
+  confirms zero backend entries.
+- The auth-order regression sends a body that never yields a frame and receives
+  HTTP 401 within 250 ms.
+- `cargo fmt --all -- --check` passes.
+- No RandomX mining, external network, wallet, signature, deployment, funds,
+  commit or push occurred.
+

@@ -1,0 +1,32 @@
+ETAPA 1354 — LIMITES DOS CAMPOS NUMÉRICOS DE BLOCO
+Data: 2026-10-26
+
+Problema
+
+Oito leituras de `baseFeePerGas` e duas leituras de `timestamp` tinham deadline,
+mas entravam em substituições de comando sem teto ou parser canônico. Esses
+campos controlam o custo máximo assinado e a validade temporal do resgate.
+
+Correção
+
+As dez leituras agora passam por limite de 80 bytes e por uma validação comum
+que admite somente decimal canônico ou quantidade hexadecimal Ethereum
+minúscula canônica, com no máximo 78 caracteres. Zeros à esquerda, sinal,
+espaço, expoente, hex maiúsculo e bytes residuais são rejeitados.
+
+As comparações entre RPCs, o teto de taxa, o custo total e a janela
+`validUntil` continuam aplicados depois do parser. Os deadlines TERM/KILL de 120
+segundos e `set -euo pipefail` fazem falha, timeout, excesso ou forma inválida
+abortar antes de assinatura ou publicação.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 10/10 leituras de timestamp/base fee possuem deadline,
+  cap e parser canônico.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

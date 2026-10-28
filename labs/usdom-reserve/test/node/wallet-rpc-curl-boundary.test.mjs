@@ -10,8 +10,13 @@ test('wallet identity RPC reads use one pinned and bounded curl identity',async(
     assert.match(source,/CURL_BIN=\$\(realpath "\$\(command -v curl\)"\)/,name);
     assert.match(source,/curl_identity=\$\(stat -Lc '%d:%i:%s:%Y:%Z'/,name);
     assert.match(source,/curl_sha256=\$\(sha256sum "\$CURL_BIN"/,name);
-    assert.equal((source.match(/"\$CURL_BIN" --fail --silent --show-error --max-time 10 --max-filesize 65536 --proto '=http'/g)??[]).length,2,name);
-    assert.equal((source.match(/assert_curl_unchanged/g)??[]).length,4,name);
+    const curlCalls=(source.match(/"\$CURL_BIN" --fail --silent --show-error --max-time 10 --max-filesize 65536 --proto '=http'/g)??[]).length;
+    const reattestedCalls=(source.match(/assert_curl_unchanged\n"\$CURL_BIN" --fail --silent --show-error --max-time 10 --max-filesize 65536 --proto '=http' \\\n\s+--output "\$[A-Z_]+" 'http:\/\/127\.0\.0\.1:33372\/chain\/identity'\n(?=assert_curl_unchanged)/g)??[]).length;
+    assert.equal(reattestedCalls,curlCalls,name);
+    assert.equal(curlCalls,name.startsWith('observe-')?3:2,name);
+    if(name.startsWith('observe-')) {
+      assert.match(source,/--output "\$IDENTITY_AFTER_FILE"[\s\S]*cmp -s "\$IDENTITY_FILE" "\$IDENTITY_AFTER_FILE"/,name);
+    }
     assert.doesNotMatch(source,/(^|[;&(]\s*)curl\s+--fail/m,name);
   }
 });

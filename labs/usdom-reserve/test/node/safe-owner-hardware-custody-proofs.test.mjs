@@ -11,18 +11,18 @@ import {_safeControlObservationInternals} from '../../sdk/safe-control-observati
 
 const checker=fileURLToPath(new URL('../../scripts/check-safe-owner-hardware-custody-proofs.mjs',import.meta.url));
 const slots=['primary','secondary','recovery'];
-const safes=['0x1000000000000000000000000000000000000001','0x2000000000000000000000000000000000000002','0x3000000000000000000000000000000000000003'];
+const safes=['0x1000000000000000000000000000000000000001','0x2000000000000000000000000000000000000002','0x3000000000000000000000000000000000000003','0x4000000000000000000000000000000000000004'];
 const types={SafeOwnerCustodyProof:[{name:'role',type:'string'},{name:'slot',type:'string'},
   {name:'owner',type:'address'},{name:'packageHash',type:'bytes32'}]};
 async function fixture(){
-  const wallets=Array.from({length:9},(_,index)=>new Wallet(`0x${String(index+1).padStart(64,'0')}`));
+  const wallets=Array.from({length:3},(_,index)=>new Wallet(`0x${String(index+1).padStart(64,'0')}`));
   const physical={};
-  for(let roleIndex=0;roleIndex<3;roleIndex++) physical[SAFE_CONTROL_SPECS[roleIndex].role]=wallets.slice(roleIndex*3,roleIndex*3+3).reverse().map(value=>value.address);
+  for(let roleIndex=0;roleIndex<4;roleIndex++) physical[SAFE_CONTROL_SPECS[roleIndex].role]=[...wallets].reverse().map(value=>value.address);
   const canonical=canonicalOwnersByRole(physical);
   const packageDocument={schema:RECOVERABLE_SAFE_CONTROL_SCHEMA,ethereumChainId:'1',threshold:'2',
     ownersByRole:canonical,controls:SAFE_CONTROL_SPECS.map((value,index)=>({role:value.role,safe:safes[index]}))};
   const packageHash=_safeControlObservationInternals.documentHash(packageDocument),proofs=[];
-  for(let roleIndex=0;roleIndex<3;roleIndex++){
+  for(let roleIndex=0;roleIndex<4;roleIndex++){
     const role=SAFE_CONTROL_SPECS[roleIndex].role,safe=safes[roleIndex];
     for(let slotIndex=0;slotIndex<3;slotIndex++){
       const slot=slots[slotIndex],owner=physical[role][slotIndex];
@@ -48,14 +48,19 @@ test('hardware custody proofs preserve physical slot labels while matching canon
   const value=await fixture();
   assert.notDeepEqual(value.bundle.ownersByRole,value.packageDocument.ownersByRole);
   const result=await run(value); assert.equal(result.status,0,result.stderr);
-  assert.equal(JSON.parse(result.stdout).proofCount,9);
+  assert.equal(JSON.parse(result.stdout).proofCount,12);
 });
 test('hardware custody checker rejects slot, owner set, package and signature mutations',async()=>{
   for(const mutate of [
     value=>{value.bundle.proofs[0].slot='secondary';},
-    value=>{value.bundle.ownersByRole.governance[0]=value.bundle.ownersByRole.reserveGuardian[0];},
+    value=>{value.bundle.ownersByRole.governance[0]=Wallet.createRandom().address;},
     value=>{value.bundle.packageHash=`0x${'00'.repeat(32)}`;},
     value=>{value.bundle.proofs[4].signature=value.bundle.proofs[5].signature;},
-    value=>{value.bundle.proofs[8].extra=true;},
-  ]){const value=await fixture();mutate(value);const result=await run(value);assert.notEqual(result.status,0);assert.match(result.stderr,/Hardware custody proof validation failed:/);}
+    value=>{value.bundle.proofs[0].signature=`0x${value.bundle.proofs[0].signature.slice(2).toUpperCase()}`;},
+    value=>{value.bundle.proofs[11].extra=true;},
+  ]){
+    const value=await fixture();mutate(value);const result=await run(value);assert.notEqual(result.status,0);
+    assert.deepEqual(JSON.parse(result.stderr),{schema:'usdom-release-safe-diagnostic/v1',ok:false,
+      operation:'check-safe-owner-hardware-custody-proofs',code:'RELEASE_OPERATION_REJECTED'});
+  }
 });

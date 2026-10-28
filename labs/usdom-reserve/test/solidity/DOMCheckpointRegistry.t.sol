@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.37;
 
-import {DOMCheckpointRegistry, IDOMCheckpointVerifier} from "../../contracts/DOMCheckpointRegistry.sol";
+import {DOMCheckpointRegistry} from "../../contracts/DOMCheckpointRegistry.sol";
+import {IDOMCheckpointVerifier} from "../../contracts/IDOMCheckpointVerifier.sol";
 import {MockGovernance, MockMutableSingletonControl} from "./Mocks.sol";
 import {TestBase, Vm} from "./TestBase.sol";
 
 contract MockDOMCheckpointVerifier is IDOMCheckpointVerifier {
-    bytes32 public PROOF_ACCEPTED = keccak256("DOM_CHECKPOINT_PROOF_V3");
-    bytes32 public override verifierConfigHash = keccak256("DOM checkpoint verifier test configuration");
+    bytes32 private capability = keccak256("DOM_CHECKPOINT_PROOF_V3");
+    bytes32 private configHash = keccak256("DOM checkpoint verifier test configuration");
+    uint8 private configReturnMode;
+    uint8 private capabilityReturnMode;
     mapping(bytes32 => bool) private accepted;
 
     function approve(bytes32 statementHash, bytes calldata proof) external {
@@ -15,11 +18,38 @@ contract MockDOMCheckpointVerifier is IDOMCheckpointVerifier {
     }
 
     function setConfigHash(bytes32 value) external {
-        verifierConfigHash = value;
+        configHash = value;
     }
 
     function setCapability(bytes32 value) external {
-        PROOF_ACCEPTED = value;
+        capability = value;
+    }
+
+    function setConfigReturnMode(uint8 value) external {
+        configReturnMode = value;
+    }
+
+    function setCapabilityReturnMode(uint8 value) external {
+        capabilityReturnMode = value;
+    }
+
+    function verifierConfigHash() external view override returns (bytes32) {
+        return _word(configHash, configReturnMode);
+    }
+
+    function PROOF_ACCEPTED() external view returns (bytes32) {
+        return _word(capability, capabilityReturnMode);
+    }
+
+    function _word(bytes32 value, uint8 mode) private pure returns (bytes32) {
+        if (mode != 0) {
+            uint256 size = mode == 1 ? 31 : mode == 2 ? 33 : 0x100000;
+            assembly ("memory-safe") {
+                mstore(0, value)
+                return(0, size)
+            }
+        }
+        return value;
     }
 
     function verifyDOMCheckpoint(bytes32 statementHash, bytes calldata proof) external view returns (bytes32) {
@@ -269,6 +299,30 @@ contract DOMCheckpointRegistryTest is TestBase {
         assertEq(registry.challengePeriod(), CHALLENGE_PERIOD);
     }
 
+    function testActivationEmptyStateBootstrapsExactlyZeroEconomicCounters() public {
+        assertEq(registry.activationEmptyStateRoot(), registry.latestStateRoot());
+        assertEq(registry.latestTotalIssued(), 0);
+        assertEq(registry.latestTotalBurned(), 0);
+        assertEq(registry.previousTotalIssued(), 0);
+        assertEq(registry.previousTotalBurned(), 0);
+        assertFalse(registry.latestIssuanceClosed());
+
+        DOMCheckpointRegistry.CheckpointInput memory invalid = nextCheckpoint();
+        invalid.totalBurned = 1;
+        vm.expectRevert(DOMCheckpointRegistry.InvalidCheckpoint.selector);
+        registry.submitCheckpointCandidate(invalid, markerProof(0xA1));
+
+        DOMCheckpointRegistry.CheckpointInput memory first = nextCheckpoint();
+        approveAndSubmit(first, markerProof(0xA2));
+        vm.warp(block.timestamp + CHALLENGE_PERIOD);
+        registry.finalizeCheckpoint();
+        assertEq(registry.previousTotalIssued(), 0);
+        assertEq(registry.previousTotalBurned(), 0);
+        assertEq(registry.latestTotalIssued(), 0);
+        assertEq(registry.latestTotalBurned(), 0);
+        assertFalse(registry.latestIssuanceClosed());
+    }
+
     function testSafeGuardianSingletonMigrationFailsClosed() public {
         MockGovernance implementation = new MockGovernance();
         MockGovernance replacement = new MockGovernance();
@@ -328,17 +382,76 @@ contract DOMCheckpointRegistryTest is TestBase {
         safeGuardian.execute(address(protectedRegistry), abi.encodeCall(DOMCheckpointRegistry.haltPermanently, ()));
 
         safeGuardian.setGuard(address(0));
-        vm.chainId(1);
-        assertFalse(protectedRegistry.guardianControlHealthy());
-        safeGuardian.setFallbackHandler(0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99);
-        assertFalse(protectedRegistry.guardianControlHealthy());
-        installMainnetSafeFallbackHandler();
+        uint256 deploymentChain = protectedRegistry.deploymentChainId();
+        vm.chainId(deploymentChain + 1);
         assertTrue(protectedRegistry.guardianControlHealthy());
-        vm.etch(SAFE_MAINNET_FALLBACK_HANDLER, hex"00");
+        safeGuardian.setThreshold(1);
         assertFalse(protectedRegistry.guardianControlHealthy());
-        installMainnetSafeFallbackHandler();
-        safeGuardian.setFallbackHandler(address(0xBEEF));
+        safeGuardian.setThreshold(2);
+        assertTrue(protectedRegistry.guardianControlHealthy());
+        vm.chainId(deploymentChain);
+    }
+
+    function testSafeOwnerCodeAppearanceAfterAdmissionDoesNotFreezeCheckpoints() public {
+        MockGovernance implementation = new MockGovernance();
+        MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        DOMCheckpointRegistry.Config memory c = config(checkpointVerifier);
+        c.guardian = address(safeGuardian);
+
+        // The initial configuration continues to require code-free ECDSA owners.
+        vm.etch(address(0x101), hex"00");
+        vm.expectRevert(DOMCheckpointRegistry.InvalidConfiguration.selector);
+        new DOMCheckpointRegistry(c);
+        vm.etch(address(0x101), bytes(""));
+
+        DOMCheckpointRegistry protectedRegistry = new DOMCheckpointRegistry(c);
+        DOMCheckpointRegistry.CheckpointInput memory checkpoint = nextCheckpoint();
+        bytes memory proof = markerProof(0x77);
+        checkpointVerifier.approve(protectedRegistry.checkpointStatementHash(checkpoint), proof);
+
+        // A post-admission EIP-7702 delegation changes neither the owner set nor
+        // the Safe threshold and therefore cannot censor checkpoint progress.
+        vm.etch(address(0x101), hex"00");
+        assertTrue(protectedRegistry.guardianControlHealthy());
+        protectedRegistry.submitCheckpointCandidate(checkpoint, proof);
+        uint64 readyAt = _candidateReadyAt(protectedRegistry);
+        vm.warp(readyAt);
+
+        // A true authority change still blocks finalization and preserves the
+        // candidate for retry after exact restoration.
+        safeGuardian.setThreshold(1);
         assertFalse(protectedRegistry.guardianControlHealthy());
+        vm.expectRevert(DOMCheckpointRegistry.GuardianChanged.selector);
+        protectedRegistry.finalizeCheckpoint();
+        assertEq(protectedRegistry.latestHeight(), INITIAL_HEIGHT);
+        safeGuardian.setThreshold(2);
+        safeGuardian.setOwner(0, address(0x104));
+        assertFalse(protectedRegistry.guardianControlHealthy());
+    }
+
+    function testSafeGuardianAuxiliaryReturnDataMustBeExactAndBounded() public {
+        MockGovernance implementation = new MockGovernance();
+        MockMutableSingletonControl safeGuardian = new MockMutableSingletonControl(address(implementation));
+        DOMCheckpointRegistry.Config memory c = config(checkpointVerifier);
+        c.guardian = address(safeGuardian);
+        DOMCheckpointRegistry protectedRegistry = new DOMCheckpointRegistry(c);
+
+        for (uint8 mode = 1; mode <= 3; ++mode) {
+            safeGuardian.setThresholdReturnMode(mode);
+            assertFalse(protectedRegistry.guardianControlHealthy());
+        }
+        safeGuardian.setThresholdReturnMode(0);
+        for (uint8 mode = 1; mode <= 4; ++mode) {
+            safeGuardian.setModulesReturnMode(mode);
+            assertFalse(protectedRegistry.guardianControlHealthy());
+        }
+        safeGuardian.setModulesReturnMode(0);
+        for (uint8 mode = 1; mode <= 4; ++mode) {
+            safeGuardian.setStorageReturnMode(mode);
+            assertFalse(protectedRegistry.guardianControlHealthy());
+        }
+        safeGuardian.setStorageReturnMode(0);
+        assertTrue(protectedRegistry.guardianControlHealthy());
     }
 
     function testSafeGuardianPolicyDriftStopsCheckpointSubmission() public {
@@ -521,6 +634,21 @@ contract DOMCheckpointRegistryTest is TestBase {
         safeGuardian.setGuard(address(0xBEEF));
         vm.expectRevert(DOMCheckpointRegistry.InvalidConfiguration.selector);
         new DOMCheckpointRegistry(c);
+
+        safeGuardian.setGuard(address(0));
+        safeGuardian.setOwner(1, address(0x11));
+        vm.expectRevert(DOMCheckpointRegistry.InvalidConfiguration.selector);
+        new DOMCheckpointRegistry(c);
+
+        uint64 creatorNonce = vm.getNonce(address(this));
+        ++creatorNonce;
+        assertTrue(creatorNonce != 0 && creatorNonce <= 0x7f);
+        address predictedRegistry = address(
+            uint160(uint256(keccak256(abi.encodePacked(hex"d694", address(this), bytes1(uint8(creatorNonce))))))
+        );
+        safeGuardian.setOwner(1, predictedRegistry);
+        vm.expectRevert(DOMCheckpointRegistry.InvalidConfiguration.selector);
+        new DOMCheckpointRegistry(c);
     }
 
     function testCandidateWaitsThenFinalizesWithExactWitnessEvent() public {
@@ -576,7 +704,9 @@ contract DOMCheckpointRegistryTest is TestBase {
                 assertEq(issued, checkpoint.totalIssued);
                 assertEq(burned, checkpoint.totalBurned);
                 assertTrue(closed == checkpoint.issuanceClosed);
-            } else revert("unexpected candidate log");
+            } else {
+                revert("unexpected candidate log");
+            }
         }
         assertEq(candidateCount, 1);
         assertEq(economicsCount, 1);
@@ -607,7 +737,9 @@ contract DOMCheckpointRegistryTest is TestBase {
                 assertEq(burned, checkpoint.totalBurned);
                 assertTrue(closed == checkpoint.issuanceClosed);
                 assertEq(count, 2);
-            } else revert("unexpected finalized log");
+            } else {
+                revert("unexpected finalized log");
+            }
         }
         assertEq(checkpointCount, 1);
         assertEq(v2Count, 1);
@@ -645,7 +777,7 @@ contract DOMCheckpointRegistryTest is TestBase {
                     checkpoint.confirmationBlock,
                     checkpoint.confirmationTotalDifficulty,
                     checkpoint.confirmationTimestamp,
-                    block.chainid,
+                    registry.deploymentChainId(),
                     address(registry),
                     ACTIVATION,
                     registry.checkpointConfigHash()
@@ -847,21 +979,40 @@ contract DOMCheckpointRegistryTest is TestBase {
         _expectInvalidCheckpoint(changed);
     }
 
+    function testChainIdDriftPreservesStatementAndProvedCandidateButBlocksNewAdmission() public {
+        DOMCheckpointRegistry.CheckpointInput memory checkpoint = nextCheckpoint();
+        bytes memory proof = markerProof(0x61);
+        bytes32 authorizedStatement = registry.checkpointStatementHash(checkpoint);
+        checkpointVerifier.approve(authorizedStatement, proof);
+        registry.submitCheckpointCandidate(checkpoint, proof);
+
+        uint256 authorizedChainId = registry.deploymentChainId();
+        vm.chainId(authorizedChainId + 1);
+        assertEq(registry.checkpointStatementHash(checkpoint), authorizedStatement);
+
+        DOMCheckpointRegistry.CheckpointInput memory replacement = checkpoint;
+        replacement.confirmationTotalDifficulty++;
+        bytes memory replacementProof = markerProof(0x62);
+        checkpointVerifier.approve(registry.checkpointStatementHash(replacement), replacementProof);
+        vm.expectRevert(DOMCheckpointRegistry.ChainChanged.selector);
+        registry.submitCheckpointCandidate(replacement, replacementProof);
+
+        vm.warp(block.timestamp + CHALLENGE_PERIOD);
+        registry.finalizeCheckpoint();
+        assertEq(registry.latestBlock(), checkpoint.blockHash);
+        assertEq(registry.latestHeight(), checkpoint.height);
+
+        // chainid is invariant in real EVM execution. via-IR may therefore CSE
+        // block.chainid across the vm.chainId cheatcode; restore the explicit
+        // fixture chain rather than rereading the cached expression.
+        vm.chainId(31_337);
+    }
+
     function testCheckpointProofCannotReplayAcrossRegistryDomainOrActivationDeployment() public {
         DOMCheckpointRegistry.CheckpointInput memory checkpoint = nextCheckpoint();
         bytes memory proof = markerProof(0x61);
         bytes32 authorizedStatement = registry.checkpointStatementHash(checkpoint);
         checkpointVerifier.approve(authorizedStatement, proof);
-
-        uint256 authorizedChainId = block.chainid;
-        vm.chainId(authorizedChainId + 1);
-        assertTrue(registry.checkpointStatementHash(checkpoint) != authorizedStatement);
-        vm.expectRevert(DOMCheckpointRegistry.InvalidProof.selector);
-        registry.submitCheckpointCandidate(checkpoint, proof);
-        // chainid is invariant in real EVM execution. via-IR may therefore CSE
-        // block.chainid across the vm.chainId cheatcode; restore the explicit
-        // fixture chain rather than rereading the cached expression.
-        vm.chainId(31_337);
 
         _assertActivationDeploymentRejectsReplay();
         _assertDomainDeploymentRejectsReplay();
@@ -995,6 +1146,28 @@ contract DOMCheckpointRegistryTest is TestBase {
         assertEq(_candidateHash(registry), registry.checkpointStatementHash(checkpoint));
     }
 
+    function testVerifierIdentityReturnDataMustRemainExactAndBounded() public {
+        DOMCheckpointRegistry.CheckpointInput memory checkpoint = nextCheckpoint();
+        bytes memory proof = markerProof(0x65);
+        checkpointVerifier.approve(registry.checkpointStatementHash(checkpoint), proof);
+        for (uint8 mode = 1; mode <= 3; ++mode) {
+            checkpointVerifier.setConfigReturnMode(mode);
+            vm.expectRevert(DOMCheckpointRegistry.VerifierChanged.selector);
+            registry.submitCheckpointCandidate(checkpoint, proof);
+            assertEq(_candidateHash(registry), bytes32(0));
+        }
+        checkpointVerifier.setConfigReturnMode(0);
+        for (uint8 mode = 1; mode <= 3; ++mode) {
+            checkpointVerifier.setCapabilityReturnMode(mode);
+            vm.expectRevert(DOMCheckpointRegistry.VerifierChanged.selector);
+            registry.submitCheckpointCandidate(checkpoint, proof);
+            assertEq(_candidateHash(registry), bytes32(0));
+        }
+        checkpointVerifier.setCapabilityReturnMode(0);
+        registry.submitCheckpointCandidate(checkpoint, proof);
+        assertEq(_candidateHash(registry), registry.checkpointStatementHash(checkpoint));
+    }
+
     function testVerifierMustReturnExactAcceptanceMagic() public {
         HostileDOMCheckpointVerifier hostile = new HostileDOMCheckpointVerifier();
         DOMCheckpointRegistry guarded = new DOMCheckpointRegistry(config(hostile));
@@ -1121,8 +1294,7 @@ contract DOMCheckpointRegistryTest is TestBase {
             0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4
         );
         assertEq(
-            registry.SAFE_MAINNET_PROXY_CODE_HASH(),
-            0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c
+            registry.SAFE_MAINNET_PROXY_CODE_HASH(), 0xd7d408ebcd99b2b70be43e20253d6d92a8ea8fab29bd3be7f55b10032331fb4c
         );
         DOMCheckpointRegistry.Config memory c = config(checkpointVerifier);
         c.bridgeDomain = bytes32(0);

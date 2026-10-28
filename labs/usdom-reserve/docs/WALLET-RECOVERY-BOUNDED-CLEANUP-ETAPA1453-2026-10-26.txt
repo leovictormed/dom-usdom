@@ -1,0 +1,8 @@
+Etapa 1453 — cleanup bounded do ensaio de recuperação
+
+A repetição do inventário encontrou o diretório privado do ensaio de recuperação
+com Node sem deadline. A remoção agora usa timeout pinado com TERM em 30 segundos
+e KILL após cinco, reatesta Node antes/depois, suprime output e exige ausência.
+
+A regressão conjunta de bootstrap TPM e recuperação, mais credenciais, ambiente e
+lifecycle, passa 9/9. Nenhuma rede, assinatura, deploy, fundos, commit ou push ocorreu.

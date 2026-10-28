@@ -1,0 +1,32 @@
+ETAPA 1389 — ATESTAÇÃO FAIL-CLOSED DO CANDIDATO BRUTO
+Data: 2026-10-26
+
+Problema
+
+Depois de `cast mktx --ledger`, os dois executores verificavam apenas o tamanho
+do arquivo bruto e executavam `chmod 0600`. A correção posterior podia mascarar
+uma criação com modo inesperado; tipo, symlink, proprietário e link count não
+eram atestados nesse ponto antes de o pathname ser exportado aos validadores.
+
+Correção
+
+O `chmod` corretivo foi removido. Imediatamente depois da geração limitada a
+1 MiB, cada executor exige que o candidato seja arquivo regular e não symlink.
+Uma leitura pelo boundary `stat_run`, já limitado por deadline e stdout, exige
+exatamente UID atual, modo 0600 e link count um (`$UID:600:1`).
+
+Como os executores fixam `umask 077` antes de criar qualquer arquivo, o modo
+privado deve existir desde a criação. Qualquer desvio agora interrompe o fluxo
+antes de exportar o pathname, validar, instalar ou publicar a transação.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Regressões focais: 18/18 aprovadas.
+- Suíte operacional ampla closed-mainnet/pilot/preflight: 100/100 aprovada.
+- Inventário: zero `chmod 0600` nos executores; uma atestação exata do candidato
+  bruto por fluxo; contagens `stat_run` atualizadas para 23 e 16.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

@@ -1,0 +1,28 @@
+ETAPA 1304 — COBERTURA TOTAL DE PRAZO PARA CONSULTAS DE BLOCO
+Data: 2026-10-26
+
+Problema
+
+Além das alturas finalizadas, os executores consultam hash de gênese e de
+snapshots, timestamp e taxa-base. Essas leituras ainda podiam bloquear a
+autenticação do snapshot ou a validação de taxa e finalidade.
+
+Correção
+
+Todas as chamadas `cast block` agora executam sob
+`timeout --foreground --signal=TERM --kill-after=5s 120s`: 13 no depósito e 14
+no resgate. Timeout ou falha interrompe o fluxo antes de usar o campo retornado.
+
+As comparações de hash, número, timestamp, taxa-base, gênese e recibo permanecem
+inalteradas. A regressão iguala os inventários completos de chamadas e wrappers,
+impedindo o reaparecimento de consulta direta.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 13/13 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 71/71 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

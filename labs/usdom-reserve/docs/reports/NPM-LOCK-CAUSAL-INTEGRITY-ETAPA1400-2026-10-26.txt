@@ -1,0 +1,26 @@
+Stage 1400 — npm lock causal integrity boundary
+Date: 2026-10-26
+
+Finding
+The npm policy accepted any syntactically base64-like integrity string without checking the
+digest length or canonical encoding. It also skipped every link entry and accepted arbitrary
+non-resolved package entries, leaving alternate local inputs outside registry checksum policy.
+
+Correction
+- Integrity values are decoded with strict base64 and must have the exact SHA-256/SHA-384/SHA-512
+  digest length and canonical re-encoding.
+- Resolved sources are parsed URLs requiring HTTPS, exact registry.npmjs.org host, no credentials,
+  explicit port, query or fragment, and a tarball path.
+- npm link entries now fail closed.
+- Non-root entries without a resolved registry archive are closed to the one reviewed vendored
+  Helios parent-package record; a new local package input fails closed.
+- Adversarial coverage rejects short/wrong/non-base64 integrity and lookalike host, credentials,
+  port and query-bearing registry URLs.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No repository hash was frozen. No network, signing, deployment, funds, commit or push occurred.

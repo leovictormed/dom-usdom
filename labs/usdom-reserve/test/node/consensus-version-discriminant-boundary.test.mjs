@@ -44,7 +44,7 @@ test("all production JSON authority DTOs reject unknown fields and ambiguous enu
   for (const file of files) {
     const lines = fs.readFileSync(file, "utf8").split("\n");
     for (let index = 0; index < lines.length; index += 1) {
-      if (!lines[index].includes("#[derive") || !lines[index].includes("Deserialize")) continue;
+      if (!lines[index].includes("#[derive") || !/\bDeserialize\b/u.test(lines[index])) continue;
       deserializeTypes += 1;
       const declaration = lines.slice(index, index + 5).join("\n");
       assert.match(declaration, /#\[serde\([^\]]*deny_unknown_fields/u, `${file}:${index + 1}`);
@@ -52,7 +52,7 @@ test("all production JSON authority DTOs reject unknown fields and ambiguous enu
     const text = lines.join("\n");
     assert.doesNotMatch(text, /#\[serde\([^\]]*(?:untagged|alias)/u, file);
   }
-  assert.equal(deserializeTypes, 91);
+  assert.equal(deserializeTypes, 95);
 });
 
 test("versioned USDOM scan and history requests have no silent policy fallback", () => {

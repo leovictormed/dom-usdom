@@ -278,6 +278,20 @@ test('checkpoint observer fails closed on snapshot, runtime, candidate and prede
   }
 });
 
+test('checkpoint observer rejects finalized block numbers outside uint64 before numeric conversion',()=>{
+  const value=observerFixture();
+  for(const finalizedBlockNumber of ['9'.repeat(100_000),(1n<<64n).toString()]) {
+    const result=assessCheckpointCandidateObservation({
+      releaseConfig:value.releaseConfig,
+      submission:value.submission,
+      observation:{...value.observation,finalizedBlockNumber},
+    });
+    assert.equal(result.valid,false);
+    assert.equal(result.status,'invalid');
+    assert(result.blockers.some(blocker=>blocker.code==='finalized_block_number_invalid'));
+  }
+});
+
 test('fixed checkpoint observer command is read-only and fails before RPC while release is unconfigured',()=>{
   const result=spawnSync(process.execPath,['scripts/observe-authenticated-checkpoint.mjs'],{
     cwd:new URL('../..',import.meta.url),encoding:'utf8',env:{...process.env,ETHEREUM_RPC_URL:'http://127.0.0.1:1'},

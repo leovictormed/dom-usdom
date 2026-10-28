@@ -1,0 +1,19 @@
+Stage 1206 — bounded Safe-recovery envelope integers
+Date: 2026-10-26
+
+Change
+- Every persisted canonical decimal in a Safe recovery envelope or RPC observation must fit uint256 and is rejected above 78 digits before BigInt conversion.
+- Finalized observation block numbers additionally must fit uint64.
+- Existing nonce, gas, fee, cost, balance and multi-RPC derivation checks remain unchanged.
+
+Security result
+- A tampered, internally rehashed envelope cannot force arbitrary-size integer conversion through cost, balance, gas or observation fields.
+- Regressions reject an internally rehashed 100,000-digit maximum cost and exact 2^64 finalized heights across all RPC observations.
+- The envelope remains fail closed and no signing/publication authority changed.
+
+Validation
+- /home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/safe-control-observation.test.mjs
+- Result: 16/16 pass.
+- Node syntax and targeted git diff --check pass.
+
+No Cargo, Rust, Forge, real network, signing, deployment, funds, commit or push ran.

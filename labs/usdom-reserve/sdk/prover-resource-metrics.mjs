@@ -2,16 +2,18 @@ const maximumWallMilliseconds=30n*24n*60n*60n*1000n;
 const maximumResidentKiB=64n*1024n*1024n;
 
 function elapsedMilliseconds(value) {
-  const parts=value.trim().split(':');
-  if(parts.length<2 || parts.length>3
-      || parts.some(part=>!/^[0-9]+(?:\.[0-9]+)?$/.test(part))) {
+  const text=value.trim();
+  const three=text.match(/^([0-9]{1,3}):([0-5][0-9]):([0-5][0-9])(?:\.([0-9]{1,3}))?$/);
+  const two=text.match(/^([0-9]{1,5}):([0-5][0-9])(?:\.([0-9]{1,3}))?$/);
+  if(!three&&!two) {
     throw new Error('prover elapsed wall time is not canonical');
   }
-  const seconds=parts.map(Number).reduce((total,part)=>total*60+part,0);
-  if(!Number.isFinite(seconds) || seconds<=0) {
-    throw new Error('prover elapsed wall time is invalid');
-  }
-  const milliseconds=BigInt(Math.round(seconds*1000));
+  const hours=three?BigInt(three[1]):0n;
+  const minutes=BigInt(three?three[2]:two[1]);
+  const seconds=BigInt(three?three[3]:two[2]);
+  const fraction=three?.[4]??two?.[3]??'';
+  const milliseconds=(hours*3600n+minutes*60n+seconds)*1000n
+    +BigInt(fraction.padEnd(3,'0')||'0');
   if(milliseconds===0n || milliseconds>maximumWallMilliseconds) {
     throw new Error('prover elapsed wall time exceeds its bound');
   }
@@ -26,7 +28,8 @@ export function parseProverResourceMetrics(contents) {
   const elapsed=contents.match(/^\s*Elapsed \(wall clock\) time \([^)]*\):\s*(.+)$/m)?.[1];
   const resident=contents.match(/^\s*Maximum resident set size \(kbytes\):\s*([0-9]+)$/m)?.[1];
   const status=contents.match(/^\s*Exit status:\s*([0-9]+)$/m)?.[1];
-  if(!elapsed || !resident || !/^[1-9][0-9]*$/.test(resident) || status!=='0') {
+  if(!elapsed || !resident || resident.length>8 || !/^[1-9][0-9]*$/.test(resident)
+      || status!=='0') {
     throw new Error('prover resource log is incomplete or records a failed command');
   }
   const peakResidentKiB=BigInt(resident);

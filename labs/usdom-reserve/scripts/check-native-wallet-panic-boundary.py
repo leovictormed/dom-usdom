@@ -7,6 +7,7 @@ import hashlib
 import re
 import sys
 from pathlib import Path
+from specialized_manifest import cargo_targets, manifest
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -21,6 +22,7 @@ EXPECTED_SOURCES = {
     "snapshot.rs",
     "tpm2_authority.rs",
     "tpm2_keystore.rs",
+    "bin/dom-usdom-wallet-recovery.rs",
 }
 EXPECTED_MANIFEST_PATHS = {"Cargo.toml", *(f"src/{name}" for name in EXPECTED_SOURCES)}
 PANIC_PRIMITIVES = re.compile(
@@ -49,37 +51,16 @@ def check_text(source: str, label: str) -> None:
 
 
 def check_sources() -> None:
-    discovered = {path.name for path in SOURCE_ROOT.glob("*.rs")}
+    payloads=manifest(CRATE,"MANIFEST.sha256",EXPECTED_MANIFEST_PATHS)
+    discovered = {name[4:] for name in payloads if name.startswith("src/")}
     if discovered != EXPECTED_SOURCES:
         fail(
             "native-wallet source inventory changed without panic-boundary review: "
             f"missing={sorted(EXPECTED_SOURCES - discovered)}, "
             f"new={sorted(discovered - EXPECTED_SOURCES)}"
         )
-    for name in sorted(EXPECTED_SOURCES):
-        check_text((SOURCE_ROOT / name).read_text(encoding="utf-8"), name)
-
-    listed: dict[str, str] = {}
-    crate_root = CRATE.resolve()
-    for number, line in enumerate(MANIFEST.read_text(encoding="utf-8").splitlines(), 1):
-        match = MANIFEST_LINE.fullmatch(line)
-        if match is None or match.group(2) in listed:
-            fail(f"malformed or duplicate native-wallet manifest line {number}")
-        relative = match.group(2)
-        candidate = CRATE / relative
-        path = candidate.resolve()
-        if candidate.is_symlink() or not path.is_relative_to(crate_root) or not path.is_file():
-            fail(f"invalid native-wallet manifest path: {relative}")
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if actual != match.group(1):
-            fail(f"native-wallet manifest digest mismatch: {relative}")
-        listed[relative] = actual
-    if set(listed) != EXPECTED_MANIFEST_PATHS:
-        fail(
-            "native-wallet manifest inventory mismatch: "
-            f"missing={sorted(EXPECTED_MANIFEST_PATHS - set(listed))}, "
-            f"extra={sorted(set(listed) - EXPECTED_MANIFEST_PATHS)}"
-        )
+    cargo_targets(CRATE,payloads)
+    for name in sorted(EXPECTED_SOURCES):check_text(payloads[f"src/{name}"].decode(),name)
 
 
 def self_test() -> None:

@@ -674,13 +674,11 @@ impl CheckpointSegmentPolicyInput {
             + CHECKPOINT_SEGMENT_DEPOSIT_POLICY_BYTES;
         let v1 = bytes.get(..8) == Some(CHECKPOINT_SEGMENT_POLICY_INPUT_MAGIC.as_slice())
             && bytes.get(8..10).is_some_and(|value| {
-                u16::from_be_bytes(value.try_into().unwrap())
-                    == CHECKPOINT_SEGMENT_POLICY_INPUT_VERSION
+                value == CHECKPOINT_SEGMENT_POLICY_INPUT_VERSION.to_be_bytes()
             });
         let v2 = bytes.get(..8) == Some(CHECKPOINT_SEGMENT_POLICY_INPUT_V2_MAGIC.as_slice())
             && bytes.get(8..10).is_some_and(|value| {
-                u16::from_be_bytes(value.try_into().unwrap())
-                    == CHECKPOINT_SEGMENT_POLICY_INPUT_V2_VERSION
+                value == CHECKPOINT_SEGMENT_POLICY_INPUT_V2_VERSION.to_be_bytes()
             });
         if bytes.len() <= FIXED_BYTES
             || bytes.len() > MAX_CHECKPOINT_SEGMENT_POLICY_INPUT_BYTES
@@ -4933,11 +4931,11 @@ mod tests {
         let aggregate_bytes = aggregate.to_bytes();
         assert_eq!(
             hex::encode(aggregate_bytes),
-            "554443525841473100010002be10c21b571fc2acfd24e41205a0b8253a881414db3f1f5c32fad78152858a3a662c3e5e0f920e1ef69897393541874e54995a28d87268c671c978ac508c6abe"
+            "5544435258414731000100024215ffdaf2fe70d619ee07cda340bfe32acb19643cbc2b9d59a49bff6775b44f662c3e5e0f920e1ef69897393541874e54995a28d87268c671c978ac508c6abe"
         );
         assert_eq!(
             hex::encode(aggregate.commitment().unwrap()),
-            "072c4e89c548038b9bcbd590bd9c861ac3a67a76c65885db67949469f45df961"
+            "0b2db1d6390698e1a96749e7f8558162da80acacd3a869fbdebb6b9058e308f7"
         );
         assert_eq!(aggregate_bytes.len(), CHECKPOINT_RANDOMX_AGGREGATE_BYTES);
         assert_eq!(&aggregate_bytes[..8], b"UDCRXAG1");

@@ -1,0 +1,47 @@
+Stage 1369 — cancellation-safe issuance-status admission
+Date: 2026-10-26
+
+Finding
+
+After Stage 1366 moved issuance reconciliation to `spawn_blocking`, admission
+was still governed only by middleware permits tied to the HTTP request future.
+Client disconnect or timeout cancels that future but cannot cancel an already
+running blocking closure. The middleware permit would be released early, so a
+request stream could repeatedly abandon calls and enqueue more blocking jobs
+while earlier canonical scans were still running.
+
+Correction
+
+The issuance-status route now owns a dedicated one-job semaphore. Admission is
+nonblocking: exhausted capacity returns retryable HTTP 503 before a blocking
+job is spawned. The owned permit is moved into the blocking closure and lives
+until that closure returns or unwinds, independent of request cancellation,
+disconnect and HTTP timeout. This is in addition to bearer authentication,
+rate limiting and the shared expensive-scan inflight bound.
+
+Panic and queue behavior
+
+- A blocking worker panic is converted from `JoinError` to the normal
+  sanitized internal response; backend panic details are logged server-side and
+  are not returned to the client.
+- Rust unwinding drops the owned permit. A request after a panicking worker can
+  enter normally.
+- A cancelled request leaves its permit in the worker. A concurrent retry is
+  rejected immediately and cannot add another job to Tokio's blocking queue.
+- The production backend also uses nonblocking chain/runtime locks, providing a
+  second fail-fast boundary, but correctness no longer relies on reaching that
+  backend lock.
+
+Evidence
+
+- Cancellation regression: after the first worker enters, aborting its HTTP
+  future leaves capacity occupied; a second request receives HTTP 503 in under
+  100 ms without entering the backend, and a request after worker completion
+  returns HTTP 200. 1 passed, 0 failed.
+- Panic regression: a one-shot backend panic returns only `internal server
+  error`; the next request returns HTTP 200, proving capacity release. 1 passed,
+  0 failed.
+- dom-rpc compiled successfully; targeted rustfmt and git diff --check pass.
+- No RandomX mining, network, wallet, signature, deployment, funds, commit or
+  push occurred.
+

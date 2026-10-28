@@ -17,7 +17,7 @@ if (($# != 0)); then
   exit 64
 fi
 : "${USDOM_MAINNET_PREFLIGHT_RPC_SOURCES_FILE:?USDOM_MAINNET_PREFLIGHT_RPC_SOURCES_FILE is required}"
-for command in node jq sha256sum stat realpath mktemp flock sync mv cmp id chmod awk; do command -v "$command" >/dev/null; done
+for command in node jq sha256sum stat realpath mktemp flock sync mv cmp id chmod awk python3; do command -v "$command" >/dev/null; done
 pin_tool() {
  local name=$1 path parent owner mode size parent_owner parent_mode identity_name parent_identity_name
  path=$(realpath "$(command -v "$name")"); [[ -x $path && -f $path && ! -L $path ]]
@@ -30,10 +30,10 @@ pin_tool() {
 }
 assert_tool_unchanged() {
  local name=$1 bin_name="${1}_bin" identity_name="${1}_identity" parent_identity_name="${1}_parent_identity" sha_name="${1}_sha256" path parent; path=${!bin_name}; parent=$(dirname "$path")
- [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]]
- [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
+ [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" && $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" ]] || return 1
+ [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" && $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]] || return 1
 }
-pin_tool node; pin_tool jq
+pin_tool node; pin_tool jq; pin_tool timeout; pin_tool python3
 project=$(realpath "$(dirname "$0")/..")
 test "$PWD" = "$project"
 config_directory="$project/config"
@@ -52,8 +52,22 @@ exec 8<"$config_directory"
 flock -n 8 || { printf '%s\n' 'Another release materializer holds the config lock' >&2; exit 75; }
 exec 9<"$output"
 flock -n 9 || { printf '%s\n' 'Another native-attestation writer holds the lock' >&2; exit 75; }
+metadata_sha256=$(sha256sum "$metadata" | awk '{print $1}')
 temporary=$(mktemp -d -p "$output" .materialize.XXXXXXXX)
-cleanup() { local status=${1:-$?}; trap - EXIT; assert_tool_unchanged node && "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$temporary" || status=1; exit "$status"; }
+cleanup() {
+  local status=${1:-$?}
+  trap - EXIT
+  if assert_tool_unchanged node && assert_tool_unchanged timeout &&
+    "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+      "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+      "$temporary" > /dev/null 2> /dev/null &&
+    assert_tool_unchanged node && assert_tool_unchanged timeout && test ! -e "$temporary"; then
+    :
+  else
+    status=1
+  fi
+  exit "$status"
+}
 trap 'cleanup $?' EXIT
 snapshot_private() {
   assert_tool_unchanged node
@@ -205,7 +219,13 @@ assert_inputs_unchanged
 sync -f "$next_metadata"
 if ! cmp -s "$next_metadata" "$metadata_snapshot"; then
   assert_tool_unchanged node
-  "$node_bin" "$project/scripts/install-release-config-stdin.mjs" "$metadata" < "$next_metadata"
+  assert_tool_unchanged python3
+  candidate_sha256=$(sha256sum "$next_metadata" | awk '{print $1}')
+  parent_device=$(stat -Lc '%d' "$config_directory")
+  parent_inode=$(stat -Lc '%i' "$config_directory")
+  "$node_bin" "$project/scripts/replace-locked-source-stdin.mjs" "$metadata" \
+    "$candidate_sha256" "$metadata_sha256" "$parent_device" "$parent_inode" \
+    "$python3_bin" "$python3_sha256" < "$next_metadata"
 fi
 snapshot_public "$metadata" "$temporary/mainnet-release-evidence.installed.json"
 cmp -s "$next_metadata" "$temporary/mainnet-release-evidence.installed.json"
@@ -213,6 +233,12 @@ cmp -s "$next_metadata" "$temporary/mainnet-release-evidence.installed.json"
 # successful return proves one coherent five-document generation.
 verify_published_outputs
 sync -f "$metadata"; sync -f "$output"; sync -f "$config_directory"
+# Durability is part of the completion boundary: re-read the aggregate and all
+# immutable precursors after every containing directory has been synchronized.
+snapshot_public "$metadata" "$temporary/mainnet-release-evidence.durable.json"
+cmp -s "$next_metadata" "$temporary/mainnet-release-evidence.durable.json"
+verify_published_outputs
+assert_inputs_unchanged
 assert_tool_unchanged jq
 "$jq_bin" '{nativePrivacyTrustedSetupAttestationReport,nativeScheduledRuntimeActivationAttestationReport,
   nativeWalletCustodyAttestationReport,nativeWalletRecoveryAttestationReport}' "$next_metadata"

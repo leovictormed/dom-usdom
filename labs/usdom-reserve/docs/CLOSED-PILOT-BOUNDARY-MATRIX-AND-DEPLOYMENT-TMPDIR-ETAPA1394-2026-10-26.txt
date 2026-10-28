@@ -1,0 +1,42 @@
+ETAPA 1394 — MATRIZ FINAL DO PILOTO E TMPDIR DA IMPLANTAÇÃO
+Data: 2026-10-26
+
+Auditoria final do piloto
+
+Os dois executores closed-pilot foram inventariados por command substitution,
+pipeline e comando externo. RPC e Ledger usam `timeout`, sentinel de stdout e
+parser de tipo/schema; publicador e validadores Node têm deadline, cap e
+validação exata; arquivos privados usam confinamento, metadados, snapshot
+pré/pós-hash ou JSON estrito; criação, instalação, comparação e remoção possuem
+boundaries fail-closed. `flock -n` é deliberadamente não bloqueante. Os demais
+pontos são builtins ou pipelines cujo produtor tem deadline e cujo consumidor
+impõe teto. Nenhuma lacuna material permaneceu nessa matriz.
+
+Problema seguinte
+
+O executor de implantação ainda criava seu diretório secreto com `mktemp`
+direto e aplicava `chmod 0700` depois. Isso não limitava duração/stdout e podia
+mascarar metadados inseguros antes de iniciar o proxy e a cerimônia.
+
+Correção
+
+A criação agora usa o `timeout_bin` já fixado e reatestado, com deadline
+foreground TERM/KILL de 30 segundos e sentinel `/usr/bin/head -c 128`. O
+pathname deve ser exatamente `/dev/shm/usdom-mainnet-deployment.<8 alnum>` e o
+resultado deve ser diretório real, não symlink, UID atual, modo 0700 e link
+count um. O `chmod 0700` corretivo foi removido; criação divergente falha antes
+do proxy, Ledger, assinatura ou publicação.
+
+Validação offline
+
+- Sintaxe Bash: aprovada.
+- Regressões focais: 16/16 aprovadas.
+- Suíte ampla de implantação, sem a medição de gas concorrente: 65/65 aprovada.
+- A suíte com todos os testes teve 64/66 antes da expectativa stale ser
+  reconciliada: uma falha era a expectativa textual corrigida; a restante é a
+  medição local em que o `checkpointRegistry` Solidity concorrente excede o
+  teto auditado. Esta etapa não tocou Solidity nem alterou esse teto.
+- Inventário e `git diff --check`: aprovados.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

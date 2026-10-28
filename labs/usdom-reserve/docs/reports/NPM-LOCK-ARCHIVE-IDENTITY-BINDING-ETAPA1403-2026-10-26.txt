@@ -1,0 +1,26 @@
+Stage 1403 — npm lock archive identity binding
+Date: 2026-10-26
+
+Finding
+A registry URL and integrity digest could each be valid while the package-lock entry claimed a
+different package name or version. The checker also did not bind top-level lock identity to the
+root package record, and accepted unreviewed top-level keys.
+
+Correction
+- Closed package-lock v3 top-level schema to name, version, lockfileVersion, requires and packages;
+  requires must be boolean true.
+- Top-level name/version must equal packages[""] name/version.
+- Every resolved entry needs a canonical package path and version.
+- The decoded registry tarball path must equal /package/-/leaf-version.tgz derived from the lock
+  entry name and version before its integrity is accepted.
+- Reject traversal/empty package path components and version type/token drift.
+- Adversarial coverage rejects path traversal, package-name substitution and version substitution
+  against an otherwise valid URL and digest.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No repository hash was frozen. No network, signing, deployment, funds, commit or push occurred.

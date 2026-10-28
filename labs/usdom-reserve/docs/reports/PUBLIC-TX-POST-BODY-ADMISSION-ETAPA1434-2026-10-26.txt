@@ -1,0 +1,8 @@
+USDⓄM — ETAPA 1434
+Public transaction post-body admission
+
+Finding: `/tx/submit` acquired both transaction-admission permits before JSON extraction. Two unauthenticated slow bodies could exhaust consensus admission without delivering transactions.
+
+Correction: body delivery now has four bounded slots; the existing two-worker transaction admission is acquired fail-fast only after JSON and canonical hex decoding. Synchronous node admission remains within permit scope. Rate and global body limits remain.
+
+Focused Rust test `slow_public_tx_bodies_do_not_hold_transaction_admission`: PASS 1/1, 0.03s; dom-rpc compiled. No network/mining/sign/deploy/funds/commit/push.

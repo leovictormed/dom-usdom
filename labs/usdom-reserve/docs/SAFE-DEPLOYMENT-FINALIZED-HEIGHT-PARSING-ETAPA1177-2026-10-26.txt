@@ -1,0 +1,29 @@
+SAFE DEPLOYMENT FINALIZED HEIGHT PARSING — STAGE 1177
+Date: 2026-10-26
+
+Finding
+=======
+
+The three-Safe executor passed the finalized block number returned by an
+untrusted RPC directly into Bash arithmetic. Shell arithmetic is not a safe
+parser for adversarial text and also has host-width overflow behavior, so this
+was an inappropriate trust boundary for the finality comparison.
+
+Correction
+==========
+
+The executor now sends the finalized and receipt heights as inert Node argv.
+Both must be canonical decimal strings of at most 20 digits and no greater than
+uint64 max before `BigInt` conversion. The finalized height must then be at
+least the receipt height. Bash no longer evaluates either RPC-derived value.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/receipt/process tests: 7/7 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

@@ -18,7 +18,9 @@ test('token-bearing issuance launcher execs only pinned Node',async()=>{
 test('issuance process zeroes every retained secret Buffer on all exits',async()=>{
   const source=await readFile(path.join(component,'scripts/submit-finalized-deposit-issuance.mjs'),'utf8');
   assert.match(source,/const secretBuffers=\[\];[\s\S]*try \{/);
-  assert.equal((source.match(/secretBuffers\.push\(/g)??[]).length,3);
+  assert.match(source,/async function secureRead[\s\S]*if\(secret\) secretBuffers\.push\(bytes\)/);
+  assert.match(source,/\[files\.registration,128\*1024,true\][\s\S]*\[files\.token,256,true\]/);
+  assert.match(source,/issuanceInputSpecifications\.map\(\(\[file,maximum,secret\]\)=>\s*secureRead\(file,maximum,\{secret\}\)\)/);
   assert.match(source,/finally \{\s*for\(const bytes of secretBuffers\) bytes\.fill\(0\);\s*\}/);
   assert.doesNotMatch(source,/mkdtemp|mkstemp|writeFile\([^)]*(?:token|witness)/);
 });

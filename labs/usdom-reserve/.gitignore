@@ -6,3 +6,6 @@ cache-fork/
 results/
 results-stage*/
 docs/CONTINUATION-STATE.md
+.node-test-last.log
+.readiness-last.err
+.readiness-last.json

@@ -87,6 +87,7 @@ test('CLI authenticates an actual signed source commit and external fingerprint'
     for(const relative of [
       'scripts/prepare-release-provenance-materialization.mjs',
       'sdk/direct-project-file.mjs','sdk/git-signature.mjs',
+      'sdk/pilot-safe-diagnostics.mjs',
       'sdk/release-provenance-materialization.mjs','sdk/strict-json.mjs',
       'sdk/stable-executable.mjs','sdk/pinned-executable-child.mjs',
       'config/mainnet-release-evidence.unconfigured.json','config/operator-intent.json',
@@ -129,7 +130,7 @@ test('CLI authenticates an actual signed source commit and external fingerprint'
           USDOM_RELEASE_SIGNING_KEY_FINGERPRINT:signingFingerprint},
       });
     assert.notEqual(rejected.status,0);
-    assert.match(rejected.stderr,/signer differs from the external release trust anchor/);
+    assert.match(rejected.stderr,/"code":"RELEASE_OPERATION_REJECTED"/);
   } finally { rmSync(temporary,{recursive:true,force:true}); }
 });
 

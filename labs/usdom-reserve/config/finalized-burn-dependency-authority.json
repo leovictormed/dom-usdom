@@ -1,0 +1,1530 @@
+{
+  "schema": "usdom-finalized-burn-dependency-authority/v3",
+  "rootPackage": "dom-usdom-finalized-burn-program",
+  "edgeKinds": [
+    "normal"
+  ],
+  "command": [
+    "cargo",
+    "tree",
+    "--offline",
+    "--locked",
+    "-p",
+    "dom-usdom-finalized-burn-program",
+    "--edges",
+    "normal",
+    "--prefix",
+    "none",
+    "--format",
+    "{p}"
+  ],
+  "cargoLockSha256": "66bce82983b22b50203ae6b8a49054121fe9f15312173695b9b84f65d316e120",
+  "runtimeFiles": [
+    {
+      "path": "/etc/ld.so.cache",
+      "sha256": "ba60ab14ab36fd0d49359c325c07883d4f03e69772e40c8f0794db8d6c4ea838"
+    },
+    {
+      "path": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
+      "sha256": "ff3022fcbd13b08434ea7afde9a0ef9d5b3f5c17b5fc7a40031be3ee000a6a24"
+    },
+    {
+      "path": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc",
+      "sha256": "3690cc576ede140504698405d5d8fa3826aaadbe71699c6c4ed0a565d6f493e2"
+    },
+    {
+      "path": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/libLLVM.so.22.1-rust-1.98.0-stable",
+      "sha256": "b2cc5bb9aafd2c8d1fd8ad0e99fd7de09e6831ff319ac99130d737261316596e"
+    },
+    {
+      "path": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/librustc_driver-28a98848f7a7c026.so",
+      "sha256": "56047570f302ba09b1abf3b2996bd1d76560c06f3c95c0fcfa7dc3decd2faa2c"
+    },
+    {
+      "path": "/usr/bin/git",
+      "sha256": "eb54b535467e0975c1284d4c4d08eea779aeb248a5d34b02e2ee171382e22201"
+    },
+    {
+      "path": "/usr/bin/python3.12",
+      "sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f"
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+      "sha256": "c20a2dc8917c755f02b94049356320fe1f62ac7d9f8994731f807d9df39302da"
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libc.so.6",
+      "sha256": "3a15d66867d83762c7f2f1e37359cb8f6c5743edb369c65285cb0b1c4f7498bf"
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libdl.so.2",
+      "sha256": "c2994527172cc23b7fb0f7d611b71e00a37da27af12c2e5e9e0dc1a742886c96"
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libexpat.so.1.9.1",
+      "sha256": "286682ecbc5e59a638963b1a4e6351e65eb32fcf4bdcb9cb7569b6a61fe06a8d"
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
+      "sha256": "d93224d2b0dab4247598be683adca02f5cf00586f99c187579cd7e92058fb7cb"
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libm.so.6",
+      "sha256": "fce00b6f25f459cf4ae0b7fae4257909a1a8a86f9149e7c029a5d617baf1ccd0"
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libpcre2-8.so.0.11.2",
+      "sha256": "e00576d71d81d3ba0cfa4903c835a44a8723aac96f72f79ff75200b4cff9071b"
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libpthread.so.0",
+      "sha256": "90491a21ce44efcf3bd4b65ec82501c091d7ebe7f8d9b341dd01d721001d9ecd"
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/librt.so.1",
+      "sha256": "6d072187d88e092e81561a44c03a4a41397319022c6d43519757cc051c576d82"
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libz.so.1.3",
+      "sha256": "f61677c7bdb7c2aa2a243ea781bfd16afcb361cede7b4ef76127a9d8eb9a5242"
+    }
+  ],
+  "pythonModules": [
+    {
+      "module": "__future__",
+      "path": "/usr/lib/python3.12/__future__.py",
+      "sha256": "981d4c398849f9ebcab72300d9c1fe288fd6d7f28957b3b3fa3a493a5836d95c"
+    },
+    {
+      "module": "_bz2",
+      "path": "/usr/lib/python3.12/lib-dynload/_bz2.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "eff8df23cdc54d38ce9ca600d07c21ccfd7f22bd52a0720e599e6828d3e2eb76"
+    },
+    {
+      "module": "_collections_abc",
+      "path": "/usr/lib/python3.12/_collections_abc.py",
+      "sha256": "90324ee3e1c4ca5319f7242d4b7c1e90eb8418b3f999d07c853aa488356282e6"
+    },
+    {
+      "module": "_compression",
+      "path": "/usr/lib/python3.12/_compression.py",
+      "sha256": "3ad5d60627477a60939ee44fc1bb3a05dbe8fb52f0f75039b8f5d8f1a278b981"
+    },
+    {
+      "module": "_frozen_importlib_external",
+      "path": "/usr/lib/python3.12/importlib/_bootstrap_external.py",
+      "sha256": "97c6211750d63067712ad2cd74d50be33337f1fb1cd2c769022ced9b401edd92"
+    },
+    {
+      "module": "_hashlib",
+      "path": "/usr/lib/python3.12/lib-dynload/_hashlib.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "8dc6cda6dd9495b95a2bfb5b26e8cf06b72f36dc0213d958b9277a958287f0fe"
+    },
+    {
+      "module": "_json",
+      "path": "/usr/lib/python3.12/lib-dynload/_json.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "ca8e35c58f7bc8e27258c4af43651c941413bc6318903621253485b0395758a3"
+    },
+    {
+      "module": "_lzma",
+      "path": "/usr/lib/python3.12/lib-dynload/_lzma.cpython-312-x86_64-linux-gnu.so",
+      "sha256": "cb298120e40f064dc047e638d911f8b3b0abf625bf1d6bd07902b46efd820fd7"
+    },
+    {
+      "module": "_weakrefset",
+      "path": "/usr/lib/python3.12/_weakrefset.py",
+      "sha256": "91895a451d06e9f521a1171b31b9b19bc9740f35af00d4fa106338ab7167c9ac"
+    },
+    {
+      "module": "abc",
+      "path": "/usr/lib/python3.12/abc.py",
+      "sha256": "e558702a95cdce3febd289da021715d2b92bc43995b8a1bc58dfa1c3d8010287"
+    },
+    {
+      "module": "argparse",
+      "path": "/usr/lib/python3.12/argparse.py",
+      "sha256": "29395feb61bc376ca4ff9d44069af8d914ec2a1f25a4bd7978f6e2afef5bc07f"
+    },
+    {
+      "module": "bz2",
+      "path": "/usr/lib/python3.12/bz2.py",
+      "sha256": "76ab3252924e71e859d7d90e8d3db13b6554975cfcac0fdadced4de7f8779330"
+    },
+    {
+      "module": "codecs",
+      "path": "/usr/lib/python3.12/codecs.py",
+      "sha256": "7b7839e53a77961153240aecfe11edc8054d05b1dedd83894450dae21ec05785"
+    },
+    {
+      "module": "collections",
+      "path": "/usr/lib/python3.12/collections/__init__.py",
+      "sha256": "0af967cd58036507b3d0fbc33b7a996c61dbb52a94b0b738c8bef12cd4cc7dd4"
+    },
+    {
+      "module": "collections.abc",
+      "path": "/usr/lib/python3.12/collections/abc.py",
+      "sha256": "9cb4208f99128a0489b6c8e6c61637617dd7d4250c59e065491957eda084dd10"
+    },
+    {
+      "module": "contextlib",
+      "path": "/usr/lib/python3.12/contextlib.py",
+      "sha256": "8b7a477f978a8532852fd81e241c78182516bc4975d672d580a5848a76e11eb6"
+    },
+    {
+      "module": "copyreg",
+      "path": "/usr/lib/python3.12/copyreg.py",
+      "sha256": "c8eda41f05c6bf95a4da4726a530409d2485ae060b8d019b3a8034389a15d3e9"
+    },
+    {
+      "module": "datetime",
+      "path": "/usr/lib/python3.12/datetime.py",
+      "sha256": "ef20dc6b3554cd585dddffdc573f1f9a7a54c522f2a3fb4576c44edbb1e14238"
+    },
+    {
+      "module": "encodings",
+      "path": "/usr/lib/python3.12/encodings/__init__.py",
+      "sha256": "78c4744d407690f321565488710b5aaf6486b5afa8d185637aa1e7633ab59cd8"
+    },
+    {
+      "module": "encodings.aliases",
+      "path": "/usr/lib/python3.12/encodings/aliases.py",
+      "sha256": "6fdcc49ba23a0203ae6cf28e608f8e6297d7c4d77d52e651db3cb49b9564c6d2"
+    },
+    {
+      "module": "encodings.ascii",
+      "path": "/usr/lib/python3.12/encodings/ascii.py",
+      "sha256": "578aa1173f7cc60dad2895071287fe6182bd14787b3fbf47a6c7983dfe3675e3"
+    },
+    {
+      "module": "encodings.utf_8",
+      "path": "/usr/lib/python3.12/encodings/utf_8.py",
+      "sha256": "ba0cac060269583523ca9506473a755203037c57d466a11aa89a30a5f6756f3d"
+    },
+    {
+      "module": "enum",
+      "path": "/usr/lib/python3.12/enum.py",
+      "sha256": "c8ead615c159598370295649eb296819ad4b40d50b200c4fec2d4269bf7af9ae"
+    },
+    {
+      "module": "fnmatch",
+      "path": "/usr/lib/python3.12/fnmatch.py",
+      "sha256": "6683da36e47af523f3f41e18ad244d837783e19e98911cc0b7415dea81494ebc"
+    },
+    {
+      "module": "functools",
+      "path": "/usr/lib/python3.12/functools.py",
+      "sha256": "cca971c456e1bec8b751aecdf41466f34dbf72321ee0840627280ba2ccf9d033"
+    },
+    {
+      "module": "genericpath",
+      "path": "/usr/lib/python3.12/genericpath.py",
+      "sha256": "2b0b35d2206778af4081cf81dd9b513876e72c35a55bec941402e1fa62b1f1aa"
+    },
+    {
+      "module": "gettext",
+      "path": "/usr/lib/python3.12/gettext.py",
+      "sha256": "1cc6fd33bdce3bb29c0c37ec9a2f5bf15a315e9776b329247e6675c028a8af39"
+    },
+    {
+      "module": "hashlib",
+      "path": "/usr/lib/python3.12/hashlib.py",
+      "sha256": "6dbdebf270868b391080e21dc9687eddfaf321c965ad979f68d3f5c423c613ab"
+    },
+    {
+      "module": "io",
+      "path": "/usr/lib/python3.12/io.py",
+      "sha256": "7cec3cb8ac004058dd0a5af246e6d950fb59c7ddd0058fda48bcb3fcb98d8822"
+    },
+    {
+      "module": "ipaddress",
+      "path": "/usr/lib/python3.12/ipaddress.py",
+      "sha256": "cc9831e239bd81c1480a12733bded744002d93815fd0d083c77aea348c956e67"
+    },
+    {
+      "module": "json",
+      "path": "/usr/lib/python3.12/json/__init__.py",
+      "sha256": "d5d41e2c29049515d295d81a6d40b4890fbec8d8482cfb401630f8ef2f77e4d5"
+    },
+    {
+      "module": "json.decoder",
+      "path": "/usr/lib/python3.12/json/decoder.py",
+      "sha256": "9f02654649816145bc76f8c210a5fe3ba1de142d4d97a1c93105732e747c285b"
+    },
+    {
+      "module": "json.encoder",
+      "path": "/usr/lib/python3.12/json/encoder.py",
+      "sha256": "af7bd40a0d0d0a3e726a9b4b3a2a543019f6ab97a340d0162a9c29ca9da97869"
+    },
+    {
+      "module": "json.scanner",
+      "path": "/usr/lib/python3.12/json/scanner.py",
+      "sha256": "8604d9d03786d0d509abb49e9f069337278ea988c244069ae8ca2c89acc2cb08"
+    },
+    {
+      "module": "keyword",
+      "path": "/usr/lib/python3.12/keyword.py",
+      "sha256": "18c2be738c04ad20ad375f6a71db34b3823c7f40b0340f5294d0e89f3c9b093b"
+    },
+    {
+      "module": "locale",
+      "path": "/usr/lib/python3.12/locale.py",
+      "sha256": "d1134b7212bad37b7b81339061dc37a19a194aa183ec2cb60412cf365993b151"
+    },
+    {
+      "module": "lzma",
+      "path": "/usr/lib/python3.12/lzma.py",
+      "sha256": "58fb9d2fdc8a8af7b25e218f17ea3b51bdfa53bdf40f440ab33c605974ca5c2e"
+    },
+    {
+      "module": "ntpath",
+      "path": "/usr/lib/python3.12/ntpath.py",
+      "sha256": "c4dd79bf103677daaad873952b89fc1f973425e7b250006cc35af4c164181da8"
+    },
+    {
+      "module": "operator",
+      "path": "/usr/lib/python3.12/operator.py",
+      "sha256": "b2af20f67667203c1730e686cc5d0427becc94db4c97f1d3efe3ed2158473f6a"
+    },
+    {
+      "module": "os",
+      "path": "/usr/lib/python3.12/os.py",
+      "sha256": "316d1b7307fd851bded3423c9d437e0a383c725d993f0fcff2e8b749fe560b62"
+    },
+    {
+      "module": "os.path",
+      "path": "/usr/lib/python3.12/posixpath.py",
+      "sha256": "c443d7b8afad1717e7060ce49b3e04423058de56cd4246ee6bcc1ac962eb5c2b"
+    },
+    {
+      "module": "pathlib",
+      "path": "/usr/lib/python3.12/pathlib.py",
+      "sha256": "b43e134bf7479759838b4ecec3d78e0e67fdfde2d671c5c2d7886a47da93885d"
+    },
+    {
+      "module": "re",
+      "path": "/usr/lib/python3.12/re/__init__.py",
+      "sha256": "8ff3c37c63b917fcf8dc8d50993a502292a3dc159e41de4f4018c72a53d1c07b"
+    },
+    {
+      "module": "re._casefix",
+      "path": "/usr/lib/python3.12/re/_casefix.py",
+      "sha256": "41572ac50cf96b04496e676d8a6708898bb8e752e06dad34ed4c50c5d8f1fe40"
+    },
+    {
+      "module": "re._compiler",
+      "path": "/usr/lib/python3.12/re/_compiler.py",
+      "sha256": "c05067f8bfa4c13cbbf1eedc4d5cafc9b621bcb6ebc5771ba0518a18095af15a"
+    },
+    {
+      "module": "re._constants",
+      "path": "/usr/lib/python3.12/re/_constants.py",
+      "sha256": "fa4fdb200f238f9e7817b63892b0d69833d8165134801e775e10cc113348a375"
+    },
+    {
+      "module": "re._parser",
+      "path": "/usr/lib/python3.12/re/_parser.py",
+      "sha256": "a51a85b37cf3f44ba7ff25754da5f31306e4ccfa6eb3c017f9d37bdf4e770840"
+    },
+    {
+      "module": "reprlib",
+      "path": "/usr/lib/python3.12/reprlib.py",
+      "sha256": "8da31054076803065758311f54b18b8a616824941977d907dc3ee729228e9015"
+    },
+    {
+      "module": "selectors",
+      "path": "/usr/lib/python3.12/selectors.py",
+      "sha256": "1eeb102373e18c96311203f30c516e785bd8642275aa0bd66e43a284c9692385"
+    },
+    {
+      "module": "shutil",
+      "path": "/usr/lib/python3.12/shutil.py",
+      "sha256": "819e518cb7a539d09b2526138015541b34d2646afb9c2f6ae4ffd476d6a0fcf4"
+    },
+    {
+      "module": "signal",
+      "path": "/usr/lib/python3.12/signal.py",
+      "sha256": "0363c964c90ac0b3e515de5749205e6e6454051a1211058375d84d91eab6071a"
+    },
+    {
+      "module": "stat",
+      "path": "/usr/lib/python3.12/stat.py",
+      "sha256": "052af0327eae6941b69b05c088b3e748f79995635f80ac4cc7125eb333eb4c77"
+    },
+    {
+      "module": "string",
+      "path": "/usr/lib/python3.12/string.py",
+      "sha256": "24aeae1f0526250f442022022bf98df9a823b1cb330543ee79e70e44907462e9"
+    },
+    {
+      "module": "subprocess",
+      "path": "/usr/lib/python3.12/subprocess.py",
+      "sha256": "baa9f9138d8d20df6284f67e7d2e790f847f65e2c5370de322d54cccd737f2d9"
+    },
+    {
+      "module": "threading",
+      "path": "/usr/lib/python3.12/threading.py",
+      "sha256": "8273b4cf5b6f274b4993f5cae08634dd272c6952af9867ff9aa13ed446f1549b"
+    },
+    {
+      "module": "tomllib",
+      "path": "/usr/lib/python3.12/tomllib/__init__.py",
+      "sha256": "71f67036895f4c5acab942618af0cbd3d814451ba61e967f358d0f341a5b8f51"
+    },
+    {
+      "module": "tomllib._parser",
+      "path": "/usr/lib/python3.12/tomllib/_parser.py",
+      "sha256": "4579b04a7566452304781ccce37d3ebc1c36e810b058bdb1f33c0e51ddab0397"
+    },
+    {
+      "module": "tomllib._re",
+      "path": "/usr/lib/python3.12/tomllib/_re.py",
+      "sha256": "75b8e0e428594f6dca6bdcfd0c73977ddb52a4fc147dd80c5e78fc34ea25cbec"
+    },
+    {
+      "module": "tomllib._types",
+      "path": "/usr/lib/python3.12/tomllib/_types.py",
+      "sha256": "f864c6d9552a929c7032ace654ee05ef26ca75d21b027b801d77e65907138b74"
+    },
+    {
+      "module": "types",
+      "path": "/usr/lib/python3.12/types.py",
+      "sha256": "345474ef027a1273f353da9bdc1f7c18f65335e72e681bcc0376774cc51f2405"
+    },
+    {
+      "module": "typing",
+      "path": "/usr/lib/python3.12/typing.py",
+      "sha256": "c45d935c17234b1d6ae42d2d5499d3e03b4e2548fae0c4fce15477e23502214d"
+    },
+    {
+      "module": "urllib",
+      "path": "/usr/lib/python3.12/urllib/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "module": "urllib.parse",
+      "path": "/usr/lib/python3.12/urllib/parse.py",
+      "sha256": "a67b5694763137dbac085adbf0c22821d435ec8ca22d3bd3786d2c9f4ee748d5"
+    },
+    {
+      "module": "warnings",
+      "path": "/usr/lib/python3.12/warnings.py",
+      "sha256": "8eb1bb88d0beb82ebecfe7ee5cf54ed9b77b4a7acee1989e392a65de42017c49"
+    },
+    {
+      "module": "zipimport",
+      "path": "/usr/lib/python3.12/zipimport.py",
+      "sha256": "4ac94d92219c2e1c0d67ad3fff3753ec3a3756af62a36a2f696f02cd12d518f0"
+    }
+  ],
+  "manifests": [
+    {
+      "path": "Cargo.toml",
+      "sha256": "8dd3f39340d94c767db3bb98d6f0cac7522a659978af4187b0c544b7dbf126f4"
+    },
+    {
+      "path": "crates/adapters/btc-crypto/Cargo.toml",
+      "sha256": "ebf86123b5c304929d1dabd260adbcbe4275059e90219afa1de434b6986a4515"
+    },
+    {
+      "path": "crates/adapters/btc-evidence/Cargo.toml",
+      "sha256": "35f39e0900cf8a9be2e31a308606509345be25db8406b75f3e3ac405ecf2fb27"
+    },
+    {
+      "path": "crates/adapters/btc-live/Cargo.toml",
+      "sha256": "3a90ccf7659aba4b0b6e48622846cd5c30a4e4092c630571326e41b0c3acddcf"
+    },
+    {
+      "path": "crates/adapters/btc-observer/Cargo.toml",
+      "sha256": "e085129a912b0fa66d61bea105b4b07e747104fc49e5185e2435d3b3ff4cdfaf"
+    },
+    {
+      "path": "crates/adapters/btc-secp-c1a/Cargo.toml",
+      "sha256": "533d290e0fdb269ecec23e2c14ada5ee7221749aad5eaede820c6eed396dfffd"
+    },
+    {
+      "path": "crates/adapters/btc-secp-sys/Cargo.toml",
+      "sha256": "a7cdf78bd1dd5bbf68eaa2af2e334904ef9cc2dac1381f5e8ab392c5efe074e5"
+    },
+    {
+      "path": "crates/adapters/btc-vault/Cargo.toml",
+      "sha256": "a87f163274df4fb6c75a4d57749431b9c48dae52350f4f401242ba7657cf87b2"
+    },
+    {
+      "path": "crates/adapters/btc/Cargo.toml",
+      "sha256": "4f56f11fde38873ae04c31c3f2bcc0b40ae4b292c3ceaf92fdbcde26bd7d3956"
+    },
+    {
+      "path": "crates/adapters/dom-real/Cargo.toml",
+      "sha256": "89d79a4c9a3888286eb8db12728373155939fbb3b014a55b97cafe0d0e682f7c"
+    },
+    {
+      "path": "crates/adapters/dom-sim/Cargo.toml",
+      "sha256": "592d839d9b9cb50ec2536ac8ead4aa8f4348a4677c7c578fba148c9f9c56bb21"
+    },
+    {
+      "path": "crates/adapters/evm/Cargo.toml",
+      "sha256": "a048a12131722d1247322c4650e54795edcca96b19f3313fd83c64dc2781ae1a"
+    },
+    {
+      "path": "crates/adapters/solana-counterparty/Cargo.toml",
+      "sha256": "15723ab3e43588b9e486b8468c6fc89602922722f3a8b5fb66fb68f4678316c1"
+    },
+    {
+      "path": "crates/adapters/solana-delivery-sqlite/Cargo.toml",
+      "sha256": "6fa16f6178e4b3f82fa8975f9ff6ce7149c39fa956defc5a297528ca9ab169c7"
+    },
+    {
+      "path": "crates/adapters/solana-delivery/Cargo.toml",
+      "sha256": "deb3eaab0ffb01e12fea6c561fb83dfb69781fe73ec45742c720fbecaba41215"
+    },
+    {
+      "path": "crates/adapters/solana-escrow-wire/Cargo.toml",
+      "sha256": "3fddda2cbe14544eae227c6f830e74e92fdbe976c4596fe273a8e026726d643d"
+    },
+    {
+      "path": "crates/adapters/solana-evidence/Cargo.toml",
+      "sha256": "ced8c49579375dcedfaeaf05fa0dcbbd2c6ada728c93996a9e5f4483ae332b23"
+    },
+    {
+      "path": "crates/adapters/solana-kaystra-bridge/Cargo.toml",
+      "sha256": "5dc8abc93a7b8d1035ddf38fe1e4f3688826a8fdf8c3d770292a041ceaa84648"
+    },
+    {
+      "path": "crates/adapters/solana-kaystra-records/Cargo.toml",
+      "sha256": "79b9888c0f41cad23f6d0fa67a8bd4835e0ed2e3457204b89c3ee7dc1f151e84"
+    },
+    {
+      "path": "crates/adapters/solana-kaystra-source/Cargo.toml",
+      "sha256": "1629d10af4ab052e97fed7b85442e73f6a7b56cb4030cbdf4005045c89131e66"
+    },
+    {
+      "path": "crates/adapters/solana-live/Cargo.toml",
+      "sha256": "5d48aa3229db67ed8508084a99c1b92ffb06c6ef1abb1ff389cdc21496af3e22"
+    },
+    {
+      "path": "crates/adapters/solana-observation-store/Cargo.toml",
+      "sha256": "06f42c2dfd8f6541dd20b331240e7381b2855714ec842560d578c8466123bb41"
+    },
+    {
+      "path": "crates/adapters/solana-observer-pump/Cargo.toml",
+      "sha256": "b9f01357725dcd306f33413405cc0f940bd6d7c0e3175a15c8fd0c3ffb7dc144"
+    },
+    {
+      "path": "crates/adapters/solana-observer/Cargo.toml",
+      "sha256": "6cd4822c718101c9cbcb13d0f7e9ded6c345453a8a61249d61ae7c2deeed0733"
+    },
+    {
+      "path": "crates/adapters/solana-pda/Cargo.toml",
+      "sha256": "44d95c379daded2ec416946defe1178ef4d1d982b6e8d3d9e4a97f39b605b27d"
+    },
+    {
+      "path": "crates/adapters/solana-profile/Cargo.toml",
+      "sha256": "8421acf2b8304e8270fa847b99eb8ac1e8e66e9d5622684a16dab7440e8806cd"
+    },
+    {
+      "path": "crates/adapters/solana-program-attestation/Cargo.toml",
+      "sha256": "4de49641b36e43e05c4a0b4830eeb59621532229d0832fd0df6efd8204c1b1e7"
+    },
+    {
+      "path": "crates/adapters/solana-program-client/Cargo.toml",
+      "sha256": "3d99fc0203d1b3d63bc24c3ee1b15e498bd327ee24b29108b2f384f4c09b545f"
+    },
+    {
+      "path": "crates/adapters/solana-route-secret/Cargo.toml",
+      "sha256": "81528db5b4df2ca1432b30d101dba13a897bdad2e522bf1feb979883b3b4a2f8"
+    },
+    {
+      "path": "crates/adapters/solana-rpc-pool/Cargo.toml",
+      "sha256": "1079fa51907ab7a922c822c80e08098a9352837ec2d244e3d87c2fb3a88ed621"
+    },
+    {
+      "path": "crates/adapters/solana-rpc/Cargo.toml",
+      "sha256": "8b09a6da6478aade4317658bfda39089c21a46722afb1e4ddd6f282cbeba857d"
+    },
+    {
+      "path": "crates/adapters/solana-runtime-wiring/Cargo.toml",
+      "sha256": "ec7834ed328343faf16247a843d47156e95e195c43c845688c8c26dad0a1a768"
+    },
+    {
+      "path": "crates/adapters/solana-secret-store/Cargo.toml",
+      "sha256": "f91245fad70cc0abb549ead88bcbcd2dc1fd915fd82baa7ead19f4fff1bb79e1"
+    },
+    {
+      "path": "crates/adapters/solana-session-init/Cargo.toml",
+      "sha256": "03f35ef207dccc0c4c1ded6e673cb1ce93a5468ad6afa3380918cbec8e00a7ec"
+    },
+    {
+      "path": "crates/adapters/solana-setup-store/Cargo.toml",
+      "sha256": "ed6daa71ffa0398634a7c3a5df178a8fce94b06ebf0429e133e17c896f7b815f"
+    },
+    {
+      "path": "crates/adapters/solana-transaction-builder/Cargo.toml",
+      "sha256": "0c209f14fddcc17f2ca763f1aeb9e92deb2893280e77f0336143405bd3a4babc"
+    },
+    {
+      "path": "crates/adapters/solana-types/Cargo.toml",
+      "sha256": "1a389e375f9c275a0a2cc411d9fbee8d7ec54d510f23b1eae5933ba8e83b763b"
+    },
+    {
+      "path": "crates/adapters/xmr-crypto/Cargo.toml",
+      "sha256": "f155345f29b7aa0c0616693bfeda36d8bde97e7088a58a9aee240f9af87d4790"
+    },
+    {
+      "path": "crates/adapters/xmr-delivery-sqlite/Cargo.toml",
+      "sha256": "556ab42dba02d91bcfbbd5ecfe6d57d1862af273011fd82ce40384fa29eb5424"
+    },
+    {
+      "path": "crates/adapters/xmr-delivery/Cargo.toml",
+      "sha256": "6bd409a4eb3e35fc8d559dcd6668b60569c2b709a4e6b1b63243bf9172458fe0"
+    },
+    {
+      "path": "crates/adapters/xmr-dleq-nullifier-store/Cargo.toml",
+      "sha256": "65a0bee84e62f18f6b2ec76aad466be6f93a8efd465013fd401723a8f65de8a3"
+    },
+    {
+      "path": "crates/adapters/xmr-dleq-sigma/Cargo.toml",
+      "sha256": "c09e1b71a2c15c8e4d5d3d04fc199215aabd5e3986f311482b003690e775c0de"
+    },
+    {
+      "path": "crates/adapters/xmr-evidence/Cargo.toml",
+      "sha256": "80fb853b7328da66ac52a7ab52f4d36a9b591a88a9bc08fc9d3b5716450a3a4f"
+    },
+    {
+      "path": "crates/adapters/xmr-kaystra-bridge/Cargo.toml",
+      "sha256": "8198e6e85035b4b616efa7fc83d0869b68675f976070a6efc64e878ee0ec7098"
+    },
+    {
+      "path": "crates/adapters/xmr-kaystra-records/Cargo.toml",
+      "sha256": "fb6630e89dd3510d6a4b06d8c37e4d2df8673443fcb5111495f25e4e4e6c4480"
+    },
+    {
+      "path": "crates/adapters/xmr-kaystra-source/Cargo.toml",
+      "sha256": "b1ebd336b90a2a36b2f2e3f546964a629604eb9f3a9eec302ba6c658f47a10cf"
+    },
+    {
+      "path": "crates/adapters/xmr-live-sidecar-api/Cargo.toml",
+      "sha256": "f7cbfb325bc6445fbec03569aa4fd131cdf2b337308c4f14022ec3ff2798c3a1"
+    },
+    {
+      "path": "crates/adapters/xmr-live-sidecar-blocking-client/Cargo.toml",
+      "sha256": "6b8408eedd6c053aeb7053761d7f652d55b0dc138ea4dbaa7f8c003e779eff15"
+    },
+    {
+      "path": "crates/adapters/xmr-live-sidecar-uds-client/Cargo.toml",
+      "sha256": "285697606950c7ed4cace0f2470519843bc84faa598e50d968875e78ceae802d"
+    },
+    {
+      "path": "crates/adapters/xmr-observation-store/Cargo.toml",
+      "sha256": "ba7f6e5f9cfa295f7cfabc8139449563d1bd7ca0e7f551aa6cc3d24414c520fd"
+    },
+    {
+      "path": "crates/adapters/xmr-observer-pump/Cargo.toml",
+      "sha256": "9ba951012c24be7aef6964e907c897eecac2ac2c555751819fc4a36ccde4a0d8"
+    },
+    {
+      "path": "crates/adapters/xmr-observer/Cargo.toml",
+      "sha256": "f4e50b056f5e63e3d31cb28d5836023815027005a10ea52ccefe6aca5fa79e49"
+    },
+    {
+      "path": "crates/adapters/xmr-raw-tx-verify/Cargo.toml",
+      "sha256": "fee5693c8a50826a3f1a5d13c4b478c2887e94582580ee755cdfeac542d73f83"
+    },
+    {
+      "path": "crates/adapters/xmr-refund-adaptor/Cargo.toml",
+      "sha256": "57a252464e26be1a2467eef0aa635167b3e9e93c28bf0b023524b629f913c486"
+    },
+    {
+      "path": "crates/adapters/xmr-refund-policy/Cargo.toml",
+      "sha256": "2e7090f4955ccaf772bca93819f1fc48444bf01a5a552642de5c5c4ffd71ce42"
+    },
+    {
+      "path": "crates/adapters/xmr-route-secret/Cargo.toml",
+      "sha256": "7a35137bc4f86d91646e89145e91ba7ceb7382f8a4d61bc3ad1f850a1ca2b447"
+    },
+    {
+      "path": "crates/adapters/xmr-rpc-broadcast-blocking/Cargo.toml",
+      "sha256": "542921e7d56d625979bb236b454c3702962e40305f63bc542502893f2116c23f"
+    },
+    {
+      "path": "crates/adapters/xmr-runtime-wiring/Cargo.toml",
+      "sha256": "8e03d6570bd3ce410d6bb4b9405b95bfb3b87f0542100aaa9e6f74dc743d4b1f"
+    },
+    {
+      "path": "crates/adapters/xmr-secret-store/Cargo.toml",
+      "sha256": "ec6b463ef2a7d334f328d28d0e60a7abe851056ed5caf463b61107f0f3d523c8"
+    },
+    {
+      "path": "crates/adapters/xmr-session-init/Cargo.toml",
+      "sha256": "65cf5555e75a3a77b8a31102aece860ccf784f3b22bf4becebcc70b8ea2a5835"
+    },
+    {
+      "path": "crates/adapters/xmr-setup-profile/Cargo.toml",
+      "sha256": "84fa05c2921280c3b7ef6c257044c3e1617ed9c6e0816829a8ccf9c946bb3747"
+    },
+    {
+      "path": "crates/adapters/xmr-sidecar-auth/Cargo.toml",
+      "sha256": "6fc33281fdd77563ef51d5b96dbcda5a6a7e8c7cdb46d357b02bb7af46f4f590"
+    },
+    {
+      "path": "crates/adapters/xmr-spend-port/Cargo.toml",
+      "sha256": "7ce1cbd200b8b7ce2a1a783bdb6b520ee74b8fe4425171c034fc695a55e32704"
+    },
+    {
+      "path": "crates/btc-actuator/Cargo.toml",
+      "sha256": "a874f36d71b3bc5c6f18071f6a4889572dcfbe021412fb2cf8bc845bb7d07f80"
+    },
+    {
+      "path": "crates/chain-profile/Cargo.toml",
+      "sha256": "3e7fee61bebad2a52c97c1366479c4203a12335c1c555bfda906f069cdf362e5"
+    },
+    {
+      "path": "crates/counterparty-api/Cargo.toml",
+      "sha256": "c77ec5288aa53553c3870424fe72b4ea7fd26e606698cf302e9318720d09b360"
+    },
+    {
+      "path": "crates/deploy-genconfig/Cargo.toml",
+      "sha256": "824e74a570911854139956ed69141ab942ded21e8c3d7ee2bdc0ccad94c3564b"
+    },
+    {
+      "path": "crates/deployment-registry/Cargo.toml",
+      "sha256": "39334c74742e35c26b59c16c47ea066e323d43cd213bc3efac347de2868d819e"
+    },
+    {
+      "path": "crates/dom-actuator/Cargo.toml",
+      "sha256": "58b491c3b624587e3d4a027524cf88640da0e9e411b5884400dcf72c32365e6b"
+    },
+    {
+      "path": "crates/dom-adaptor/Cargo.toml",
+      "sha256": "71f842c12fe715d4e8d0bfc190f30364f01de5a61d46facbbf6cc206076fccc5"
+    },
+    {
+      "path": "crates/dom-adaptor/fuzz/Cargo.toml",
+      "sha256": "81c0e782cce36d1ce62b017a30f18c3ec8f35817b51fa8928bf2fb21ab9dca1b"
+    },
+    {
+      "path": "crates/dom-agent-runner/Cargo.toml",
+      "sha256": "d4138653c7868724ae4bcf4d73c3b8d2f1429f6d063441a9d5b07c05b8607f4c"
+    },
+    {
+      "path": "crates/dom-bulletproof-portable/Cargo.toml",
+      "sha256": "e3e265949d68fb8a01d8ba9956c3b6e4d272e26a72442f8eac210549d1abfb3a"
+    },
+    {
+      "path": "crates/dom-chain/Cargo.toml",
+      "sha256": "51e68201faa8d24010ff4dba5eed8d56b9df1615a31626b95194dd46831b0486"
+    },
+    {
+      "path": "crates/dom-chain/fuzz/Cargo.toml",
+      "sha256": "9768c4d646a35ef22b0778fcfe94187cead6c8abbcdbb634d836e100a61b7781"
+    },
+    {
+      "path": "crates/dom-cli/Cargo.toml",
+      "sha256": "85da7d8752d38d073034b4542829bc783a29543d73c1ec3b96a072be2f00bd9b"
+    },
+    {
+      "path": "crates/dom-config/Cargo.toml",
+      "sha256": "61ec98275b457fbf5667a3e430eb8198f9f520b268f547152edb8c9b6789a04e"
+    },
+    {
+      "path": "crates/dom-consensus/Cargo.toml",
+      "sha256": "4cb51ab2016d247abcb5494bfe4226673469d368118fadbbc4aec87a15d26e19"
+    },
+    {
+      "path": "crates/dom-consensus/fuzz/Cargo.toml",
+      "sha256": "deb983b8ab162e03136d12e14d2d9181698e32af7aed79ba36783a0ff6246a6b"
+    },
+    {
+      "path": "crates/dom-core/Cargo.toml",
+      "sha256": "e6e274bbe1d52d2dd07f6d9ede86d2cb657bdacdd7d26180ea326d56046c215a"
+    },
+    {
+      "path": "crates/dom-core/fuzz/Cargo.toml",
+      "sha256": "e12d308ca5790e1087629820b6951a16e2684886d9ea47e5a892d5944261f258"
+    },
+    {
+      "path": "crates/dom-crypto/Cargo.toml",
+      "sha256": "b85164e5cad00af1b0b64805a1b03db4c7314da4411fab513e5263849a8cced8"
+    },
+    {
+      "path": "crates/dom-crypto/fuzz/Cargo.toml",
+      "sha256": "f6b20efafb0f526119b9a245808e5ae1491fbf9cbc4064ade5e8f82ec300b66d"
+    },
+    {
+      "path": "crates/dom-crypto/fuzz/corpus_gen/Cargo.toml",
+      "sha256": "91670803617a2c3f19924d98c3e23d954ee07a72ef0c5b1449f10c94f32a0654"
+    },
+    {
+      "path": "crates/dom-ethereum-consensus-core/Cargo.toml",
+      "sha256": "509c0bfafaa14c7a95293a50c69c38393fca00e4694f2a81b627f591e50f6cd2"
+    },
+    {
+      "path": "crates/dom-ethereum-hashing/Cargo.toml",
+      "sha256": "3151b0fd80c0b62915d19e5052f4906439c4d97e45f7fcd103432bc8487b6785"
+    },
+    {
+      "path": "crates/dom-ethereum-ssz-types/Cargo.toml",
+      "sha256": "577a6289e0ba2d22e8f592ede4f758e641f0cfd936011540711134de3bce376e"
+    },
+    {
+      "path": "crates/dom-ethereum-tree-hash/Cargo.toml",
+      "sha256": "b40e867805fcd343bc81ec71bb7637266af9013d40e0a4cb5b01bc52202e4367"
+    },
+    {
+      "path": "crates/dom-explorer/Cargo.toml",
+      "sha256": "a770be3e7f653270dc2408b7f683a529a164cc098eeca5053ac47dfb1dbe1246"
+    },
+    {
+      "path": "crates/dom-faucet/Cargo.toml",
+      "sha256": "dbf0c680d3924d9352f77b8ae4c5eafb59f7a2877d9aded8c5e6f700f5558e2a"
+    },
+    {
+      "path": "crates/dom-faucet/fuzz/Cargo.toml",
+      "sha256": "a95a9ec48d829fcce19b8578c82eb05310440059e0f5d71c185faa8492753dd4"
+    },
+    {
+      "path": "crates/dom-final-claim-binding/Cargo.toml",
+      "sha256": "15d8e9d431228f625dccdec572995bd98bfe2fb928bcecfe7d525db68653969d"
+    },
+    {
+      "path": "crates/dom-integration-tests/Cargo.toml",
+      "sha256": "d1c1ebcbd38b7ecfc44e717ed064529053f8d779ec26bb641844bda290ca1d05"
+    },
+    {
+      "path": "crates/dom-interopd/Cargo.toml",
+      "sha256": "854e968e42f3f37e99a33441bc4fe9e89283248ea6d0474c101bcc9a83653bbb"
+    },
+    {
+      "path": "crates/dom-leg/Cargo.toml",
+      "sha256": "857f2203fcbdce503ecd20e2b25030ceb4c974207c96efcf939ce7588e0e6d72"
+    },
+    {
+      "path": "crates/dom-mempool/Cargo.toml",
+      "sha256": "a8f39ee48abdcc9b81b7cd809f70a1b8456044fb8c626781b8a66d676fa3469e"
+    },
+    {
+      "path": "crates/dom-mempool/fuzz/Cargo.toml",
+      "sha256": "572ef972f2fffc2e767d179e9d8346c93e6974db65e360d21f37a4fe9e0e7668"
+    },
+    {
+      "path": "crates/dom-node/Cargo.toml",
+      "sha256": "fbd1e1949168130062f76a5c43584d4dff23e73cfbd0b559c6d20dd216904e03"
+    },
+    {
+      "path": "crates/dom-node/fuzz/Cargo.toml",
+      "sha256": "cf5443eb3fb6375f268a2ce2878c250225c930ec9633d477460ae533bfe5d8fe"
+    },
+    {
+      "path": "crates/dom-pmmr/Cargo.toml",
+      "sha256": "38ff9c3c6b0aaedf2fdcbc3e9346834dbfc2d12868e6f43fbc3868ff910397c6"
+    },
+    {
+      "path": "crates/dom-pmmr/fuzz/Cargo.toml",
+      "sha256": "40c1773f242fb1e1c2956434031c97ce851df39bb20718c32cc0c4e15f6bb6c6"
+    },
+    {
+      "path": "crates/dom-pow/Cargo.toml",
+      "sha256": "6f6ae66ea6fb26c34f409b4849fe0531e5417a12e154794d4bdb3a4fcd83d2d9"
+    },
+    {
+      "path": "crates/dom-pow/fuzz/Cargo.toml",
+      "sha256": "2d8a1202023727ad6c3ffcd68e61c37426ae93a6f729dfd8a61be3fa3264b744"
+    },
+    {
+      "path": "crates/dom-risc0-program-packager/Cargo.toml",
+      "sha256": "1c12684579d692987a7d25377e7ed5c7db936e357680ca47435d32ba6be462f3"
+    },
+    {
+      "path": "crates/dom-route-ceremony/Cargo.toml",
+      "sha256": "bd8c01f0aff3ecc9150d76110d08eb801e703ed1e2d7d2641f726a3bcad2e7fd"
+    },
+    {
+      "path": "crates/dom-rpc/Cargo.toml",
+      "sha256": "636c24e3028361e4827a4f56622c201e945200d84c4e404bbeb6ccd4452d666c"
+    },
+    {
+      "path": "crates/dom-rpc/fuzz/Cargo.toml",
+      "sha256": "668a51467ef43eb54a11b78f57766cf5b6cef67ed5da99ca67381a4c4cde6340"
+    },
+    {
+      "path": "crates/dom-scriptless-bulletproof/Cargo.toml",
+      "sha256": "8e2dc8feccd34fd185b9dc1261fc01eac67ac81cde4424f2e3ea70eb6ddf87c5"
+    },
+    {
+      "path": "crates/dom-scriptless-chain-adapter/Cargo.toml",
+      "sha256": "c7471b6f2b1054b6d89aecec86ebdfda365e188d07f7eb49a33cd7ec327069c3"
+    },
+    {
+      "path": "crates/dom-scriptless-consensus/Cargo.toml",
+      "sha256": "1f7705b8f79bf13ed231d234c180ea43e15dbf6d1029e19464b9afde86ba1eac"
+    },
+    {
+      "path": "crates/dom-scriptless-crypto/Cargo.toml",
+      "sha256": "88ceea476b39fb531c1245aa63ae0d7520bea9faa8190cee6c756182bf77e4cb"
+    },
+    {
+      "path": "crates/dom-scriptless-identity-store/Cargo.toml",
+      "sha256": "def93ea40469dfa9cba37de2b2dbf6649461d5b8e076b089252ab498b527e1b0"
+    },
+    {
+      "path": "crates/dom-scriptless-primitives/Cargo.toml",
+      "sha256": "da5ba875d04e7667453e1a5e7164886e835b8f547ee23930eebbdb63a4c35932"
+    },
+    {
+      "path": "crates/dom-scriptless-protocol/Cargo.toml",
+      "sha256": "dad827bc7de846ff79fdc835f0caf8894ae8cb4ae6d880a27d1e0dc37decbd88"
+    },
+    {
+      "path": "crates/dom-scriptless-store/Cargo.toml",
+      "sha256": "07b2fb38e7f0e983d5a9f5afe83af2330bbc829cffb7b762a796d3d4f0a78580"
+    },
+    {
+      "path": "crates/dom-scriptless-transport/Cargo.toml",
+      "sha256": "b2f9bbe0f1c787d50e8cbfb0e455e7f1b9c00b6b232d1721833ebbba41a9a54a"
+    },
+    {
+      "path": "crates/dom-scriptless-types/Cargo.toml",
+      "sha256": "3541c7d320de1dd00252e6f51e1949e05f1b9ae58efd7fe5a2ecee232d0cb86c"
+    },
+    {
+      "path": "crates/dom-serialization/Cargo.toml",
+      "sha256": "db25fb567483f11995dcd2eca621d21fde5a5cdbe966db72ce1f7cd48be8a855"
+    },
+    {
+      "path": "crates/dom-serialization/fuzz/Cargo.toml",
+      "sha256": "d67289c52369e762ad9d87f8829eed0134b8e65dbeb3d23dc848da4dd4862db4"
+    },
+    {
+      "path": "crates/dom-slate/Cargo.toml",
+      "sha256": "536b77a27ef1498df2ef6db59971ef9387ad7d981c5ef1b1e4eccdad318e7246"
+    },
+    {
+      "path": "crates/dom-slate/fuzz/Cargo.toml",
+      "sha256": "a3e3b26b7c151f303d28a9aee0a9cafe66be2e469123b79d0b61be6c113f39fd"
+    },
+    {
+      "path": "crates/dom-store/Cargo.toml",
+      "sha256": "7269ab748303baaecd7c17b043dd551b767b7869102b2e520de9335208a28eb2"
+    },
+    {
+      "path": "crates/dom-store/fuzz/Cargo.toml",
+      "sha256": "e0add5d985c517623a1048ebb7ded78ea5e7b2dcba66ece597d2d061cce37092"
+    },
+    {
+      "path": "crates/dom-test-runner/Cargo.toml",
+      "sha256": "8df95dea08c2ca01f0811e533b11602ca27d0a08f1b50eea3d09f3389d5cfc5d"
+    },
+    {
+      "path": "crates/dom-test-vectors/Cargo.toml",
+      "sha256": "03c66f14a923d1c357e7a0160a4b5de1804b6210f6a0e738adc191f9c7f2e71f"
+    },
+    {
+      "path": "crates/dom-tx/Cargo.toml",
+      "sha256": "447cbe71e42014bc65c7de9a9947aaa7b0c2a5b69894761a2642719ad3f024dd"
+    },
+    {
+      "path": "crates/dom-tx/fuzz/Cargo.toml",
+      "sha256": "3486ef3a34fffa20280186f80f0502d6e6a882191776bc9adb4bb9502e598866"
+    },
+    {
+      "path": "crates/dom-usdom-checkpoint-outer-risc0-guest/Cargo.toml",
+      "sha256": "8a39e2d7acc83ad0118ad105506cfb78f690d90750210505eee5defdd5c95a2d"
+    },
+    {
+      "path": "crates/dom-usdom-checkpoint-program/Cargo.toml",
+      "sha256": "675bd346c773d377938e89672be13ea2c651d54aca06f492880f711d9bf83c97"
+    },
+    {
+      "path": "crates/dom-usdom-checkpoint-proof-host/Cargo.toml",
+      "sha256": "d521ed526326d18907c515c2eb9571fd698d9d451db3cf2b7424eab5d273966d"
+    },
+    {
+      "path": "crates/dom-usdom-checkpoint-segment-risc0-guest/Cargo.toml",
+      "sha256": "d8917a1528469827faffac0a85b9be7f8490c0d564c809219c32f0f2c6849d10"
+    },
+    {
+      "path": "crates/dom-usdom-checkpoint-statement/Cargo.toml",
+      "sha256": "88c2eb29c0b21170f04a6144acb592d980f6c0bdbf289142173d558503f1993c"
+    },
+    {
+      "path": "crates/dom-usdom-economic-block-program/Cargo.toml",
+      "sha256": "93f765e581fa4691976ce897550547e008acc37dae9d34ccbce813772b4357f4"
+    },
+    {
+      "path": "crates/dom-usdom-economic-block-risc0-guest/Cargo.toml",
+      "sha256": "a37e2b4166d18f78977dee83e706741344909e38eafb0216d47ccf5080031f59"
+    },
+    {
+      "path": "crates/dom-usdom-economic-chunk-risc0-guest/Cargo.toml",
+      "sha256": "abb7732091f4118e4827c1006072d42426461a4771a772de9e77340dccdeac33"
+    },
+    {
+      "path": "crates/dom-usdom-economic-proof-host/Cargo.toml",
+      "sha256": "784b32ddc6b31df70ec39286bbff81430673f3aa2e557b856bff16f7e662669d"
+    },
+    {
+      "path": "crates/dom-usdom-finalized-burn-program/Cargo.toml",
+      "sha256": "2a598661217cb33c99c0086199264ecb4bbece121590eecfa800092d35e8f2cc"
+    },
+    {
+      "path": "crates/dom-usdom-finalized-burn-proof-host/Cargo.toml",
+      "sha256": "efdf8b1b997263cc7beeedd6e0913ef1dbcdc8cdb9c74f651d082bda7530eab0"
+    },
+    {
+      "path": "crates/dom-usdom-finalized-burn-risc0-guest/Cargo.toml",
+      "sha256": "f165a46a1ae035952e88b84a94365db098a4f55a90a5e2320b64aa825b9e7950"
+    },
+    {
+      "path": "crates/dom-usdom-privacy/Cargo.toml",
+      "sha256": "aaa7993e8aa094b8902ec5fcb6dc2a4c3735290e9c8bf1e1277e5f52e6272004"
+    },
+    {
+      "path": "crates/dom-usdom-prover/Cargo.toml",
+      "sha256": "58471bafc74d2cb24cfa5826ded39b63a883cf3de25d2501c46c3b7f2325d5e5"
+    },
+    {
+      "path": "crates/dom-usdom-randomx-aggregate-risc0-guest/Cargo.toml",
+      "sha256": "067a4c541c5e67220748fa2a888564f11904f4313139f015f489217f86acd5a8"
+    },
+    {
+      "path": "crates/dom-usdom-randomx-portable/Cargo.toml",
+      "sha256": "00363ab51b7bd126b7fe9e31de83ca8e28a4fca1fe4b6c8280524cbd995ce5ca"
+    },
+    {
+      "path": "crates/dom-usdom-randomx-proof-host/Cargo.toml",
+      "sha256": "88e2259582c1931ca3a1208e3382c4b361c5c5573e112498abc7df7ee371d139"
+    },
+    {
+      "path": "crates/dom-usdom-randomx-risc0-guest/Cargo.toml",
+      "sha256": "1cc68fae3ede709b57a91dff38f90e0660b66f8d92caf07f8620d8627a4b0b1b"
+    },
+    {
+      "path": "crates/dom-usdom-rpc-protocol/Cargo.toml",
+      "sha256": "ce242b4646a99356843a733188438fcf85818d1b521e5c9fab902553566f4eef"
+    },
+    {
+      "path": "crates/dom-usdom-state/Cargo.toml",
+      "sha256": "0974492bc23e6125f6245be7a9a19de54ad5d1deafcdc11df4e8945656fa4c51"
+    },
+    {
+      "path": "crates/dom-usdom-wallet/Cargo.toml",
+      "sha256": "92e54066c1ddef5d80a076689f7a6e18c271dbdafa7c7b1b6c7a52bcb72590ed"
+    },
+    {
+      "path": "crates/dom-vault/Cargo.toml",
+      "sha256": "5fae8cf15c8126a8177d5975658232b84dc8f7fea21cfb2b6387c9482cb12f7c"
+    },
+    {
+      "path": "crates/dom-wallet-app/Cargo.toml",
+      "sha256": "c9faac3c5034a69b68bb996e0ecdc2072f526bb820b76712278e7c77a3073e13"
+    },
+    {
+      "path": "crates/dom-wallet-core-api/Cargo.toml",
+      "sha256": "2c517c6b30da167870d1e46265b4ad687395a255d59eb39e2584225483f0c187"
+    },
+    {
+      "path": "crates/dom-wallet-crypto/Cargo.toml",
+      "sha256": "27637836a3ebce82c7c78c8324bc03070144aaab00ef8c76a8ddd6e6f8f6ff39"
+    },
+    {
+      "path": "crates/dom-wallet-crypto/fuzz/Cargo.toml",
+      "sha256": "17f9d2489ef27e03adb2c45f438f6ee3af13493c97c89a29e04dbb21b5f4aa05"
+    },
+    {
+      "path": "crates/dom-wallet-keys/Cargo.toml",
+      "sha256": "b7b8b7fbfc560719b18e05fae849cc561a8ae25c9ff5e5604094ae6785f53c75"
+    },
+    {
+      "path": "crates/dom-wallet-keys/fuzz/Cargo.toml",
+      "sha256": "569c271b600b4558696c1155ac7470aeac94183039d12cdb83c877acc984ac61"
+    },
+    {
+      "path": "crates/dom-wallet-recovery/Cargo.toml",
+      "sha256": "4528944c9a33638034475f66fd626b49be3da9040c4c346f55edc7f939cde3aa"
+    },
+    {
+      "path": "crates/dom-wallet-recovery/fuzz/Cargo.toml",
+      "sha256": "de166ac4443e9f6b9127c09b6fc6f846e71b6838f57760b2585d315c1d568512"
+    },
+    {
+      "path": "crates/dom-wallet/Cargo.toml",
+      "sha256": "3c9feaa3f609ed43ce1d9580e5d95c7826299df734cfa32746b87aacf118d636"
+    },
+    {
+      "path": "crates/dom-wallet/fuzz/Cargo.toml",
+      "sha256": "92426c147eacb08a2b78bba78925b98a31334c6c10fb1125e7d6534b677beecd"
+    },
+    {
+      "path": "crates/dom-wallet2/Cargo.toml",
+      "sha256": "c52cb289a83ee6d3238468ef81c59c4858effc8a16254aa3cbd996ae3dd44fbf"
+    },
+    {
+      "path": "crates/dom-wallet2/fuzz/Cargo.toml",
+      "sha256": "985020a4811d677abcf380b74c52b0080164518914ce24e7f39ca095625ed0f2"
+    },
+    {
+      "path": "crates/dom-wire/Cargo.toml",
+      "sha256": "2fbcecc8c853fa614d68caff71c0ff5d9d41e8a8df9af6d2dfadc75604ffcf31"
+    },
+    {
+      "path": "crates/dom-wire/fuzz/Cargo.toml",
+      "sha256": "2993527ed7bfe75495ba4775dc422d597098e3a0acc456c6b744a0cfc76575ae"
+    },
+    {
+      "path": "crates/evm-actuator/Cargo.toml",
+      "sha256": "92015fb9f512f9ae08d86eb67f8f133d46a2d944874a8803863381db3460a2f5"
+    },
+    {
+      "path": "crates/f2-harness/Cargo.toml",
+      "sha256": "a186ed34a98aec977ee16613664c5366075bfacb993030304835908d10ef38a8"
+    },
+    {
+      "path": "crates/f2-model/Cargo.toml",
+      "sha256": "dea164e8ba112005ebddc15c3c67b4c3e950055f399c3bc146235c6bfa5a316b"
+    },
+    {
+      "path": "crates/f3-harness/Cargo.toml",
+      "sha256": "6343150faec79eb8c50feb37db91aae7fc6ec50d830856d09ee7016e0a60fbf4"
+    },
+    {
+      "path": "crates/f4-harness/Cargo.toml",
+      "sha256": "597ad5ede32585a8de816273e80fd5ad3ab5bb0e8a12b3721c1873cf69ffdb59"
+    },
+    {
+      "path": "crates/f4-model/Cargo.toml",
+      "sha256": "c8df0001dcd96105ea301addc60da322aeea47377263d6fa0018991f5bd59a91"
+    },
+    {
+      "path": "crates/f5-e2e/Cargo.toml",
+      "sha256": "c0a2ebfd71216277a8c90da79216a162f6b25045929b48d0a8cee8dad4ff3de9"
+    },
+    {
+      "path": "crates/f6-engine/Cargo.toml",
+      "sha256": "3db9afa774bf2697a05d2b3d1d374a2b775d04e2beed782a3f36651dc6fe89ec"
+    },
+    {
+      "path": "crates/f6-model/Cargo.toml",
+      "sha256": "1276de44aae638434ddded0c101b95d03de4a224ed5d542e6aad6bce14282325"
+    },
+    {
+      "path": "crates/f7-anchor-authority/Cargo.toml",
+      "sha256": "9bbe2a5ff41ef54786dd7cca7adea802212fb857656a94e315df88c8dafead02"
+    },
+    {
+      "path": "crates/f7-e2e/Cargo.toml",
+      "sha256": "e3e9715b9f862caa63deb3e8e67fd27f618e4af1e6e918f5f14440eaae1c1892"
+    },
+    {
+      "path": "crates/f8-solana-e2e/Cargo.toml",
+      "sha256": "de5269b11cc66198da39b34a76a0e2cf8058a49b5eb0021cdb11730f35ec7d1f"
+    },
+    {
+      "path": "crates/f8-solana-model/Cargo.toml",
+      "sha256": "6ee4ab5212737749ea0eceb0e78e669b38b2af3359e156c3950c9de7b7004e47"
+    },
+    {
+      "path": "crates/f8-xmr-kaystra-e2e/Cargo.toml",
+      "sha256": "ec7dfea8a86602a158d0ceffd777955c989e5a9ff81475b7c0f6cfb60384bd70"
+    },
+    {
+      "path": "crates/intent-book/Cargo.toml",
+      "sha256": "b282c3438820b8f3f1a99145978bc9be443dbd6b6e42d7de36ead8b5891c161b"
+    },
+    {
+      "path": "crates/kaystra-core/Cargo.toml",
+      "sha256": "4bdd3fcdccf2d05d6391e959e9bf9905e537eb3925212f504cb1220a69b8d8db"
+    },
+    {
+      "path": "crates/participant-binding/Cargo.toml",
+      "sha256": "b82595d107c02a1041932d9aea216885b1f1d8bf883474ad899a43c06562c068"
+    },
+    {
+      "path": "crates/relay-scriptless-wire/Cargo.toml",
+      "sha256": "67265d264b655be61a72e6356dc2bfcc14da558db1b69e6936eccc10fd27e90a"
+    },
+    {
+      "path": "crates/relay/Cargo.toml",
+      "sha256": "ad4caa5d7986b29ea6ffa6063bac73f03c82ce9b10174109b9cb5355a459598b"
+    },
+    {
+      "path": "crates/rfq/Cargo.toml",
+      "sha256": "e050bc8a4e6b56f02320e575b7c78669457d1c6e4b2890f330ec3ca427a4574a"
+    },
+    {
+      "path": "crates/route-composer/Cargo.toml",
+      "sha256": "043ff5d9eceb43a93520d53680d2f0f0a74e892ef23ab08428d3e9affaa98715"
+    },
+    {
+      "path": "crates/route-executor/Cargo.toml",
+      "sha256": "c47b5806bb3255befa21775766a9897a9a89929a23a30950f641df4b7b33a713"
+    },
+    {
+      "path": "crates/route-secret-vault/Cargo.toml",
+      "sha256": "cd53df6ae1a2841673ecd4565222f7a617f201563345bf8280d8428b9d78f329"
+    },
+    {
+      "path": "crates/route-time-anchor/Cargo.toml",
+      "sha256": "6a38c46c94d96376441fba84afc516a9894c3c954cbcec3958d39f4b10c4dbe0"
+    },
+    {
+      "path": "crates/route-transport/Cargo.toml",
+      "sha256": "43a2a2bfbc83069a50c5e19b990cf4e545faeac86aa995f789684b93c2d858f0"
+    },
+    {
+      "path": "crates/settlement-coordinator/Cargo.toml",
+      "sha256": "035dc714a2030ffa0e0d7f85e1673366db72389ee816ab196857ee8f5a2662eb"
+    },
+    {
+      "path": "crates/solana-actuator/Cargo.toml",
+      "sha256": "5d6e7969525343f27c90f61a281a7cee4aac521837fd2e9ba8175bdee064bd1f"
+    },
+    {
+      "path": "crates/solver-inventory/Cargo.toml",
+      "sha256": "ef89cd7b90c8a45f8281ecc63306b49624a43a7f3c3f1789acb60bf658969cb3"
+    },
+    {
+      "path": "crates/solver-status/Cargo.toml",
+      "sha256": "e8f6b5b31a6d2d146de3f5ccba4c0386ea435c1242e45226c21b73db64af68c9"
+    },
+    {
+      "path": "crates/solver/Cargo.toml",
+      "sha256": "8f3f81d506c0cbd60d5bbb77c6aa6f12c2ae0ce0ef53a411cfa6d120f4c92232"
+    },
+    {
+      "path": "crates/store/Cargo.toml",
+      "sha256": "f997f56279351ac35e6c72987b57ba8e70a5f3e6580e5cb4cba02e6af7b0489b"
+    },
+    {
+      "path": "crates/uspe/Cargo.toml",
+      "sha256": "b982e06fd19e0a7989baa73a980e08592d7c7ae5a247cf932bc85e446284937b"
+    },
+    {
+      "path": "crates/xmr-actuator/Cargo.toml",
+      "sha256": "18c95e01d700f4a5503eae3faf573498176062f03b70f633728d9035a613376a"
+    },
+    {
+      "path": "external-gpl/dom-xmr-sidecar/Cargo.toml",
+      "sha256": "3cf0265a249e5860a1abfdc0e5b8f1376a6189b6e6885e5619b230185785a292"
+    },
+    {
+      "path": "fuzz/Cargo.toml",
+      "sha256": "2972630c5e86873d092e29ce85aace4a5283fb2980961c1f285a12ca34a34793"
+    },
+    {
+      "path": "labs/dom-bp-migration-lab/Cargo.toml",
+      "sha256": "ccd3fa2e332f69d428a254a014ce1f643207ebe24fff52ac07ce10219e5126e9"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/Cargo.toml",
+      "sha256": "9f0182eb0a6d07ddfb7b7e42f6bb14e11991644756436006b87b74ceab158c8f"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/Cargo.toml",
+      "sha256": "74c8e50b02bdfde24597cffd763277f3d80422a57f6fd7e15f955cd3c397cd61"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/cli/Cargo.toml",
+      "sha256": "657a47685017209f861c15b6663cfaac582690495a041ae04be0bf565c555a74"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/common/Cargo.toml",
+      "sha256": "a989c1b6603f99516f7defb313580cc60e99ff0998d7c4e619c63b787c849661"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/core/Cargo.toml",
+      "sha256": "ba9ad5f1974c5c88cfc4e694f1eb453e66b69162a3e2a09686c67b821f9cad0e"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/ethereum/Cargo.toml",
+      "sha256": "0f36acef21554be169545d20a27be1227c40f55eac58f46130d81233f1fc7bf7"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/ethereum/consensus-core/Cargo.toml",
+      "sha256": "19269148373a1f07dd3e1f99cdd4d4e4a5bbb68b4e8db2324e319f42f3336e02"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/helios-ts/Cargo.toml",
+      "sha256": "d0180c6da78d15f2d71d489df6ad0d9db73a29a033747e66180d579f22efaf34"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/linea/Cargo.toml",
+      "sha256": "b2d1ad670a6bca4e90ec2a594b1e59fc0ab443c76fdd597c40bd733835febc6b"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/opstack/Cargo.toml",
+      "sha256": "e4d8d5583810bec09ece4be0eab9b68bbd717eefb9cf79ca654a978e9ab8698b"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/revm-utils/Cargo.toml",
+      "sha256": "f779dc39404736f568c9282c144b9be19dd201a516e206646529a49a48d3672e"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/tests/test-utils/Cargo.toml",
+      "sha256": "2c6a95ac43d8bcfcd46396e9f04ca51a8b1eda4f48aed9ece533e47eb63ae563"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/verifiable-api/client/Cargo.toml",
+      "sha256": "5243432f7c7251d0ad840ce52252979efd8aec38b14a913a0674b640e6c1c7f1"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/verifiable-api/server/Cargo.toml",
+      "sha256": "6785914f75e7bb42a8885caeb3edd636f59290b09337eb4bd4ad45938e587b9c"
+    },
+    {
+      "path": "labs/usdom-ethereum-finality/vendor/helios/verifiable-api/types/Cargo.toml",
+      "sha256": "10ab167e8b80e7aae1dc7fc6c7f53673916e39b752d1dfe19374a95f634ff3d9"
+    },
+    {
+      "path": "programs/dom-solana-escrow/Cargo.toml",
+      "sha256": "51e2435fde5887aee833ef254521c28c3583249e0ca52eb8dae4f4edf2ab9e7c"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/Cargo.toml",
+      "sha256": "d9cb7f9cf2178707888fa4ca6c75a03e93c0c635d7cca4f3afaf46df8ca986b3"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-chain/Cargo.toml",
+      "sha256": "9752cc4ec0f75ed6aa5ca019d14b0ae918a793ca0920d6600b7b05de94c8837e"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-core-protocol/Cargo.toml",
+      "sha256": "c23d6e2114e5812bdf7fc5f045aaff7f6195408342256c5cc8ebc20142cf753d"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-core-recovery/Cargo.toml",
+      "sha256": "79ad1100d5dd928ba5602ab1df6fc9c663114701531ff828d707a90a018dff2e"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-core-restore/Cargo.toml",
+      "sha256": "6afee01af46f1755dd5216e0c057e2511b074cb852add3f492d7521224246cf4"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-core-submit/Cargo.toml",
+      "sha256": "df24f01dac291945218b75bce5e735bd4243ec24c77226eeac662857c726c93f"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-core-sync/Cargo.toml",
+      "sha256": "218f1c0fabcef713555767f6d4e7ed33a5c13b78291a1e04725d0026c3295574"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-core/Cargo.toml",
+      "sha256": "5419b6068dbb86ac51cd3c95fd7cc0be56d747daf0ad1746a841247dfde73e19"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-crypto/Cargo.toml",
+      "sha256": "eaa0aa10d2db2fc71db4ef0a903df480455e32d56e8114e7242b47d039233f94"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-domain/Cargo.toml",
+      "sha256": "9c2cf8a656d4fac80f3796fb5e5c1cce85d769c1da1e7c804b3d5784fedc29be"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-embedded-core/Cargo.toml",
+      "sha256": "fc522c5106828403d632d22a965bf59eb8f9b746b0314c4c2804130b7615a407"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-node-manager/Cargo.toml",
+      "sha256": "9b0e4378b8cb6228905804d2fb34a1c8c7013b482ebd698f917c37a891572efb"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-production-backend/Cargo.toml",
+      "sha256": "2a1a7a2e62737315b9afe50ee3fe705ae1e3ffd98680c29ad60ce95ae39a759f"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-protocol/Cargo.toml",
+      "sha256": "3505f1c0f1e225c811e4fef9e9831a0f63cbd274e33520b89ef541a04f26c77a"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-remote-source/Cargo.toml",
+      "sha256": "e553314d544b29f197b826b485e4e0c2fa4a789ef3d8968f92311dd7bda066a9"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-storage/Cargo.toml",
+      "sha256": "462e0dc83c1de35fbe885016dc71cc79bfc3363ec8023cf31d01d8403a8c6dfd"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/crates/dom-wallet-updater/Cargo.toml",
+      "sha256": "0013ca8438bfd8fc572ae281d15c64f9ea99467225b94483b873ddcbcbe46b7c"
+    },
+    {
+      "path": "vendor/dom-wallet-v3/src-tauri/Cargo.toml",
+      "sha256": "eafd11aae21e3ed7b00d4a2d95e8f6adce4cadcdddcb47c8ec444de2a7b89043"
+    },
+    {
+      "path": "wallet-desktop/src-tauri/Cargo.toml",
+      "sha256": "86dc0bd73f59f5cda64bbac6b5fb76a673e673c7627201e6e075644765a3796e"
+    }
+  ],
+  "packages": [
+    "ahash",
+    "allocator-api2",
+    "alloy",
+    "alloy-consensus",
+    "alloy-consensus-any",
+    "alloy-core",
+    "alloy-eip2124",
+    "alloy-eip2930",
+    "alloy-eip7702",
+    "alloy-eip7928",
+    "alloy-eip8141",
+    "alloy-eips",
+    "alloy-network-primitives",
+    "alloy-primitives",
+    "alloy-rlp",
+    "alloy-rlp-derive",
+    "alloy-rpc-types",
+    "alloy-rpc-types-eth",
+    "alloy-serde",
+    "alloy-sol-macro",
+    "alloy-sol-macro-expander",
+    "alloy-sol-macro-input",
+    "alloy-sol-types",
+    "alloy-trie",
+    "alloy-tx-macros",
+    "ark-bn254",
+    "ark-crypto-primitives",
+    "ark-crypto-primitives-macros",
+    "ark-ec",
+    "ark-ff",
+    "ark-ff-asm",
+    "ark-ff-macros",
+    "ark-groth16",
+    "ark-poly",
+    "ark-r1cs-std",
+    "ark-relations",
+    "ark-serialize",
+    "ark-serialize-derive",
+    "ark-snark",
+    "ark-std",
+    "arrayvec",
+    "auto_impl",
+    "base16ct",
+    "bitflags",
+    "bitvec",
+    "blake2",
+    "block-buffer",
+    "bls12_381",
+    "byteorder",
+    "bytes",
+    "cfg-if",
+    "const-hex",
+    "const-oid",
+    "convert_case",
+    "cpufeatures",
+    "crc",
+    "crc-catalog",
+    "crypto-bigint",
+    "crypto-common",
+    "darling",
+    "darling_core",
+    "darling_macro",
+    "der",
+    "derivative",
+    "derive_more",
+    "derive_more-impl",
+    "digest",
+    "dom-core",
+    "dom-ethereum-consensus-core",
+    "dom-pmmr",
+    "dom-usdom-checkpoint-statement",
+    "dom-usdom-finalized-burn-program",
+    "dom-usdom-privacy",
+    "dom-usdom-state",
+    "dunce",
+    "ecdsa",
+    "educe",
+    "either",
+    "elliptic-curve",
+    "enum-ordinalize",
+    "enum-ordinalize-derive",
+    "equivalent",
+    "ethereum_hashing",
+    "ethereum_serde_utils",
+    "ethereum_ssz",
+    "ethereum_ssz_derive",
+    "eyre",
+    "ff",
+    "fnv",
+    "foldhash",
+    "funty",
+    "generic-array",
+    "getrandom",
+    "group",
+    "hashbrown",
+    "heck",
+    "hex",
+    "hmac",
+    "hybrid-array",
+    "ident_case",
+    "indenter",
+    "indexmap",
+    "itertools",
+    "itoa",
+    "k256",
+    "keccak",
+    "libc",
+    "linux-raw-sys",
+    "macro-string",
+    "memchr",
+    "merlin",
+    "num-bigint",
+    "num-integer",
+    "num-traits",
+    "nybbles",
+    "once_cell",
+    "opaque-debug",
+    "pairing",
+    "paste",
+    "pin-project-lite",
+    "pkcs8",
+    "ppv-lite86",
+    "proc-macro-error-attr3",
+    "proc-macro-error3",
+    "proc-macro2",
+    "quote",
+    "radium",
+    "rand",
+    "rand_chacha",
+    "rand_core",
+    "rfc6979",
+    "ruint",
+    "ruint-macro",
+    "rustix",
+    "sec1",
+    "serde",
+    "serde_core",
+    "serde_derive",
+    "serde_json",
+    "serde_with",
+    "serde_with_macros",
+    "serdect",
+    "sha2",
+    "sha3",
+    "signature",
+    "smallvec",
+    "spki",
+    "ssz_types",
+    "strsim",
+    "subtle",
+    "superstruct",
+    "syn",
+    "syn-solidity",
+    "tap",
+    "thiserror",
+    "thiserror-impl",
+    "tracing",
+    "tracing-attributes",
+    "tracing-core",
+    "tree_hash",
+    "tree_hash_derive",
+    "typenum",
+    "unicode-ident",
+    "unicode-segmentation",
+    "unicode-xid",
+    "usdom-ethereum-finality-experiment",
+    "wyz",
+    "zerocopy",
+    "zeroize",
+    "zeroize_derive",
+    "zmij"
+  ]
+}

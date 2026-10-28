@@ -1,0 +1,32 @@
+ETAPA 1353 — LIMITES DOS HASHES DE BLOCO RPC
+Data: 2026-10-26
+
+Problema
+
+Onze leituras `cast block --field hash` tinham deadline, mas ainda alimentavam
+substituições de comando sem teto. Esses valores decidem identidade da mainnet,
+consenso entre RPCs, snapshots financeiros e finalidade de recibos.
+
+Correção
+
+Todas as onze leituras agora passam por um byte sentinela de 68 bytes após a
+normalização para minúsculas. Hashes que formam a identidade gênese ou o
+snapshot de consenso precisam satisfazer explicitamente `0x` seguido por 64
+dígitos hexadecimais minúsculos antes de qualquer igualdade ou uso. As releituras
+posteriores são comparadas aos hashes canônicos já autenticados.
+
+Os deadlines TERM/KILL de 120 segundos e `set -euo pipefail` permanecem. Falha,
+timeout, saída excessiva, formato inválido ou divergência entre RPCs abortam a
+cerimônia antes de assinatura, publicação ou evidência terminal.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores e recibos: 12/12 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 11/11 leituras de hash têm deadline, cap e validação
+  canônica direta ou comparação com hash canônico autenticado.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

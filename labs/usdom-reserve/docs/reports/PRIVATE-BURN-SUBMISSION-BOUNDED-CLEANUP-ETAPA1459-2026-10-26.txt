@@ -1,0 +1,4 @@
+Stage 1459 — private-burn submission bounded cleanup
+Date: 2026-10-26
+
+Submission's private recovery/state-password and manifest-snapshot cleanup was unbounded. It now uses authenticated timeout (TERM 30s/KILL 5s), reattests Node around deletion, suppresses output, requires absence and preserves failure. Two legacy sentinels were strengthened accordingly. Focused suites pass 18/18. No operational script, network, Ledger, signing, deployment, funds, commit or push occurred.

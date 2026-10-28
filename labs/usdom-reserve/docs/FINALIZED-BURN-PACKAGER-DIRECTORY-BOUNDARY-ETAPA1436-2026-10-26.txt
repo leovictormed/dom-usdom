@@ -1,0 +1,25 @@
+Etapa 1436 — fronteira de criação de diretórios no packager finalized-burn
+
+Problema
+
+O packager chamava mkdir diretamente pelo PATH duas vezes e sem deadline. O
+diretório persistente era rejeitado apenas quando symlink, sem exigir proprietário
+e permissões seguras; os diretórios privados não tinham pós-condição de metadata.
+
+Correção
+
+mkdir agora integra o inventário de ferramentas pinadas. Uma única chamada pelo
+caminho autenticado cria o diretório persistente e os quatro diretórios privados,
+sob timeout com TERM em 120 segundos e KILL após cinco. A ferramenta é reatestada
+antes e depois. Todos os cinco destinos devem ser diretórios reais, pertencer ao
+usuário atual e ter modo exato 0700 antes de qualquer captura de entrada.
+
+Validação
+
+- Sintaxe shell: aprovada.
+- Boundary estrutural dos packagers EVM: 1/1 aprovado.
+- Foco operator-runbook finalized-burn: 2/2 aprovado.
+- Inventário de publicação: 1/1 aprovado.
+- Nenhuma prova foi iniciada.
+
+Nenhuma rede, Ledger, assinatura, deploy, fundos, commit ou push foi executado.

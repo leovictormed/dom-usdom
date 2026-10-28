@@ -1,0 +1,18 @@
+Stage 1219 — bounded finalized-deposit issuance tip evidence
+Date: 2026-10-26
+
+Changes
+- Registration and persisted issuance tip heights now require canonical uint64 decimals, rejecting overlong values before BigInt and exact 2^64.
+- A persisted observed tip cannot exceed the current authenticated DOM identity tip; when heights are equal its hash must equal the current tip hash.
+- Submission timestamps now require canonical millisecond-precision UTC ISO strings that round-trip exactly.
+
+Security result
+- An internally stored issuance restart boundary cannot contain arbitrary-size heights, claim a future tip, substitute the hash of the current height, or use an ambiguous timestamp.
+- Deposit/witness commitments, mainnet identity, queued state and no-Ethereum-broadcast constraints remain unchanged.
+
+Validation
+- Artifact-independent issuance, closed-mainnet block and DOM RPC hardening suites: 10/10 pass.
+- Node syntax and targeted git diff --check pass.
+- An additional 13-test selection produced 12/13: only the unrelated secret-entrypoint source-count assertion observed a concurrently edited script (expected three cleanup markers, saw one). It does not exercise this module and is excluded from evidence.
+
+No Rust, Solidity, Cargo, Forge, real network, signing, deployment, funds, commit or push ran.

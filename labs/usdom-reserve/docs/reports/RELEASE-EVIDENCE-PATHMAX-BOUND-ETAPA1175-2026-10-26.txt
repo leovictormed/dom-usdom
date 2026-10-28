@@ -1,0 +1,14 @@
+Stage 1175 — release-evidence PATH_MAX boundary
+Date: 2026-10-26
+
+The centralized path policy allowed 4096 ASCII pathname bytes. On the target
+POSIX boundary, PATH_MAX includes the terminating NUL, leaving at most 4095
+pathname bytes. A 4096-byte manifest path could therefore pass readiness but
+fail at direct filesystem access.
+
+The total bound is now 4095. Boundary fixtures composed only of individually
+valid components prove 4095 is accepted and 4096 is rejected. The focused
+path-policy suites pass 7/7 with pinned Node 24.19.0; targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

@@ -21,7 +21,7 @@ test('mainnet toolchain checker authenticates bytes, versions and final executab
 
 test('mainnet toolchain checker uses a closed file and tool inventory',async()=>{
   const source=await readFile(checker,'utf8');
-  for(const tool of ['node','npm','forge','cast','rustc','cargo','python3','jq']) {
+  for(const tool of ['bash','node','npm','forge','cast','rustc','cargo','python3','jq']) {
     assert.match(source,new RegExp(`\\['${tool}',\\{args:`));
   }
   for(const file of ['package-lock.json','../../Cargo.lock','foundry.toml']) {
@@ -50,8 +50,11 @@ test('the closed file inventory hashes the exact current release inputs',async()
     new URL('../../config/mainnet-toolchain-lock.json',import.meta.url),'utf8'));
   const targets=new Map([
     ['package-lock.json',new URL('../../package-lock.json',import.meta.url)],
+    ['containers/risc0-snarkjs/package-lock.json',
+      new URL('../../containers/risc0-snarkjs/package-lock.json',import.meta.url)],
     ['../../Cargo.lock',new URL('../../../../Cargo.lock',import.meta.url)],
     ['foundry.toml',new URL('../../foundry.toml',import.meta.url)],
+    ['scripts/mainnet-tool-dispatcher',new URL('../../scripts/mainnet-tool-dispatcher',import.meta.url)],
   ]);
   assert.equal(lock.files.length,targets.size);
   for(const entry of lock.files) {

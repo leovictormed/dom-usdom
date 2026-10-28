@@ -1,0 +1,16 @@
+Stage 1173 — release-evidence path component bound
+Date: 2026-10-26
+
+The centralized release-evidence path policy limited total paths to 4096 bytes
+but allowed one component to exceed the widely supported 255-byte NAME_MAX.
+Such a manifest could pass semantic readiness and then fail differently at the
+direct filesystem boundary depending on the host filesystem.
+
+Every path component is now limited to 255 ASCII characters in addition to the
+existing alphabet, root and total-length policies. Boundary tests prove 255 is
+accepted, 256 is rejected, and multiple 255-byte components remain valid when
+the total path fits. The focused path-policy suites pass 6/6 with pinned Node
+24.19.0; targeted diff-check passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

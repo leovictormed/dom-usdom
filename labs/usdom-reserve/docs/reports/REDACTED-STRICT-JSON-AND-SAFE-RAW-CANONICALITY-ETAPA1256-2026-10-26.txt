@@ -1,0 +1,40 @@
+Stage 1256 — redacted strict-JSON regression and canonical Safe raw transactions
+Date: 2026-10-26
+
+Strict-JSON regression reconciliation
+-------------------------------------
+The configuration CLI regression still expected the old parser detail on
+stderr. The production failure boundary now intentionally emits only the closed
+safe diagnostic. The test now proves all three required properties: duplicate
+keys are rejected, stdout stays empty, and stderr is exactly the bounded
+`RELEASE_OPERATION_REJECTED` envelope without the duplicated key, attacker
+value or parser detail. Parser unit tests continue checking the detailed error
+inside the trusted process boundary.
+
+Next readiness finding and correction
+-------------------------------------
+The Safe deployment raw-transaction validator accepted mixed-case serialized
+hex and relied on decoded field comparisons without explicitly requiring that
+the decoded signed transaction serialize back to the exact input. It now
+requires lowercase canonical hex, exact newline framing, `tx.serialized ===
+raw`, and nonnull signature/hash before applying the existing signer, nonce,
+chain, calldata, gas and fee policy.
+
+Adversarial regression
+----------------------
+Safe raw regressions now reject an uppercase spelling of an otherwise valid
+signed transaction and a file missing its canonical terminal newline, in
+addition to nonce, calldata and signer mutations.
+
+Validation
+----------
+- Modified script Node syntax check: pass.
+- Strict JSON, diagnostics, configuration, direct operational inputs,
+  byte-strict authorization/attestation, private raw transactions, Safe raw
+  validation and Safe executor suites: 44/44 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

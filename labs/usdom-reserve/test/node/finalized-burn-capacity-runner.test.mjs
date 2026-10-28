@@ -15,6 +15,9 @@ const script=await readFile(new URL(
 const observer=await readFile(new URL(
   '../../sdk/risc0-capacity-runtime-observer.mjs',import.meta.url,
 ),'utf8');
+const capacityValidator=await readFile(new URL(
+  '../../scripts/check-finalized-burn-capacity-evidence.mjs',import.meta.url,
+),'utf8');
 const runtimePath=new URL('../fixtures/risc0-mainnet-v3-runtime.hex',import.meta.url);
 
 test('fixed capacity runner preserves the release and public-network boundaries',()=>{
@@ -61,7 +64,7 @@ test('fixed capacity runner preserves the release and public-network boundaries'
 test('capacity fixture is the exact pinned Ethereum mainnet verifier runtime',async()=>{
   const metadata=await stat(runtimePath);
   const runtime=(await readFile(runtimePath,'utf8')).trim();
-  assert.equal(metadata.mode&0o777,0o644);
+  assert.equal(metadata.mode&0o777,0o600);
   assert.equal((runtime.length-2)/2,5313);
   assert.equal(keccak256(runtime),'0xfe03c66078969d097f867351171b4639d726c8376c35022675ed44cbbcbaa720');
 });
@@ -82,6 +85,27 @@ test('capacity runner snapshots its adapter before observation and Anvil',()=>{
     script.indexOf('async function snapshotFinalizedBurnAdapterArtifact'));
   assert.doesNotMatch(verifierBody,/DOMFinalizedBurnRiscZeroVerifier\.json/);
   assert.match(verifierBody,/adapterArtifact\.bytecode\.object/);
+});
+
+test('capacity runner reconciles a validated existing report before announcing success',()=>{
+  const existing=script.indexOf("label:'existing capacity report'");
+  const validate=script.indexOf('validateFinalizedBurnCapacityReport(existing',existing);
+  const hash=script.indexOf('const reportSha256=rawSha(existingBytes)',validate);
+  const completion=script.indexOf("status:'succeeded'",hash);
+  const announced=script.indexOf("status:'already-succeeded'",completion);
+  assert.ok(existing>=0 && existing<validate && validate<hash && hash<completion
+    && completion<announced);
+  assert.match(script,/reportSha256,recordedAt:new Date\(\)\.toISOString\(\)/);
+});
+
+test('capacity validator reconstructs preserved proof, metrics and isolated EVM artifacts',()=>{
+  for(const token of ['proofArtifacts(workLab)','finalized-burn-input.bin',
+    'source-prover-time.log','isolated-evm-receipt.json','parseProverResourceMetrics',
+    'capacity report differs from its preserved proof, metrics or EVM receipt artifacts',
+    'await validatePreservedArtifacts();\nawait validatePreservedArtifacts();',
+    'capacity completion changed during artifact revalidation']) {
+    assert.match(capacityValidator,new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+  }
 });
 
 test('capacity runner rejects concurrent source-metric substitution',async()=>{

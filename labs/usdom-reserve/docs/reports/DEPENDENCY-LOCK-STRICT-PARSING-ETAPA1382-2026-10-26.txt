@@ -1,0 +1,29 @@
+Stage 1382 — strict dependency-lock identity parsing
+Date: 2026-10-26
+
+Finding
+The release dependency policy used permissive json.loads for npm locks, so duplicate JSON
+keys could silently replace an earlier package inventory or security field. Cargo lock entries
+were checked for remote source/checksum pinning but duplicate (name, version, source)
+identities and malformed identity types were not rejected explicitly.
+
+Correction
+- npm package locks now use a recursive duplicate-key rejecting JSON parser.
+- npm lock roots, package inventories and individual entries must have their expected container types.
+- Cargo package inventories must be arrays of objects with non-empty string names/versions and
+  a string-or-absent source.
+- Duplicate Cargo (name, version, source) identities fail closed before source/checksum review.
+- Added a built-in adversarial self-test covering duplicate top-level and nested JSON keys,
+  duplicate Cargo identities and malformed identity fields.
+- Unknown checker arguments now fail closed.
+
+Validation
+- Python compilation: PASS.
+- strict dependency-lock parser adversarial self-test: PASS.
+- live network-free dependency policy: PASS (36 Cargo locks/15,017 entries, 234 manifests,
+  four npm locks/241 entries).
+- supply-chain/toolchain/publication-related Node suite: 8/9 PASS; the sole failure and the
+  subsequent inventory-only failure are a concurrent pinned-content drift in
+  crates/dom-chain/src/native_usdom_v4.rs, outside this stage. No repository hash was changed.
+
+No network, signing, deployment, funds, commit or push occurred.

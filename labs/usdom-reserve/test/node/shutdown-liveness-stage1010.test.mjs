@@ -8,7 +8,7 @@ const solidityTest = readFileSync(new URL('../solidity/USDOMProofReserve.t.sol',
 
 test('ingress can close permanently without disabling debt renewal or payout', () => {
   assert.match(reserve, /bool public depositsClosed/);
-  assert.match(reserve, /function closeDeposits\(\) external[\s\S]*msg\.sender != guardian && msg\.sender != governance[\s\S]*_requireControlPlaneUnchanged\(\);[\s\S]*depositsClosed = true/);
+  assert.match(reserve, /function closeDeposits\(\) external[\s\S]*_requireEmergencyAuthority\(\);[\s\S]*_requireControlPlaneUnchanged\(\);[\s\S]*depositsClosed = true/);
   const deposit = reserve.match(/function deposit\([\s\S]*?\n\s*\}/)?.[0] ?? '';
   assert.match(deposit, /if \(depositsClosed\) revert DepositsClosed\(\)/);
   const queue = reserve.match(/function queueWithdrawal\([\s\S]*?\n\s*\}/)?.[0] ?? '';
@@ -21,8 +21,8 @@ test('ingress can close permanently without disabling debt renewal or payout', (
 test('shutdown adds no sweep, admin payout or debt erasure path', () => {
   assert.doesNotMatch(reserve, /function (?:sweep|withdrawCollateral|adminPayout|refundDeposit)/i);
   assert.doesNotMatch(reserve, /delete provedBurn|delete paidBurn|delete paidRequest/);
-  assert.match(solidityTest, /testDepositShutdownDoesNotBlockExistingBurnPayouts/);
-  assert.match(solidityTest, /reserve\.closeDeposits\(\)[\s\S]*reserve\.queueWithdrawal|depositsClosed\(\)[\s\S]*queued\(100e6\)[\s\S]*executeWithdrawal/);
+  assert.match(solidityTest, /testDepositShutdownBlocksIngressButAllowsFirstProofAndPayouts/);
+  assert.match(solidityTest, /closeDeposits[\s\S]*queueWithdrawal[\s\S]*executeWithdrawal/);
 });
 
 test('pause and registry halt remain fail-closed without economic state mutation', () => {

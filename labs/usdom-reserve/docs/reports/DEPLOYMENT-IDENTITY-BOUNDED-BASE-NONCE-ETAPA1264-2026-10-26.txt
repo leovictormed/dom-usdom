@@ -1,0 +1,35 @@
+Stage 1264 — bounded base nonce before CREATE identity derivation
+Date: 2026-10-26
+
+Finding
+-------
+Mainnet deployment identity derivation converted its caller-supplied base nonce
+directly with `BigInt` and only then checked the uint64 range needed for four
+consecutive CREATE addresses. An oversized decimal string could cause excessive
+arbitrary-precision work, while numeric/bigint inputs and noncanonical decimal
+spellings were accepted despite persisted release fields being canonical text.
+
+Correction
+----------
+The base nonce now passes through the existing canonical decimal uint64 reader
+before conversion. Derivation still applies the tighter `uint64 max - 3` ceiling
+so the four role-ordered nonces cannot overflow. Address collision, immutable
+field and CREATE derivation checks remain unchanged.
+
+Adversarial regression
+----------------------
+Regressions reject a 100,000-digit string, leading zero, negative value, Number
+and bigint forms before derivation. The exact highest safe base nonce continues
+to derive the four terminal uint64 nonce values.
+
+Validation
+----------
+- SDK Node syntax check: pass.
+- Deployment identity, package, execution, evidence and replay/reorg suites:
+  34/34 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

@@ -12,13 +12,13 @@ const requirements=JSON.parse(await readFile(
 
 test('every asserted broad implementation claim has concrete implementation support',()=>{
   assert.deepEqual(productionImplementationClaimFailures(requirements),[]);
-  assert.equal(requirements.production_finalized_burn_verifier_implemented,false,
+  assert.equal(requirements.production_finalized_burn_verifier_implemented,true,
     'UDFINL04 cannot be claimed complete before its rebuilt guest and positive receipt exist');
   for(const dependency of [
     'production_finalized_burn_guest_compiled',
     'production_finalized_burn_guest_reproducibly_compiled',
   ]) assert.equal(requirements[dependency],true);
-  assert.equal(requirements.production_finalized_burn_guest_positive_raw_witness_executed,false);
+  assert.equal(requirements.production_finalized_burn_guest_positive_raw_witness_executed,true);
   assert.equal(requirements.production_finalized_burn_risc0_evm_receipt_verifier_implemented,false,
     'implementation closure must not claim that a non-development receipt was verified');
   assert.equal(requirements.proof_reserve_proxy_storage_configuration_covered,true,

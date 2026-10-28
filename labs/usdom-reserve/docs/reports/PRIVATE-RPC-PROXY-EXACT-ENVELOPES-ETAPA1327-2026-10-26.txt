@@ -1,0 +1,36 @@
+USDOM mainnet readiness — Stage 1327
+Date: 2026-10-26
+
+Finding
+=======
+
+The credential-hiding loopback proxy used strict JSON but accepted request
+objects with arbitrary extra fields and string or unsafe numeric ids. Its reply
+checks rejected extra top-level fields, but the error authority remained loosely
+shaped. This left ambiguity at the boundary forwarded to paid mainnet providers.
+
+Correction
+==========
+
+A reusable SDK validator now requires exactly jsonrpc, id, method and params on
+requests, fixes jsonrpc to 2.0, requires a nonnegative safe-integer id, an
+allowlisted method and an array of parameters. Replies must be exactly either a
+result envelope or an error envelope, never both or neither. Result null remains
+a valid and distinct response. Error objects allow only code/message and optional
+data, with safe-integer code and a nonempty message bounded to 4096 UTF-8 bytes.
+
+Validation
+==========
+
+- Node syntax checks passed for the proxy and SDK.
+- Direct adversarial tests cover extra request fields, unsafe ids, forbidden
+  methods, result/error collision, neither form, null result, id drift and error
+  extension.
+- Focused envelope, runtime-secret, readiness and strict-JSON suite: 15/15 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No RPC provider was contacted. No network, publication, signing, deployment,
+funds, production facts, Rust, Solidity, Cargo, Forge, commit or push occurred.

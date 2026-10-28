@@ -43,15 +43,15 @@ export async function observeRiscZeroMainnetHealth({reference,provider}) {
     fail('health observer requires a bounded snapshot-pinning RPC provider');
   }
   const [chainId,genesis,finalized]=await Promise.all([
-    provider.send('eth_chainId',[]).then(BigInt),
+    provider.send('eth_chainId',[]),
     provider.send('eth_getBlockByNumber',['0x0',false]),
     provider.send('eth_getBlockByNumber',['finalized',false]),
   ]);
-  if(chainId!==1n||genesis?.number!=='0x0'
+  if(chainId!=='0x1'||genesis?.number!=='0x0'
       ||String(genesis?.hash??'').toLowerCase()!==ETHEREUM_MAINNET_GENESIS) {
     fail('RPC is not canonical Ethereum mainnet');
   }
-  if(!finalized?.hash || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(finalized.number??'')
+  if(!finalized?.hash || !/^0x[1-9a-f][0-9a-f]{0,15}$/.test(finalized.number??'')
       ||!/^0x[0-9a-fA-F]{64}$/.test(finalized.hash)) {
     fail('RPC did not return a canonical finalized block');
   }
@@ -63,7 +63,7 @@ export async function observeRiscZeroMainnetHealth({reference,provider}) {
   if(snapshotAfter?.hash!==finalized.hash||JSON.stringify(before)!==JSON.stringify(after)) {
     fail('RISC Zero finalized health snapshot changed during collection');
   }
-  return {chainId:chainId.toString(),genesisBlockHash:ETHEREUM_MAINNET_GENESIS,
+  return {chainId:'1',genesisBlockHash:ETHEREUM_MAINNET_GENESIS,
     finalizedBlockNumber:BigInt(finalized.number).toString(),
     finalizedBlockHash:finalized.hash,snapshotBlockHashAfter:snapshotAfter?.hash??null,
     ...before};

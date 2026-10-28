@@ -6,7 +6,9 @@ export const PILOT_REDEMPTION_CUMULATIVE_CAP_WEI=200_000_000_000_000_000n;
 export const PILOT_TOTAL_CUMULATIVE_CAP_WEI=350_000_000_000_000_000n;
 
 function costs(values,count,perTransaction,label) {
-  if(!Array.isArray(values)||values.length>count||values.some(value=>!DECIMAL.test(value))) {
+  const maxDigits=perTransaction.toString().length;
+  if(!Array.isArray(values)||values.length>count||values.some(value=>typeof value!=='string'
+      ||value.length>maxDigits||!DECIMAL.test(value))) {
     throw new Error(`${label} pilot cost list is malformed`);
   }
   const parsed=values.map(BigInt);

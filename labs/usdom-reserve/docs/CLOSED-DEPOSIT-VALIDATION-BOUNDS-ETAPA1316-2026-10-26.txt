@@ -1,0 +1,28 @@
+ETAPA 1316 — LIMITES DO VALIDADOR DE TRANSAÇÃO DO DEPÓSITO
+Data: 2026-10-26
+
+Problema
+
+O executor invoca `check-closed-mainnet-deposit-raw.mjs` para recuperar ou criar
+a validação privada da transação assinada e para revalidá-la byte a byte. As
+quatro invocações não tinham deadline; duas saídas eram gravadas sem teto.
+
+Correção
+
+Todas as invocações agora têm deadline foreground TERM/KILL de 120 segundos.
+Um helper captura as duas saídas candidatas com sentinela de 1 MiB, rejeita
+excesso e exige JSON estrito antes de instalação. As duas revalidações mantêm
+`pipefail` e `cmp` byte a byte contra a autoridade persistida.
+
+Timeout, falha, saída excessiva, JSON duplicado/malformado ou divergência
+interrompe antes de persistir validação ou avançar para publicação.
+
+Validação offline
+
+- Sintaxe Bash do executor de depósito: aprovada.
+- Suíte focal: 14/14 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 73/73 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

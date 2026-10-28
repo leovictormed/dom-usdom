@@ -1,0 +1,33 @@
+ETAPA 1321 — VALIDADOR EXECUTÁVEL DA EVIDÊNCIA TERMINAL DE DEPÓSITO
+Data: 2026-10-26
+
+Problema
+
+O SDK já validava as quatro variações financeiras exatas do depósito, mas o
+executor construía e instalava a evidência terminal sem invocar essa validação
+semântica no boundary `output-last`.
+
+Correção
+
+Foi criado `check-closed-mainnet-deposit-evidence.mjs`. O CLI:
+
+- exige exatamente baseline, execução e pacote;
+- lê arquivos diretos com teto individual de 4 MiB;
+- aplica parsing JSON estrito com limites estruturais;
+- recalcula o SHA-256 dos bytes exatos do baseline;
+- aplica `validateClosedMainnetDepositEvidence` às identidades e quatro deltas.
+
+O executor valida primeiro o JSON privado candidato e então executa o novo CLI
+sob deadline foreground TERM/KILL de 120 segundos antes de comparar ou instalar
+a evidência terminal. Falha, timeout, bytes ambíguos ou delta divergente impedem
+a persistência da conclusão.
+
+Validação offline
+
+- Sintaxe Bash do executor e sintaxe Node do novo CLI: aprovadas.
+- Suíte focal: 11/11 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 73/73 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

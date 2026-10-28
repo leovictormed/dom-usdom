@@ -22,3 +22,10 @@ const run=value=>spawnSync('/usr/bin/python3',[script,'index.json','aggregate.js
 test('aggregates only exact cryptographically verified receipt chain',async()=>{const value=await fixture();const result=run(value);assert.equal(result.status,0,result.stderr);const record=JSON.parse(await readFile(path.join(value.root,'aggregate.json')));assert.equal(record.claims.receiptsCryptographicallyVerified,true);});
 test('rejects a self-declared cryptographic claim even with correct artifact hashes',async()=>{const value=await fixture(({verification})=>{verification.cryptographicallyVerified=false;});const result=run(value);assert.notEqual(result.status,0);assert.match(result.stderr,/does not bind the exact chain/);});
 test('rejects cross-method receipt replay',async()=>{const value=await fixture(({verification})=>{verification.methodImageId=sha('other image');});const result=run(value);assert.notEqual(result.status,0);assert.match(result.stderr,/method\/journal differs/);});
+test('rejects duplicate keys and floats in authenticated index and environment maps',async()=>{
+ let value=await fixture();let raw=Buffer.from('{"schema":"usdom-rebuild-receipt-aggregation-v1","schema":"shadow"}');
+ await writeFile(path.join(value.root,'index.json'),raw);value.env.USDOM_AUTHENTICATED_STAGE_INPUTS=JSON.stringify({'index.json':sha(raw)});
+ let result=run(value);assert.notEqual(result.status,0);assert.match(result.stderr,/duplicate JSON key/);
+ value=await fixture();value.env.USDOM_AUTHENTICATED_STAGE_INPUTS='{"index.json":"'+sha(await readFile(path.join(value.root,'index.json')))+'","x":1.0}';
+ result=run(value);assert.notEqual(result.status,0);assert.match(result.stderr,/AUTHENTICATED_STAGE_INPUTS is invalid/);
+});

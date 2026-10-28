@@ -6,6 +6,8 @@ import {buildReserveReproducibleBuildReport,serializeReserveReproducibleBuildRep
   sourceSetSha256,validateReserveReproducibleBuildReport,
 } from '../../sdk/reserve-reproducible-build-report.mjs';
 import {parseStrictJsonBytes} from '../../sdk/strict-json.mjs';
+import {PRODUCTION_SOLC_LONG_VERSION,PRODUCTION_SOLC_SHA256}
+  from '../../sdk/reproducible-build-environment.mjs';
 
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const artifactSha=sha('artifact'),sourceSha=sha('sources');
@@ -14,7 +16,8 @@ const evidence={schema:1,releaseId:'release-1',sourceCommit:'a'.repeat(40),sourc
 const releaseConfig={ethereumChainId:'1',reserve:'0x'+'11'.repeat(20),
  reserveConfigHash:'0x'+'22'.repeat(32),reserveRuntimeCodeHash:'0x'+'33'.repeat(32),
  reserveInitcodeHash:'0x'+'44'.repeat(32)};
-const observed=id=>({buildId:id,compilerExecutableSha256:sha('solc'),compilerVersion:'0.8.37+commit.f401782d',
+const observed=id=>({buildId:id,compilerExecutableSha256:PRODUCTION_SOLC_SHA256,
+ compilerVersion:PRODUCTION_SOLC_LONG_VERSION,
  artifactSha256:artifactSha,sourceSetSha256:sourceSha,
  runtimeCodeHash:releaseConfig.reserveRuntimeCodeHash,initcodeHash:releaseConfig.reserveInitcodeHash});
 const context={releaseEvidence:evidence,releaseConfig,observations:[
@@ -34,6 +37,7 @@ test('reserve report rejects artifact, runtime, compiler, source and schema subs
   value=>{value.observations[1].artifactSha256=sha('other');},
   value=>{value.observations[1].runtimeCodeHash='0x'+'55'.repeat(32);},
   value=>{value.observations[1].compilerVersion='0.8.36+commit.00000000';},
+  value=>{for(const observation of value.observations) observation.compilerExecutableSha256=sha('other-solc');},
   value=>{value.observations[1].sourceSetSha256=sha('other');},
   value=>{value.command='forge build';},
   value=>{value.extra=true;},
@@ -52,6 +56,17 @@ test('reserve report rejects incomplete release and duplicate build identity',()
   {releaseConfig:{...releaseConfig,reserveRuntimeCodeHash:'0x'+'00'.repeat(32)}},
   {observations:[observed('isolated-build-a'),observed('isolated-build-a')]},
  ]) assert.throws(()=>buildReserveReproducibleBuildReport({...context,...input}));
+});
+
+test('reserve report rejects zero artifact and source-set SHA-256 placeholders',()=>{
+ const zero='0'.repeat(64);
+ const zeroArtifact=structuredClone(context);
+ zeroArtifact.releaseEvidence.reserveArtifact.sha256=zero;
+ for(const observation of zeroArtifact.observations) observation.artifactSha256=zero;
+ assert.throws(()=>buildReserveReproducibleBuildReport(zeroArtifact),/nonzero/);
+ const zeroSources=structuredClone(context);
+ for(const observation of zeroSources.observations) observation.sourceSetSha256=zero;
+ assert.throws(()=>buildReserveReproducibleBuildReport(zeroSources),/nonzero/);
 });
 
 test('source-set commitment is ordered and rejects missing compiler hashes',()=>{

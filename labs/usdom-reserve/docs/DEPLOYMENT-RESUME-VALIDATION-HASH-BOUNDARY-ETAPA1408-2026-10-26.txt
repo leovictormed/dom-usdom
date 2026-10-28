@@ -1,0 +1,32 @@
+ETAPA 1408 — VALIDAÇÃO E HASH LIMITADOS NA RETOMADA
+Data: 2026-10-26
+
+Problema
+
+Na retomada da implantação, `validation_current` ainda era produzido por Node
+direto sem deadline/caps e só recebia chmod se precisasse ser persistido. O
+arquivo `hash.txt` também era corrigido com chmod e verificado por Node direto.
+Esses artefatos ligam raw, publicação, receipt e recuperação de nonce.
+
+Correção
+
+`validation_current` agora usa `run_node_json_authority`, assim como a validação
+inicial: Node/timeout reatestados, deadline foreground TERM/KILL de 120 segundos,
+stdout máximo de 2 MiB, stderr máximo de 64 KiB, UTF-8 fatal, JSON estrito e
+metadados privados desde a criação.
+
+`hash.txt` é escrito pelo builtin sob umask 077 e precisa passar imediatamente
+`assert_private_file`. Seu verificador usa `run_node_empty_authority`, com
+deadline, caps, streams/status exatos e reatestação. Os dois chmods corretivos
+foram removidos.
+
+Validação offline
+
+- Sintaxe Bash: aprovada.
+- Regressões focais: 18/18 aprovadas.
+- Suíte ampla completa de implantação, incluindo gas: 66/66 aprovada.
+- Inventário exige os helpers nos dois pontos e proíbe os chmods antigos.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

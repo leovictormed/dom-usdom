@@ -1,6 +1,7 @@
 import {AbiCoder, getAddress, id, keccak256, sha256, toUtf8Bytes} from 'ethers';
 import {uint} from './reserve.mjs';
 import {CHECKPOINT_STATEMENT_TYPEHASH} from './checkpoint-registry.mjs';
+import {PINNED_RISC0_MAINNET_V3} from './risc0-verifier-reference.mjs';
 
 const abi=AbiCoder.defaultAbiCoder();
 const zeroHash='0x'+'00'.repeat(32);
@@ -73,6 +74,16 @@ function hash(value,name,{zero=false}={}) {
   return normalized;
 }
 
+function requireReviewedMainnetVerifier(c) {
+  if(c.ethereumChainId!==1n) return;
+  if(c.riscZeroVerifier!==getAddress(PINNED_RISC0_MAINNET_V3.verifier_address)
+      ||c.riscZeroVerifierCodeHash
+        !==PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash
+      ||c.riscZeroVerifierSelector!==PINNED_RISC0_MAINNET_V3.verifier_selector) {
+    throw new Error('Ethereum mainnet requires the reviewed direct RISC Zero verifier pin');
+  }
+}
+
 export function checkpointAdapterConfigHash(input) {
   if(!input||typeof input!=='object'||Array.isArray(input)
       ||Object.keys(input).length!==adapterFields.length||adapterFields.some(field=>!(field in input))) {
@@ -93,6 +104,7 @@ export function checkpointAdapterConfigHash(input) {
     throw new Error('unsupported RISC Zero verifier selector');
   }
   c.riscZeroVerifierSelector=c.riscZeroVerifierSelector.toLowerCase();
+  requireReviewedMainnetVerifier(c);
   const verifierConfigHash=keccak256(abi.encode(
     ['bytes32','uint256','address','bytes32','bytes4','bytes32','bytes32','bytes32'],
     [CHECKPOINT_RISC0_ADAPTER_CONFIG_TYPEHASH,c.ethereumChainId,c.riscZeroVerifier,

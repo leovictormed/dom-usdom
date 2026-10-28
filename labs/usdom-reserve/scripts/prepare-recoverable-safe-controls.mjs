@@ -25,9 +25,8 @@ try {
   const catalog=parseStrictJson(catalogBytes.toString('utf8'),{label:catalogPath,maxDepth:16});
   const identities=parseStrictJson(ownerIdentityBytes.toString('utf8'),{
     label:'Safe owner identities',maxBytes:4096,maxDepth:4});
-  if(JSON.stringify(Object.keys(identities).sort())
-      !==JSON.stringify(['ownersByRole','schema'])
-      ||identities.schema!=='usdom-safe-owner-identities/v2') {
+  if(JSON.stringify(Object.keys(identities).sort())!==JSON.stringify(['custodySignaturesStatus','evidenceSha256ByOwner','ownersByRole','schema','singleOperator','singleOperatorResidualRisk','threshold'].sort())
+      ||identities.schema!=='usdom-safe-owner-identities/v2'||identities.threshold!==2||identities.singleOperator!==true||identities.singleOperatorResidualRisk!==true||identities.custodySignaturesStatus!=='awaiting-safe-package-for-12-custody-signatures') {
     throw new Error('Safe owner identities schema is invalid');
   }
   runtimeSources=readRuntimeSecretJsonFile('USDOM_MAINNET_PREFLIGHT_RPC_SOURCES',{label:'USDOM_MAINNET_PREFLIGHT_RPC_SOURCES',maxBytes:32*1024,maxDepth:8});
@@ -35,16 +34,15 @@ try {
   const ownersByRole=identities.ownersByRole;
   const results=[];
   for(const source of sources) {
-    const provider=new BoundedMainnetPreflightProvider(source.url);
-    try {
-      const options={ownersByRole,rpcUrl:source.url,providerFactory:()=>provider};
-      const before=await prepareRecoverableSafeControlDeployments(options);
-      const after=await prepareRecoverableSafeControlDeployments(options);
-      if(JSON.stringify(before)!==JSON.stringify(after)) {
-        throw new Error('Safe deployment observation changed during source recheck');
-      }
-      results.push(before);
-    } finally { provider.destroy(); }
+    // Each observation owns and closes its provider, including on failure.
+    const options={ownersByRole,rpcUrl:source.url,
+      providerFactory:()=>new BoundedMainnetPreflightProvider(source.url)};
+    const before=await prepareRecoverableSafeControlDeployments(options);
+    const after=await prepareRecoverableSafeControlDeployments(options);
+    if(JSON.stringify(before)!==JSON.stringify(after)) {
+      throw new Error('Safe deployment observation changed during source recheck');
+    }
+    results.push(before);
   }
   const canonical=results.map(result=>JSON.stringify(result));
   if(canonical.some(result=>result!==canonical[0])) {

@@ -1,0 +1,33 @@
+{
+  "schema": "usdom-onekey-ios-safe-usdt-custody-authority-v1",
+  "status": "unconfigured",
+  "chainId": "1",
+  "token": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+  "safe": null,
+  "safeRuntimeCodeHash": null,
+  "owners": [],
+  "threshold": null,
+  "governance": null,
+  "guardian": null,
+  "relayer": null,
+  "rpcOrigins": [],
+  "reserve": null,
+  "amount": null,
+  "approveSafeTxGas": null,
+  "depositSafeTxGas": null,
+  "salt": null,
+  "receivingCommitment": null,
+  "precursorSha256": null,
+  "singleOperator": true,
+  "singleOperatorResidualRiskAccepted": false,
+  "gates": {
+    "safeCustodyIdentityVerified": false,
+    "dualRpcFinalityVerified": false,
+    "relayerNoUsdtVerified": false,
+    "safeApproveEip712Finalized": false,
+    "safeDepositEip712Finalized": false,
+    "reserveDepositEventVerified": false,
+    "reserveAccountingInvariantVerified": false,
+    "operatorRatificationBound": false
+  }
+}

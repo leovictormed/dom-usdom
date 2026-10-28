@@ -1,0 +1,39 @@
+USDOM mainnet readiness — Stage 1334
+Date: 2026-10-26
+
+Finding
+=======
+
+The private RPC proxy enforced byte ceilings while accumulating request and
+upstream response streams, but did not reject an oversized declared
+Content-Length before reading, explicitly terminate an oversized stream, or
+clear the intermediate chunks after Buffer.concat. A hostile local client or
+provider could continue consuming connection/memory resources after the gate had
+decided to reject the body, while raw-transaction chunks remained until GC.
+
+Correction
+==========
+
+Request and upstream Content-Length values are now parsed canonically and
+rejected when malformed or above their respective 4 MiB and 32 MiB limits.
+Chunked streams retain the measured ceiling. On overflow, Node request streams
+are destroyed and async iterators are closed, which cancels upstream Web-stream
+consumption. Every accumulated chunk is zeroed in finally after Buffer.concat or
+on rejection. The combined request/response cleanup from Stage 1332 remains in
+place.
+
+Validation
+==========
+
+- Node syntax check passed for the proxy.
+- Lifecycle assertions require both declared-size gates, Node-stream destruction,
+  async-iterator closure and intermediate-chunk zeroization.
+- Proxy lifecycle, exact-envelope and readiness suite: 10/10 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No provider was contacted and no transaction was transmitted. No network,
+signing, deployment, funds, production facts, Rust, Solidity, Cargo, Forge,
+commit or push occurred.

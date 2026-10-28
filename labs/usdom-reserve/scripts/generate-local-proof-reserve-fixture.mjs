@@ -95,6 +95,7 @@ const reserve = await deployed(signer, "USDOMProofReserve.sol/USDOMProofReserve.
     172_800,
     100_000_000_000,
     2_000_000_000,
+    false,
   ],
 ]);
 

@@ -1,0 +1,11 @@
+{
+  "schema": "usdom-risc0-snarkjs-image-build/v1",
+  "architecture": "linux/amd64",
+  "baseImage": "docker.io/library/node@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733ceed61167806cee7ea7fbc29df",
+  "baseImageAmd64ManifestSha256": "e5a8dee7bc1e6a215d224a7ef8206f7e77271bc3cabd5febf2beafac0674f174",
+  "baseImageSource": "https://hub.docker.com/layers/library/node/24.19.0-bookworm-slim/images/sha256-e5a8dee7bc1e6a215d224a7ef8206f7e77271bc3cabd5febf2beafac0674f174",
+  "nodeVersion": "v24.19.0",
+  "outputTag": "localhost/usdom-snarkjs:0.7.6",
+  "snarkjsPackageIntegrity": "sha512-4uH1xA5JzVU5jaaWS2fXej3+RC6L5Erhr6INTJtUA27du4Elbh4VXCeeRjB4QiwL6N6y7SNKePw5prTxyEf4Zg==",
+  "snarkjsVersion": "0.7.6"
+}

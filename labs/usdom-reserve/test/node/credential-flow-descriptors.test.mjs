@@ -15,7 +15,9 @@ const witness='build-finalized-deposit-witness.sh';
 test('credential flows close caller descriptors and revoke stdin after password entry',async()=>{
   for(const name of interactive) {
     const source=await readFile(path.join(component,'scripts',name),'utf8');
-    assert.match(source,/for fd_path in \/proc\/\$\$\/fd\/\*/);
+    // Quoting only the PID expansion does not quote the trailing glob: both
+    // spellings enumerate the same current-process descriptor directory.
+    assert.match(source,/for fd_path in \/proc\/(?:(?:"\$\$")|\$\$)\/fd\/\*/);
     assert.match(source,/exec \{inherited_fd\}>&-/);
     assert.ok(source.indexOf('exec {inherited_fd}>&-')<source.indexOf('command -v'),`${name}: fd closure precedes children`);
     assert.match(source,/unset (?:recovery_password|tpm_owner_authorization)\nexec <\/dev\/null/);

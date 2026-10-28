@@ -3,24 +3,53 @@
 
 from __future__ import annotations
 
-import argparse, hashlib, json, os, re, sys
+import argparse, hashlib, json, os, re, stat, sys
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from durable_create_once import install_create_once
 
 H64=re.compile(r"^[0-9a-f]{64}$")
 
 def fail(message): raise ValueError(message)
+def strict_pairs(pairs):
+    value={}
+    for key,item in pairs:
+        if key in value: fail(f'duplicate JSON key {key!r}')
+        value[key]=item
+    return value
+def reject_json_float(value): fail(f'JSON floating-point number is forbidden: {value}')
 def digest(data): return hashlib.sha256(data).hexdigest()
 def exact(value, fields, label):
     if not isinstance(value,dict) or set(value)!=set(fields): fail(f"{label} schema differs")
     return value
 def capture(path, root, label, maximum=300*1024*1024):
-    resolved=path.resolve(strict=True)
-    if resolved!=root and root not in resolved.parents: fail(f"{label} escapes its root")
-    stat=path.lstat()
-    if path.is_symlink() or not path.is_file() or stat.st_nlink!=1 or stat.st_size>maximum: fail(f"{label} is not a bounded direct file")
-    data=path.read_bytes(); return data,digest(data)
+    path=Path(os.path.abspath(path)); root=Path(os.path.abspath(root))
+    if path!=root and root not in path.parents: fail(f"{label} escapes its root")
+    descriptor=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    try:
+        before=os.fstat(descriptor)
+        named=os.stat(path,follow_symlinks=False)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink!=1
+                or before.st_size<0 or before.st_size>maximum
+                or (before.st_dev,before.st_ino)!=(named.st_dev,named.st_ino)):
+            fail(f"{label} is not a bounded direct file")
+        chunks=[]; remaining=before.st_size
+        while remaining:
+            chunk=os.read(descriptor,min(1024*1024,remaining))
+            if not chunk: fail(f"{label} was truncated while captured")
+            chunks.append(chunk); remaining-=len(chunk)
+        if os.read(descriptor,1): fail(f"{label} grew while captured")
+        after=os.fstat(descriptor); named_after=os.stat(path,follow_symlinks=False)
+        identity=lambda value:(value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns)
+        if identity(before)!=identity(after) or (after.st_dev,after.st_ino)!=(named_after.st_dev,named_after.st_ino):
+            fail(f"{label} changed while captured")
+        opened=Path(os.path.realpath(f'/proc/self/fd/{descriptor}'))
+        if opened!=path or (opened!=root and root not in opened.parents): fail(f"{label} escapes its root")
+        data=b''.join(chunks); return data,digest(data)
+    finally: os.close(descriptor)
 def parsed(path,root,label):
-    data,sha=capture(path,root,label,2*1024*1024); return json.loads(data),sha
+    data,sha=capture(path,root,label,2*1024*1024)
+    return json.loads(data,object_pairs_hook=strict_pairs,parse_float=reject_json_float),sha
 def process_matches(pid, runner):
     try:
         raw=Path(f"/proc/{pid}/cmdline").read_bytes()
@@ -86,8 +115,8 @@ def main():
         result=inspect(a); encoded=json.dumps(result,indent=2,sort_keys=True)+'\n'
         if a.recipe:
             target=Path(a.recipe)
-            if target.exists() or target.is_symlink(): fail('handoff recipe already exists')
-            temp=target.with_name(f'.{target.name}.{os.getpid()}.tmp'); temp.write_text(encoded); os.replace(temp,target)
+            install_create_once(target,encoded.encode(),mode=0o600,maximum=2*1024*1024,
+                                private_parent=True,allow_equal=True)
         print(encoded,end=''); return 0
     except (ValueError,OSError,json.JSONDecodeError) as error:
         print(f'RandomX v5 handoff refused: {error}',file=sys.stderr); return 1

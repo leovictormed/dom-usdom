@@ -1,0 +1,37 @@
+Stage 1254 — exact schemas for closed-mainnet payout evidence
+Date: 2026-10-26
+
+Finding
+-------
+The payout validator verified every security-relevant baseline and execution
+field but did not reject additional object keys. Extra fields make a signed or
+persisted evidence document ambiguous to other consumers and violate the exact
+schema discipline used by the rest of the release pipeline.
+
+Correction
+----------
+The baseline and post-execution evidence objects now require exactly their
+writer-defined field sets before any identity, snapshot-order or monetary-delta
+validation. Missing and additional keys fail closed. Package binding remains
+compatible with the full canonical redemption package.
+
+Adversarial regression
+----------------------
+Regressions add an ambiguous field independently to baseline and execution and
+remove required terminal fields independently. All are rejected alongside the
+existing numeric, temporal, balance and identity mutations.
+
+Validation
+----------
+- Node syntax check: pass.
+- Closed payout, pilot DAG, redemption and gas-funding suites: 10/10 pass.
+- Targeted diff check: pass.
+- A separately sampled strict-JSON CLI test retains a pre-existing stale
+  expectation that diagnostics expose parser text; the current safe diagnostic
+  intentionally redacts it. That unrelated test was excluded from this stage's
+  applicable validation count.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

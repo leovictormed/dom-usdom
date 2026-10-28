@@ -1,0 +1,32 @@
+Stage 1342 — issuance-status preactivation state invariant
+Date: 2026-10-26
+
+Finding
+
+The issuance-status scan-window helper accepted a canonical consumed deposit
+when the configured first native-v4 height was greater than the current tip.
+It returned an inverted range such as `(400, 300)`, skipped the loop and then
+published that range as if it were coherent evidence. A canonical issuance
+cannot exist before the consensus activation height, so this condition signals
+corrupt or mismatched runtime/schedule state and must not be converted into a
+successful status response.
+
+Correction
+
+Window derivation is now fallible. An absent issuance still takes the no-scan
+fast path on a preactivation node. A present canonical issuance with
+`first_v4_height > tip_height` returns `RpcError::Internal` before reading
+history or serializing status evidence. Valid activated states retain the exact
+bounded 256-block window.
+
+Evidence
+
+- Focused dom-node regression covers absent preactivation state, a valid
+  bounded activated window and the corrupt present-before-activation case:
+  1 passed, 0 failed.
+- The native_usdom_v4_runtime integration target compiles successfully with
+  `--no-run` in 4m11s; no integration test or mining was executed.
+- Targeted rustfmt and git diff --check pass.
+- No RandomX mining, network, wallet, signature, deployment, funds, commit or
+  push occurred.
+

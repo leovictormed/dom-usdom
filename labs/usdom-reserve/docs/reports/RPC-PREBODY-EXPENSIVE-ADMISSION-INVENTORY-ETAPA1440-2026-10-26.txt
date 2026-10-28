@@ -1,0 +1,24 @@
+Stage 1440 — final RPC pre-body expensive-admission inventory
+
+POST families with bounded body admission and post-decode worker admission:
+- public transaction submission: body 4, worker 2;
+- issuance status: body 4, worker 1;
+- USDOM v2 candidate submission: body 2, worker 1;
+- USDOM v4 issuance submission: body 2, worker 1;
+- USDOM v4 private transfer/burn submission: body 4, worker 1;
+- closed-mainnet mine-one: body 2, worker 1, cancellation-safe detached work;
+- wallet mutations: body 4, worker 2;
+- regtest mine: body 2, worker 1, cancellation-safe detached work;
+- authenticated USDOM private/history scans: body 4, shared scan workers 2.
+
+Routes retaining middleware capacity before handlers:
+- public ancestry GET: no request body;
+- authenticated mempool GET: no request body;
+- the body-delivery bounds listed above, which protect memory/request futures
+  and are distinct from all expensive workers.
+
+No ConcurrencyLimitLayer remains. The structural review found no route where a
+slow or incomplete request body reserves proof verification, mining, wallet
+mutation, transaction validation or chain-scan worker capacity.
+
+No network, mining, signing, deployment, funds, commit or push occurred.

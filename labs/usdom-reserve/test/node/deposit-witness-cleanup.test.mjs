@@ -10,7 +10,8 @@ test('finalized-deposit witness snapshots have pinned status-preserving cleanup'
   assert.match(source,/NODE_BIN=\$\(realpath "\$\(command -v node\)"\)/);
   assert.match(source,/assert_node_unchanged\(\)[\s\S]*node_identity[\s\S]*node_sha256/);
   assert.match(source,/cleanup\(\) \{[\s\S]*trap - EXIT HUP INT TERM/);
-  assert.match(source,/"\$NODE_BIN" -e 'require\("fs"\)\.rmSync[\s\S]*"\$SNAPSHOT_DIRECTORY" \|\| status=1/);
+  assert.match(source,/assert_node_unchanged &&[\s\S]*run_pinned_timeout --foreground --signal=TERM --kill-after=5s 30s[\s\S]*"\$NODE_BIN" -e 'require\("fs"\)\.rmSync/);
+  assert.match(source,/assert_node_unchanged && assert_runtime_tool timeout && test ! -e "\$SNAPSHOT_DIRECTORY"[\s\S]*else\n      status=1/);
   for(const [signal,status] of [['HUP',129],['INT',130],['TERM',143]])
     assert.match(source,new RegExp(`trap 'cleanup ${status}' ${signal}`));
   assert.match(source,/trap 'cleanup \$\?' EXIT/);

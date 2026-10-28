@@ -10,6 +10,7 @@ const CATALOG=Object.freeze([
   Object.freeze({key:'evidence',name:'evidence.json',maximum:16*1024*1024}),
   Object.freeze({key:'requirements',name:'requirements.json',maximum:16*1024*1024}),
   Object.freeze({key:'riscZero',name:'risc-zero.json',maximum:1024*1024}),
+  Object.freeze({key:'rpcCatalog',name:'rpc-catalog.json',maximum:1024*1024}),
 ]);
 
 function validatePaths(paths) {
@@ -43,15 +44,21 @@ export async function captureMainnetPreflightInputs(paths,{beforeOriginRecheck}=
         minimum:2,maximum:entry.maximum,exactMode:0o600,label:`snapshot ${entry.key}`,
       }),
     ])));
-    const assertOriginsUnchanged=async()=>{
+    const assertOriginsEqual=async expected=>{
+      if(!expected || typeof expected!=='object' || Array.isArray(expected)
+          || JSON.stringify(Object.keys(expected).sort())!==JSON.stringify(CATALOG.map(x=>x.key).sort())
+          || CATALOG.some(entry=>!Buffer.isBuffer(expected[entry.key]))) {
+        throw new Error('expected mainnet preflight generation must match the fixed buffer catalog');
+      }
       if(beforeOriginRecheck) await beforeOriginRecheck();
       const current=await Promise.all(CATALOG.map(entry=>readEntry(paths[entry.key],entry,
         `current mainnet preflight ${entry.key} input`)));
-      if(current.some((bytes,index)=>!bytes.equals(captured[index]))) {
+      if(current.some((bytes,index)=>!bytes.equals(expected[CATALOG[index].key]))) {
         throw new Error('mainnet preflight inputs changed during materialization');
       }
     };
-    return Object.freeze({...values,assertOriginsUnchanged,
+    const assertOriginsUnchanged=()=>assertOriginsEqual(values);
+    return Object.freeze({...values,assertOriginsEqual,assertOriginsUnchanged,
       cleanup:()=>rm(replica,{recursive:true,force:true})});
   } catch(error) { await rm(replica,{recursive:true,force:true}); throw error; }
 }

@@ -1,5 +1,18 @@
 # USDOM — roteiro Linux para o primeiro teste fechado em Ethereum mainnet
 
+> **Autoridade de hardware de produção:** somente **OneKey Classic 1S junto ao iPhone,
+> pelo OneKey App e WalletConnect v2 EIP-712**.
+> O endereço Ethereum deve usar caminho explícito e ser confirmado na tela do
+> dispositivo. O transporte BLE oficial, SDK, firmware e transporte precisam estar fixados na política
+> autenticada. EIP-1559, EIP-712, rejeição, cancelamento, desconexão e reconexão
+> precisam de evidência antes de liberar o piloto. Pareamento, permissões Bluetooth,
+> identidade do dispositivo e preservação dessa identidade após reconexão também
+> exigem evidência. O antigo handoff BLE do desktop/Electron está preservado
+> somente como laboratório e não integra gates nem comandos de produção.
+> USB não é transporte produtivo nem fallback. Os fluxos e comandos Ledger
+> existentes são legado de desenvolvimento e estão proibidos em produção; o
+> readiness permanece fail-closed até sua substituição OneKey ser validada.
+
 Este roteiro é fail-closed: qualquer comando que falhar interrompe a sequência.
 Ele não autoriza implantação ou fundos. Cada seção de broadcast e a seção de
 USDT somente devem ser executadas após autorização explícita. O gate
@@ -11,27 +24,22 @@ argumento de processo ou histórico do shell. Use Ledger/Trezor, Safe interativa
 ou um keystore protegido que solicite a senha interativamente.
 
 Para não depender de variáveis mantidas entre terminais nem copiar campos,
-gere cada bloco operacional completo pelo nome da fase. O gerador apenas
-imprime Bash e não o executa. Revise o arquivo gerado e execute-o em uma etapa
-separada. As fases com sufixo `-secret` somente leem a identidade pública do
-hardware; nunca imprimem seed, chave ou senha.
+publique primeiro o plano endereçado por conteúdo e materialize cada fase pelo
+caminho oficial. Não execute a saída do gerador com substituição de processo:
+o prólogo fecha descritores herdados, enquanto `bash <(...)` depende de um
+descritor herdado para continuar lendo o próprio programa. As fases com sufixo
+`-secret` somente leem a identidade pública do hardware; nunca imprimem seed,
+chave ou senha.
 
 ```bash
 set -euo pipefail
 export USDOM_PROJECT=/home/leonardov/usdom-security-audit-20261015/implementation-dom-protocol/labs/usdom-reserve
 cd "$USDOM_PROJECT"
-bash scripts/generate-closed-mainnet-phase-command.sh prerequisites > /tmp/usdom-prerequisites.sh
-bash -n /tmp/usdom-prerequisites.sh
-cat /tmp/usdom-prerequisites.sh
-bash scripts/generate-closed-mainnet-phase-command.sh checklist > /tmp/usdom-checklist.sh
-bash -n /tmp/usdom-checklist.sh
-cat /tmp/usdom-checklist.sh
-bash scripts/generate-closed-mainnet-phase-command.sh execute-pilot-deposit-secret > /tmp/usdom-pilot-deposit.sh
-bash -n /tmp/usdom-pilot-deposit.sh
-cat /tmp/usdom-pilot-deposit.sh
-bash scripts/generate-closed-mainnet-phase-command.sh execute-pilot-redemption-secret > /tmp/usdom-pilot-redemption.sh
-bash -n /tmp/usdom-pilot-redemption.sh
-cat /tmp/usdom-pilot-redemption.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/prepare-closed-mainnet-pilot.sh --verify-only
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/prepare-closed-mainnet-pilot.sh --generate-plan
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/materialize-closed-mainnet-phase-script.sh prerequisites
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc -n /home/leonardov/usdom-mainnet-private/operator-phases/prerequisites.sh
+cat /home/leonardov/usdom-mainnet-private/operator-phases/prerequisites.sh
 ```
 
 Os nomes aceitos são exibidos quando o gerador é chamado sem argumentos. Ele
@@ -39,6 +47,80 @@ não inclui uma transmissão direta: as duas fases piloto apenas chamam os
 executores retomáveis. Eles mantêm `broadcastAuthorized=false` nos pacotes e
 exigem autorizações literais separadas para assinar e publicar cada transação,
 com reconciliação e artefatos fixos descritos nas seções correspondentes.
+
+Se as fontes ou o plano precisarem mudar depois que qualquer fase tiver sido
+materializada, não apague nem sobrescreva os caminhos fixos. Primeiro execute,
+sem nenhuma fase concorrente:
+
+```bash
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/archive-closed-mainnet-phase-generation.sh
+```
+
+O comando autentica plano, tipos, owner, modos, realpaths e identidades
+device:inode; copia e verifica todos os scripts e toda a control-plane em
+`/home/leonardov/usdom-mainnet-private/phase-generation-archive/{plan-sha256}/`
+antes de liberar os caminhos create-once. O `archive.json` preserva o inventário
+canônico com tamanho e SHA-256 de cada arquivo; os inodes originais também são
+movidos para o arquivo e nunca apagados pela rotação. Só então publique o novo plano e
+materialize a nova geração. Nunca remova manualmente `.phase-generation.json`,
+`.phase-completions` ou `operator-phases`.
+
+### Ordem autoritativa das fases geradas
+
+O plano contém 23 fases ordenadas e 33 rotas implementadas e classificadas. As 33 produzem e validam
+evidência na fase correta. As duas rotas de privacidade permanecem falsas até
+que três contribuições externas reais sejam importadas, a cerimônia multiparte
+externa seja validada e ocorra a instalação create-once de sua chave
+verificadora. Portanto,
+cobertura 33/33 do plano não significa que o
+piloto ou o uso de fundos estejam prontos.
+
+Materialize o plano com a shell limpa mostrada no início deste roteiro e a opção
+`--generate-plan`. Execute os scripts materializados somente nesta ordem, sem
+copiar comandos entre fases:
+
+<!-- BEGIN CLOSED MAINNET PHASE ORDER -->
+1. `prerequisites`
+2. `enroll-safe-owners-secret`
+3. `migrate-safe-owners-hardware-secret`
+4. `prepare-safe-controls`
+5. `execute-safe-controls-deployment-secret`
+6. `prepare-safe-recovery-secret`
+7. `execute-safe-recovery-secret`
+8. `materialize-safe-control-config`
+9. `validate-local`
+10. `verify-risc0-trusted-setup`
+11. `derive-deployment-identity-secret`
+12. `prepare-deployment`
+13. `execute-mainnet-deployment-secret`
+14. `execute-reserve-resume-secret`
+15. `measure-release-capacity`
+16. `prepare-native-wallet-secret`
+17. `finalize-native-privacy-ceremony-secret`
+18. `authorize-pilot-funds-secret`
+19. `execute-pilot-deposit-secret`
+20. `submit-pilot-burn-secret`
+21. `produce-checkpoint-evidence-secret`
+22. `execute-pilot-redemption-secret`
+23. `readiness`
+<!-- END CLOSED MAINNET PHASE ORDER -->
+
+`authorize-pilot-funds-secret` somente termina após duas autorizações de owners
+do Safe de governança, execução de `authorizePilotDeposit` e concordância de
+dois RPCs sobre receipt, logs, bloco canônico, finalidade e estado armado. A
+fase 19 reexecuta essa validação idempotente antes do depósito. Se a autorização
+EIP-1271 expirar antes da conclusão, o fluxo arquiva automaticamente a geração
+antiga pelo digest e só então permite uma nova request; artefato já minerado ou
+finalizado exige primeiro cancelamento on-chain do snapshot exato.
+
+Interrompa imediatamente se um comando retornar código diferente de zero, se o
+hash ou o tamanho de uma fase divergir do plano, se um artefato create-once já
+existente tiver bytes diferentes, se uma fonte RPC divergir ou perder
+finalidade, se qualquer gate informar bloqueios, ou se faltar a evidência real
+da cerimônia/instalação. Não pule, reordene nem repita uma transmissão. Uma fase
+que pede autorização literal só pode prosseguir após revisão do artefato exato;
+uma recusa ou ausência de autorização é critério de aborto, não motivo para
+editar o script.
 
 ## 1. Entrar no projeto e verificar ferramentas
 
@@ -57,11 +139,11 @@ git status --short
 
 O lock valida paths reais e SHA-256 de Node 24.19.0, npm 11.17.0, Foundry/cast
 1.8.5, Rust 1.98.0, Python 3.12.3, jq 1.7, lockfiles e configuração.
-Atualmente o gate permanece fechado até `solc` 0.8.37 ser pré-instalado e seu
-hash incorporado ao lock. A preparação, separada da cerimônia, é o comando
-completo abaixo. Ele pode acessar a rede e não deve ser executado durante uma
-cerimônia. Depois, devolva somente a linha pública do `sha256sum`; não edite o
-JSON por conta própria.
+O gate `prerequisites` aceita `solc` 0.8.37 somente no caminho, versão e SHA-256
+fixados pelo lock. Se essa verificação falhar por ausência do binário, execute a
+preparação abaixo fora de qualquer cerimônia e depois gere novamente a fase
+`prerequisites`. O bootstrap pode acessar a rede; não edite o JSON por conta
+própria.
 
 ```bash
 set -euo pipefail
@@ -93,6 +175,34 @@ npm run check:provenance
 Esses comandos compilam e testam localmente. Eles não iniciam mineração nem
 geram provas RISC Zero caras.
 
+Os sete guests de release só podem ser reconstruídos pelo launcher estático
+autenticado. Nunca execute os scripts internos com `bash`, `sh`, `source` ou
+diretamente. Para selecionar exatamente um guest, use um dos seletores
+`checkpoint-outer`, `checkpoint-segment`, `complete-randomx`, `economic-block`,
+`economic-chunk`, `finalized-burn` ou `randomx-aggregate`:
+
+```bash
+./scripts/risc0-guest-build-launcher --preflight
+./scripts/risc0-guest-build-launcher checkpoint-outer
+```
+
+O preflight autentica o launcher, os sete builders, o helper, o manifesto, a
+fonte de aleatoriedade e os limites de recursos sem iniciar nenhum build.
+
+O launcher começa antes de qualquer Bash ou loader dinâmico controlável pelo
+ambiente, limpa integralmente o ambiente, congela o script aberto e mantém um
+processo pai estático autenticado com uma capacidade por descritor. A execução
+é um rebuild deliberadamente pesado; ela não faz parte da validação local
+comum acima.
+
+Essa autoridade pressupõe Linux com `procfs` disponível e sem um processo
+hostil sob o mesmo UID capaz de usar `ptrace` contra a cerimônia. Execute o
+rebuild em conta dedicada, com dumpability/ptrace restritos e sem processos não
+confiáveis daquele UID. Ausência ou ocultação incompatível de `/proc` falha
+fechado. O launcher deriva a raiz da própria localização e aceita realocação
+do pacote íntegro; hashes de todos os builders/helper e as entradas do
+manifesto recusam uma árvore substituída ou incompleta.
+
 ## 3. Preparar controles recuperáveis 2-de-3 para produção
 
 O piloto usa três Safes separados. Cada Safe possui três owners exclusivos e
@@ -100,6 +210,24 @@ quórum 2-de-3; os nove endereços devem ser globalmente distintos. Nesta etapa
 isolada, uma única pessoa pode operar nove keystores criptografados distintos.
 Cada arquivo exige uma senha exclusiva digitada somente no prompt oculto. O
 terceiro owner de cada Safe é a chave de recuperação daquele papel.
+
+“Uma única pessoa opera” descreve a coordenação humana deste primeiro ensaio e
+não muda a política criptográfica. A mesma pessoa controla nove chaves
+Ethereum distintas: três para governança, três para o guardião da reserva e
+três para o guardião de checkpoints. Cada ação de um papel exige duas
+assinaturas produzidas por duas chaves diferentes daquele Safe 2-de-3. Uma
+assinatura única nunca satisfaz o contrato. Os três Safes também continuam com
+owners disjuntos; nenhuma chave pode ocupar dois papéis. O quórum protótipo de
+atestadores 3-de-4 não é configurado por este piloto: o caminho de produção
+usa as provas e checkpoints fixados no pacote de release.
+
+A pessoa é o **operador/coordenador**, não uma identidade signer. Cada endereço
+é uma identidade signer separada, com seed, senha, dispositivo e backup
+próprios. Somente um dispositivo deve permanecer conectado por vez; ele deve ser
+desconectado antes do próximo prompt. As três chaves `recovery` ficam em mídia
+offline separada das chaves `primary` e `secondary`. Duas assinaturas do mesmo
+endereço, duas derivações da mesma seed ou dois aliases do mesmo dispositivo não
+formam quórum e devem abortar o ensaio.
 
 O gerador abaixo produz o comando completo, cria cada keystore uma única vez
 com o `cast` pinado, grava cópias criptografadas separadas em modo 0600 e
@@ -110,13 +238,15 @@ reutilização de owner entre os três papéis.
 ```bash
 set -euo pipefail
 cd "$USDOM_PROJECT"
-bash scripts/generate-closed-mainnet-phase-command.sh enroll-safe-owners-secret > /tmp/enroll-safe-owners.sh
-bash /tmp/enroll-safe-owners.sh
-bash scripts/generate-closed-mainnet-phase-command.sh migrate-safe-owners-hardware-secret > /tmp/migrate-safe-owners-hardware.sh
-bash /tmp/migrate-safe-owners-hardware.sh
-bash scripts/generate-closed-mainnet-phase-command.sh prepare-safe-controls > /tmp/prepare-safe-controls.sh
-bash /tmp/prepare-safe-controls.sh
-rm -f -- /tmp/enroll-safe-owners.sh /tmp/migrate-safe-owners-hardware.sh /tmp/prepare-safe-controls.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/materialize-closed-mainnet-phase-script.sh enroll-safe-owners-secret
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc -n /home/leonardov/usdom-mainnet-private/operator-phases/enroll-safe-owners-secret.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc /home/leonardov/usdom-mainnet-private/operator-phases/enroll-safe-owners-secret.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/materialize-closed-mainnet-phase-script.sh migrate-safe-owners-hardware-secret
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc -n /home/leonardov/usdom-mainnet-private/operator-phases/migrate-safe-owners-hardware-secret.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc /home/leonardov/usdom-mainnet-private/operator-phases/migrate-safe-owners-hardware-secret.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/materialize-closed-mainnet-phase-script.sh prepare-safe-controls
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc -n /home/leonardov/usdom-mainnet-private/operator-phases/prepare-safe-controls.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc /home/leonardov/usdom-mainnet-private/operator-phases/prepare-safe-controls.sh
 ```
 
 O pacote resultante usa `usdom-safe-controls-recoverable/v2`, contém
@@ -146,10 +276,9 @@ completa por quórum antes da assinatura, antes do envio e até a finalidade.
 ```bash
 set -euo pipefail
 cd "$USDOM_PROJECT"
-bash scripts/generate-closed-mainnet-phase-command.sh execute-safe-controls-deployment-secret > /tmp/execute-safe-controls-deployment.sh
-bash -n /tmp/execute-safe-controls-deployment.sh
-bash /tmp/execute-safe-controls-deployment.sh
-rm -f -- /tmp/execute-safe-controls-deployment.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/materialize-closed-mainnet-phase-script.sh execute-safe-controls-deployment-secret
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc -n /home/leonardov/usdom-mainnet-private/operator-phases/execute-safe-controls-deployment-secret.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc /home/leonardov/usdom-mainnet-private/operator-phases/execute-safe-controls-deployment-secret.sh
 ```
 
 ## 3.2 Coletar o estado inicial finalizado dos três controles 2-de-3
@@ -224,9 +353,9 @@ calldata validado e não transmite.
 ```bash
 set -euo pipefail
 cd "$USDOM_PROJECT"
-bash scripts/generate-closed-mainnet-phase-command.sh prepare-safe-recovery-secret > /tmp/prepare-safe-recovery.sh
-bash /tmp/prepare-safe-recovery.sh
-rm -f -- /tmp/prepare-safe-recovery.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/materialize-closed-mainnet-phase-script.sh prepare-safe-recovery-secret
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc -n /home/leonardov/usdom-mainnet-private/operator-phases/prepare-safe-recovery-secret.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc /home/leonardov/usdom-mainnet-private/operator-phases/prepare-safe-recovery-secret.sh
 ```
 
 Se houver interrupção, gere e execute novamente o mesmo comando. A sessão
@@ -246,9 +375,9 @@ próximo papel.
 ```bash
 set -euo pipefail
 cd "$USDOM_PROJECT"
-bash scripts/generate-closed-mainnet-phase-command.sh execute-safe-recovery-secret > /tmp/execute-safe-recovery.sh
-bash /tmp/execute-safe-recovery.sh
-rm -f -- /tmp/execute-safe-recovery.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/materialize-closed-mainnet-phase-script.sh execute-safe-recovery-secret
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc -n /home/leonardov/usdom-mainnet-private/operator-phases/execute-safe-recovery-secret.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc /home/leonardov/usdom-mainnet-private/operator-phases/execute-safe-recovery-secret.sh
 ```
 
 O script exige que os nonces `finalized` e `pending` coincidam nos dois RPCs,
@@ -373,35 +502,29 @@ Enquanto um item continuar desconhecido, o gate impede o avanço. Nunca altere
 
 Quando o exportador nativo tiver gravado o checkpoint inicial canônico em
 `config/native-release-facts.unconfigured.json` e os dois manifestos de prova
-estiverem completos, derive o núcleo da release sem copiar hashes:
+estiverem completos, derive o núcleo em estágios, sem copiar hashes. A ordem é
+obrigatória porque o runtime do registry entra na configuração da reserva:
 
 ```bash
 set -euo pipefail
 cd "$USDOM_PROJECT"
-npm run --silent materialize:production-release-core
+npm run --silent materialize:production-release-core -- registry-pins
+npm run --silent materialize:production-solidity-pins -- checkpointRegistry
+forge build --offline contracts/DOMCheckpointRegistry.sol
+npm run --silent materialize:production-release-core -- reserve-pins
+npm run --silent materialize:production-solidity-pins -- reserve
+forge build --offline contracts/USDOMProofReserve.sol
+npm run --silent materialize:production-release-core -- final
+node scripts/prepare-production-release-core-materialization.mjs final \
+  | cmp -s - config/proof-reserve.unconfigured.json
 ```
 
-Esse comando valida integralmente os dois manifestos, exige que eles concordem
-sobre rede, ativação, consenso, RISC Zero e trusted setup, recompõe os dois
-bytecodes de adaptador e calcula os hashes completos da reserva e do registry.
-Ele falha enquanto o exportador nativo ou as provas ainda não tiverem produzido
-os fatos necessários e mantém as duas autorizações falsas.
-
-Depois que os dois manifestos de verificador e os hashes de configuração da
-reserva e do registry tiverem sido reconciliados pelos materializadores, fixe
-os seis pins que tornam os dois contratos implantáveis na chain ID 1:
-
-```bash
-set -euo pipefail
-cd "$USDOM_PROJECT"
-npm run --silent materialize:production-solidity-pins
-```
-
-O comando não aceita valores nem caminhos. Ele lê somente a configuração fonte,
-mantém `productionReady=false` e `realFundsAuthorized=false`, exige os seis
-hashes não nulos e recusa um pin preexistente diferente. Uma interrupção entre
-os dois arquivos é recuperável: repetir o comando aceita o arquivo já fixado
-somente se ele contiver exatamente o valor da release.
+Cada estágio valida integralmente os manifestos e snapshots de entrada. Primeiro
+fixa e compila somente o registry; depois liga seu runtime à configuração da
+reserva, fixa e compila somente a reserva; por fim deriva novamente ambos os
+artefatos e exige igualdade byte a byte com a configuração instalada. Os
+writers recusam pin preexistente divergente, mantêm `productionReady=false` e
+`realFundsAuthorized=false`, e uma repetição aceita somente bytes idênticos.
 
 ## 5. Construir e verificar a release localmente
 
@@ -471,19 +594,30 @@ três endereços Safe previstos e os quatro contratos previstos devem ter saldo
 zero antes da criação; não financie nenhum deles diretamente. Todos os CREATEs
 têm `value=0` e a transação assinada é revalidada com aritmética `BigInt`.
 
+Os tetos integrais por pagador são: Safe deployer 0,30 ETH (três deploys),
+contract deployer 1 ETH (quatro CREATEs), deposit funder 0,15 ETH (três
+transações), redemption relayer 0,20 ETH (duas transações) e recovery relayer
+0,75 ETH (três papéis). Se o mesmo endereço assumir mais de uma dessas funções,
+some os tetos antes de financiar. Cada executor consulta o endereço público do
+Ledger e os saldos em dois RPCs; isso não exporta seed nem chave privada.
+
+Não há substituição ou cancelamento automático: um raw já assinado pode apenas
+ser republicado byte a byte ou recuperado pelo mesmo hash. Outro hash no mesmo
+nonce aborta o fluxo. Sobra de ETH permanece no pagador e é reportada como
+surplus; não existe sweep/refund automático. Qualquer retirada posterior é uma
+operação fora do piloto e exige revisão e autorização próprias.
+
 ```bash
 set -euo pipefail
 cd "$USDOM_PROJECT"
-export USDOM_CONTROL_EVIDENCE_DIRECTORY=/home/leonardov/usdom-mainnet-private/control-plane
-export USDOM_MAINNET_DEPLOYMENT_PACKAGE="$USDOM_CONTROL_EVIDENCE_DIRECTORY/mainnet-deployment-package.json"
-node scripts/prepare-mainnet-deployment.mjs \
-  | node scripts/install-private-file-new-stdin.mjs --json "$USDOM_MAINNET_DEPLOYMENT_PACKAGE"
-jq -e '.schema == "usdom-mainnet-deployment-package-v1" and .chainId == "1" and (.transactions | length) == 4' \
-  "$USDOM_MAINNET_DEPLOYMENT_PACKAGE"
-jq -r '.transactions[] | [.name,.from,.nonce,.expectedContract,.initcodeHash,.expectedRuntimeCodeHash] | @tsv' \
-  "$USDOM_MAINNET_DEPLOYMENT_PACKAGE"
-sha256sum "$USDOM_MAINNET_DEPLOYMENT_PACKAGE"
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/materialize-closed-mainnet-phase-script.sh prepare-deployment
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc -n /home/leonardov/usdom-mainnet-private/operator-phases/prepare-deployment.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc /home/leonardov/usdom-mainnet-private/operator-phases/prepare-deployment.sh
 ```
+
+O programa gerado calcula o compromisso da observação e relê o pacote somente
+pelas fronteiras privadas autenticadas. Uma retomada aceita apenas os mesmos
+bytes; qualquer pacote divergente falha sem substituir o inode existente.
 
 ## 7. Conferir os quatro CREATEs antes de qualquer broadcast
 
@@ -663,20 +797,9 @@ revalida o mesmo backup e o mesmo endereço em vez de criar outra identidade.
 set -euo pipefail
 umask 077
 cd "$USDOM_PROJECT"
-export USDOM_CONTROL_EVIDENCE_DIRECTORY=/home/leonardov/usdom-mainnet-private/control-plane
-export USDOM_NATIVE_RECEIVING_WALLET_PUBLIC="$USDOM_CONTROL_EVIDENCE_DIRECTORY/native-receiving-wallet-public.json"
-WALLET_PUBLIC_CANDIDATE=$(mktemp)
-trap 'rm -f "$WALLET_PUBLIC_CANDIDATE"' EXIT
-npm run --silent prepare:native-receiving-wallet > "$WALLET_PUBLIC_CANDIDATE"
-node scripts/install-private-file-immutable-stdin.mjs "$USDOM_NATIVE_RECEIVING_WALLET_PUBLIC" \
-  < "$WALLET_PUBLIC_CANDIDATE"
-rm -f "$WALLET_PUBLIC_CANDIDATE"
-trap - EXIT
-node scripts/read-private-file-stdout.mjs "$USDOM_NATIVE_RECEIVING_WALLET_PUBLIC" | jq -e '
-  .schema == "usdom-native-receiving-wallet-public-v1"
-  and (.receivingCommitment | test("^0x[0-9a-f]{64}$"))
-  and (.recipientAddress | test("^[0-9a-f]{208}$"))
-'
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc scripts/materialize-closed-mainnet-phase-script.sh prepare-native-wallet-secret
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc -n /home/leonardov/usdom-mainnet-private/operator-phases/prepare-native-wallet-secret.sh
+env -u BASH_ENV -u ENV -u NODE_OPTIONS -u NODE_PATH /usr/bin/bash --noprofile --norc /home/leonardov/usdom-mainnet-private/operator-phases/prepare-native-wallet-secret.sh
 ```
 
 Devolva apenas o JSON público. Não envie a senha nem o arquivo
@@ -734,6 +857,12 @@ value zero, calldata, taxas e gás são exatos. Dois RPCs precisam confirmar a
 transação no mesmo bloco já finalizado e a allowance deve seguir `0 → 1 USDT →
 0`. Recibos e validações são gravados antes do relatório final; uma repetição
 revalida etapas já finalizadas e não as transmite novamente.
+
+A configuração `pilotRestricted` também impõe essa propriedade dentro do
+contrato. No início de `deposit`, a allowance do funder para a reserva deve ser
+exatamente `1_000_000`; após `transferFrom`, deve ser zero. Autorizações maiores,
+autorizações residuais e retornos `allowance()` malformados ou excessivos
+revertem toda a operação, inclusive o consumo da autorização única do piloto.
 
 ## 14. Coletar a fonte pública do depósito depois da finalidade
 
@@ -1086,8 +1215,11 @@ exigida pelo Safe. Ele não transmite transação.
 Com as atestações já materializadas, gere o relatório residual determinístico.
 Ele vincula o envelope completo de evidências, os limites, a finalidade e os
 doze riscos documentados, sem ciclo de auto-hash. Em seguida gere e assine a
-autorização final. A aprovação única vincula produção, implantação, fundos reais
-e aceitação residual ao `sourceCommit` e às duas configurações imutáveis.
+autorização da release. Essa aprovação vincula a permissão-base de produção,
+implantação, fundos reais e aceitação residual ao `sourceCommit` e às duas
+configurações imutáveis. Ela não autoriza sozinha o depósito piloto: a fase
+`authorize-pilot-funds-secret` exige depois uma autorização Safe 2-de-3 separada,
+ligada ao snapshot, à tupla exata, ao prazo e à geração on-chain do piloto.
 
 ```bash
 set -euo pipefail
@@ -1142,3 +1274,10 @@ Um resultado persistente só existe se os dois gates retornarem zero bloqueios.
 O comando não contém `push`, `fetch`, `pull` ou configuração de remoto. A tag e
 os commits permanecem apenas locais até uma autorização separada e explícita
 para push.
+
+Emergency cancellation of an armed pilot gate uses
+`npm run --silent execute:pilot-deposit-gate-cancel`. This separate guardian
+2-of-3 Safe ceremony binds the current snapshot and generation, completes only
+after dual-RPC finality, and never continues into rotation, authorization or
+deposit. Resume the ordinary DAG only through a newly reviewed authorization
+generation.

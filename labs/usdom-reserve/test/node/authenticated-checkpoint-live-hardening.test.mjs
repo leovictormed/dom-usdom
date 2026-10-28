@@ -43,6 +43,10 @@ test('authenticated checkpoint evidence is private create-once and errors redact
  assert.match(collector,/mode:0o700/);
  assert.match(collector,/checkpoint observation directory mode is unsafe/);
  assert.match(collector,/writeReleaseFailure\('observe-authenticated-checkpoint'/);
+ assert.match(collector,/canonicalEthereumQuantity\(chainIdRaw,\{maximum:MAX_UINT256\}\)/);
+ assert.match(collector,/canonicalEthereumQuantity\(finalized\?\.number\)/);
+ assert.match(collector,/canonicalEthereumQuantity\(finalized\?\.timestamp\)/);
+ assert.doesNotMatch(collector,/BigInt\(finalized\.(?:number|timestamp)\)/);
  assert.doesNotMatch(`${collector}\n${launcher}`,/curl|wget|git push|cast send|eth_sendRawTransaction/);
 });
 

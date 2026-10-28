@@ -1,0 +1,35 @@
+ETAPA 1230 — CICLO DE VIDA LIMITADO DO OBSERVADOR DE RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema
+
+O observador que decide se uma recuperação Safe já foi finalizada limitava stdout e
+stderr por tamanho, mas seu timeout enviava apenas TERM. Um processo que ignorasse o
+sinal poderia sobreviver ao prazo. Os canais também eram medidos sem decodificação
+UTF-8 estrita antes de interpretar o marcador especial de “ainda não finalizado”.
+
+Correção
+
+`run_safe_observer`, em `scripts/execute-recoverable-safe-recovery.sh`, agora:
+
+- reatesta Node e timeout imediatamente antes da observação;
+- executa em foreground por até 120 segundos, com TERM e KILL após cinco segundos;
+- reatesta Node antes de examinar os canais;
+- limita stdout a 2 MiB e stderr a 64 KiB e aplica UTF-8 fatal em ambos;
+- para sucesso, exige JSON não vazio, stderr vazio e validação JSON estrita sob nova
+  reatestação de Node;
+- para o status retomável 3, continua exigindo stdout vazio e a única linha canônica
+  `USDOM_SAFE_RECOVERY_NOT_FINALIZED`;
+- rejeita todos os demais estados sem transformar diagnóstico em autoridade.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais de pinning, snapshots e paridade: 6/6 aprovados;
+- testes focais mais `operator-runbook`: 90/90 aprovados;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, assinatura, transmissão, implantação, fundo, Rust, Solidity,
+Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

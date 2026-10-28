@@ -33,7 +33,7 @@ const targets=(reserve=1,registry=2)=>({reserve:{address:'0x'+reserve.toString(1
   runtimeCodeHash:hash(10)},checkpointRegistry:{address:'0x'+registry.toString(16).padStart(40,'0'),
   runtimeCodeHash:hash(11)}});
 const responseSnapshot=(approved=targets(),overrides={})=>({ethereumChainId:'31337',
-  reserve:{...approved.reserve,queueEpoch:'1',paused:false,resumeReadyAt:'0',...overrides.reserve},
+  reserve:{...approved.reserve,queueEpoch:'1',pilotAuthorizationGeneration:'0',paused:false,resumeReadyAt:'0',...overrides.reserve},
   checkpointRegistry:{...approved.checkpointRegistry,halted:false,...overrides.checkpointRegistry}});
 
 test('healthy upstream produces no control-plane action',()=>{
@@ -77,8 +77,19 @@ test('health failure cancels a resume that governance scheduled before the incid
   assert.equal(plan.classification,'unconfirmed-health-failure');
   assert.deepEqual(plan.actions.map(({role})=>role),['reserveGuardian']);
   assert.deepEqual(plan.actions[0].precondition,
-    {queueEpoch:'1',paused:true,resumeReadyAt:'2000000000'});
-  assert.deepEqual(plan.actions[0].postcondition,{paused:true,resumeReadyAt:'0'});
+    {queueEpoch:'1',pilotAuthorizationGeneration:'0',paused:true,resumeReadyAt:'2000000000'});
+  assert.deepEqual(plan.actions[0].postcondition,{paused:true,resumeReadyAt:'0',pilotAuthorizationGeneration:'1'});
+});
+
+test('incident response rejects oversized snapshot integers before conversion',()=>{
+  const approved=targets();
+  for(const reserve of [
+    {queueEpoch:'9'.repeat(100000)},
+    {queueEpoch:(1n<<64n).toString()},
+  ]) assert.throws(()=>buildRiscZeroIncidentResponsePlan({reference,approvedSourceCatalog,
+    sources:sources(healthObservation(true),1),
+    responseSnapshot:responseSnapshot(approved,{reserve}),approvedTargets:approved}),
+  /canonical uint|exceeds uint64/);
 });
 
 test('unavailable upstream stop state cannot authorize an irreversible checkpoint halt',()=>{
@@ -177,7 +188,7 @@ test('isolated response drill changes both real contract states and verifies inc
     token:token.target,verifier:burnVerifier.target,checkpointRegistry:checkpointRegistry.target,
     domDomain:hash(20),activationScheduleCommitment:hash(21),governance:governance.target,
     guardian:reserveGuardianContract.target,withdrawalDelay:86400,governanceDelay:172800,
-    maxOutstanding:100_000_000_000n,outflowCapacity:2_000_000_000n,
+    maxOutstanding:100_000_000_000n,outflowCapacity:2_000_000_000n,pilotRestricted:false,
   }]);
   const approved={reserve:{address:reserve.target,runtimeCodeHash:keccak256(await provider.getCode(reserve.target))},
     checkpointRegistry:{address:checkpointRegistry.target,
@@ -186,7 +197,7 @@ test('isolated response drill changes both real contract states and verifies inc
   const incidentSources=sources(incidentObservation);
   const plan=buildRiscZeroIncidentResponsePlan({reference,approvedSourceCatalog,sources:incidentSources,
     approvedTargets:approved,
-    responseSnapshot:{ethereumChainId:'31337',reserve:{...approved.reserve,queueEpoch:'1',paused:false,
+    responseSnapshot:{ethereumChainId:'31337',reserve:{...approved.reserve,queueEpoch:'1',pilotAuthorizationGeneration:'0',paused:false,
       resumeReadyAt:'0'},
       checkpointRegistry:{...approved.checkpointRegistry,halted:false}}});
   const adapter=contract=>({getAddress:()=>contract.getAddress(),
@@ -239,7 +250,7 @@ test('executor re-pauses an already paused reserve and proves scheduled resume c
   let resumeReadyAt=2000000000n;
   const guardianAddress='0x0000000000000000000000000000000000000003';
   const reserve={runner:{provider},getAddress:async()=>approved.reserve.address,
-    queueEpoch:async()=>1n,paused:async()=>paused,resumeReadyAt:async()=>resumeReadyAt,
+    queueEpoch:async()=>1n,pilotAuthorizationGeneration:async()=>0n,paused:async()=>paused,resumeReadyAt:async()=>resumeReadyAt,
     guardian:async()=>guardianAddress};
   const checkpointRegistry={runner:{provider},getAddress:async()=>approved.checkpointRegistry.address};
   const reserveGuardian={getAddress:async()=>guardianAddress,sendTransaction:async()=>{

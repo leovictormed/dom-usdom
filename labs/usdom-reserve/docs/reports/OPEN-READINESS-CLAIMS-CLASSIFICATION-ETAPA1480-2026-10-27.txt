@@ -1,0 +1,38 @@
+OPEN READINESS CLAIMS CLASSIFICATION — ETAPA 1480
+Date: 2026-10-27
+
+Result
+
+The actual closed-mainnet and real-funds requirement lists were intersected
+with production-requirements.json.  Both modes currently expose the same 33
+false blocking claims.  None is a demonstrated missing-code claim.
+
+- 27 require operational evidence: real receipts, proving/cost or gas
+  measurements, live restart/vector exercises, a finalized event, trusted-setup
+  completion, recovery drill or predeployment preflight.
+- 6 require ratified release configuration: registry artifacts/bootstrap,
+  RandomX receipt ImageID, installed privacy verifying key, scheduled native
+  runtime and reserve configuration hash.
+
+Several historical names end in `_implemented`, but their documented success
+condition is a real execution artifact rather than source presence.  In
+particular the finalized-burn EVM gate and real finalized-deposit block vector
+cannot be promoted from mocks or unresolved assumptions.
+
+Because no code-absent claim exists in this exact intersection, no operational
+flag was changed.  Inventing a local implementation change solely to flip one
+would weaken the gate.
+
+Audit coverage improvement
+
+`classifyOpenReadinessClaims` now classifies the exact live false intersection
+as `configuration` or `operational-evidence`.  Any newly false blocking claim
+is returned as `unclassified`, forcing explicit review rather than assuming it
+is code work or evidence.  A regression binds the current count (33), rejects
+unclassified entries, and confirms external-audit/independent-review/zero-risk
+claims are absent.
+
+Validation: readiness-open-claims.test.mjs passed 1/1; git diff --check passed.
+
+No claim promotion, receipt generation, manifest modification, network use,
+deployment, signing, funds, commit or push occurred.

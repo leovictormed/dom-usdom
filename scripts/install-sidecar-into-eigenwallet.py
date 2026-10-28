@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -14,6 +13,11 @@ SOURCE = HERE / "external-gpl/dom-xmr-sidecar"
 
 def fail(message: str) -> None:
     raise SystemExit(message)
+
+
+def require_expected_commit(actual: str) -> None:
+    if actual != EXPECTED_COMMIT:
+        fail(f"Eigenwallet source drift: expected {EXPECTED_COMMIT}, got {actual}")
 
 
 def insert_member(cargo: Path, member: str) -> None:
@@ -50,14 +54,25 @@ def verify_commit(root: Path) -> None:
     if result.returncode != 0:
         fail("could not resolve Eigenwallet HEAD")
     actual = result.stdout.strip()
-    if actual != EXPECTED_COMMIT and os.environ.get("DOM_XMR_ALLOW_SOURCE_DRIFT") != "1":
-        fail(
-            f"Eigenwallet source drift: expected {EXPECTED_COMMIT}, got {actual}; "
-            "set DOM_XMR_ALLOW_SOURCE_DRIFT=1 only after review"
-        )
+    require_expected_commit(actual)
+
+
+def self_test() -> None:
+    require_expected_commit(EXPECTED_COMMIT)
+    for drift in ("", "0" * 40, EXPECTED_COMMIT.upper(), EXPECTED_COMMIT[:-1] + "0"):
+        try:
+            require_expected_commit(drift)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Eigenwallet source drift bypassed the immutable pin")
+    print("PASS: Eigenwallet installer commit pin is fail-closed")
 
 
 def main() -> None:
+    if sys.argv[1:] == ["--self-test"]:
+        self_test()
+        return
     if len(sys.argv) != 2:
         fail(f"usage: {sys.argv[0]} /path/to/eigenwallet-core")
     root = Path(sys.argv[1]).resolve()

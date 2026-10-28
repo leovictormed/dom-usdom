@@ -1,0 +1,20 @@
+Etapa 1424 — regressões focais de configuração dos verificadores
+Data: 2026-10-26
+
+Resultado
+
+As duas falhas eram expectativas de teste desatualizadas, não artefatos ou pins incorretos.
+
+1. O artefato DOMCheckpointRiscZeroVerifier atual já corresponde às fontes V6/V4 registradas em seu metadata. O teste antigo dependia de o artefato vivo permanecer stale e, por isso, deixou de observar a exceção esperada depois da atualização legítima. A regressão agora altera em memória um único source snapshot e comprova que ambas as derivações de runtime rejeitam a divergência por source hash. Isso preserva a política fail-closed sem adulterar o artefato do repositório.
+
+2. O runtime atual de FinalizedBurnRiscZeroVerifier tem 1.814 bytes. O valor fixo 1.909 pertencia a uma saída anterior e contradizia tanto o bytecode autenticado atual quanto a medição local registrada. A asserção agora liga runtimeSize diretamente ao comprimento do deployedBytecode do artefato que a própria rotina valida, mantendo as verificações de source hash, config hash e patch de todos os immutables.
+
+Validação focal
+
+/home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node --test test/node/checkpoint-verifier-config.test.mjs test/node/verifier-config.test.mjs
+
+Resultado: 7 testes aprovados, 0 falhas.
+
+Limites
+
+Nenhum artefato, pin ou inventário global foi rematerializado. Nenhum build pesado, rede, assinatura, deploy, fundo, commit ou push foi executado.

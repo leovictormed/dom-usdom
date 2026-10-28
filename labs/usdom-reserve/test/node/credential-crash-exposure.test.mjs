@@ -31,8 +31,8 @@ test('every credential or signature memory-bearing shell disables tracing and co
 test('release/native wrappers stop inherited tracing before delegating',async()=>{
   for(const name of ['sign-native-release-attestations.sh','sign-production-release-authorization.sh']) {
     const source=await readFile(path.join(scriptsDir,name),'utf8');
-    assert.ok(source.indexOf('set +x')<source.indexOf('exec bash'));
-    assert.ok(source.indexOf('unset BASH_XTRACEFD')<source.indexOf('exec bash'));
+    assert.ok(source.indexOf('set +x')<source.indexOf('exec /usr/bin/bash'));
+    assert.ok(source.indexOf('unset BASH_XTRACEFD')<source.indexOf('exec /usr/bin/bash'));
   }
 });
 

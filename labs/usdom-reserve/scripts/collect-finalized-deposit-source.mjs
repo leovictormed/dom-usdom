@@ -14,6 +14,8 @@ import {
 } from '../sdk/durable-private-file.mjs';
 import {parseStrictJson,parseStrictJsonBytes} from '../sdk/strict-json.mjs';
 import {requireSecureHttpsTransportEnvironment} from '../sdk/mainnet-preflight-rpc.mjs';
+import {canonicalEthereumQuantity,canonicalUnsignedDecimal,MAX_ETHEREUM_QUANTITY_UINT64}
+  from '../sdk/ethereum-quantity.mjs';
 import {finalizedDepositSourceSetCommitment,matchFinalizedDepositSourceCatalog,
   reconcileFinalizedDepositObservations}
   from '../sdk/finalized-deposit-source-catalog.mjs';
@@ -98,8 +100,13 @@ function hex32(value,label) {
   return value.toLowerCase();
 }
 function bigintQuantity(value,label) {
-  if(typeof value!=='string'||!/^0x[0-9a-fA-F]+$/.test(value)) throw new Error(`${label} invalid`);
-  return BigInt(value);
+  try { return BigInt(canonicalEthereumQuantity(value)); }
+  catch { throw new Error(`${label} invalid`); }
+}
+function decimalQuantity(value,label) {
+  try {
+    return BigInt(canonicalUnsignedDecimal(value,{maximum:MAX_ETHEREUM_QUANTITY_UINT64}));
+  } catch { throw new Error(`${label} invalid`); }
 }
 function normalizeHeader(block) {
   const keys=[
@@ -114,6 +121,23 @@ function normalizeHeader(block) {
     header[key]=typeof block[key]==='string'?block[key].toLowerCase():block[key];
   }
   return header;
+}
+async function collectRawTransactions(execution,blockHash,transactionHashes) {
+  const raw=[];
+  for(const [index,expectedHash] of transactionHashes.entries()) {
+    const transaction=await rpc(execution,'eth_getRawTransactionByBlockHashAndIndex',
+      [blockHash,'0x'+index.toString(16)],512*1024);
+    if(typeof transaction!=='string'||!/^0x(?:[0-9a-fA-F]{2})+$/.test(transaction)
+        ||transaction.length>2+2*256*1024) {
+      throw new Error('raw block transaction is invalid');
+    }
+    const canonical=transaction.toLowerCase();
+    if(keccak256(canonical)!==expectedHash) {
+      throw new Error('raw block transaction hash differs from block transaction identity');
+    }
+    raw.push(canonical);
+  }
+  return raw;
 }
 async function directFile(file,maximum,label) {
   return readDirectFile(file,{minimum:1,maximum,label});
@@ -130,10 +154,17 @@ async function boundedStdin(maximum) {
 }
 async function prepareOutput() {
   const directory=path.dirname(outputPath);
+  const evidenceRoot=path.join(root,'evidence');
+  const evidenceMetadata=await lstat(evidenceRoot);
+  if(!evidenceMetadata.isDirectory()||evidenceMetadata.isSymbolicLink()
+      ||evidenceMetadata.uid!==process.getuid()||(evidenceMetadata.mode&0o077)!==0) {
+    throw new Error('finalized-deposit evidence root is unsafe');
+  }
   try { await mkdir(directory,{mode:0o700}); }
   catch(error) { if(error?.code!=='EEXIST') throw error; }
   const metadata=await lstat(directory);
-  if(!metadata.isDirectory()||metadata.isSymbolicLink()||(metadata.mode&0o077)!==0) {
+  if(!metadata.isDirectory()||metadata.isSymbolicLink()||metadata.uid!==process.getuid()
+      ||(metadata.mode&0o077)!==0) {
     throw new Error('finalized-deposit evidence directory is unsafe');
   }
   await removePrivateFileDurableIfExists(outputPath);
@@ -148,20 +179,23 @@ async function observeSource(execution,consensus,source,trusted) {
     beacon(consensus,'/eth/v1/beacon/light_client/finality_update'),
     beacon(consensus,`/eth/v1/beacon/light_client/bootstrap/${trusted}`),
     (async()=>{
-      const start=BigInt(source.bootstrap.header.beacon.slot)/(32n*256n);
-      const end=BigInt(source.finality.finalized_header.beacon.slot)/(32n*256n);
+      const start=decimalQuantity(source.bootstrap.header.beacon.slot,'bootstrap beacon slot')/(32n*256n);
+      const end=decimalQuantity(source.finality.finalized_header.beacon.slot,'finalized beacon slot')/(32n*256n);
       return beacon(consensus,`/eth/v1/beacon/light_client/updates?start_period=${start}&count=${end-start+1n}`);
     })(),
   ]);
   if(chainId!=='0x1') throw new Error('cataloged execution RPC is not mainnet');
   const headers=[]; let depositBlock;
-  for(let number=BigInt(source.depositBlockNumber),end=BigInt(source.finality.finalized_header.execution.block_number);
+  for(let number=decimalQuantity(source.depositBlockNumber,'deposit block number'),
+    end=decimalQuantity(source.finality.finalized_header.execution.block_number,'finalized block number');
     number<=end;number++) {
     const block=await rpc(execution,'eth_getBlockByNumber',['0x'+number.toString(16),false]);
-    if(number===BigInt(source.depositBlockNumber)) depositBlock=block;
+    if(number===decimalQuantity(source.depositBlockNumber,'deposit block number')) depositBlock=block;
     headers.push(normalizeHeader(block));
   }
   const transactionHashes=boundedTransactionHashes(depositBlock,'deposit block');
+  const rawTransactions=await collectRawTransactions(execution,source.depositBlockHash,
+    transactionHashes);
   let receipts;
   try { receipts=await rpc(execution,'eth_getBlockReceipts',[source.depositBlockHash],64*1024*1024); }
   catch { receipts=[]; for(const hash of transactionHashes) {
@@ -178,7 +212,8 @@ async function observeSource(execution,consensus,source,trusted) {
       blockHash:receipt.blockHash.toLowerCase(),blockNumber:bigintQuantity(receipt.blockNumber,'receipt block').toString(),
       transactionIndex:bigintQuantity(receipt.transactionIndex,'receipt transaction index').toString()},
     receipt:encodeRpcReceipt(receipt),finality,bootstrap,
-    updates:updates.map(value=>value.data??value),headers,receipts:receipts.map(encodeRpcReceipt),
+    updates:updates.map(value=>value.data??value),headers,rawTransactions,
+    receipts:receipts.map(encodeRpcReceipt),
     reserveAccount:{address:proof.address.toLowerCase(),balance:proof.balance.toLowerCase(),
       codeHash:proof.codeHash.toLowerCase(),nonce:proof.nonce.toLowerCase(),
       storageHash:proof.storageHash.toLowerCase(),accountProof:proof.accountProof.map(value=>value.toLowerCase())},
@@ -231,15 +266,16 @@ if(process.argv.length!==2) {
       throw new Error('deposit transaction did not succeed at the exact reserve');
     }
     const finality=await beacon(consensus,'/eth/v1/beacon/light_client/finality_update');
-    const finalizedNumber=BigInt(finality.finalized_header.execution.block_number);
+    const finalizedNumber=decimalQuantity(finality.finalized_header.execution.block_number,
+      'finalized execution block number');
     const depositNumber=bigintQuantity(receipt.blockNumber,'deposit block number');
     const distance=finalizedNumber-depositNumber;
     if(distance<0n||distance>=256n) throw new Error('deposit is not within the finalized ancestry window');
     const trusted=hex32('0x'+manifest.ethereum.trusted_checkpoint.replace(/^0x/,''),
       'trusted checkpoint');
     const bootstrap=await beacon(consensus,`/eth/v1/beacon/light_client/bootstrap/${trusted}`);
-    const bootstrapSlot=BigInt(bootstrap.header.beacon.slot);
-    const finalizedSlot=BigInt(finality.finalized_header.beacon.slot);
+    const bootstrapSlot=decimalQuantity(bootstrap.header.beacon.slot,'bootstrap beacon slot');
+    const finalizedSlot=decimalQuantity(finality.finalized_header.beacon.slot,'finalized beacon slot');
     const startPeriod=bootstrapSlot/(32n*256n),endPeriod=finalizedSlot/(32n*256n);
     const periodCount=endPeriod-startPeriod+1n;
     if(periodCount<=0n||periodCount>128n) throw new Error('weak-subjectivity update span exceeds policy');
@@ -260,6 +296,8 @@ if(process.argv.length!==2) {
       throw new Error('execution RPC and Beacon finality disagree');
     }
     const transactionHashes=boundedTransactionHashes(depositBlock,'deposit block');
+    const rawTransactions=await collectRawTransactions(execution,receipt.blockHash.toLowerCase(),
+      transactionHashes);
     let rpcReceipts;
     try { rpcReceipts=await rpc(execution,'eth_getBlockReceipts',[receipt.blockHash],64*1024*1024); }
     catch { rpcReceipts=[]; for(const hash of transactionHashes) {
@@ -302,7 +340,7 @@ if(process.argv.length!==2) {
       transactionIndex,receiptLogIndex:matchingLogs[0].index,
       depositBlockNumber:depositNumber.toString(),depositBlockHash:receipt.blockHash.toLowerCase(),bootstrap,
       updates:updates.map(value=>value.data??value),finality,headers,
-      receipts:rpcReceipts.map(encodeRpcReceipt),
+      rawTransactions,receipts:rpcReceipts.map(encodeRpcReceipt),
       sourceCatalog:catalog,sourceCount:String(catalog.sources.length),
       sourceSetCommitment:finalizedDepositSourceSetCommitment(catalog),
       reserveAccount:{address:proof.address.toLowerCase(),balance:proof.balance.toLowerCase(),
@@ -315,7 +353,8 @@ if(process.argv.length!==2) {
     const expectedObservation={receiptIdentity:{transactionHash:txHash,blockHash:source.depositBlockHash,
         blockNumber:source.depositBlockNumber,transactionIndex:String(source.transactionIndex)},
       receipt:encodeRpcReceipt(receipt),finality:source.finality,
-      bootstrap:source.bootstrap,updates:source.updates,headers:source.headers,receipts:source.receipts,
+      bootstrap:source.bootstrap,updates:source.updates,headers:source.headers,
+      rawTransactions:source.rawTransactions,receipts:source.receipts,
       reserveAccount:source.reserveAccount,runtimeBytecode:source.runtimeBytecode};
     const observations=[];
     for(const item of sources) {

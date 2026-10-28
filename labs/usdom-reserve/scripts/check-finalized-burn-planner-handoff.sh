@@ -3,6 +3,12 @@ set -euo pipefail
 
 LAB_ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)"
 REPOSITORY_ROOT="$(CDPATH='' cd -- "$LAB_ROOT/../.." && pwd -P)"
+for tool_boundary_command in stat realpath id dirname sha256sum cut; do command -v "$tool_boundary_command" >/dev/null; done
+source "$LAB_ROOT/scripts/pinned-shell-tool-functions.sh"
+pin_runtime_tool cargo
+cargo() { assert_runtime_tool cargo; "$cargo_bin" "$@"; }
+pin_runtime_tool jq
+jq() { assert_runtime_tool jq; "$jq_bin" "$@"; }
 WORK_ROOT="$(mktemp -d /dev/shm/usdom-finalized-burn-handoff.XXXXXXXX)"
 chmod 0700 -- "$WORK_ROOT"
 
@@ -73,9 +79,9 @@ jq -e '
   and .input_sha256 == .source_input_sha256
   and .input_bytes == 64782
   and .statement_hash == "c0461e1c2bcff62d1dfd8e8fed0b094b5d19c2744cf9bad34c8ae3722e7eaef4"
-  and .program_sha256 == "883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21"
+  and .program_sha256 == "bf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511"
   and .image_id_file_sha256 == "5c07a37b10235eb0b42c667408ff4f890cb9273d8e68d0f70a04e8e697677103"
-  and .image_id == "2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea"
+  and .image_id == "f0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae"
   and .risc0_zkvm_version == "3.0.6"
   and .receipt_kind == "succinct"
   and .relation_executed == true

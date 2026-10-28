@@ -19,11 +19,25 @@ test('all nine completion publishers are durable and completion-last',()=>{
     ['prove-authenticated-randomx-aggregate-set.sh','randomx-aggregate-receipt-set-index.json'],
     ['prove-authenticated-randomx-receipt-set.sh','randomx-receipt-set-index.json'],
   ];
+  const boundedRemoval=new Set([
+    'package-authenticated-checkpoint-outer-evm-proof.sh',
+    'package-authenticated-finalized-burn-evm-proof.sh',
+  ]);
   for(const [file,index] of publishers){
     const source=read(file);
     const final=source.indexOf(`final_index="$OUTPUT_DIR/${index}"`);
-    const remove=source.indexOf('rm -- "$final_index"',final);
-    const durable=source.indexOf('sync -d "$OUTPUT_DIR"',remove);
+    let remove;
+    let durable;
+    if(boundedRemoval.has(file)) {
+      assert.match(source,new RegExp(`remove_output_file\\(\\) \\{[\\s\\S]*\\$OUTPUT_DIR/${index.replaceAll('.','\\.')}[\\s\\S]*\\*\\) return 1`),file);
+      assert.match(source,/remove_output_file\(\) \{[\s\S]*assert_tool_unchanged rm; assert_tool_unchanged timeout[\s\S]*"\$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s "\$rm_bin" -- "\$file"[\s\S]*\[\[ ! -e \$file && ! -L \$file \]\]/,file);
+      assert.match(source,/sync_output_directory\(\) \{[\s\S]*assert_tool_unchanged sync; assert_tool_unchanged timeout[\s\S]*"\$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s "\$sync_bin" -d "\$OUTPUT_DIR"[\s\S]*test "\$before" = "\$after"/,file);
+      remove=source.indexOf('remove_output_file "$final_index"',final);
+      durable=source.indexOf('sync_output_directory',remove);
+    } else {
+      remove=source.indexOf('rm -- "$final_index"',final);
+      durable=source.indexOf('sync -d "$OUTPUT_DIR"',remove);
+    }
     const install=source.lastIndexOf('install-private-file-stdin.mjs');
     assert.notEqual(final,-1,`${file}: named completion index missing`);
     assert.ok(final<remove && remove<durable && durable<install,

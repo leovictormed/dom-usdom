@@ -1,0 +1,33 @@
+SAFE DEPLOYMENT FINAL EVIDENCE GRAPH — STAGE 1184
+Date: 2026-10-26
+
+Finding
+=======
+
+The final Safe deployment barrier reread receipt and validation artifacts but
+did not reread the signed raw transaction or its create-once journal. Those
+files had been validated earlier per role and could change while later roles
+were processed. Success could therefore coexist with a corrupted durable
+resume graph even though each on-chain Safe and receipt remained correct.
+
+Correction
+==========
+
+For every role with any local deployment evidence, the final barrier now
+requires journal, raw transaction, validation and receipt as one complete set.
+It privately rereads all four, proves the journal embeds the exact raw and
+validation content, re-runs the strict raw-transaction validator for that role
+and nonce, then reprojects the receipt. Each canonical output must equal its
+installed bytes. A permissionlessly deployed exact Safe remains supported only
+when all four local evidence files are absent; any partial graph fails closed.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/receipt/process tests: 7/7 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

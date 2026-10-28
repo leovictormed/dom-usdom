@@ -1,0 +1,90 @@
+ETAPA 1244 — Safe policy deployment-chain audit
+Date: 2026-10-26
+
+Scope
+-----
+
+Independent adversarial review of the Solidity reserve and checkpoint control
+planes after the fixed-memory Safe decoder optimization. The review emphasized
+malformed returndata, assembly canonicality, chain-ID drift, permanent deposit
+closure and proved burn debt. No Rust, scripts, network, signing, deployment,
+funds, commit or push operation was performed.
+
+Finding
+-------
+
+The runtime Safe-policy predicate selected the mandatory pinned mainnet fallback
+handler with `block.chainid == 1`. Both contracts already preserve their
+deployment chain in an immutable and bind economic statements to it, but the
+control-plane check used the current chain instead.
+
+Consequently, after a mainnet chain-ID change or execution on a surviving fork
+with a different chain ID, the reserve and checkpoint registry would continue
+to recognize the immutable Safe proxy/singleton/owners/threshold/modules/guard
+identity while silently omitting the fallback-handler identity and code-hash
+check. Chain drift cannot be triggered by an ordinary transaction, but it must
+not weaken an immutable production policy during a fork or coordinated network
+transition involving real collateral.
+
+Correction
+----------
+
+`USDOMProofReserve._safePolicyWithoutOwnersIntact()` and
+`DOMCheckpointRegistry._safePolicyIntact()` now select production Safe policy
+from `deploymentChainId`, never from the mutable execution chain ID. Constructor
+checks continue to use `block.chainid`, because construction defines that
+immutable deployment domain. New exposure and new checkpoint admission retain
+their existing explicit chain-drift rejection; already proved reserve debt
+remains payable as designed.
+
+The test Safe gained exact adversarial `getOwners()` modes for:
+
+- a 159-byte short response;
+- a 161-byte trailing response;
+- a one-megabyte return bomb;
+- a wrong dynamic offset with exact total length;
+- a wrong owner count with exact total length; and
+- an owner word with dirty upper 96 bits.
+
+The ProofReserve regression exercises every mode through the public health
+predicate and a value path, then proves exact restoration. Reserve and Registry
+regressions also change the current chain ID and demonstrate that the policy
+class remains the class selected at deployment while threshold drift still
+fails closed.
+
+Debt and closure result
+-----------------------
+
+No new debt/closure defect was found. First finalized-burn proofs remain
+admissible after permanent deposit closure, but only against unreserved credited
+collateral and the immutable verifier/registry/deployment domain. Renewals do
+not reserve debt twice. Expiry, pruning and pause invalidate queue leases without
+reducing permanent proved debt. Settlement checks the exact burn/request/debt/
+finality tuple before reducing the aggregate. Terminal shutdown requires all
+collateral released, zero proved debt, an empty queue, pinned registry identity,
+issuance closure and equal authenticated issued/burned/deposited totals.
+
+Verification
+------------
+
+- Complete Foundry suite: 202/202 tests passed in 14 suites, 0 failed, 0
+  skipped.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 reverts.
+- ProofReserve runtime: 20,003 bytes; EIP-170 margin 4,573 bytes; 477-byte
+  surplus over the mandatory 4,096-byte project margin.
+- ProofReserve initcode: 25,671 bytes; margin 23,481 bytes.
+- Registry runtime: 10,605 bytes; margin 13,971 bytes.
+- Quorum prototype runtime: 14,609 bytes; margin 9,967 bytes.
+- `forge fmt`, full Forge, invariant execution, `forge build --sizes` and
+  `git diff --check` passed.
+
+Release impact
+--------------
+
+Runtime and creation hashes for ProofReserve and Registry changed and must be
+rematerialized once concurrent source work is stable. The correction preserves
+the public ABI and all existing events/errors. It does not authorize deployment
+or real funds and does not replace remaining proof, release-identity or operator
+evidence gates.

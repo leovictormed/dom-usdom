@@ -25,7 +25,7 @@ for(const writer of writers) test(`${writer} authenticates every Node/JQ/timeout
  for(const tool of ['node','jq','timeout'])
   assert.match(source,new RegExp(`pin_runtime_tool ${tool}`));
  assert.match(source,/jq\(\) \{ assert_runtime_tool jq; "\$jq_bin" "\$@"; \}/);
- const children=[...source.matchAll(/assert_runtime_tool node; assert_runtime_tool timeout; "\$timeout_bin"[^\n]*"\$node_bin"/g)];
+ const children=[...source.matchAll(/assert_runtime_tool node; assert_runtime_tool timeout;(?: assert_runtime_tool python3)?\s*"\$timeout_bin"[^\n]*"\$node_bin"/g)];
  assert.equal(children.length,10);
  assert.doesNotMatch(source,/(?:^|[;|]\s*)timeout\s[^\n]*\snode\s/m);
 });

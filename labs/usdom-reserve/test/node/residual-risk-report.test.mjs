@@ -80,6 +80,7 @@ test('residual-risk report rejects incomplete release and unapproved finality',(
   {releaseConfig:{...releaseConfig,realFundsAuthorized:null}},
   {releaseConfig:{...releaseConfig,reserveConfigHash:null}},
   {requirements:{...requirements,checkpoint_poc_authorization:{production_mechanism_approved:false}}},
+  {requirements:{...requirements,finality_evaluation:{selected_production_mechanism:'operator-quorum'}}},
   {draftSha256:'bad'},
  ]) assert.throws(()=>buildResidualRiskReport({releaseEvidence,releaseConfig,requirements,
   draftSha256:sha('77'),...input}));

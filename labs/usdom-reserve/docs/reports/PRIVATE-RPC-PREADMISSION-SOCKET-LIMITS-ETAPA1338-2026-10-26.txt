@@ -1,0 +1,36 @@
+USDOM mainnet readiness — Stage 1338
+Date: 2026-10-26
+
+Finding
+=======
+
+The proxy limited active application requests to eight, but that counter starts
+only after complete headers, canonical framing and capability routing. An
+unbounded number of loopback sockets could remain in slow-header or idle states
+outside the counter, consuming descriptors until the coarse timeout sweep.
+
+Correction
+==========
+
+The HTTP server now caps established connections at 16 and drops excess
+connections. Timeout enforcement is checked every second. Idle sockets are
+destroyed after 15 seconds, while the existing 10-second header deadline,
+125-second whole-request deadline, one-second keepalive and one-request-per-
+socket policy remain active. The application-level eight-request and per-source
+quotas continue to apply after admission.
+
+Validation
+==========
+
+- Node syntax check passed for the proxy.
+- Static lifecycle assertions require the connection cap, excess-connection
+  dropping, one-second timeout sweep and explicit idle-socket destruction.
+- Proxy socket, framing, cleanup, exact-envelope and readiness suite: 10/10 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No provider was contacted and no transaction was transmitted. No network,
+signing, deployment, funds, production facts, Rust, Solidity, Cargo, Forge,
+commit or push occurred.

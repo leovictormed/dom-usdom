@@ -2,6 +2,8 @@
 """Materialize the user service with the canonical absolute repository path."""
 import argparse, hashlib, os, re, stat, subprocess, sys, tempfile
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from durable_create_once import install_create_once
 
 def write_all(fd,data):
     view=memoryview(data)
@@ -54,24 +56,8 @@ def main():
     with tempfile.NamedTemporaryFile(mode="w",prefix="usdom-proof-",suffix=".service",delete=True) as check:
         check.write(rendered); check.flush()
         subprocess.run(["/usr/bin/systemd-analyze","--user","verify",check.name],check=True)
-    if target.exists() or target.is_symlink():
-        if not direct_file(target) or target.lstat().st_mode&0o077 or direct_bytes(target).decode("utf-8","strict")!=rendered:
-            raise FileExistsError(f"refusing to replace different unit: {target}")
-    else:
-        temporary=target.with_name(f".{target.name}.{os.getpid()}.tmp")
-        fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_CLOEXEC|os.O_NOFOLLOW,0o600)
-        try:
-            write_all(fd,rendered.encode()); os.fsync(fd)
-        except Exception:
-            try: os.unlink(temporary)
-            except FileNotFoundError: pass
-            raise
-        finally: os.close(fd)
-        try: os.link(temporary,target,follow_symlinks=False)
-        finally: os.unlink(temporary)
-        dfd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY|os.O_CLOEXEC|os.O_NOFOLLOW)
-        try: os.fsync(dfd)
-        finally: os.close(dfd)
+    install_create_once(target,rendered.encode(),mode=0o600,maximum=2*1024*1024,
+                        private_parent=False,allow_equal=True)
     subprocess.run(["/usr/bin/systemctl","--user","daemon-reload"],check=True,
         env={"HOME":str(Path.home()),"PATH":"/usr/bin:/bin","LANG":"C.UTF-8","LC_ALL":"C.UTF-8"})
     print(target)

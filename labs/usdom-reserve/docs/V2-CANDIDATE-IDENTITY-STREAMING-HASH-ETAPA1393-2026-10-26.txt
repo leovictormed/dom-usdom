@@ -1,0 +1,48 @@
+Stage 1393 — allocation-free candidate-v2 identity hashing
+Date: 2026-10-26
+
+Finding
+
+Candidate-v2 identity is the tagged hash of two length-prefixed opaque
+components. Although envelope and witness inputs are independently bounded,
+`candidate_id_v1` copied both into a second contiguous vector before hashing.
+At the protocol maxima this allocated and copied about 12 MiB in addition to
+the already buffered request and decoded candidate. The work occurred for every
+new submission, including a pool-full rejection path before proof verification,
+creating avoidable authenticated memory/bandwidth amplification.
+
+Correction
+
+The identifier now uses `DomHasher` incrementally over the exact same canonical
+sequence: big-endian envelope length, envelope bytes, big-endian witness length
+and witness bytes. Component length validation is unchanged and still occurs
+first. The resulting domain-separated candidate ID is byte-for-byte identical;
+no concatenation allocation or full-input copy is made.
+
+Queue/accounting audit
+
+- V1 and V2 both cap the pool at 16 candidates and 16 MiB aggregate retained
+  bytes, using checked addition/subtraction on admission, rotation, invalid
+  pruning and canonical completion.
+- Exact candidate retransmission returns the existing ID without increasing
+  count or bytes. New candidates face count/byte capacity before expensive
+  proof verification.
+- Envelope, proof-class and v2 witness bundle parsers enforce independent
+  canonical size/count ceilings before proof authority.
+- Retryable entries rotate to the back; permanently invalid entries are
+  removed; the oldest valid entry is selected. Pool-full submission does not
+  evict existing verified work.
+- V1 canonical-consumption pruning from Stage 1387 subtracts exact retained
+  bytes and leaves private-only candidates intact.
+
+Evidence
+
+- `cargo test -p dom-usdom-rpc-protocol --lib`: 3 passed, 0 failed in 0.01s.
+- A regression compares the streaming result with a separately constructed
+  canonical contiguous framing, preventing identity drift.
+- Existing tests retain empty/oversized component rejection, framing mutation
+  rejection, round-trip and field-boundary coverage.
+- Code was formatted with `cargo fmt --all`; `git diff --check` passes.
+- No RandomX mining, external network, wallet, signature, deployment, funds,
+  commit or push occurred.
+

@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {NATIVE_PREACTIVATION_FACTS_SCHEMA,materializeProductionPreActivationCore}
   from '../../sdk/production-preactivation-core.mjs';
 import {safeOwnersCommitment} from '../../sdk/configuration.mjs';
+import {deriveDomDomain} from '../../sdk/preactivation-policy.mjs';
 
 const address=n=>'0x'+n.toString(16).padStart(40,'0');
 const hash=n=>'0x'+n.toString(16).padStart(64,'0');
@@ -32,8 +33,11 @@ const release=()=>{const governanceOwners=[address(40),address(41),address(42)];
   governanceOwners,guardianOwners,checkpointGuardianOwners,withdrawalDelaySeconds:'86400',
   governanceDelaySeconds:'172800',maxOutstandingBaseUnits:'1000000',
   outflowCapacityBaseUnitsPerDay:'1000000'});};
-const facts=()=>({schema:NATIVE_PREACTIVATION_FACTS_SCHEMA,nativeEthereumTrustedCheckpoint:hash(19),
-  domDomain:hash(20),checkpointDomNetworkMagic:'1146047793',checkpointDomChainId:hash(21),
+const facts=(releaseConfig=release())=>({schema:NATIVE_PREACTIVATION_FACTS_SCHEMA,nativeEthereumTrustedCheckpoint:hash(19),
+  domDomain:deriveDomDomain({domNetworkMagic:'1146047793',domChainId:hash(21),
+    ethereumChainId:releaseConfig.ethereumChainId,reserve:releaseConfig.reserve,
+    checkpointRegistry:releaseConfig.checkpointRegistry}),
+  checkpointDomNetworkMagic:'1146047793',checkpointDomChainId:hash(21),
   checkpointFirstV4Height:'100001',checkpointIntervalBlocks:'360',
   checkpointConfirmationDepthBlocks:'30',checkpointChallengePeriodSeconds:'172800',
   checkpointInitialHeight:'100000',checkpointInitialBlock:hash(22),
@@ -64,6 +68,9 @@ test('pre-activation core rejects drift, authorization and dependent fields',()=
     {releaseConfig:{...release(),checkpointVerifierInitcodeHash:hash(1)},nativeFacts:facts()},
     {releaseConfig:{...release(),checkpointRegistryRuntimeCodeHash:hash(1)},nativeFacts:facts()},
     {releaseConfig:release(),nativeFacts:{...facts(),checkpointFirstV4Height:'100002'}},
+    {releaseConfig:release(),nativeFacts:{...facts(),domDomain:hash(20)}},
+    {releaseConfig:release(),nativeFacts:{...facts(),checkpointInitialTotalDifficulty:'9'.repeat(100000)}},
+    {releaseConfig:release(),nativeFacts:{...facts(),checkpointFirstV4Height:(1n<<64n).toString()}},
     {releaseConfig:release(),nativeFacts:{...facts(),extra:true}},
     {releaseConfig:{...release(),domDomain:hash(31)},nativeFacts:facts()},
     {releaseConfig:{...release(),guardianOwnersCommitment:hash(31)},nativeFacts:facts()},
@@ -87,4 +94,12 @@ test('preactivation root uses artifact bindings and rechecks the template',async
   assert.match(wrapper,/target_sha256=\$\(sha256sum "\$target"/);
   assert.match(wrapper,/sha256sum "\$target".*"\$target_sha256"/s);
   assert.match(wrapper,/flock -n 9/);
+  assert.match(wrapper,/replace-locked-source-stdin\.mjs/);
+  assert.match(wrapper,/"\$target_sha256" "\$parent_device" "\$parent_inode" "\$python3_bin" "\$python3_sha256"/);
+  assert.match(wrapper,/pin_tool python3/);
+  assert.match(wrapper,/stat -Lc '%u:%a:%h' "\$target"/);
+  assert.equal((wrapper.match(/cmp -s "\$temporary" "\$target"/g)??[]).length,5);
+  assert.match(wrapper,/sync -f "\$target"; sync -f "\$config_directory"\ncmp -s "\$temporary" "\$target"/);
+  assert.equal((wrapper.match(/prepare-production-preactivation-core-materialization\.mjs > "\$temporary\.rechecked"/g)??[]).length,3);
+  assert.equal((wrapper.match(/cmp -s "\$temporary" "\$temporary\.rechecked"/g)??[]).length,3);
 });

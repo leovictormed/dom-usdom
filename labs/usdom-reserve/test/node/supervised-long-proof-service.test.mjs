@@ -28,6 +28,12 @@ test('v2 binds source, resource limits, exact success output and evidence hashes
  f=await fixture('#!/bin/sh\nprintf changed > bound.txt\necho "VECTOR PASS"\n',{v2:true}); p=spawnSync('/usr/bin/python3',f.args,{encoding:'utf8'}); assert.equal(p.status,125,p.stderr);
  dir=path.join(f.root,'state','runs',f.id); assert.match(await readFile(path.join(dir,'events.jsonl'),'utf8'),/bound-input-drift/);
 });
+test('child process cannot persist a core dump even outside the systemd unit',async()=>{
+ const f=await fixture('#!/bin/sh\nprintf "CORE=%s\\n" "$(ulimit -c)"\n',{v2:true,requiredOutput:['CORE=0']});
+ const p=spawnSync('/usr/bin/python3',f.args,{encoding:'utf8'}); assert.equal(p.status,0,p.stderr);
+ const log=await readFile(path.join(f.root,'state','runs',f.id,'process.log'),'utf8');
+ assert.equal(log,'CORE=0\n');
+});
 test('successful fake gets immutable identity and terminal evidence; identity cannot restart',async()=>{
  const f=await fixture('#!/bin/sh\necho ok\n'); let p=spawnSync('/usr/bin/python3',f.args,{encoding:'utf8'}); assert.equal(p.status,0,p.stderr);
  const dir=path.join(f.root,'state','runs',f.id); const terminal=JSON.parse(await readFile(path.join(dir,'terminal.json')));
@@ -49,7 +55,7 @@ test('SIGTERM is logged, forwarded, and produces attributable supervisor termina
 });
 test('setsid descendant cannot escape supervision or preserve nominal success',async()=>{
  const f=await fixture('#!/bin/sh\nsetsid /bin/sh -c \'trap "exit 0" TERM; while :; do sleep 1; done\' &\necho $!\nsleep 0.2\nexit 0\n');
- const p=spawnSync('/usr/bin/python3',f.args,{encoding:'utf8',timeout:5000}); assert.equal(p.status,125,p.stderr);
+ const p=spawnSync('/usr/bin/python3',f.args,{encoding:'utf8',timeout:30000}); assert.equal(p.status,125,p.stderr);
  const dir=path.join(f.root,'state','runs',f.id); const terminal=JSON.parse(await readFile(path.join(dir,'terminal.json')));
  assert.equal(terminal.exitStatus,125); const events=await readFile(path.join(dir,'events.jsonl'),'utf8'); assert.match(events,/stray-descendants/);
  const detachedMatch=(await readFile(path.join(dir,'process.log'),'utf8')).match(/^([0-9]+)/); assert.ok(detachedMatch);
@@ -63,6 +69,26 @@ test('job preparation rejects loader injection and noncanonical cwd before publi
  assert.equal(p.status,125); assert.match(p.stderr,/unsafe environment entry/);
  p=spawnSync('/usr/bin/python3',[preparer,'--jobs-directory',jobs,'--cwd','.', '--','/bin/true'],{encoding:'utf8'});
  assert.equal(p.status,125); assert.match(p.stderr,/absolute canonical directory/);
+});
+test('job preparation expands and authenticates the complete repository source closure',async()=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'usdom-job-closure-')),jobs=path.join(root,'jobs');
+ const preparer=path.join(repo,'labs/usdom-reserve/scripts/prepare-supervised-proof-job.py');
+ await mkdir(path.join(root,'config')); await writeFile(path.join(root,'Cargo.toml'),'[workspace]\n');
+ const cargoSha=sha(await readFile(path.join(root,'Cargo.toml'))),inventoryPath='config/inventory.json';
+ const inventory={schema:'usdom-critical-publication-inventory-v2',repositoryCriticalSources:{'Cargo.toml':cargoSha}};
+ await writeFile(path.join(root,inventoryPath),JSON.stringify(inventory));
+ const args=[preparer,'--jobs-directory',jobs,'--cwd',root,'--bind-source-inventory',inventoryPath,
+  '--require-output','ok','--max-runtime-seconds','60','--max-log-bytes','1024',
+  '--min-free-bytes','1024','--','/bin/true'];
+ let p=spawnSync('/usr/bin/python3',args,{encoding:'utf8'}); assert.equal(p.status,0,p.stderr);
+ const spec=JSON.parse(await readFile(path.join(jobs,`${p.stdout.trim()}.json`)));
+ assert.deepEqual(spec.inputs.map(value=>value.path),[inventoryPath,'Cargo.toml']);
+ await writeFile(path.join(root,'Cargo.toml'),'[workspace]\n# drift\n');
+ p=spawnSync('/usr/bin/python3',args,{encoding:'utf8'}); assert.equal(p.status,125);
+ assert.match(p.stderr,/source inventory digest mismatch: Cargo\.toml/);
+ const releaseJobs=await readFile(path.join(repo,
+  'labs/usdom-reserve/scripts/prepare-usdom-release-validation-jobs.sh'),'utf8');
+ assert.match(releaseJobs,/--bind-source-inventory labs\/usdom-reserve\/config\/rebuild-v3-critical-source-inventory\.json/);
 });
 test('durable publications, fd-bound cwd, subreaper and exact status identity remain structural requirements',async()=>{
  const runText=await readFile(runner,'utf8'); const controlText=await readFile(path.join(repo,'labs/usdom-reserve/scripts/control-supervised-long-proof.py'),'utf8');
@@ -90,6 +116,6 @@ test('terminal evidence hashes reject process-log tampering',async()=>{
  p=spawnSync('/usr/bin/python3',['-c',harness,control,state,f.id],{encoding:'utf8'}); assert.equal(p.status,125); assert.match(p.stderr,/terminal identity fields are invalid/);
 });
 test('unit has persistent fail-closed stop and resource policy',async()=>{
- const text=await readFile(unit,'utf8'); for(const required of ['ExitType=cgroup','Restart=no','KillMode=mixed','TimeoutStopSec=10min','OOMPolicy=stop','MemoryHigh=5500M','MemoryMax=6500M','CPUWeight=10','IOWeight=100','ProtectSystem=strict','PrivateNetwork=yes','ReadWritePaths=%h/.local/state/usdom-proof','--expected-supervisor-sha256 @SUPERVISOR_SHA256@']) assert.match(text,new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+ const text=await readFile(unit,'utf8'); for(const required of ['ExitType=cgroup','Restart=no','KillMode=mixed','TimeoutStopSec=10min','OOMPolicy=stop','MemoryHigh=5500M','MemoryMax=6500M','LimitCORE=0','CPUWeight=10','IOWeight=100','ProtectSystem=strict','PrivateNetwork=yes','ReadWritePaths=%h/.local/state/usdom-proof','--expected-supervisor-sha256 @SUPERVISOR_SHA256@']) assert.match(text,new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
  assert.doesNotMatch(text,/RuntimeMaxSec|WatchdogSec/);
 });

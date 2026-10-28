@@ -1,0 +1,28 @@
+ETAPA 1324 — LIMITE DO GATE DE RELEASE DO RESGATE
+Data: 2026-10-26
+
+Problema
+
+Antes do Ledger, o executor reconfirma que submissão e pacote pertencem à
+release atual e ao manifesto do verificador. O checker estrito já validava os
+arquivos e hashes, mas seu processo não tinha deadline.
+
+Correção
+
+`check-closed-mainnet-redemption-release.mjs` agora executa sob deadline
+foreground TERM/KILL de 120 segundos. O gate permanece anterior à identidade
+Ledger, à leitura de nonce e à publicação.
+
+Timeout, falha, arquivo ambíguo ou divergência entre hashes, reserva, token,
+cadeia, autorização e configuração encerram o fluxo antes de qualquer ação
+assinável.
+
+Validação offline
+
+- Sintaxe Bash do executor de resgate: aprovada.
+- Suíte focal: 10/10 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 73/73 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

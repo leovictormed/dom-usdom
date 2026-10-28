@@ -1,0 +1,32 @@
+SAFE DEPLOYMENT FINAL RECEIPT BARRIER — STAGE 1174
+Date: 2026-10-26
+
+Finding
+=======
+
+The three-Safe executor validated receipt consensus and installed a missing
+receipt, but did not reread that new durable pathname. It also did not recheck
+all three installed receipts after the final source/package rebuild. A replaced
+or partially materialized receipt could therefore escape the final success
+barrier even though the on-chain Safe target itself was correct.
+
+Correction
+==========
+
+Every per-role receipt is now reread through the private-file boundary directly
+after create-once installation and compared byte-for-byte with the quorum
+projection. At final completion, all three receipt and validation files are
+reread, each receipt is independently reprojected by the strict checker, and
+the canonical output must equal its installed bytes before the corresponding
+Safe target can be accepted.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/receipt/process tests: 7/7 pass.
+- Broad Safe/receipt/operator-runbook selection: 91/91 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

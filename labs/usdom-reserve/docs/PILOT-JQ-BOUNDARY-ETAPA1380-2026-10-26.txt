@@ -1,0 +1,33 @@
+ETAPA 1380 — BOUNDARY ÚNICO PARA PROCESSAMENTO JQ
+Data: 2026-10-26
+
+Problema
+
+Cento e oito invocações `jq` liam campos, validavam schemas ou geravam
+artefatos sem deadline e teto uniformes. Arquivos já passavam por gates de
+schema e permissões, mas uma falha do processo ou saída anormal ainda poderia
+bloquear ou alimentar o executor sem um limite comum.
+
+Correção
+
+As 56 invocações do depósito e 52 do resgate passam agora por `jq_run`. O helper
+aplica deadline foreground TERM/KILL de 120 segundos e limita stdout a uma
+leitura sentinela de 1.048.577 bytes sob `pipefail`. Isso cobre leituras
+escalares, validações `-e`, geração `-n`, filtros de recibo e JSON enviado aos
+instaladores privados.
+
+Os schemas e comparações semânticas existentes permanecem posteriores ao
+boundary. Uma regressão permite somente a invocação interna de `jq` e fixa os
+108 pontos cobertos. Falha, timeout ou saída excessiva interrompem o gate antes
+de assinatura, publicação ou evidência terminal.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal incluindo idempotência: 16/16 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário: 108/108 usos passam por `jq_run`; zero `jq` direto resta.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

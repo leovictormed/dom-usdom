@@ -1,0 +1,37 @@
+ETAPA 1232 — AUTORIDADE RPC LIMITADA DA RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema
+
+O wrapper RPC da recuperação Safe tinha prazo nominal, mas não forçava KILL após
+TERM. O stdout seguia diretamente ao chamador sem teto e, em falha, stderr era
+carregado integralmente na memória antes de ser redigido. Cast também não era
+reatestado imediatamente antes de cada consulta ou publicação.
+
+Correção
+
+`rpc`, em `scripts/execute-recoverable-safe-recovery.sh`, agora:
+
+- revalida o proxy privado e reatesta Cast e timeout antes de cada operação;
+- executa Cast em foreground por até 120 segundos, com TERM e KILL após cinco;
+- captura stdout e stderr separadamente em arquivos privados;
+- reatesta Node e limita stdout a 2 MiB e stderr a 64 KiB, com UTF-8 fatal;
+- em sucesso, exige stdout não vazio e stderr vazio e só então publica stdout pelo
+  leitor privado autenticado;
+- em falha, só lê o diagnóstico depois dos limites e continua redigindo todos os
+  endpoints RPC catalogados antes de exibi-lo.
+
+Essa barreira cobre consultas de nonce, estimativa, transação, publicação e demais
+chamadas Cast feitas pelo executor.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais de pinning, snapshots e paridade: 6/6 aprovados;
+- testes focais mais `operator-runbook`: 90/90 aprovados;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, assinatura, transmissão, implantação, fundo, Rust, Solidity,
+Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

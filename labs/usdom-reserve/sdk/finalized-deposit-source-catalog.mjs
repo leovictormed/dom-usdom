@@ -1,4 +1,5 @@
 import {keccak256,toUtf8Bytes} from 'ethers';
+import {isIP} from 'node:net';
 
 export const FINALIZED_DEPOSIT_SOURCE_CATALOG_SCHEMA='usdom-finalized-deposit-source-catalog-v1';
 
@@ -9,6 +10,12 @@ function origin(url,label) {
   try { parsed=new URL(url); } catch { fail(`${label} URL is invalid`); }
   if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.hash) {
     fail(`${label} URL must use HTTPS without userinfo or fragment`);
+  }
+  const hostname=parsed.hostname.toLowerCase();
+  const unbracketed=hostname.startsWith('[')&&hostname.endsWith(']')?hostname.slice(1,-1):hostname;
+  if(hostname.endsWith('.')||hostname==='localhost'||hostname.endsWith('.localhost')
+      ||hostname.endsWith('.local')||isIP(unbracketed)!==0||!hostname.includes('.')) {
+    fail(`${label} URL must use a canonical public DNS hostname`);
   }
   return parsed.origin.toLowerCase();
 }
@@ -57,15 +64,23 @@ export function finalizedDepositSourceSetCommitment(catalog) {
 
 export function buildFinalizedDepositSourceCatalog(runtimeSources) {
   if(!Array.isArray(runtimeSources)) fail('runtime finalized-deposit sources must be an array');
+  const executionHostnames=[],beaconHostnames=[];
   const sources=runtimeSources.map(item=>{
     if(!item||![Object.prototype,null].includes(Object.getPrototypeOf(item))
         ||Object.keys(item).sort().join(',')!=='beaconUrl,executionUrl,operatorId') {
       fail('runtime finalized-deposit source schema is invalid');
     }
+    const execution=new URL(item.executionUrl),beacon=new URL(item.beaconUrl);
+    executionHostnames.push(execution.hostname.toLowerCase());
+    beaconHostnames.push(beacon.hostname.toLowerCase());
     return {operatorId:operatorId(item.operatorId),
       executionOriginKeccak256:hashOrigin(origin(item.executionUrl,'execution')),
       beaconOriginKeccak256:hashOrigin(origin(item.beaconUrl,'Beacon'))};
-  }).sort((a,b)=>a.operatorId.localeCompare(b.operatorId));
+  }).sort((a,b)=>a.operatorId<b.operatorId?-1:a.operatorId>b.operatorId?1:0);
+  if(new Set(executionHostnames).size!==executionHostnames.length
+      ||new Set(beaconHostnames).size!==beaconHostnames.length) {
+    fail('finalized-deposit sources must use independent execution and Beacon hostnames');
+  }
   return validateFinalizedDepositSourceCatalog({schema:FINALIZED_DEPOSIT_SOURCE_CATALOG_SCHEMA,sources});
 }
 

@@ -1,0 +1,25 @@
+Stage 1418 — npm manifest inventory closure
+Date: 2026-10-26
+
+Finding
+The checker validated every discovered package-lock and its adjacent package.json, but a new
+standalone package.json had no lock discovery edge and was silently ignored. Such a manifest
+could introduce a second install root outside the reviewed lock policy.
+
+Correction
+- Inventory every package.json outside generated trees and require a one-to-one adjacent
+  package-lock for installable manifests.
+- Close unlocked manifests to the two vendored OpenZeppelin metadata files, which are Solidity
+  source-package metadata and are not npm install roots.
+- Descriptor-read those two exceptions and bind their exact package name/version classification.
+- A new standalone package.json, a missing manifest for a lock, or a changed exception identity
+  fails closed.
+- Adversarial coverage proves the exact inventory and rejects extra and missing manifests.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 Cargo manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No global inventory was rematerialized. No network, signing, deployment, funds, commit or push occurred.

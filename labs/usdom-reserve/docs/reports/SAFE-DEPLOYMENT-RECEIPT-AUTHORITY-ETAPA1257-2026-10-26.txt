@@ -1,0 +1,37 @@
+Stage 1257 — independently validated Safe deployment receipt authority
+Date: 2026-10-26
+
+Finding
+-------
+The Safe deployment receipt checker trusted a private raw-validation journal
+after checking only its schema and role, then consumed its transaction hash and
+sender. It did not require the journal's exact schema or independently bind its
+Safe, factory target, nonce, calldata/raw hashes, gas and fee bounds. A modified
+journal could therefore retain the two consumed fields while becoming
+ambiguous or inconsistent with the package.
+
+Correction
+----------
+Receipt validation now requires the exact raw-journal field set and independently
+checks the role Safe and target against the package, nonce against the safe
+integer domain, nonzero bounded gas and fee, and all three nonzero hashes before
+binding the RPC receipt. The raw transaction validator also explicitly rejects
+zero max fee or priority fee above max fee in addition to its fixed priority
+policy.
+
+Adversarial regression
+----------------------
+Receipt regressions mutate extra/missing fields, Safe, target, nonce spelling,
+gas ceiling, fee ceiling and zero raw hash. All fail before receipt projection.
+
+Validation
+----------
+- Modified scripts pass Node syntax checks.
+- Safe deployment receipt, finality, raw transaction, executor and deployment
+  suites: 12/12 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

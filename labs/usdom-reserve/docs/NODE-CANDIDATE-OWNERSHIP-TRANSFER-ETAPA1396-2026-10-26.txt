@@ -1,0 +1,50 @@
+Stage 1396 — ownership transfer into candidate verification workers
+Date: 2026-10-26
+
+Finding
+
+RPC candidate handlers already owned their decoded vectors. `NodeHandleImpl`
+then borrowed those vectors when calling `DomNode`, and both v1 and v2 node
+submission methods cloned all bytes solely to move them into `spawn_blocking`.
+For candidate-v2 this duplicated up to 8 MiB of envelope plus 4 MiB of witness
+bundle during admission. Issuance, transfer and burn v4 envelopes had the same
+unnecessary clone pattern within their smaller route-specific limits.
+
+Correction
+
+The internal `DomNode` submission boundaries now accept owned vectors and move
+them directly into the blocking verification closure. RPC node-handle paths
+transfer the vectors they already own. The slice-based explicit Regtest helper
+retains its single conversion because its caller does not transfer ownership.
+Parsing, candidate identity, proof verification, pool accounting and retained
+canonical envelope bytes are unchanged.
+
+Memory/CPU review
+
+- Issuance v4 and candidate v2 use binary HTTP bodies with route-specific caps;
+  they do not incur base64 expansion. Private transfer/burn currently use hex
+  JSON, but remain under the standard body ceiling and class-specific decoded
+  payload limits.
+- V2 framing copies its two components once out of Axum's immutable body into
+  owned vectors needed across the async/node boundary. This stage removes the
+  subsequent full-size node clone; Stage 1393 removed the candidate-ID
+  concatenation allocation.
+- Envelope/witness parsing copies the canonical payloads retained by the
+  bounded pool. Expensive verification runs only after exact deduplication and
+  pool count/aggregate-byte capacity checks.
+- These are public proof, witness and commitment bytes, not wallet openings,
+  seeds or signing keys. Mandatory zeroization would add full-buffer writes
+  without protecting a secret lifecycle; wallet/prover secret types retain
+  their separate zeroization rules.
+
+Evidence
+
+- `cargo check -p dom-node --features native-usdom-v4-poc` passes, compiling
+  protocol, chain, RPC, wallet and node with the owned interfaces.
+- `cargo test -p dom-rpc usdom_v2_candidate_submission --lib`: 2 passed,
+  0 failed in 0.01s, covering authenticated exact binary submission and
+  rejection of noncanonical framing.
+- `cargo fmt --all -- --check` and `git diff --check` pass.
+- No RandomX mining, external network, wallet, signature, deployment, funds,
+  commit or push occurred.
+

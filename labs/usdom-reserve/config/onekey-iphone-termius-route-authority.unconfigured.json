@@ -1,0 +1,27 @@
+{
+  "schema": "usdom-onekey-iphone-termius-route-authority-v1",
+  "status": "evaluated-fail-closed",
+  "termiusCoreBluetoothForwardingSupported": false,
+  "rawEip1559SignatureRequired": true,
+  "ethSendTransactionAccepted": false,
+  "exactEip712Required": true,
+  "recommendedRoute": "native-ios-ble-companion",
+  "routes": {
+    "linuxHostBle": "non-production-not-applicable-wallet-near-iphone",
+    "oneKeyIosWalletConnect": "rejected-missing-documented-raw-eip1559-signing",
+    "nativeIosBleCompanion": "blocked-not-implemented-or-reviewed"
+  },
+  "gates": {
+    "iphoneRemoteSigningApproved": false,
+    "walletConnectRawEip1559Verified": false,
+    "walletConnectExactEip712Verified": false,
+    "nativeIosBleCompanionApproved": false
+  },
+  "officialSources": {
+    "appleCoreBluetooth": "https://developer.apple.com/documentation/corebluetooth",
+    "termiusIos": "https://www.termius.com/free-ssh-client-for-iphone",
+    "oneKeyMobileDeeplinks": "https://developer.onekey.so/en/connect-to-software/mobile-deeplinks/",
+    "oneKeyEthereumRpc": "https://developer.onekey.so/en/connect-to-software/provider/eth/reference/",
+    "walletConnectPairing": "https://specs.walletconnect.com/2.0/specs/clients/core/pairing"
+  }
+}

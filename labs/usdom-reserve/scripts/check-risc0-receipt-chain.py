@@ -11,9 +11,9 @@ IMAGES={
  'aggregate':'08abf768e699ecb9d5cd2abc7603368103bcd3ee61afe9066d8a77272ac02ebf',
  'economic_chunk':'67d286e04444b52305ec409de3c0d22b2131a42f2aa6706f087ace253048e350',
  'economic_block':'03dc111fee3c42a772f142c80d4a921a19bde10f932f86c888606503a28c22a7',
- 'checkpoint_segment':'4e711490f3ab7dde97636687972456da58da4287ce5017e38d4acaa7263a02d6',
- 'checkpoint_outer':'e59d68487386939b2ac379f04528acb6b3138697e17adfda3ad23ebe195af3df',
- 'finalized_burn':'2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea',
+ 'checkpoint_segment':'371e408b360a0e4a0aae2cb994bddb2d66afcc5891a7ed574fa83119734bfbf7',
+ 'checkpoint_outer':'311d58dadcb97cac783e3ec0efe3c4570f42b944cbda1e48aeb56b055682257b',
+ 'finalized_burn':'f0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae',
 }
 FILES={
  'randomx':'crates/dom-usdom-randomx-proof-host/src/lib.rs',

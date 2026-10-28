@@ -1,0 +1,35 @@
+ETAPA 1372 — BOUNDARY E SCHEMA PARA RETORNOS TUPLE
+Data: 2026-10-26
+
+Problema
+
+Os três retornos compostos restantes de `cast call` tinham deadline, mas
+capturavam stdout sem teto e extraíam somente linhas selecionadas. Isso permitia
+saída excedente ou estrutura parcial antes da verificação do registro de
+depósito e do saque pendente.
+
+Correção
+
+Os três pontos passam por `rpc_tuple_call`, com deadline foreground TERM/KILL de
+120 segundos e leitura sentinela de 1.025 bytes que rejeita payload acima de
+1.024 bytes. O registro `deposits` deve ter exatamente três campos tipados
+(address, uint64 e bytes32). Cada snapshot `pendingWithdrawals` deve ter
+exatamente oito campos tipados (quatro bytes32 e quatro uint64).
+
+Somente após a estrutura completa ser aceita são verificadas as semânticas já
+exigidas: financiador, valor e commitment exatos; igualdade dual-RPC; e
+`readyAt` canônico para o gate temporal. Falha, timeout, excesso, linha extra,
+tipo inválido ou divergência abortam antes de assinatura, publicação ou
+evidência terminal.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores e conservação: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário estático: 3/3 retornos tuple usam o boundary; nenhum `cast call`
+  direto permanece nos dois executores.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

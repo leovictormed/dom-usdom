@@ -12,8 +12,22 @@ STATEMENT_DIR="$LAB_ROOT/evidence/randomx-statement-set"
 STATEMENT_INDEX="$STATEMENT_DIR/randomx-statement-set-index.json"
 SNAPSHOT_ROOT="$(mktemp -d "/dev/shm/usdom-randomx-prove.XXXXXX")"
 chmod 0700 "$SNAPSHOT_ROOT"
+SNAPSHOT_ROOT_IDENTITY=$(/usr/bin/stat -c '%u:%d:%i:%a' "$SNAPSHOT_ROOT")
 SNAPSHOT_LAB="$SNAPSHOT_ROOT/repository/labs/usdom-reserve"
-trap 'rm -rf -- "$SNAPSHOT_ROOT"' EXIT HUP INT TERM
+cleanup_snapshot() {
+  local status=${1:-$?}
+  trap - EXIT HUP INT TERM
+  if [[ $(/usr/bin/stat -c '%u:%d:%i:%a' "$SNAPSHOT_ROOT" 2>/dev/null) == "$SNAPSHOT_ROOT_IDENTITY" ]]; then
+    /usr/bin/rm -rf -- "$SNAPSHOT_ROOT" || status=1
+  else
+    status=1
+  fi
+  exit "$status"
+}
+trap 'cleanup_snapshot $?' EXIT
+trap 'cleanup_snapshot 129' HUP
+trap 'cleanup_snapshot 130' INT
+trap 'cleanup_snapshot 143' TERM
 
 if (($# != 0)); then
   printf '%s\n' 'Usage: npm run --silent prove:authenticated-randomx-receipt-set' >&2
@@ -37,7 +51,9 @@ pin_tool() {
   printf -v "${name}_directory_identity" '%s' "$(stat -Lc '%d:%i:%u:%a' "$directory")"
   printf -v "${name}_bin" '%s' "$path"
   printf -v "${name}_identity" '%s' "$(stat -Lc '%d:%i:%s:%Y:%Z' "$path")"
-  printf -v "${name}_sha256" '%s' "$(sha256sum "$path" | awk '{print $NF}')"
+  local executable_sha ignored
+  read -r executable_sha ignored < <(sha256sum "$path")
+  printf -v "${name}_sha256" '%s' "$executable_sha"
   [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
   [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]]
 }
@@ -45,15 +61,22 @@ assert_tool_unchanged() {
   local name=${1} bin_name="${1}_bin" identity_name="${1}_identity" sha_name="${1}_sha256" directory_identity_name="${1}_directory_identity"
   local path=${!bin_name} identity=${!identity_name} sha=${!sha_name} directory
   directory=$(dirname "$path")
-  [[ $(realpath "$directory") == "$directory" ]]
-  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]]
-  [[ $(realpath "$(command -v "$name")") == "$path" ]]
-  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]]
-  [[ $(sha256sum "$path" | awk '{print $NF}') == "$sha" ]]
-  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]]
-  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]]
+  [[ $(realpath "$directory") == "$directory" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]] || return 1
+  [[ $(realpath "$(command -v "$name")") == "$path" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]] || return 1
+  local observed_sha ignored
+  read -r observed_sha ignored < <("$sha256sum_bin" "$path") || return 1
+  [[ $observed_sha == "$sha" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "$identity" ]] || return 1
+  [[ $(stat -Lc '%d:%i:%u:%a' "$directory") == "${!directory_identity_name}" ]] || return 1
 }
-for command in cargo cp jq node env; do pin_tool "$command"; done
+sha256_file() {
+  local output ignored
+  read -r output ignored < <("$sha256sum_bin" -- "$1")
+  printf '%s\n' "$output"
+}
+for command in cargo cp jq node env sha256sum stat; do pin_tool "$command"; done
 if [[ ! -d "$JOB_DIR" || -L "$JOB_DIR" ]]; then
   printf 'Missing non-symlink RandomX proof-job directory: %s\n' "$JOB_DIR" >&2
   exit 1
@@ -146,15 +169,15 @@ cmp -s "$reviewed_job_index" "$snapshot_job_index" || {
 
 critical_snapshot="$SNAPSHOT_ROOT/randomx-critical-inputs.sha256"
 {
-  sha256sum "$snapshot_job_index" "$snapshot_statement_index"
-  for logical in "${statement_files[@]}"; do sha256sum "$SNAPSHOT_LAB/$logical"; done
-  sha256sum "$snapshot_artifacts/usdom-randomx.elf" \
+  "$sha256sum_bin" "$snapshot_job_index" "$snapshot_statement_index"
+  for logical in "${statement_files[@]}"; do "$sha256sum_bin" "$SNAPSHOT_LAB/$logical"; done
+  "$sha256sum_bin" "$snapshot_artifacts/usdom-randomx.elf" \
     "$snapshot_artifacts/usdom-randomx.bin" "$snapshot_artifacts/usdom-randomx.iid"
 } > "$critical_snapshot"
 chmod 0600 "$critical_snapshot"
 assert_tool_unchanged cargo; assert_tool_unchanged cp; assert_tool_unchanged jq
 assert_tool_unchanged node; assert_tool_unchanged env
-sha256sum -c "$critical_snapshot" >/dev/null
+"$sha256sum_bin" -c "$critical_snapshot" >/dev/null
 "$env_bin" \
   -u BONSAI_API_URL \
   -u BONSAI_API_KEY \
@@ -179,14 +202,47 @@ sha256sum -c "$critical_snapshot" >/dev/null
 
 snapshot_receipt_index="$snapshot_receipts/randomx-receipt-set-index.json"
 final_index="$OUTPUT_DIR/randomx-receipt-set-index.json"
+mapfile -t publication_records < <("$jq_bin" -er '
+  select(.schema == "usdom-randomx-receipt-set-v1")
+  | select(.receipt_count == (.receipts | length) and .receipt_count > 0 and .receipt_count <= 720)
+  | [.receipts[].receipt_file] as $names
+  | select(($names | length) == ($names | unique | length))
+  | .receipts[]
+  | select((.receipt_file | test("^randomx-receipt-[0-9]{4}\\.bin$"))
+      and (.receipt_sha256 | test("^[0-9a-f]{64}$"))
+      and (.receipt_bytes | type == "number" and . >= 1 and . <= 268435456))
+  | [.receipt_file,.receipt_sha256,(.receipt_bytes|tostring)] | @tsv
+' "$snapshot_receipt_index")
+if ((${#publication_records[@]} != ${#receipt_files[@]})); then
+  printf '%s\n' 'RandomX receipt index has a noncanonical publication catalog' >&2
+  exit 1
+fi
+for ((record_index=0; record_index<${#publication_records[@]}; ++record_index)); do
+  IFS=$'\t' read -r name _ _ <<< "${publication_records[$record_index]}"
+  if [[ $name != "${receipt_files[$record_index]}" ]]; then
+    printf '%s\n' 'RandomX receipt publication order differs from the reviewed proof jobs' >&2
+    exit 1
+  fi
+done
 if [[ -e "$final_index" || -L "$final_index" ]]; then
   [[ -f "$final_index" && ! -L "$final_index" ]]
   rm -- "$final_index"; sync -d "$OUTPUT_DIR"
 fi
-for name in "${receipt_files[@]}"; do
+for record in "${publication_records[@]}"; do
+  IFS=$'\t' read -r name expected_sha expected_bytes <<< "$record"
   "$node_bin" "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$snapshot_receipts/$name" \
     | "$node_bin" "$LAB_ROOT/scripts/install-private-file-stdin.mjs" "$OUTPUT_DIR/$name"
+  [[ $("$stat_bin" -Lc '%s' "$OUTPUT_DIR/$name") == "$expected_bytes" ]]
+  [[ $(sha256_file "$OUTPUT_DIR/$name") == "$expected_sha" ]]
 done
 "$node_bin" "$LAB_ROOT/scripts/read-private-file-stdout.mjs" "$snapshot_receipt_index" \
   | "$node_bin" "$LAB_ROOT/scripts/install-private-file-stdin.mjs" \
     "$final_index"
+[[ $(sha256_file "$final_index") == "$(sha256_file "$snapshot_receipt_index")" ]]
+for record in "${publication_records[@]}"; do
+  IFS=$'\t' read -r name expected_sha expected_bytes <<< "$record"
+  [[ $("$stat_bin" -Lc '%s' "$OUTPUT_DIR/$name") == "$expected_bytes" ]]
+  [[ $(sha256_file "$OUTPUT_DIR/$name") == "$expected_sha" ]]
+done
+assert_tool_unchanged node; assert_tool_unchanged jq
+assert_tool_unchanged sha256sum; assert_tool_unchanged stat

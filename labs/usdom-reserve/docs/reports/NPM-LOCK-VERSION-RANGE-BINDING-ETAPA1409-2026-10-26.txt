@@ -1,0 +1,25 @@
+Stage 1409 — npm lock version-range binding
+Date: 2026-10-26
+
+Finding
+Dependency edges resolved to an installed lock entry, but their requirement was not checked
+against that entry's version. An otherwise valid lock could connect `^1` to a checksummed 2.x
+archive and still satisfy the previous existence-only closure check.
+
+Correction
+- Parse the exact requirement forms present in the reviewed locks: exact/partial, caret and tilde
+  semantic versions, including prerelease exclusion.
+- Resolve each dependency by nearest-ancestor node_modules, retrieve that exact entry and require
+  its version to satisfy the declaring edge's range.
+- Reject unsupported requirement syntax or malformed installed versions rather than guessing.
+- Implement npm caret rules for major-zero compatibility and tilde minor boundaries.
+- Adversarial regressions cover major substitution, zero-major caret escape, tilde escape,
+  prerelease substitution and a lock edge whose installed version falls outside its range.
+
+Validation
+- Python compilation, adversarial self-test and live dependency policy: PASS.
+- Live policy covers 36 Cargo locks/15,017 entries, 234 manifests and four npm locks/241 entries.
+- Focused supply-chain/toolchain suite: 7/7 PASS.
+- Diff check: PASS.
+
+No repository hash was frozen. No network, signing, deployment, funds, commit or push occurred.

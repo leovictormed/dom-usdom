@@ -58,6 +58,17 @@ const MAX_PROGRAM_BYTES: usize = 512 * 1024 * 1024;
 const MAX_RECEIPT_BYTES: usize = 256 * 1024 * 1024;
 const MAX_STATEMENTS: usize = 720;
 
+fn valid_statement_set_counts(segment_count: usize, statement_count: usize) -> bool {
+    // Package and witness byte ceilings can force one-block segments. The
+    // segment count is consequently bounded by the full context span, while
+    // the separate block-index check enforces the 32-block segment ceiling.
+    segment_count > 0
+        && segment_count <= MAX_STATEMENTS
+        && statement_count > 0
+        && statement_count <= MAX_STATEMENTS
+        && segment_count <= statement_count
+}
+
 #[cfg(feature = "prove")]
 pub(crate) fn require_local_prover_environment(context: &str) -> Result<(), String> {
     if std::env::var("RISC0_PROVER").ok().as_deref() != Some("local")
@@ -349,10 +360,7 @@ fn build_plan(paths: &PlanPaths<'_>) -> Result<(ProofJobIndex, Vec<u8>, String),
         || source.randomx_receipt_image_id != EXPECTED_IMAGE_ID
         || source.previous_height >= source.target_height
         || source.target_height >= source.confirmation_height
-        || source.segment_count == 0
-        || source.segment_count > 32
-        || source.statement_count == 0
-        || source.statement_count > MAX_STATEMENTS
+        || !valid_statement_set_counts(source.segment_count, source.statement_count)
         || source.statement_count != source.statements.len()
         || source.statement_count
             != usize::try_from(source.confirmation_height - source.previous_height)
@@ -786,7 +794,7 @@ mod tests {
 
     use super::{
         canonical_nonzero_hash, decode_hex_32, publish_plan, receipt_name, sha256, statement_name,
-        PlanPaths,
+        valid_statement_set_counts, PlanPaths, MAX_STATEMENTS,
     };
 
     #[test]
@@ -797,6 +805,18 @@ mod tests {
         assert!(!canonical_nonzero_hash(&"00".repeat(32)));
         assert_eq!(decode_hex_32(&"01".repeat(32)).unwrap(), [1u8; 32]);
         assert!(decode_hex_32(&"AB".repeat(32)).is_err());
+    }
+
+    #[test]
+    fn statement_plan_allows_byte_limited_one_block_segments() {
+        assert!(valid_statement_set_counts(33, 33));
+        assert!(valid_statement_set_counts(MAX_STATEMENTS, MAX_STATEMENTS));
+        assert!(!valid_statement_set_counts(0, 1));
+        assert!(!valid_statement_set_counts(2, 1));
+        assert!(!valid_statement_set_counts(
+            MAX_STATEMENTS + 1,
+            MAX_STATEMENTS + 1
+        ));
     }
 
     fn statement(height: u64, discriminator: u8) -> Vec<u8> {

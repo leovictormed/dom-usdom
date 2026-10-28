@@ -1,0 +1,36 @@
+Stage 1291 — restored exact closed-pilot financial evidence
+Date: 2026-10-26
+
+Finding
+-------
+The current deposit financial-evidence validator validated consumed fields but
+did not enforce exact baseline or execution schemas. The payout validator used
+object-key count plus the `in` operator, which is weaker than equality of own
+keys and can accept a missing own field supplied through a prototype when an
+unrecognized own field preserves the count.
+
+Correction
+----------
+Deposit baseline and execution now require their exact thirteen- and
+seventeen-field writer schemas before identity or amount checks. Payout baseline
+and execution now compare sorted own-key sets to their expected schemas. All
+existing one-USDT deltas, finalized snapshot ordering and package bindings remain
+unchanged.
+
+Adversarial regression
+----------------------
+Deposit regressions reject injected and missing fields in each document. Payout
+regressions construct objects with a required field inherited from a prototype
+and an ambiguous replacement own field; both baseline and execution fail closed.
+
+Validation
+----------
+- Deposit and payout evidence SDK Node syntax checks: pass.
+- Deposit/payout evidence, financial conservation, pilot DAG/evidence,
+  deposit/redemption executors and broad operator suites: 101/101 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

@@ -1,0 +1,39 @@
+USDOM mainnet readiness — Stage 1336
+Date: 2026-10-26
+
+Finding
+=======
+
+Provider fetches used a fixed 120-second timeout but were independent of the
+loopback client's lifecycle. If Cast or an executor exited, timed out or closed
+its socket, the credential-bearing provider request could continue until the
+provider answered or the deadline elapsed, retaining an active slot and request
+material unnecessarily.
+
+Correction
+==========
+
+Each admitted request now owns an AbortController. The provider fetch uses
+AbortSignal.any over that controller and the existing 120-second deadline. A
+local request abort and a response close before writable completion both abort
+the provider operation. The code also checks already-closed state before fetch,
+aborts residual work in finally, and skips writing the generic failure response
+when the response socket is destroyed. Existing buffer/object cleanup then runs
+before the active slot is released.
+
+Validation
+==========
+
+- Node syntax check passed for the proxy.
+- Lifecycle assertions require request-abort and response-close propagation,
+  combined deadline signal, pre-fetch disconnected-state rejection, final abort
+  and destroyed-response write suppression.
+- Proxy abort, cleanup, exact-envelope and readiness suite: 10/10 passed.
+- git diff --check passed.
+
+Scope
+=====
+
+No provider was contacted and no transaction was transmitted. No network,
+signing, deployment, funds, production facts, Rust, Solidity, Cargo, Forge,
+commit or push occurred.

@@ -24,7 +24,7 @@ function exactKeys(value,keys,label) {
   }
 }
 function isCanonicalDecimal(value) {
-  return typeof value==='string'&&DECIMAL.test(value);
+  return typeof value==='string'&&value.length<=78&&DECIMAL.test(value)&&BigInt(value)<1n<<256n;
 }
 function asRpcQuantity(value,label) {
   try {
@@ -47,10 +47,9 @@ export async function prepareRecoverableSafeRecoveryEnvelope({
   validateRecoverableSafeRecoveryTransactionPackage(plan,transactionPackage);
   const expected=transactionPackage.transactions.find(value=>value.role===role);
   if(!expected) fail('Safe recovery role is invalid');
-  if(!isAddress(relayerOwner)
-      || !plan.roles.find(value=>value.role===role).requiredSigners
-        .some(owner=>sameAddress(owner,relayerOwner))) {
-    fail('Safe recovery relayer must be one of the two surviving owners');
+  const forbiddenRelayers=plan.roles.flatMap(value=>[value.safe,...value.requiredSigners]);
+  if(!isAddress(relayerOwner)||forbiddenRelayers.some(authority=>sameAddress(authority,relayerOwner))) {
+    fail('Safe recovery relayer overlaps a Safe or control owner');
   }
   if(!Array.isArray(sources)||sources.length<2||sources.length>5
       || sources.some(source=>typeof source?.url!=='string'||source.url.length===0)
@@ -166,8 +165,8 @@ export function validateRecoverableSafeRecoveryEnvelope(plan,transactionPackage,
       || !expected||!isAddress(envelope.relayerOwner)||!isAddress(envelope.to)
       || getAddress(envelope.relayerOwner)!==envelope.relayerOwner
       || getAddress(envelope.to)!==envelope.to
-      || !plan.roles.find(value=>value.role===envelope.role).requiredSigners
-        .some(owner=>sameAddress(owner,envelope.relayerOwner))
+      || plan.roles.flatMap(value=>[value.safe,...value.requiredSigners])
+        .some(authority=>sameAddress(authority,envelope.relayerOwner))
       || !sameAddress(envelope.to,expected.to)||envelope.value!=='0'
       || envelope.dataHash!==expected.dataHash||!HASH.test(envelope.envelopeHash)
       || ![envelope.nonce,envelope.gasLimit,envelope.maxFeePerGas,
@@ -201,6 +200,7 @@ export function validateRecoverableSafeRecoveryEnvelope(plan,transactionPackage,
           observation.relayerBalance].every(isCanonicalDecimal)
         || observation.finalizedNonce!==envelope.nonce
         || observation.pendingNonce!==envelope.nonce
+        || BigInt(observation.finalizedBlockNumber)>=1n<<64n
         || BigInt(observation.gasEstimate)===0n
         || BigInt(observation.gasEstimate)>SAFE_RECOVERY_MAX_GAS_LIMIT
         || BigInt(observation.baseFeePerGas)>SAFE_RECOVERY_MAX_BASE_FEE_PER_GAS

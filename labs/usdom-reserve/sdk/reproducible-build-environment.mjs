@@ -38,8 +38,12 @@ export async function snapshotProductionSolc(environment=process.env) {
   if(typeof environment.HOME!=='string'||!path.isAbsolute(environment.HOME)) {
     throw new Error('production Solc HOME is invalid');
   }
-  return snapshotExecutablePath(path.join(environment.HOME,'.svm',PRODUCTION_SOLC_VERSION,
+  const snapshot=await snapshotExecutablePath(path.join(environment.HOME,'.svm',PRODUCTION_SOLC_VERSION,
     `solc-${PRODUCTION_SOLC_VERSION}`));
+  if(snapshot.sha256!==PRODUCTION_SOLC_SHA256) {
+    throw new Error('production Solc executable differs from the reviewed SHA-256 pin');
+  }
+  return snapshot;
 }
 
 export function productionFoundryBuildArguments(contract,output,cache,root,solcPath) {
@@ -49,16 +53,18 @@ export function productionFoundryBuildArguments(contract,output,cache,root,solcP
   if(!path.isAbsolute(solcPath)) throw new Error('Foundry solcPath must be absolute');
   return ['build',contract,'--root',root,'--offline','--no-auto-detect','--use',solcPath,
     '--evm-version','cancun','--optimize','--optimizer-runs','1','--via-ir','--force','--out',output,
-    '--cache-path',cache,'--ignored-error-codes','6335','-D','warnings'];
+    '--cache-path',cache,'--extra-output','storageLayout','--ignored-error-codes','6335','-D','warnings'];
 }
 import path from 'node:path';
 import {snapshotExecutablePath} from './stable-executable.mjs';
 
 export const PRODUCTION_SOLC_VERSION='0.8.37';
+export const PRODUCTION_SOLC_LONG_VERSION='0.8.37+commit.f401782d';
+export const PRODUCTION_SOLC_SHA256='5de843c2c93563cc66425c99a4fb13fdbf32b4c4ae07469480faaf126e14404a';
 
 export function assertProductionSolidityMetadata(artifact) {
   const metadata=artifact?.metadata,settings=metadata?.settings;
-  if(metadata?.compiler?.version!==`${PRODUCTION_SOLC_VERSION}+commit.f401782d`
+  if(metadata?.compiler?.version!==PRODUCTION_SOLC_LONG_VERSION
       ||settings?.evmVersion!=='cancun'||settings?.viaIR!==true
       ||settings?.optimizer?.enabled!==true||settings?.optimizer?.runs!==1
       ||settings?.metadata?.bytecodeHash!=='none') {

@@ -67,6 +67,20 @@ impl SpendVerifier {
         if key.gamma_abc_g1.len() != PUBLIC_INPUTS + 1 {
             return Err(VerifierError::WrongPublicInputShape);
         }
+        // Checked Arkworks decoding establishes curve and subgroup membership,
+        // but the identity is itself a valid subgroup point.  It is never a
+        // valid element of this frozen Groth16 verification key: accepting a
+        // key made from identities would reduce the pairing equation to a
+        // trivial equality and turn a deployment/configuration mistake into
+        // proof acceptance.
+        if key.alpha_g1.infinity
+            || key.beta_g2.infinity
+            || key.gamma_g2.infinity
+            || key.delta_g2.infinity
+            || key.gamma_abc_g1.iter().any(|point| point.infinity)
+        {
+            return Err(VerifierError::InvalidVerifyingKey);
+        }
         let mut identity = Vec::with_capacity(32 + canonical.len());
         identity.extend_from_slice(privacy_policy_hash().as_bytes());
         identity.extend_from_slice(&canonical);
@@ -107,6 +121,15 @@ impl SpendVerifier {
         if canonical.as_slice() != proof_bytes {
             return Err(VerifierError::InvalidProofEncoding);
         }
+        // Identity points have a canonical compressed encoding and therefore
+        // survive both checked decoding and the round-trip test above.  They
+        // cannot occur in an authorized proof for the non-degenerate key we
+        // accept, and rejecting them keeps this boundary fail-closed even if a
+        // future pairing implementation changes its handling of degenerate
+        // inputs.
+        if proof.a.infinity || proof.b.infinity || proof.c.infinity {
+            return Err(VerifierError::InvalidProofEncoding);
+        }
         if !Groth16::<Bn254>::verify_proof(&self.prepared, &proof, &statement.public_inputs())
             .map_err(|_| VerifierError::VerificationFailed)?
         {
@@ -134,6 +157,17 @@ mod tests {
             SpendVerifier::from_bytes(&vec![0u8; MAX_VERIFYING_KEY_BYTES + 1]),
             Err(VerifierError::InvalidVerifyingKey)
         ));
+
+        let mut identity_key = VerifyingKey::<Bn254>::default();
+        identity_key.gamma_abc_g1 = vec![Default::default(); PUBLIC_INPUTS + 1];
+        let mut identity_key_bytes = Vec::new();
+        identity_key
+            .serialize_compressed(&mut identity_key_bytes)
+            .unwrap();
+        assert!(matches!(
+            SpendVerifier::from_bytes(&identity_key_bytes),
+            Err(VerifierError::InvalidVerifyingKey)
+        ));
     }
 
     #[test]
@@ -157,6 +191,16 @@ mod tests {
         let mut proof_bytes = Vec::new();
         proof.serialize_compressed(&mut proof_bytes).unwrap();
         verifier.verify(circuit.statement, &proof_bytes).unwrap();
+
+        let mut identity_proof_bytes = Vec::new();
+        Proof::<Bn254>::default()
+            .serialize_compressed(&mut identity_proof_bytes)
+            .unwrap();
+        assert_eq!(identity_proof_bytes.len(), GROTH16_PROOF_BYTES);
+        assert_eq!(
+            verifier.verify(circuit.statement, &identity_proof_bytes),
+            Err(VerifierError::InvalidProofEncoding)
+        );
 
         for index in 0..PUBLIC_INPUTS {
             let mut changed = circuit.statement;

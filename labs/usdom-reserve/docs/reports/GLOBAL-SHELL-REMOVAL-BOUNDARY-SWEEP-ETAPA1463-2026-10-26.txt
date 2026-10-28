@@ -1,0 +1,14 @@
+Stage 1463 — global Shell removal-boundary sweep
+Date: 2026-10-26
+
+Independent search commands:
+  rg -l 'rmSync\(' scripts | sort | wc -l
+  rg -n 'rmSync\(' scripts | wc -l
+  rg -l 'remove-private-directory' scripts | sort | wc -l
+  rg -n 'remove-private-directory' scripts | wc -l
+
+Raw counts: rmSync appears 34 times in 31 files. Exactly 30 occurrences are Shell-launched Node children; four are synchronous in-process operations inside .mjs programs. remove-private-directory appears once in one Shell script.
+
+The expanded sweep found and corrected Shell boundaries outside the earlier inventory in Safe deployment, checkpoint/preactivation materialization, two report writers and observed-state durable removal. The dynamic global regression now proves all 30 Shell rmSync children plus the one durable-directory child have authenticated TERM/KILL deadlines, suppressed output, post-child tool reattestation and absence postconditions. Residual real boundary count: zero.
+
+Focused suites pass 14/14 and git diff --check passes. No operational script, network, signing, deployment, funds, commit or push occurred.

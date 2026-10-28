@@ -1,0 +1,20 @@
+Stage 1438 — wallet mutation post-body admission
+
+Finding
+The four authenticated wallet mutation routes shared their only two mutation
+permits in middleware that ran before JSON body extraction. Two clients that
+never completed bounded request bodies could therefore deny every real wallet
+mutation without invoking wallet code.
+
+Correction
+Body delivery now has four independent bounded slots. Each handler acquires a
+shared two-slot mutation permit, fail-fast, only after Axum has completely
+decoded its bounded JSON request. The synchronous NodeHandle mutation remains
+inside the permit lifetime.
+
+Focused evidence
+`cargo test -p dom-rpc slow_wallet_body_does_not_hold_mutation_worker -- --nocapture`
+passed 1/1. The regression holds one authenticated request body open and proves
+a complete request reaches the handler in 20 ms instead of waiting for it.
+
+No network, mining, signing, deployment, funds, commit or push occurred.

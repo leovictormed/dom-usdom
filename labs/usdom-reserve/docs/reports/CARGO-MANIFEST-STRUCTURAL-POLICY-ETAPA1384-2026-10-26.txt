@@ -1,0 +1,30 @@
+Stage 1384 — structural Cargo manifest dependency policy
+Date: 2026-10-26
+
+Finding
+The release dependency policy searched manifest text for inline git declarations. Section-form,
+target-specific and workspace dependency tables could bypass the exact HTTPS/revision rule.
+Workspace path inventories and local dependency paths also lacked explicit traversal and
+duplicate checks.
+
+Correction
+- Recursively inspect dependencies, dev-dependencies and build-dependencies in parsed TOML,
+  including workspace and target-specific tables.
+- Every git dependency must use an unqualified HTTPS URL and an exact lowercase 40-hex rev;
+  branch, tag, query and fragment selectors fail closed.
+- Every local path dependency must be a non-empty string whose resolved target remains inside
+  the repository. Optional deliberately absent in-repository crates remain representable.
+- Workspace members, excludes and default-members must be arrays of unique non-empty strings;
+  absolute, parent-traversing and backslash paths fail closed.
+- Expanded the adversarial self-test for section-form missing rev, target-specific non-HTTPS
+  git, escaping path dependencies, duplicate members, escaping members and type drift.
+
+Validation
+- Python compilation: PASS.
+- strict dependency policy adversarial self-test: PASS.
+- live dependency policy: PASS (36 Cargo locks/15,017 entries, 234 manifests, four npm
+  locks/241 entries).
+- focused supply-chain/toolchain suite: 7/7 PASS.
+- diff check: PASS.
+
+No repository hash was frozen. No network, signing, deployment, funds, commit or push occurred.

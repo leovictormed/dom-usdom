@@ -1434,11 +1434,23 @@ async fn serve_metrics(
     metrics: Arc<Metrics>,
 ) -> Result<(), DomError> {
     let capacity = Arc::new(tokio::sync::Semaphore::new(METRICS_MAX_IN_FLIGHT));
+    // JoinSet gives the metrics service structured ownership of every accepted
+    // connection. Dropping/cancelling this service aborts all children rather
+    // than leaving detached tasks outside NodeTaskSupervisor's lifecycle.
+    let mut connections = tokio::task::JoinSet::new();
     loop {
-        let (mut stream, _) = listener
-            .accept()
-            .await
-            .map_err(|e| DomError::Internal(format!("metrics accept: {e}")))?;
+        let accepted = tokio::select! {
+            biased;
+            completed = connections.join_next(), if !connections.is_empty() => {
+                if let Some(Err(error)) = completed {
+                    tracing::debug!("metrics connection task failed: {error}");
+                }
+                continue;
+            }
+            accepted = listener.accept() => accepted,
+        };
+        let (mut stream, _) =
+            accepted.map_err(|e| DomError::Internal(format!("metrics accept: {e}")))?;
         let Ok(permit) = Arc::clone(&capacity).try_acquire_owned() else {
             // Fail closed without queueing sockets: one local scraper must not
             // retain arbitrary pending work or starve the observability loop.
@@ -1446,7 +1458,7 @@ async fn serve_metrics(
             continue;
         };
         let metrics = Arc::clone(&metrics);
-        tokio::spawn(async move {
+        connections.spawn(async move {
             let _permit = permit;
             if let Err(e) = handle_metrics_connection(&mut stream, &metrics).await {
                 tracing::debug!("metrics request failed: {e}");
@@ -2191,7 +2203,7 @@ impl DomNode {
                 "native USDOM mining candidates are available only on explicit Regtest".into(),
             ));
         }
-        self.submit_native_usdom_v4_mining_envelope(envelope_bytes, candidate_timestamp)
+        self.submit_native_usdom_v4_mining_envelope(envelope_bytes.to_vec(), candidate_timestamp)
             .await
     }
 
@@ -2200,13 +2212,12 @@ impl DomNode {
     #[cfg(feature = "native-usdom-v4-poc")]
     pub async fn submit_native_usdom_v4_mining_envelope(
         &self,
-        envelope_bytes: &[u8],
+        envelope_bytes: Vec<u8>,
         candidate_timestamp: Timestamp,
     ) -> Result<Hash256, DomError> {
         let runtime = self.native_usdom_v4_runtime.as_ref().ok_or_else(|| {
             DomError::PolicyRejected("native USDOM v4 runtime is not configured".into())
         })?;
-        let envelope_bytes = envelope_bytes.to_vec();
         let chain = self.chain.clone().lock_owned().await;
         let runtime = runtime.clone().lock_owned().await;
         let (result, count, bytes) = tokio::task::spawn_blocking(move || {
@@ -2240,15 +2251,13 @@ impl DomNode {
     #[cfg(feature = "native-usdom-v4-poc")]
     pub async fn submit_native_usdom_v2_mining_candidate(
         &self,
-        envelope_bytes: &[u8],
-        witness_bytes: &[u8],
+        envelope_bytes: Vec<u8>,
+        witness_bytes: Vec<u8>,
         candidate_timestamp: Timestamp,
     ) -> Result<Hash256, DomError> {
         let runtime = self.native_usdom_v2_runtime.as_ref().ok_or_else(|| {
             DomError::PolicyRejected("native USDOM V2 runtime is not configured".into())
         })?;
-        let envelope_bytes = envelope_bytes.to_vec();
-        let witness_bytes = witness_bytes.to_vec();
         let chain = self.chain.clone().lock_owned().await;
         let runtime = runtime.clone().lock_owned().await;
         let (result, count, bytes) = tokio::task::spawn_blocking(move || {
@@ -9094,7 +9103,7 @@ mod tests {
     #[cfg(feature = "native-usdom-v4-poc")]
     #[test]
     fn native_proof_admission_is_global_fail_fast_and_releases() {
-        let admission = std::sync::Arc::new(NativeProofAdmission::new());
+        let admission = std::sync::Arc::new(super::NativeProofAdmission::new());
         let permit = super::try_acquire_native_proof_permit(&admission, b"package-a").unwrap();
         assert!(super::try_acquire_native_proof_permit(&admission, b"package-b").is_err());
         drop(permit);
@@ -9104,7 +9113,7 @@ mod tests {
     #[cfg(feature = "native-usdom-v4-poc")]
     #[test]
     fn native_proof_permit_survives_async_owner_cancellation_pattern() {
-        let admission = std::sync::Arc::new(NativeProofAdmission::new());
+        let admission = std::sync::Arc::new(super::NativeProofAdmission::new());
         let async_owner = std::sync::Arc::new(
             super::try_acquire_native_proof_permit(&admission, b"package-a").unwrap(),
         );
@@ -9125,7 +9134,7 @@ mod tests {
     #[cfg(feature = "native-usdom-v4-poc")]
     #[test]
     fn identical_native_proof_package_is_suppressed_while_inflight() {
-        let admission = std::sync::Arc::new(NativeProofAdmission::new());
+        let admission = std::sync::Arc::new(super::NativeProofAdmission::new());
         let permit = super::try_acquire_native_proof_permit(&admission, b"same-package").unwrap();
         let error = match super::try_acquire_native_proof_permit(&admission, b"same-package") {
             Ok(_) => panic!("duplicate package must be suppressed"),
@@ -11186,10 +11195,7 @@ mod tests {
             "write frame to 198.51.100.8:3414 failed".into(),
         ));
         let rendered = error.to_string();
-        assert_eq!(
-            rendered,
-            "internal error: private transaction relay write failed"
-        );
+        assert_eq!(rendered, "Internal: private transaction relay write failed");
         assert!(!rendered.contains("198.51.100.8"));
         assert!(!rendered.contains("stem"));
 

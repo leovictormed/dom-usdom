@@ -46,7 +46,7 @@ function rows(catalog) {
       ||new Set(values.map(row=>row.originKeccak256)).size!==values.length) {
     fail('RPC source operators and origins must be pairwise distinct');
   }
-  const sorted=[...values].sort((a,b)=>a.operatorId.localeCompare(b.operatorId));
+  const sorted=[...values].sort((a,b)=>a.operatorId<b.operatorId?-1:a.operatorId>b.operatorId?1:0);
   if(values.some((row,index)=>row.operatorId!==sorted[index].operatorId)) {
     fail('RPC source catalog must be sorted by operatorId');
   }
@@ -55,13 +55,16 @@ function rows(catalog) {
 
 export function buildCheckpointBootstrapRpcCatalog(sources) {
   if(!Array.isArray(sources)||sources.length<2||sources.length>5) fail('two to five RPC sources are required');
+  const hostnames=[];
   const catalog={schema:CHECKPOINT_BOOTSTRAP_RPC_CATALOG_SCHEMA,sources:sources.map((source,index)=>{
     exact(source,['operatorId','url'],`RPC source ${index+1}`);
     if(!operator.test(source.operatorId??'')) fail(`RPC source ${index+1} operatorId is invalid`);
     const url=endpoint(source.url,`RPC source ${index+1} URL`);
+    hostnames.push(url.hostname.toLowerCase());
     return {operatorId:source.operatorId,
       originKeccak256:keccak256(toUtf8Bytes(url.origin.toLowerCase()))};
-  }).sort((a,b)=>a.operatorId.localeCompare(b.operatorId))};
+  }).sort((a,b)=>a.operatorId<b.operatorId?-1:a.operatorId>b.operatorId?1:0)};
+  if(new Set(hostnames).size!==hostnames.length) fail('RPC source hostnames must be pairwise distinct');
   rows(catalog);
   return catalog;
 }
@@ -91,12 +94,18 @@ async function readLimited(response,maxBytes) {
 }
 
 export function createBoundedJsonRpcProvider(url,{fetchImpl=globalThis.fetch,timeoutMs=10_000,
-  maxBytes=64*1024}={}) {
+  maxBytes=64*1024,maxRequests=256}={}) {
   const endpointUrl=endpoint(url,'RPC URL').href;
   if(typeof fetchImpl!=='function') fail('fetch implementation is unavailable');
+  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>120_000
+      ||!Number.isSafeInteger(maxBytes)||maxBytes<1||maxBytes>16*1024*1024
+      ||!Number.isSafeInteger(maxRequests)||maxRequests<1||maxRequests>1024) {
+    fail('JSON-RPC transport bounds are invalid');
+  }
   let nextId=1;
   return {async send(method,params) {
     if(typeof method!=='string'||!Array.isArray(params)) fail('JSON-RPC request is invalid');
+    if(nextId>maxRequests) fail('JSON-RPC request count limit exceeded');
     const id=nextId++,controller=new AbortController();
     const timer=setTimeout(()=>controller.abort(),timeoutMs);
     try {
@@ -120,12 +129,17 @@ export async function collectCheckpointBootstrapRatificationObservation({catalog
   }
   if(!validEip1271Signature(signature)) fail('EIP-1271 signature is malformed or oversized');
   const runtime=new Map();
+  const runtimeHostnames=[];
   for(const [index,source] of rpcSources.entries()) {
     exact(source,['operatorId','url'],`runtime RPC source ${index+1}`);
     if(runtime.has(source.operatorId)) fail('runtime RPC operators must be distinct');
     const url=endpoint(source.url,`runtime RPC source ${index+1} URL`);
+    runtimeHostnames.push(url.hostname.toLowerCase());
     runtime.set(source.operatorId,{url:url.href,
       originKeccak256:keccak256(toUtf8Bytes(url.origin.toLowerCase()))});
+  }
+  if(new Set(runtimeHostnames).size!==runtimeHostnames.length) {
+    fail('runtime RPC source hostnames must be pairwise distinct');
   }
   const digest=checkpointBootstrapRatificationDigest({releaseEvidence,releaseConfig,
     checkpointConsensus,nativeFacts});
@@ -139,7 +153,10 @@ export async function collectCheckpointBootstrapRatificationObservation({catalog
       fail(`${row.operatorId} is not canonical Ethereum mainnet`);
     }
     const result=await collectFinalizedEip1271Approvals({provider,chainId:'1',
-      governance:releaseConfig.governance,requests:{ratification:{digest,signature}}});
+      governance:releaseConfig.governance,
+      governanceImplementation:releaseConfig.governanceImplementation,
+      governanceImplementationCodeHash:releaseConfig.governanceImplementationCodeHash,
+      requests:{ratification:{digest,signature}}});
     if(!result.approvals.ratification.valid||result.snapshotBlockHashAfter!==result.finalizedBlockHash) {
       fail(`${row.operatorId} did not return a stable valid finalized EIP-1271 approval`);
     }

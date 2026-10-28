@@ -1,0 +1,28 @@
+ETAPA 1307 — LIMITES PARA REATESTAÇÃO DE CODEHASH
+Data: 2026-10-26
+
+Problema
+
+O executor de resgate reatesta no snapshot finalizado os bytecodes da reserva e
+do token antes de prosseguir. As duas consultas `cast codehash` não tinham prazo
+externo e podiam bloquear a cerimônia nessa fronteira de identidade.
+
+Correção
+
+As duas chamadas agora executam sob
+`timeout --foreground --signal=TERM --kill-after=5s 120s`. Timeout, falha ou hash
+divergente interrompe o fluxo antes de assinatura ou publicação. O bloco fixado
+e os hashes esperados da configuração permanecem inalterados.
+
+A regressão iguala as duas consultas aos dois wrappers, impedindo chamada
+direta sem deadline.
+
+Validação offline
+
+- Sintaxe Bash do executor de resgate: aprovada.
+- Suíte focal: 11/11 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 72/72 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

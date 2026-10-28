@@ -1,0 +1,36 @@
+ETAPA 1401 — BOUNDARY JQ DO ANCHOR FINALIZADO
+Data: 2026-10-26
+
+Problema
+
+O `finalized-anchor.json`, autoridade que limita fee, gas e bloco finalizado da
+transação assinada, era gerado por uma chamada jq direta sem deadline ou limites
+de stdout/stderr. Em seguida seu modo era corrigido por `chmod 0600` e o
+validador de evidência Node também era chamado diretamente.
+
+Correção
+
+Foi criado `run_jq_json_authority`. O helper reatesta jq e timeout, aplica
+deadline foreground TERM/KILL de 30 segundos, limita stdout a 2 MiB e stderr a
+64 KiB, exige UTF-8 válido, status zero, stdout não vazio e stderr vazio. Jq é
+reatestado depois da execução. Output e stderr precisam nascer como arquivos
+privados regulares do UID atual, modo 0600 e link count um; o JSON passa ainda
+pelo parser estrito com chaves duplicadas rejeitadas.
+
+O anchor usa agora esse helper. Seu `check-deployment-evidence` usa
+`run_node_empty_authority`, obtendo Node/timeout reatestados, deadline, caps e
+status/streams exatos. O chmod corretivo foi removido.
+
+Validação offline
+
+- Sintaxe Bash: aprovada.
+- Regressões focais: 16/16 aprovadas.
+- Suíte ampla de implantação, sem a medição de gas independente: 65/65.
+- Inventário exige os dois helpers e proíbe chmod do anchor.
+- `git diff --check`: aprovado.
+
+A medição local de gas permanece separadamente vermelha por alteração Solidity
+concorrente no `checkpointRegistry`; nenhum teto ou Solidity mudou aqui.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

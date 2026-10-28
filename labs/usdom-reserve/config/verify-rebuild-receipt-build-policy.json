@@ -47,5 +47,5 @@
   ],
   "cargoPath": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/cargo",
   "rustcPath": "/home/leonardov/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc",
-  "sourceClosureSha256": "668612cf0a899485baae49b2cf2bcf0e61a1615d0d24ddec55a2deb212831682"
+  "sourceClosureSha256": "ec112876ede08a091939a83989e100f5f6b012ec9c74824cd7ab339f3bc2db31"
 }

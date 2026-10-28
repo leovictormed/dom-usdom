@@ -1,0 +1,35 @@
+USDOM mainnet readiness — Stage 1312
+Date: 2026-10-26
+
+Finding
+=======
+
+The solc toolchain-lock materializer opened the configured compiler with
+O_NOFOLLOW, hashed those descriptor bytes, closed the descriptor, and then
+executed the pathname. A replacement between close and exec could make the
+version probe run a different executable than the one whose SHA-256 was
+installed in the mainnet toolchain lock.
+
+Correction
+==========
+
+The descriptor remains open across metadata validation, byte hashing and the
+version probe. The child executes /proc/self/fd/<descriptor>, so pathname
+replacement cannot change the compiler generation being authenticated. The
+descriptor is closed in a finally block on both success and failure.
+
+Validation
+==========
+
+- Node syntax checks passed for the materializer and its regression.
+- Regression requires the SHA check to precede descriptor execution and rejects
+  direct execution through expectedPath.
+- Broad mainnet command and operator suite: 85/85 tests passed.
+- git diff --check passed for the stage files.
+
+Scope
+=====
+
+No compiler was executed by the production materializer and no lock was
+rewritten during validation. No production fact, Rust, Solidity, Cargo, Forge,
+network, Ledger, signing, deployment, funds, commit or push operation occurred.

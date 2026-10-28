@@ -16,6 +16,7 @@ const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const exact=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)
   &&JSON.stringify(Object.keys(value).sort())===JSON.stringify([...keys].sort());
 const toolPolicies=new Map([
+  ['bash',{args:['--version'],version:'5.2.21'}],
   ['node',{args:['--version'],version:'v24.19.0'}],
   ['npm',{args:['--version'],version:'11.17.0'}],
   ['forge',{args:['--version'],version:'1.8.5'}],
@@ -27,8 +28,10 @@ const toolPolicies=new Map([
 ]);
 const lockedFiles=new Map([
   ['package-lock.json','labs/usdom-reserve/package-lock.json'],
+  ['containers/risc0-snarkjs/package-lock.json','labs/usdom-reserve/containers/risc0-snarkjs/package-lock.json'],
   ['../../Cargo.lock','Cargo.lock'],
   ['foundry.toml','labs/usdom-reserve/foundry.toml'],
+  ['scripts/mainnet-tool-dispatcher','labs/usdom-reserve/scripts/mainnet-tool-dispatcher'],
 ]);
 
 function decodeVersion(bytes,label) {
@@ -112,6 +115,16 @@ try {
   if(!rustToolchain.equals(expectedRustToolchain)) {
     throw new Error('Rust toolchain selector changed');
   }
+  const guestLauncher=await snapshotExecutablePath(
+    path.join(root,'scripts/risc0-guest-build-launcher'));
+  const launcherOutput=await runPinnedExecutable(guestLauncher,['--preflight'],{
+    cwd:root,maxBuffer:16*1024,timeout:30_000,
+  });
+  if(decodeVersion(Buffer.concat([launcherOutput.stdout,launcherOutput.stderr]),'guest launcher')
+    !=='PASS: RISC Zero guest launcher preflight\n') {
+    throw new Error('RISC Zero guest launcher preflight failed');
+  }
+  snapshots.push(guestLauncher);
   await Promise.all(snapshots.map(assertExecutableUnchanged));
   process.stdout.write(`${JSON.stringify({schema:lock.schema,status:'verified',
     tools:lock.executables.length,files:lock.files.length})}\n`);

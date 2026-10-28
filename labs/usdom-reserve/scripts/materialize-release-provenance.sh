@@ -17,6 +17,12 @@ pin_runtime_tool jq
 jq() { assert_runtime_tool jq; "$jq_bin" "$@"; }
 pin_runtime_tool node
 node() { assert_runtime_tool node; "$node_bin" "$@"; }
+pin_runtime_tool python3
+python3() { assert_runtime_tool python3; "$python3_bin" "$@"; }
+pin_runtime_tool git
+git() { assert_runtime_tool git; "$git_bin" "$@"; }
+pin_runtime_tool ssh-keygen
+ssh-keygen() { assert_runtime_tool ssh-keygen; "$ssh_keygen_bin" "$@"; }
 repository=$(git -C "$project" rev-parse --show-toplevel)
 project_relative=$(realpath --relative-to="$repository" "$project")
 git -C "$repository" diff --cached --quiet HEAD --
@@ -63,6 +69,10 @@ if ! flock -n 9; then
   printf '%s\n' 'Another release materializer holds the config-directory lock' >&2
   exit 75
 fi
+evidence_sha256=$(sha256sum "$evidence_target" | awk '{print $1}')
+intent_sha256=$(sha256sum "$intent_target" | awk '{print $1}')
+parent_device=$(stat -Lc '%d' "$config_directory")
+parent_inode=$(stat -Lc '%i' "$config_directory")
 envelope=$(mktemp -p "$config_directory" .release-provenance-envelope.XXXXXXXX)
 evidence_temporary=$(mktemp -p "$config_directory" .release-provenance-evidence.XXXXXXXX)
 intent_temporary=$(mktemp -p "$config_directory" .release-provenance-intent.XXXXXXXX)
@@ -106,7 +116,10 @@ sync -f "$evidence_temporary"; sync -f "$intent_temporary"
 assert_targets_unchanged
 if ! cmp -s "$evidence_temporary" "$evidence_target" \
     || [[ $(stat -c '%a' "$evidence_target") != 644 ]]; then
-  node "$project/scripts/install-release-config-stdin.mjs" "$evidence_target" < "$evidence_temporary"
+  candidate_sha256=$(sha256sum "$evidence_temporary" | awk '{print $1}')
+  node "$project/scripts/replace-locked-source-stdin.mjs" "$evidence_target" \
+    "$candidate_sha256" "$evidence_sha256" "$parent_device" "$parent_inode" \
+    "$python3_bin" "$python3_sha256" < "$evidence_temporary"
 fi
 # Do not install the second aggregate over a concurrently changed intent, and
 # prove that the first installation contains the exact prepared document.
@@ -122,7 +135,10 @@ cmp -s "$intent_snapshot" "$intent_observed" || {
 }
 if ! cmp -s "$intent_temporary" "$intent_target" \
     || [[ $(stat -c '%a' "$intent_target") != 600 ]]; then
-  node "$project/scripts/install-private-file-stdin.mjs" "$intent_target" < "$intent_temporary"
+  candidate_sha256=$(sha256sum "$intent_temporary" | awk '{print $1}')
+  node "$project/scripts/replace-locked-private-stdin.mjs" "$intent_target" \
+    "$candidate_sha256" "$intent_sha256" "$parent_device" "$parent_inode" \
+    "$python3_bin" "$python3_sha256" < "$intent_temporary"
 fi
 read_current_targets
 cmp -s "$evidence_temporary" "$evidence_observed" || {

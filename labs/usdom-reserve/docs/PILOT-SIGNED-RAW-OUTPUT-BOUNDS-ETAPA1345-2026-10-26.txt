@@ -1,0 +1,34 @@
+ETAPA 1345 — TETO DA SAÍDA ASSINADA DO LEDGER
+Data: 2026-10-26
+
+Problema
+
+Os dois comandos `cast mktx` tinham deadline de 900 segundos, mas gravavam a
+transação assinada diretamente em `/dev/shm` sem teto. Uma ferramenta travada ou
+corrompida poderia consumir espaço até o prazo terminar antes de chegar ao
+validador semântico.
+
+Correção
+
+Depósito e resgate agora leem a saída assinada com um byte sentinela de
+1.048.577 bytes e exigem tamanho final de no máximo 1 MiB. O dado continua
+restrito ao arquivo privado em `/dev/shm`, sem entrar em argv, variável de shell
+ou log.
+
+Após o cap e o modo 0600, os validadores já existentes leem o arquivo com
+`O_NOFOLLOW`, exigem arquivo regular do usuário, link único, hex minúsculo
+canônico e transação assinada semanticamente vinculada à etapa antes de sua
+instalação. `set -euo pipefail` faz timeout, falha, excesso ou formato inválido
+abortarem em modo fechado.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal de transação privada e executores: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 74/74 aprovada.
+- Inventário estático: 2/2 saídas `cast mktx` possuem deadline, byte sentinela,
+  teto e validação semântica subsequente.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

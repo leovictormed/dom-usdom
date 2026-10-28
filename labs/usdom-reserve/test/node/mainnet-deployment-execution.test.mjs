@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {Wallet,getCreateAddress,keccak256} from 'ethers';
 import {readFile} from 'node:fs/promises';
 import {
@@ -21,10 +22,35 @@ const auditedGasLimit=auditedDeploymentGasLimit(expected.name,expected.data);
 const valid={type:2,chainId:1,nonce:7,to:null,value:0,data:expected.data,gasLimit:auditedGasLimit,
   maxFeePerGas:10_000_000_000n,maxPriorityFeePerGas:MAINNET_DEPLOYMENT_PRIORITY_FEE_PER_GAS,
   accessList:[]};
+const names=['finalizedBurnVerifier','checkpointVerifier','checkpointRegistry','reserve'];
+function authority() {
+  const plans=Object.fromEntries(names.map((name,index)=>[name,{
+    from:wallet.address,nonce:String(7+index),
+    expectedContract:getCreateAddress({from:wallet.address,nonce:7+index}),
+    expectedInitcodeHash:keccak256(expected.data),
+    expectedRuntimeCodeHash:`0x${'22'.repeat(32)}`,data:expected.data,
+  }]));
+  const packageValue=buildMainnetDeploymentPackage({releaseConfigSha256:'33'.repeat(32),
+    observationDocumentSha256:'44'.repeat(32),observationHash:`0x${'55'.repeat(32)}`,plans,
+    approvedArtifacts:Object.fromEntries(Object.entries(plans).map(([name,plan])=>[name,{
+      expectedContract:plan.expectedContract,expectedInitcodeHash:plan.expectedInitcodeHash,
+      expectedRuntimeCodeHash:plan.expectedRuntimeCodeHash,
+    }]))});
+  const packageBytes=Buffer.from(JSON.stringify(packageValue));
+  const packageSha256=createHash('sha256').update(packageBytes).digest('hex');
+  const handoff={schema:'usdom-mainnet-deployment-ledger-handoff-v1',chainId:'1',
+    releaseConfigSha256:packageValue.releaseConfigSha256,packageSha256,
+    rpcCatalogSha256:'66'.repeat(32),
+    observationDocumentSha256:packageValue.observationDocumentSha256,
+    observationHash:packageValue.observationHash,transaction:packageValue.transactions[0]};
+  return {packageValue,packageBytes,packageSha256,handoff};
+}
+const auth=authority();
+const validate=(raw,changes={})=>validateMainnetDeploymentRawTransaction({raw,...auth,index:'0',...changes});
 
 test('mainnet deployment raw validator independently recovers the exact bounded CREATE',async()=>{
   const raw=await wallet.signTransaction(valid);
-  const result=validateMainnetDeploymentRawTransaction({raw,expected,index:'0'});
+  const result=validate(raw);
   assert.equal(result.from,wallet.address);
   assert.equal(result.nonce,'7');
   assert.equal(result.gasLimit,auditedGasLimit.toString());
@@ -50,18 +76,15 @@ test('mainnet deployment raw validator rejects every security-relevant field cha
   ];
   for(const transaction of cases) {
     const raw=await wallet.signTransaction(transaction);
-    assert.throws(()=>validateMainnetDeploymentRawTransaction({raw,expected,index:'0'}),
+    assert.throws(()=>validate(raw),
       /differs from the bounded mainnet deployment plan/);
   }
   const other=new Wallet('0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd');
   const otherRaw=await other.signTransaction(valid);
-  assert.throws(()=>validateMainnetDeploymentRawTransaction({
-    raw:otherRaw,expected,index:'0',
-  }),/differs from the bounded mainnet deployment plan/);
+  assert.throws(()=>validate(otherRaw),/differs from the bounded mainnet deployment plan/);
   const raw=await wallet.signTransaction(valid);
-  assert.throws(()=>validateMainnetDeploymentRawTransaction({
-    raw,expected:{...expected,data:'0x6001'},index:'0',
-  }),/deployment plan is malformed/);
+  assert.throws(()=>validate(raw,{handoff:{...auth.handoff,
+    transaction:{...auth.handoff.transaction,data:'0x6001'}}}),/differs from the reviewed package/);
 });
 
 test('deployment gas planner binds audited trace, calldata, EIP-3860 and 25 percent margin',()=>{
@@ -71,6 +94,9 @@ test('deployment gas planner binds audited trace, calldata, EIP-3860 and 25 perc
   assert.throws(()=>planMainnetDeploymentGas({
     name:expected.name,data:expected.data,maximumEstimate:maximumEstimate+1n,
   }),/exceeds the audited constructor policy/);
+  assert.throws(()=>planMainnetDeploymentGas({
+    name:expected.name,data:expected.data,maximumEstimate:'9'.repeat(100000),
+  }),/estimate is malformed/);
   assert.ok(auditedDeploymentGasLimit('reserve',`0x${'ff'.repeat(25_073)}`)<
     MAINNET_DEPLOYMENT_MAX_GAS_LIMIT);
   assert.throws(()=>auditedDeploymentGasLimit('reserve',`0x${'ff'.repeat(40_961)}`),
@@ -84,16 +110,16 @@ test('mainnet deployment raw validator independently binds CREATE and approved i
     {...expected,initcodeHash:`0x${'11'.repeat(32)}`},
     {...expected,initcodeHash:expected.initcodeHash.toUpperCase()},
     {...expected,nonce:'07'},
+    {...expected,nonce:'9'.repeat(100000)},
     {...expected,nonce:(2n**64n).toString()},
     {...expected,name:'reserve'},
   ]) {
-    assert.throws(()=>validateMainnetDeploymentRawTransaction({raw,expected:changed,index:'0'}),
-      /deployment plan is malformed/);
+    assert.throws(()=>validate(raw,{handoff:{...auth.handoff,transaction:changed}}),
+      /differs from the reviewed package/);
   }
 });
 
 test('raw validator accepts the exact canonical package transaction schema',async()=>{
-  const names=['finalizedBurnVerifier','checkpointVerifier','checkpointRegistry','reserve'];
   const plans=Object.fromEntries(names.map((name,index)=>[name,{
     from:wallet.address,nonce:String(7+index),
     expectedContract:getCreateAddress({from:wallet.address,nonce:7+index}),
@@ -109,20 +135,36 @@ test('raw validator accepts the exact canonical package transaction schema',asyn
     }])),
   });
   const raw=await wallet.signTransaction(valid);
-  assert.equal(validateMainnetDeploymentRawTransaction({
-    raw,expected:packageValue.transactions[0],index:'0',
-  }).expectedContract,plans.finalizedBurnVerifier.expectedContract);
+  const packageBytes=Buffer.from(JSON.stringify(packageValue));
+  const packageSha256=createHash('sha256').update(packageBytes).digest('hex');
+  const handoff={...auth.handoff,releaseConfigSha256:packageValue.releaseConfigSha256,
+    packageSha256,observationDocumentSha256:packageValue.observationDocumentSha256,
+    observationHash:packageValue.observationHash,transaction:packageValue.transactions[0]};
+  assert.equal(validateMainnetDeploymentRawTransaction({raw,packageValue,packageBytes,
+    packageSha256,handoff,index:'0'}).expectedContract,plans.finalizedBurnVerifier.expectedContract);
+});
+
+test('deployment raw validator rejects coordinated package and raw B under handoff authority A',async()=>{
+  const packageValue=structuredClone(auth.packageValue);
+  packageValue.transactions[0].data='0x6001';
+  packageValue.transactions[0].initcodeHash=keccak256('0x6001');
+  const raw=await wallet.signTransaction({...valid,data:'0x6001',
+    gasLimit:auditedDeploymentGasLimit('finalizedBurnVerifier','0x6001')});
+  const packageBytes=Buffer.from(JSON.stringify(packageValue));
+  assert.throws(()=>validateMainnetDeploymentRawTransaction({raw,packageValue,packageBytes,
+    packageSha256:createHash('sha256').update(packageBytes).digest('hex'),handoff:auth.handoff,index:'0'}),
+  /reviewed package|not canonical/);
 });
 
 test('deployment fee ceremony bounds arithmetic and rechecks worst-case balance',async()=>{
   const script=await readFile(new URL('../../scripts/execute-mainnet-deployment.sh',import.meta.url),'utf8');
   for(const marker of [
     'BigInt(process.argv[1])>16000000n','value===0n||value>120000000000n',
-    'plan-mainnet-deployment-gas.mjs "$deployment_name" "$data" "$maximum_estimate"',
+    'prepare-private-mainnet-create.mjs plan "$transaction_initial" "$maximum_estimate"',
     'for(let i=0;i<12;i++)fee=(fee*9n+7n)/8n',
     'rpc balance "$from" --block finalized','BigInt(process.argv[2])*BigInt(process.argv[3])',
     'maximum_cost=$(canonical_decimal','transmit_balance=$(canonical_decimal "$(rpc balance',
-    'transmit_estimate=$(canonical_decimal "$(rpc estimate',
+    'transmit_estimate=$(canonical_decimal "$(printf',
     'transmit_base=$(canonical_quantity "$("$jq_bin" -er',
     'usdom-mainnet-deployment-fee-anchor-v1','finalized_anchor_hash',
     "'.hash|ascii_downcase' \"$transmit_anchor_before\"",
@@ -146,7 +188,7 @@ test('deployment fee ceremony bounds arithmetic and rechecks worst-case balance'
   assert.equal((script.match(/rpc nonce "\$expected" --block finalized/g)??[]).length,3);
   assert.equal((script.match(/rpc nonce "\$expected" --block pending/g)??[]).length,3);
   assert.doesNotMatch(script,/rpc balance "\$expected"/);
-  const publish=script.indexOf('rpc publish "$raw"');
+  const publish=script.indexOf('publish-private-raw-transaction.mjs "$raw_snapshot"');
   assert.ok(script.lastIndexOf('rpc nonce "$expected" --block pending')<publish);
 });
 
@@ -223,10 +265,10 @@ test('signed CREATE restart accepts finalized-head advancement but authenticates
   assert.match(transmit,/canonical_quantity "\$finalized_anchor_number" "\$transmit_finalized_number"/);
   assert.match(transmit,/assert_cmp_unchanged; "\$cmp_bin" -s "\$transmit_anchor_before" "\$transmit_anchor_after"/);
   assert.doesNotMatch(transmit,/transmit_finalized_number.*= "\$finalized_anchor_number"/);
-  const authorization=transmit.indexOf('AUTORIZO TRANSMITIR DEPLOY MAINNET');
+  const authorization=transmit.indexOf('AUTORIZO TRANSMITIR DEPLOY INDICE');
   const finalPendingNonce=transmit.lastIndexOf('rpc nonce "$expected" --block pending');
   const finalAbsence=transmit.lastIndexOf('eth_getTransactionByHash "$transaction_hash"');
-  const publish=transmit.indexOf('rpc publish "$raw"');
+  const publish=transmit.indexOf('publish-private-raw-transaction.mjs "$raw_snapshot"');
   assert.ok(authorization>=0&&authorization<finalPendingNonce&&finalPendingNonce<finalAbsence
     &&finalAbsence<publish);
 });
@@ -248,7 +290,7 @@ test('RPC nonce, gas, fee and balance authorities are canonicalized before use',
   const script=await readFile(new URL('../../scripts/execute-mainnet-deployment.sh',import.meta.url),'utf8');
   for(const marker of [
     `canonical_quantity "$("$jq_bin" -er '.nonce' "$prior_tx")"`,
-    'estimate=$(canonical_decimal "$(rpc estimate',
+    'estimate=$(canonical_decimal "$(printf',
     'balance=$(canonical_decimal "$(rpc balance',
     `canonical_quantity "$("$jq_bin" -er '.baseFeePerGas'`,
     `canonical_quantity "$("$jq_bin" -er '.gasLimit'`,

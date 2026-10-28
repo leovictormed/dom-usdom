@@ -1,0 +1,87 @@
+ETAPA 1222 — post-closure first-burn redemption audit
+Date: 2026-10-26
+
+Scope
+-----
+
+Independent adversarial Solidity audit of the transition from permanent
+Ethereum deposit closure through native issuance closure, burns, redemption and
+graceful shutdown. No Rust, scripts, network, signing, deployment, funds,
+commit, push or long proving operation was used.
+
+Material finding
+----------------
+
+`closeDeposits()` was intended to stop new collateral while publishing the
+authenticated `totalDeposited` ceiling required for DOM consensus to close
+issuance. The reserve also rejected every first finalized-burn proof after that
+flag was set. Only burns proved before closure could renew and receive payout.
+
+This contradicted the required shutdown sequence: after issuance closes,
+already-issued USDOM must remain transferable and burnable until
+`totalBurned == totalIssued`. A holder who burned after `closeDeposits()` had an
+irreversible native burn and fully reserved USDT backing, but could never create
+the reserve debt needed for payout. In the worst case, all circulating supply
+not already represented by a proved debt became unredeemable and graceful
+shutdown became unreachable.
+
+Correction
+----------
+
+Removed the `depositsClosed && !renewal` rejection from finalized-burn queue
+admission. `depositsClosed` now has one coherent authority: it permanently
+blocks `deposit()` and fixes the native issuance ceiling. It grants no withdrawal
+authority.
+
+Every post-closure first proof still must satisfy all existing controls:
+
+- exact immutable finalized-burn verifier and proof selector;
+- deployment chain, reserve, DOM domain and activation binding;
+- immutable burn/request/recipient/amount/state identity;
+- recent Ethereum finality slot and bounded proof/lease data;
+- unique burn and request identifiers;
+- usable reserve/token policy;
+- amount no greater than `outflowCapacity` and unreserved credited collateral;
+- actual reserve balance at least the complete outstanding collateral ledger.
+
+The accepted burn becomes permanent `totalProvedDebtAmount` and cannot release
+collateral through expiry, prune or emergency queue invalidation. Execution
+remains delayed, rate-limited and exact-once.
+
+Regression and documentation
+----------------------------
+
+`testDepositShutdownBlocksIngressButAllowsFirstProofAndPayouts` proves that:
+
+1. unauthorized closure and repeated closure fail;
+2. a new deposit fails after closure;
+3. a first proof submitted after closure creates the exact debt binding;
+4. aggregate proved debt includes both pre-closure and post-closure burns; and
+5. both burns pay exactly once and the recipient receives the exact sum.
+
+The closed-pilot emergency-abort runbook now distinguishes stopping issuance
+from preserving the redemption path for already-issued supply. It explicitly
+allows first proof admission after controlled recovery when the native burn was
+not yet represented by an Ethereum debt.
+
+Evidence
+--------
+
+- Focused shutdown/debt regressions: 3/3 passed.
+- Complete Foundry suite: 202/202 passed in 14 suites, 0 failed, 0 skipped.
+- ProofReserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Reserve invariant: 256 runs, 16,384 calls, 0 reverts.
+- Registry invariants: 256 runs, 16,384 calls, 0 reverts.
+- `forge build --sizes`: `USDOMProofReserve` runtime 20,863 bytes with
+  3,713-byte EIP-170 margin; initcode 27,112 bytes with 22,040-byte margin.
+- Registry runtime remains 10,573 bytes; quorum reserve remains 14,609 bytes.
+- Targeted formatting and diff checks passed.
+
+Release impact
+--------------
+
+The ProofReserve runtime and release hashes changed and must be rematerialized
+after concurrent source work stabilizes. The existing project policy requiring
+a 4,096-byte release margin remains a separate size gate: current ProofReserve
+headroom is 3,713 bytes even though it is deployable under EIP-170. This audit
+does not authorize deployment, signatures, publication or real funds.

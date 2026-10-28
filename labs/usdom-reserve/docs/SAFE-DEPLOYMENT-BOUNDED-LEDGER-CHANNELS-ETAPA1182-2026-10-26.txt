@@ -1,0 +1,32 @@
+SAFE DEPLOYMENT BOUNDED LEDGER CHANNELS — STAGE 1182
+Date: 2026-10-26
+
+Finding
+=======
+
+The Safe deployer's Ledger address query and signed-transaction creation were
+time bounded, but their Cast stdout/stderr channels were not size, encoding or
+success-channel bounded. A defective device or unexpected tool response could
+grow command-substitution memory or the raw candidate file without limit, and
+successful execution allowed unauthenticated diagnostic stderr.
+
+Correction
+==========
+
+A shared Ledger-Cast runner now captures both channels in owner-only tmpfs,
+checks fatal UTF-8 decoding, limits address output to 64 KiB, raw transaction
+output to 2 MiB and stderr to 64 KiB, and requires empty stderr on success.
+Failures disclose only a generic bounded status. The address is read through
+the pinned private-file reader before exact comparison; the raw transaction
+continues through the existing strict semantic validator.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/receipt/process tests: 7/7 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

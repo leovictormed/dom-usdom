@@ -32,7 +32,7 @@ export const RESERVE_PREACTIVATION_IDENTITY_TYPEHASH = keccak256(toUtf8Bytes(
   'ReservePreActivationIdentity(uint256 ethereumChainId,address reserve,address token,bytes32 tokenCodeHash,address verifier,bytes32 verifierCodeHash,bytes32 verifierConfigHash,address checkpointRegistry,bytes32 checkpointRegistryCodeHash,bytes32 checkpointConfigHash,bytes32 domDomain)',
 ));
 export const RESERVE_POLICY_TYPEHASH = keccak256(toUtf8Bytes(
-  'ReservePolicy(bytes32 governanceIdentityHash,bytes32 guardianIdentityHash,uint64 withdrawalDelay,uint64 governanceDelay,uint64 maxOutstanding,uint64 outflowCapacity)',
+  'ReservePolicy(bytes32 governanceIdentityHash,bytes32 guardianIdentityHash,uint64 withdrawalDelay,uint64 governanceDelay,uint64 maxOutstanding,uint64 outflowCapacity,bool pilotRestricted)',
 ));
 export const CONTROL_PLANE_IDENTITY_TYPEHASH = keccak256(toUtf8Bytes(
   'ControlPlaneIdentity(address account,bytes32 accountCodeHash,address implementation,bytes32 implementationCodeHash,bytes32 ownersCommitment)',
@@ -65,7 +65,7 @@ export function safeOwnersCommitment(owners) {
   }
   const normalized=owners.map((owner,index)=>{
     const value=getAddress(owner);
-    if(BigInt(value)===0n) throw new Error(`Safe owner ${index} must be nonzero`);
+    if(BigInt(value)<=0x11n) throw new Error(`Safe owner ${index} must not be a reserved precompile`);
     return value;
   });
   if(new Set(normalized).size!==3) throw new Error('Safe owners must be distinct');
@@ -208,10 +208,10 @@ export function proofReserveDeploymentConfigHash(input) {
       c.guardianImplementation,c.guardianImplementationCodeHash,c.guardianOwnersCommitment],
   ));
   const policyHash = keccak256(abi.encode(
-    ['bytes32','bytes32','bytes32','uint64','uint64','uint64','uint64'],
+    ['bytes32','bytes32','bytes32','uint64','uint64','uint64','uint64','bool'],
     [RESERVE_POLICY_TYPEHASH,governanceIdentityHash,guardianIdentityHash,
       c.withdrawalDelaySeconds,c.governanceDelaySeconds,
-      c.maxOutstandingBaseUnits,c.outflowCapacityBaseUnitsPerDay],
+      c.maxOutstandingBaseUnits,c.outflowCapacityBaseUnitsPerDay,true],
   ));
   const reserveConfigHash = keccak256(abi.encode(
     ['bytes32','bytes32','bytes32'], [RESERVE_CONFIG_TYPEHASH,identityHash,policyHash],
@@ -220,7 +220,8 @@ export function proofReserveDeploymentConfigHash(input) {
     ['bytes32','bytes32','bytes32'],
     [RESERVE_PREACTIVATION_CONFIG_TYPEHASH,preActivationIdentityHash,policyHash],
   ));
-  return {...c, governanceIdentityHash,guardianIdentityHash,identityHash,preActivationIdentityHash,
+  return {...c,pilotRestrictedDeployment:true,
+    governanceIdentityHash,guardianIdentityHash,identityHash,preActivationIdentityHash,
     policyHash,reserveConfigHash,reservePreActivationConfigHash};
 }
 

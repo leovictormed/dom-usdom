@@ -18,6 +18,8 @@ import sys
 import tarfile
 import tempfile
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from durable_create_once import install_create_once
 
 
 SCHEMA = "usdom-checkpoint-rebuild-orchestrator-v3"
@@ -46,6 +48,19 @@ def fail(message: str) -> None:
     raise ValueError(message)
 
 
+def strict_pairs(pairs: list[tuple[str, object]]) -> dict:
+    value: dict = {}
+    for key, item in pairs:
+        if key in value:
+            fail(f"duplicate JSON key {key!r}")
+        value[key] = item
+    return value
+
+
+def reject_json_float(value: str) -> object:
+    fail(f"JSON floating-point number is forbidden: {value}")
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -61,7 +76,9 @@ def pinned_json(path: Path, expected_sha: str, label: str) -> dict:
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         before = os.fstat(descriptor)
-        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_CONTROL_JSON_BYTES:
+        named = os.stat(path, follow_symlinks=False)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_CONTROL_JSON_BYTES
+                or (before.st_dev, before.st_ino) != (named.st_dev, named.st_ino)):
             fail(f"{label} must be a bounded direct single-link file")
         chunks: list[bytes] = []
         remaining = before.st_size
@@ -78,13 +95,17 @@ def pinned_json(path: Path, expected_sha: str, label: str) -> dict:
         identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
         if identity_before != identity_after:
             fail(f"{label} changed during its captured read")
+        named_after = os.stat(path, follow_symlinks=False)
+        if (after.st_dev, after.st_ino) != (named_after.st_dev, named_after.st_ino):
+            fail(f"{label} pathname changed during its captured read")
         raw = b"".join(chunks)
     finally:
         os.close(descriptor)
     if hashlib.sha256(raw).hexdigest() != expected_sha:
         fail(f"{label} differs from its pinned SHA-256")
     try:
-        return json.loads(raw.decode("utf-8", errors="strict"))
+        return json.loads(raw.decode("utf-8", errors="strict"),
+                          object_pairs_hook=strict_pairs, parse_float=reject_json_float)
     except UnicodeDecodeError as error:
         raise ValueError(f"{label} is not strict UTF-8") from error
 
@@ -285,6 +306,37 @@ def load_manifest(path: Path, expected_sha: str) -> dict:
         produced[verification] = stage["name"]
         previous_outputs = list(stage["outputs"])
     return value
+
+
+def captured_json(path: Path, label: str) -> tuple[dict, str]:
+    """Capture and parse once; the returned digest names the exact parsed bytes."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(descriptor)
+        named = os.stat(path, follow_symlinks=False)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_size > MAX_CONTROL_JSON_BYTES
+                or (before.st_dev, before.st_ino) != (named.st_dev, named.st_ino)):
+            fail(f"{label} must be a bounded direct single-link file")
+        raw = bytearray()
+        while len(raw) < before.st_size:
+            chunk = os.read(descriptor, min(1024 * 1024, before.st_size - len(raw)))
+            if not chunk:
+                fail(f"{label} was truncated during its captured read")
+            raw.extend(chunk)
+        if os.read(descriptor, 1):
+            fail(f"{label} grew during its captured read")
+        after = os.fstat(descriptor)
+        named_after = os.stat(path, follow_symlinks=False)
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_size,
+                                  value.st_mtime_ns, value.st_ctime_ns)
+        if identity(before) != identity(after) or (after.st_dev, after.st_ino) != (named_after.st_dev, named_after.st_ino):
+            fail(f"{label} changed during its captured read")
+        encoded = bytes(raw)
+        return (json.loads(encoded.decode("utf-8"), object_pairs_hook=strict_pairs,
+                           parse_float=reject_json_float), hashlib.sha256(encoded).hexdigest())
+    finally:
+        os.close(descriptor)
 
 
 def validate_tools(manifest: dict) -> dict[str, str]:
@@ -504,9 +556,15 @@ def execute(args: argparse.Namespace) -> dict:
         temporary = output.parent / f".{output.name}.resume-v3"
         resume_marker = temporary / "REBUILD-RESUME.json"
         resumed = temporary.exists()
+        marker_bytes = (json.dumps(plan, sort_keys=True, separators=(",", ":")) + "\n").encode()
         if resumed:
             if temporary.is_symlink() or not temporary.is_dir():
                 fail("rebuild resume workspace is indirect")
+            marker_pattern=re.compile(r'^\.REBUILD\-RESUME\.json\.[1-9][0-9]*\.[0-9a-f]{24}\.tmp$')
+            if not resume_marker.exists() and not any(marker_pattern.fullmatch(name) for name in os.listdir(temporary)):
+                fail("rebuild resume workspace initialization is incomplete")
+            install_create_once(resume_marker,marker_bytes,mode=0o600,maximum=MAX_CONTROL_JSON_BYTES,
+                                private_parent=True,allow_equal=True)
             marker = pinned_json(resume_marker, sha256(resume_marker), "rebuild resume marker")
             if marker != plan:
                 fail("rebuild resume workspace belongs to another authenticated generation")
@@ -519,7 +577,8 @@ def execute(args: argparse.Namespace) -> dict:
                 candidate.mkdir()
                 snapshot(repo, manifest["sourceCommit"], candidate)
                 materialize_cache(rust_environment["source"], rust_environment["entries"], cargo_home)
-                resume_marker.write_text(json.dumps(plan, sort_keys=True, separators=(",", ":")) + "\n")
+                install_create_once(resume_marker,marker_bytes,mode=0o600,maximum=MAX_CONTROL_JSON_BYTES,
+                                    private_parent=True,allow_equal=False)
                 fsync_tree(temporary)
             safe_path = os.pathsep.join(str(Path(path).parent) for path in tools)
             env = {"HOME": str(temporary / "home"), "LANG": "C", "LC_ALL": "C",
@@ -631,7 +690,8 @@ def execute(args: argparse.Namespace) -> dict:
                     fail(f"pinned tool set changed during verification of stage {stage['name']}")
                 if not verification_path.is_file() or verification_path.is_symlink() or verification_path.stat().st_nlink != 1:
                     fail(f"stage {stage['name']} did not publish a direct verification record")
-                verification = json.loads(verification_path.read_text(encoding="utf-8"))
+                verification, verification_sha = captured_json(
+                    verification_path, f"stage {stage['name']} verification record")
                 expected_verification_keys = {"schema", "stage", "inputs", "outputs", "claims"}
                 if set(verification) != expected_verification_keys or verification.get("schema") != "usdom-rebuild-stage-verification-v1" or verification.get("stage") != stage["name"]:
                     fail(f"stage {stage['name']} verification record has an invalid identity")
@@ -642,7 +702,7 @@ def execute(args: argparse.Namespace) -> dict:
                 claims = verification.get("claims")
                 if not isinstance(claims, dict) or set(claims) != STAGE_CLAIMS[stage["name"]] or not all(value is True for value in claims.values()):
                     fail(f"stage {stage['name']} verification record lacks mandatory semantic checks")
-                published_outputs[stage["verification"]] = sha256(verification_path)
+                published_outputs[stage["verification"]] = verification_sha
                 allowed_changes = set(published_outputs)
                 unexpected = dirty_paths(source_git_directory, candidate) - allowed_changes
                 if unexpected:

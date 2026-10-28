@@ -656,6 +656,9 @@ pub fn prove_aggregate_set(
     }
     let receipt_set_bytes =
         read_direct_regular_file(paths.plan.receipt_set_index, MAX_INDEX_BYTES)?;
+    if sha256(&receipt_set_bytes) != plan.receipt_set_index_sha256 {
+        return Err("inner receipt-set index changed after aggregate plan rebuild".into());
+    }
     let receipt_set: ReceiptSetIndex = serde_json::from_slice(&receipt_set_bytes)
         .map_err(|error| format!("invalid inner receipt index: {error}"))?;
     let mut records = Vec::with_capacity(plan.job_count);
@@ -696,6 +699,12 @@ pub fn prove_aggregate_set(
                     .join(source_name(job.index, "transition.bin")),
                 CHECKPOINT_SEGMENT_TRANSITION_BYTES,
             )?;
+            if sha256(&transition) != job.transition_sha256 {
+                return Err(format!(
+                    "aggregate transition changed before proof job {}",
+                    job.index
+                ));
+            }
             let private = read_direct_regular_file(
                 &paths
                     .plan
@@ -703,6 +712,12 @@ pub fn prove_aggregate_set(
                     .join(source_name(job.index, "private-input.bin")),
                 MAX_CHECKPOINT_SEGMENT_PRIVATE_INPUT_BYTES,
             )?;
+            if sha256(&private) != job.private_input_sha256 {
+                return Err(format!(
+                    "aggregate private input changed before proof job {}",
+                    job.index
+                ));
+            }
             let mut builder = ExecutorEnv::builder();
             builder.write_slice(&transition);
             builder.write_slice(&decode_hex_32(&job.dom_genesis_hash)?);
@@ -716,11 +731,27 @@ pub fn prove_aggregate_set(
                 .first_inner_receipt_index
                 .checked_add(job.inner_receipt_count)
                 .ok_or_else(|| format!("aggregate receipt range overflow at job {}", job.index))?;
-            for record in receipt_set
+            let records = receipt_set
                 .receipts
                 .get(job.first_inner_receipt_index..end)
-                .ok_or_else(|| "aggregate inner receipt range is absent".to_string())?
+                .ok_or_else(|| "aggregate inner receipt range is absent".to_string())?;
+            if records.len() != job.inner_receipt_files.len()
+                || records.len() != job.inner_receipt_sha256.len()
             {
+                return Err(format!(
+                    "aggregate inner receipt inventory changed before proof job {}",
+                    job.index
+                ));
+            }
+            for (offset, record) in records.iter().enumerate() {
+                if record.receipt_file != job.inner_receipt_files[offset]
+                    || record.receipt_sha256 != job.inner_receipt_sha256[offset]
+                {
+                    return Err(format!(
+                        "aggregate inner receipt identity changed before proof job {} at offset {offset}",
+                        job.index
+                    ));
+                }
                 let bytes = read_direct_regular_file(
                     &paths
                         .plan
@@ -729,6 +760,12 @@ pub fn prove_aggregate_set(
                         .join(&record.receipt_file),
                     MAX_RECEIPT_BYTES,
                 )?;
+                if bytes.len() != record.receipt_bytes || sha256(&bytes) != record.receipt_sha256 {
+                    return Err(format!(
+                        "aggregate inner receipt changed before proof job {} at offset {offset}",
+                        job.index
+                    ));
+                }
                 let receipt = decode_verified_receipt(
                     &bytes,
                     inner_image_id,

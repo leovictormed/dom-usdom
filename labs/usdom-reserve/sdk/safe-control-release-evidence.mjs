@@ -15,12 +15,14 @@ export const SAFE_CONTROL_RECOVERY_DRILL_EVIDENCE_SCHEMA=
 export const SAFE_CONTROL_RELEASE_EVIDENCE_SCHEMA='usdom-safe-control-release-evidence/v2';
 
 const HASH=/^0x[0-9a-f]{64}$/;
+const ZERO_HASH='0x'+'00'.repeat(32);
 const UINT64=/^(0|[1-9][0-9]{0,19})$/;
 const ZERO_ADDRESS='0x0000000000000000000000000000000000000000';
 const ROLE_MAP=Object.freeze([
   {releaseRole:'governance',safeRole:'governance'},
   {releaseRole:'guardian',safeRole:'reserveGuardian'},
   {releaseRole:'checkpointGuardian',safeRole:'checkpointGuardian'},
+  {releaseRole:'usdtCustody',safeRole:'usdtCustody'},
 ]);
 const {canonicalJson,documentHash}=_safeControlObservationInternals;
 
@@ -35,7 +37,7 @@ function exactKeys(value,keys,label) {
 function canonicalAddress(value) {
   return typeof value==='string'&&isAddress(value)&&getAddress(value)===value;
 }
-function hash(value) { return typeof value==='string'&&HASH.test(value); }
+function hash(value) { return typeof value==='string'&&HASH.test(value)&&value!==ZERO_HASH; }
 function uint(value) {
   return typeof value==='string'&&UINT64.test(value)&&BigInt(value)<(1n<<64n);
 }
@@ -253,9 +255,6 @@ export function validateRecoverableSafeControlReleaseEvidence(bundle) {
     configurationHashes.push(report.configurationHash);
     transactionHashes.push(report.recoveryTransactionHash);
     safeTxHashes.push(report.recoverySafeTxHash);
-  }
-  if(new Set(allOwnersBefore).size!==9||new Set(allOwnersAfter).size!==9) {
-    fail('Safe role owner sets overlap globally');
   }
   if(new Set(addresses).size!==ROLE_MAP.length
       || new Set(configurationHashes).size!==ROLE_MAP.length

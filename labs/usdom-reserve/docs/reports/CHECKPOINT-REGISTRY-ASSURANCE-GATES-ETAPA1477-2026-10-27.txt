@@ -1,0 +1,42 @@
+CHECKPOINT REGISTRY ASSURANCE GATES — ETAPA 1477
+Date: 2026-10-27
+
+Audit result
+
+Bootstrap ratification and the positive finalized-event vector were already
+mandatory production booleans.  Their evidence documents are mandatory and
+their contents are independently recomputed against the exact release by
+validateCheckpointBootstrapRatificationReport and
+validateCheckpointFinalizedEventReport.  Setting either boolean cannot replace
+its release-bound semantic report.
+
+The independent-audit claim records optional third-party assurance.  Under the
+operator's explicit risk policy, the absence of an external or independent
+audit cannot block closed-mainnet or real-funds readiness.  It therefore stays
+outside mandatory readiness requirements.  Reports remain optional evidence;
+when supplied, their paths and hashes are still validated.
+
+Correction
+
+- Bootstrap ratification and the positive event claim are covered by the
+  independent checkpoint-proof requirement regression.
+- A focused regression removes each of those semantic evidence sources while
+  leaving its claim true and proves readiness stays closed with the specific
+  evidence blocker.
+- The existing policy regression confirms empty external audit collections,
+  `production_checkpoint_registry_independently_audited=false` and absence of
+  an absolute zero-risk guarantee do not block either readiness mode.
+
+All three descriptive/operational flags remain false in production-requirements.json.  No
+ratification, independent review, production Groth16 receipt, deployment or
+finalized production event was fabricated.
+
+Validation
+
+- Three focused readiness cases passed: external audits/zero-risk policy,
+  bootstrap/event evidence cannot be replaced by booleans, and every checkpoint proof
+  requirement independently fails closed.
+- git diff --check passed.
+
+No manifest modification, public network use, signing, deployment, funds,
+commit or push occurred.

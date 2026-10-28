@@ -20,7 +20,9 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+pub mod ceremony;
 pub mod circuit;
+pub mod phase1;
 pub mod verifier;
 
 const POLICY_TAG: &str = "DOM:usdom-privacy-policy:v3";
@@ -93,10 +95,12 @@ impl Zeroize for Scalar {
 
 impl core::fmt::Debug for Scalar {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter
-            .debug_tuple("Scalar")
-            .field(&hex_string(&self.to_bytes()))
-            .finish()
+        // `Scalar` is also the type of owner secrets, note randomness and
+        // private circuit witnesses. A value-dependent Debug implementation
+        // turns otherwise harmless `{:?}` diagnostics into key disclosure.
+        // Public scalar bytes remain available through the explicit
+        // `to_bytes` authority boundary.
+        formatter.write_str("Scalar([REDACTED])")
     }
 }
 
@@ -633,6 +637,7 @@ fn bytes_to_limbs(bytes: &[u8]) -> Vec<Scalar> {
         .collect()
 }
 
+#[cfg(test)]
 fn hex_string(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut text = String::with_capacity(bytes.len() * 2);
@@ -713,6 +718,9 @@ mod tests {
         assert!(!note.nullifier(secret).unwrap().is_zero());
         assert!(note.nullifier(scalar(8)).is_err());
         assert_ne!(chain, chain_scalar([0x12; 32], policy));
+        let mut other_policy = policy;
+        other_policy[0] ^= 1;
+        assert_ne!(chain, chain_scalar([0x11; 32], other_policy));
         assert_ne!(
             commitment,
             NoteOpening {
@@ -730,6 +738,42 @@ mod tests {
             hex_string(&commitment.to_bytes()),
             "016ce629ea89473c4cd119e795de4824874e74a2b3bacf5d95c52acd87fe5b9e"
         );
+    }
+
+    #[test]
+    fn secret_capable_scalar_debug_is_value_independent_and_redacted() {
+        let first = scalar(7);
+        let second = scalar(8);
+        let first_bytes = hex_string(&first.to_bytes());
+        let second_bytes = hex_string(&second.to_bytes());
+        let first_debug = format!("{first:?}");
+        let second_debug = format!("{second:?}");
+
+        assert_eq!(first_debug, "Scalar([REDACTED])");
+        assert_eq!(second_debug, first_debug);
+        assert!(!first_debug.contains(&first_bytes));
+        assert!(!second_debug.contains(&second_bytes));
+    }
+
+    #[test]
+    fn poseidon_protocol_roles_are_cross_domain_separated() {
+        let values = [scalar(11), scalar(12)];
+        let domains = [
+            OWNER_DOMAIN,
+            NOTE_DOMAIN,
+            NULLIFIER_DOMAIN,
+            NODE_DOMAIN,
+            CHAIN_DOMAIN,
+            RHO_DOMAIN,
+            EFFECT_DOMAIN,
+            MEMO_DOMAIN,
+        ];
+        let outputs = domains.map(|domain| poseidon_hash(domain, &values).to_bytes());
+        for left in 0..outputs.len() {
+            for right in left + 1..outputs.len() {
+                assert_ne!(outputs[left], outputs[right], "domains {left} and {right}");
+            }
+        }
     }
 
     #[test]

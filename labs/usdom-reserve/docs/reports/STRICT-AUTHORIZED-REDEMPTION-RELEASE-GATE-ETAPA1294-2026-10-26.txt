@@ -1,0 +1,37 @@
+Stage 1294 — strict authorized redemption-release gate
+Date: 2026-10-26
+
+Finding
+-------
+The final release-binding check before Ledger use accepted a release without
+requiring its productionReady and realFundsAuthorized decisions or canonical
+mainnet USDT. Its CLI read the submission, private package and release through
+unbounded readFileSync plus ordinary JSON.parse, permitting oversized input,
+invalid UTF-8 replacement and duplicate-key ambiguity at a signing gate.
+
+Correction
+----------
+Release validation now requires chain 1, both explicit authorization booleans,
+canonical Ethereum-mainnet USDT and a nonzero reserve in addition to the exact
+proof/package/release hashes. The CLI uses direct regular-file reads capped at
+4 MiB and parseStrictJsonBytes with depth, node, string, object and array bounds;
+errors use the redacted pilot diagnostic envelope.
+
+Adversarial regression
+----------------------
+Regressions reject disabled production readiness, disabled real-funds authority,
+token substitution and zero reserve. Static gate coverage requires direct and
+strict readers and excludes JSON.parse/readFileSync, while the executor-order
+test retains the check before Ledger identity, nonce lookup and publication.
+
+Validation
+----------
+- Release validator and CLI Node syntax checks: pass.
+- Redemption, finalized-burn, pilot DAG/evidence suites: 16/16 pass.
+- Broad operator suite: 84/84 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+Ledger, signature, deployment, funds, commit or push operation was performed.

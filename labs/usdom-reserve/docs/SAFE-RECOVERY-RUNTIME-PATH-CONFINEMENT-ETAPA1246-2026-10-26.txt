@@ -1,0 +1,36 @@
+ETAPA 1246 — CONFINAMENTO DO PATH DE RUNTIME NA RECUPERAÇÃO SAFE
+Data: 2026-10-26
+
+Problema
+
+Após descobrir e autenticar as ferramentas, o executor de recuperação Safe mantinha
+o PATH amplo do bootstrap. Além disso, as reatestações repetiam `command -v`, embora
+as autoridades fossem invocadas por seus caminhos absolutos. Uma substituição tardia
+em diretório anterior do PATH podia interferir nas próprias verificações auxiliares.
+
+Correção
+
+Depois de pinar ferramentas principais e auxiliares, o executor agora redefine PATH
+para `/usr/bin:/bin`. A partir desse marco:
+
+- nenhuma chamada usa `command -v`;
+- Cast, Node, jq, cmp, timeout, setsid, flock e mktemp continuam sendo invocados por
+  caminhos absolutos autenticados;
+- chmod e sleep continuam atrás dos wrappers que reatestam seus binários absolutos;
+- as funções de reatestação verificam diretamente diretórios, metadados e hashes dos
+  binários fixados, sem depender de nova resolução pelo PATH.
+
+O PATH amplo permanece apenas durante o bootstrap necessário para encontrar as
+ferramentas; não permanece durante lock, RPC, Ledger, persistência ou cleanup.
+
+Validação local
+
+- `bash -n scripts/execute-recoverable-safe-recovery.sh`: aprovado;
+- testes focais de ambiente, pinning e retomada: 9/9 aprovados;
+- focais mais `operator-runbook`: 93/93 aprovados;
+- `git diff --check`: aprovado.
+
+Limites
+
+Nenhuma rede real, Ledger, assinatura, transmissão, implantação, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

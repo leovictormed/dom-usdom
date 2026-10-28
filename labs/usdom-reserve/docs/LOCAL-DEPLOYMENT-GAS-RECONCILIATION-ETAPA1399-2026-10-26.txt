@@ -1,0 +1,25 @@
+ETAPA 1399 — RECONCILIAÇÃO DA MEDIÇÃO LOCAL DE GAS DE DEPLOY
+
+O ensaio local determinístico revelou que o DOMCheckpointRegistry recompilado
+consome 2.642.800 gas no CREATE, 42.800 acima do teto histórico de 2.600.000.
+A diferença acompanha a nova vinculação imutável ao chain ID de implantação;
+os testes funcionais e o deploy local concluíram normalmente.
+
+O teto auditado do Registry foi elevado de forma limitada para 2.700.000. O
+planejador ainda acrescenta separadamente calldata, EIP-3860 e margem de 25%,
+e a sequência completa permanece abaixo do limite agregado de 12.500.000.
+
+Evidência regenerada duas vezes com Anvil autenticado:
+- finalizedBurnVerifier: 458.445 gas;
+- checkpointVerifier: 458.445 gas;
+- checkpointRegistry: 2.642.800 gas (57.200 de margem no teto CREATE);
+- reserve: 4.673.187 gas;
+- runtime Reserve: 20.003 bytes;
+- limite planejado agregado: 12.220.581 gas;
+- margem da política agregada: 279.419 gas.
+
+Validação: medição reprodutível 1/1, políticas/execução de gas 12/12 e checker
+de orçamento aprovado. O checker continua marcando os artefatos como
+stale-diagnostic-only porque os hashes serão congelados apenas após as mudanças
+concorrentes terminarem. Nenhuma rede externa, assinatura, deploy real, fundos,
+commit ou push ocorreu.

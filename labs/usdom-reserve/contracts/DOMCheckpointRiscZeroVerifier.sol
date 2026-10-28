@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.37;
 
-import {IDOMCheckpointVerifier} from "./DOMCheckpointRegistry.sol";
+import {IDOMCheckpointVerifier} from "./IDOMCheckpointVerifier.sol";
 import {IRiscZeroVerifierV3} from "./IRiscZeroVerifierV3.sol";
 
 /// @title Immutable RISC Zero verifier adapter for DOM checkpoint extensions

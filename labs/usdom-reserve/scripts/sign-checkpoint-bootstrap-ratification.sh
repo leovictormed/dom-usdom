@@ -4,7 +4,7 @@ set -euo pipefail
 # inherited tracing, panic backtraces and core artifacts out of this ceremony.
 set +x
 unset BASH_XTRACEFD 2>/dev/null || true
-# Do not carry caller-owned evidence, lock or logging descriptors into Ledger
+# Do not carry caller-owned evidence, lock or logging descriptors into OneKey
 # or validation children. Bash's script descriptor 255 is internal and CLOEXEC.
 for fd_path in /proc/$$/fd/*; do
   inherited_fd=${fd_path##*/}
@@ -14,7 +14,7 @@ for fd_path in /proc/$$/fd/*; do
   exec {inherited_fd}>&-
 done
 # Do not let the operator's ambient toolchain, loader, proxy or debug settings
-# alter credential-bearing Node/Cast/Ledger children. USDOM inputs are exported
+# alter credential-bearing Node/OneKey children. USDOM inputs are exported
 # explicitly below; HOME is retained for hardware-wallet integration.
 unset LD_PRELOAD LD_LIBRARY_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH \
   NODE_OPTIONS NODE_PATH NODE_DEBUG NODE_DEBUG_NATIVE SSLKEYLOGFILE \
@@ -29,7 +29,8 @@ if ! ulimit -c 0; then
 fi
 umask 077
 if (($# != 0)); then printf '%s\n' 'Usage: bash scripts/sign-checkpoint-bootstrap-ratification.sh' >&2; exit 64; fi
-for command in node jq cast realpath stat id mktemp chmod sha256sum cmp dirname; do command -v "$command" >/dev/null; done
+: "${USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG:?required}"
+for command in node jq timeout realpath stat id mktemp chmod sha256sum cmp dirname; do command -v "$command" >/dev/null; done
 sha256_bin=$(realpath "$(command -v sha256sum)")
 test -x "$sha256_bin"; test -f "$sha256_bin"; test ! -L "$sha256_bin"
 sha256_owner=$(stat -Lc '%u' "$sha256_bin")
@@ -75,34 +76,34 @@ assert_cmp_unchanged() {
   test "$(stat -Lc '%d:%i:%s:%Y:%Z' "$cmp_bin")" = "$cmp_identity"
   test "$(sha256_file "$cmp_bin")" = "$cmp_sha256"
 }
-cast_bin=$(realpath "$(command -v cast)")
-test -x "$cast_bin"; test -f "$cast_bin"; test ! -L "$cast_bin"
-cast_owner=$(stat -Lc '%u' "$cast_bin")
-test "$cast_owner" = 0 || test "$cast_owner" = "$(id -u)"
-test "$(stat -Lc '%h' "$cast_bin")" = 1
-cast_size=$(stat -Lc '%s' "$cast_bin"); (( cast_size > 0 && cast_size <= 512 * 1024 * 1024 ))
-cast_mode=$(stat -Lc '%a' "$cast_bin")
-(( (8#$cast_mode & 8#022) == 0 ))
-cast_directory=$(dirname "$cast_bin")
-test "$(realpath "$cast_directory")" = "$cast_directory"
-cast_directory_owner=$(stat -Lc '%u' "$cast_directory")
-test "$cast_directory_owner" = 0 || test "$cast_directory_owner" = "$(id -u)"
-cast_directory_mode=$(stat -Lc '%a' "$cast_directory")
-(( (8#$cast_directory_mode & 8#022) == 0 ))
-cast_directory_identity=$(stat -Lc '%d:%i:%u:%a' "$cast_directory")
-cast_identity=$(stat -Lc '%d:%i:%s:%Y:%Z' "$cast_bin")
-cast_sha256=$(sha256_file "$cast_bin")
-test "$(stat -Lc '%d:%i:%s:%Y:%Z' "$cast_bin")" = "$cast_identity"
-test "$(stat -Lc '%d:%i:%u:%a' "$cast_directory")" = "$cast_directory_identity"
-assert_cast_unchanged() {
+timeout_bin=$(realpath "$(command -v timeout)")
+test -x "$timeout_bin"; test -f "$timeout_bin"; test ! -L "$timeout_bin"
+timeout_owner=$(stat -Lc '%u' "$timeout_bin")
+test "$timeout_owner" = 0 || test "$timeout_owner" = "$(id -u)"
+test "$(stat -Lc '%h' "$timeout_bin")" = 1
+timeout_size=$(stat -Lc '%s' "$timeout_bin"); (( timeout_size > 0 && timeout_size <= 512 * 1024 * 1024 ))
+timeout_mode=$(stat -Lc '%a' "$timeout_bin")
+(( (8#$timeout_mode & 8#022) == 0 ))
+timeout_directory=$(dirname "$timeout_bin")
+test "$(realpath "$timeout_directory")" = "$timeout_directory"
+timeout_directory_owner=$(stat -Lc '%u' "$timeout_directory")
+test "$timeout_directory_owner" = 0 || test "$timeout_directory_owner" = "$(id -u)"
+timeout_directory_mode=$(stat -Lc '%a' "$timeout_directory")
+(( (8#$timeout_directory_mode & 8#022) == 0 ))
+timeout_directory_identity=$(stat -Lc '%d:%i:%u:%a' "$timeout_directory")
+timeout_identity=$(stat -Lc '%d:%i:%s:%Y:%Z' "$timeout_bin")
+timeout_sha256=$(sha256_file "$timeout_bin")
+test "$(stat -Lc '%d:%i:%s:%Y:%Z' "$timeout_bin")" = "$timeout_identity"
+test "$(stat -Lc '%d:%i:%u:%a' "$timeout_directory")" = "$timeout_directory_identity"
+assert_timeout_unchanged() {
   assert_sha256_unchanged
-  test "$(realpath "$(command -v cast)")" = "$cast_bin"
-  test "$(realpath "$cast_directory")" = "$cast_directory"
-  test "$(stat -Lc '%d:%i:%u:%a' "$cast_directory")" = "$cast_directory_identity"
-  test "$(stat -Lc '%d:%i:%s:%Y:%Z' "$cast_bin")" = "$cast_identity"
-  test "$(sha256_file "$cast_bin")" = "$cast_sha256"
-  test "$(stat -Lc '%d:%i:%s:%Y:%Z' "$cast_bin")" = "$cast_identity"
-  test "$(stat -Lc '%d:%i:%u:%a' "$cast_directory")" = "$cast_directory_identity"
+  test "$(realpath "$(command -v timeout)")" = "$timeout_bin"
+  test "$(realpath "$timeout_directory")" = "$timeout_directory"
+  test "$(stat -Lc '%d:%i:%u:%a' "$timeout_directory")" = "$timeout_directory_identity"
+  test "$(stat -Lc '%d:%i:%s:%Y:%Z' "$timeout_bin")" = "$timeout_identity"
+  test "$(sha256_file "$timeout_bin")" = "$timeout_sha256"
+  test "$(stat -Lc '%d:%i:%s:%Y:%Z' "$timeout_bin")" = "$timeout_identity"
+  test "$(stat -Lc '%d:%i:%u:%a' "$timeout_directory")" = "$timeout_directory_identity"
 }
 node_bin=$(realpath "$(command -v node)")
 test -x "$node_bin"; test -f "$node_bin"; test ! -L "$node_bin"
@@ -181,22 +182,41 @@ if [[ -e "$SIGNATURE_SHA" || -L "$SIGNATURE_SHA" ]]; then
 fi
 TEMPORARY=$(mktemp -d -p /dev/shm usdom-checkpoint-ratification-sign.XXXXXXXX)
 chmod 0700 "$TEMPORARY"
+TEMPORARY_IDENTITY=$(stat -c '%u:%d:%i:%a' "$TEMPORARY")
 cleanup() {
   local status=${1:-$?}
   trap - EXIT HUP INT TERM
-  assert_node_unchanged &&
-    "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$TEMPORARY" || status=1
+  if [[ $(stat -c '%u:%d:%i:%a' "$TEMPORARY" 2>/dev/null) == "$TEMPORARY_IDENTITY" ]] &&
+    assert_node_unchanged && assert_timeout_unchanged &&
+    "$timeout_bin" --foreground --signal=TERM --kill-after=5s 30s \
+      "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+      "$TEMPORARY" > /dev/null 2> /dev/null &&
+    assert_node_unchanged && assert_timeout_unchanged && test ! -e "$TEMPORARY"; then
+    :
+  else
+    status=1
+  fi
   exit "$status"
 }
 trap 'cleanup $?' EXIT
 trap 'cleanup 129' HUP
 trap 'cleanup 130' INT
 trap 'cleanup 143' TERM
-snapshot() { "$node_bin" "$ROOT/scripts/read-private-file-stdout.mjs" "$1" > "$2"; chmod 0600 "$2"; }
+run_bounded_node() {
+  assert_node_unchanged; assert_timeout_unchanged
+  "$timeout_bin" --foreground --signal=TERM --kill-after=5s 120s "$node_bin" "$@"
+  assert_node_unchanged
+}
+run_bounded_walletconnect() {
+  assert_node_unchanged; assert_timeout_unchanged
+  "$timeout_bin" --foreground --signal=TERM --kill-after=10s 330s "$node_bin" "$@"
+  assert_node_unchanged; assert_timeout_unchanged
+}
+snapshot() { run_bounded_node "$ROOT/scripts/read-private-file-stdout.mjs" "$1" > "$2"; chmod 0600 "$2"; }
 snapshot "$REQUEST" "$TEMPORARY/request.json"
 snapshot "$REQUEST_SHA" "$TEMPORARY/request.sha256"
 snapshot "$SAFE_BUNDLE" "$TEMPORARY/safe-bundle.json"
-"$node_bin" "$ROOT/scripts/read-release-config-file-stdout.mjs" "$RELEASE_CONFIG" > "$TEMPORARY/release-config.json"
+run_bounded_node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$RELEASE_CONFIG" > "$TEMPORARY/release-config.json"
 chmod 0600 "$TEMPORARY/release-config.json"
 exec 8<"$TEMPORARY/request.sha256"
 IFS= read -r EXPECTED_REQUEST_SHA <&8
@@ -205,9 +225,12 @@ exec 8<&-
 [[ "$EXPECTED_REQUEST_SHA" =~ ^[0-9a-f]{64}$ ]]
 test "$(sha256_file "$TEMPORARY/request.json")" = "$EXPECTED_REQUEST_SHA"
 test "$("$jq_bin" -r '.schema' "$TEMPORARY/request.json")" = 'usdom-checkpoint-bootstrap-ratification-signing-request-v1'
-"$node_bin" "$ROOT/scripts/check-checkpoint-bootstrap-ratification-request.mjs" "$TEMPORARY/request.json" >/dev/null
+run_bounded_node "$ROOT/scripts/check-checkpoint-bootstrap-ratification-request.mjs" "$TEMPORARY/request.json" >/dev/null
 DIGEST=$("$jq_bin" -er '.ratificationDigest' "$TEMPORARY/request.json")
 [[ "$DIGEST" =~ ^0x[0-9a-f]{64}$ ]]
+"$jq_bin" -c '{schema:"usdom-onekey-eip712-signing/v1",digest:.ratificationDigest,typedData}' \
+  "$TEMPORARY/request.json" > "$TEMPORARY/typed-envelope.json"
+chmod 0600 "$TEMPORARY/typed-envelope.json"
 mapfile -t OWNERS < <("$jq_bin" -er '.roleReports.governance.ownersAfter | sort_by(ascii_downcase)[]' \
   "$TEMPORARY/safe-bundle.json")
 test "${#OWNERS[@]}" = 3
@@ -223,59 +246,78 @@ assert_inputs() {
   snapshot "$REQUEST" "$TEMPORARY/request.current"; "$cmp_bin" -s "$TEMPORARY/request.json" "$TEMPORARY/request.current"
   snapshot "$REQUEST_SHA" "$TEMPORARY/request-sha.current"; "$cmp_bin" -s "$TEMPORARY/request.sha256" "$TEMPORARY/request-sha.current"
   snapshot "$SAFE_BUNDLE" "$TEMPORARY/bundle.current"; "$cmp_bin" -s "$TEMPORARY/safe-bundle.json" "$TEMPORARY/bundle.current"
-  "$node_bin" "$ROOT/scripts/read-release-config-file-stdout.mjs" "$RELEASE_CONFIG" \
+  run_bounded_node "$ROOT/scripts/read-release-config-file-stdout.mjs" "$RELEASE_CONFIG" \
     > "$TEMPORARY/release-config.current.json"
   "$cmp_bin" -s "$TEMPORARY/release-config.json" "$TEMPORARY/release-config.current.json"
 }
 [[ -t 0 && -t 2 ]] || { printf '%s\n' 'Ratification signing requires an interactive terminal.' >&2; exit 2; }
-printf 'Ratification digest: %s\n' "$DIGEST"
-read -r -p 'Digite ASSINO CHECKPOINT BOOTSTRAP USDOM SEM TRANSMITIR para continuar: ' AUTHORIZATION
-test "$AUTHORIZATION" = 'ASSINO CHECKPOINT BOOTSTRAP USDOM SEM TRANSMITIR'
-assert_cast_unchanged
+SAFE_BUNDLE_SHA256=$(sha256_file "$TEMPORARY/safe-bundle.json")
+RELEASE_CONFIG_SHA256=$(sha256_file "$TEMPORARY/release-config.json")
+OWNER_SET=$(printf '%s,%s,%s' "${OWNERS[0],,}" "${OWNERS[1],,}" "${OWNERS[2],,}")
+AUTHORIZATION_PREIMAGE="usdom-checkpoint-bootstrap-ratification-offline-sign-v1|action=signCheckpointBootstrapRatification|phase=offline-sign-only|chainId=1|ratificationDigest=${DIGEST,,}|requestSha256=$EXPECTED_REQUEST_SHA|safeBundleSha256=$SAFE_BUNDLE_SHA256|releaseConfigSha256=$RELEASE_CONFIG_SHA256|governanceOwners=$OWNER_SET|threshold=2"
+printf '%s' "$AUTHORIZATION_PREIMAGE" > "$TEMPORARY/authorization-preimage.txt"
+chmod 0600 "$TEMPORARY/authorization-preimage.txt"
+AUTHORIZATION_HASH=$(sha256_file "$TEMPORARY/authorization-preimage.txt")
+printf 'CHECKPOINT BOOTSTRAP RATIFICATION OFFLINE SIGN REVIEW action=signCheckpointBootstrapRatification phase=offline-sign-only chainId=1 ratificationDigest=%s requestSha256=%s safeBundleSha256=%s releaseConfigSha256=%s governanceOwners=%s threshold=2 authorizationHash=%s\n' \
+  "$DIGEST" "$EXPECTED_REQUEST_SHA" "$SAFE_BUNDLE_SHA256" "$RELEASE_CONFIG_SHA256" "$OWNER_SET" "$AUTHORIZATION_HASH" >&2
+read -r -p "Digite ASSINO CHECKPOINT BOOTSTRAP USDOM SEM TRANSMITIR AUTH $AUTHORIZATION_HASH: " AUTHORIZATION
+test "$AUTHORIZATION" = "ASSINO CHECKPOINT BOOTSTRAP USDOM SEM TRANSMITIR AUTH $AUTHORIZATION_HASH"
+assert_inputs
 assert_node_unchanged
 assert_jq_unchanged
 assert_cmp_unchanged
 for INDEX in 0 1; do
   EXPECTED=${OWNERS[$INDEX]}
-  read -r -p "Conecte somente o Ledger do signer $EXPECTED e pressione Enter: " _
+  printf 'Conecte somente a OneKey Classic 1S do signer %s por Bluetooth; a assinatura iniciará agora.\n' "$EXPECTED" >&2
   assert_inputs
-  assert_cast_unchanged
   assert_node_unchanged
   assert_jq_unchanged
   assert_cmp_unchanged
-  OBSERVED=$("$cast_bin" wallet address --ledger)
-  [[ "$OBSERVED" != *$'\r'* && "$OBSERVED" != *$'\n'* ]]
-  [[ "$OBSERVED" =~ ^0x[0-9a-fA-F]{40}$ ]]
+  PHYSICAL="$ROOT/evidence/authorization/onekey-governance-owner-$((INDEX + 1))-physical-account.json"
+  snapshot "$PHYSICAL" "$TEMPORARY/$INDEX.physical-account.json"
+  OBSERVED=$("$jq_bin" -er '.address' "$TEMPORARY/$INDEX.physical-account.json")
   test "${EXPECTED,,}" = "${OBSERVED,,}"
-  "$node_bin" "$ROOT/scripts/check-release-signing-network.mjs" \
+  run_bounded_node "$ROOT/scripts/check-release-signing-network.mjs" \
     "$TEMPORARY/request.json" "$TEMPORARY/release-config.json" >/dev/null
-  "$node_bin" "$ROOT/scripts/check-checkpoint-bootstrap-ratification-request.mjs" \
+  run_bounded_node "$ROOT/scripts/check-checkpoint-bootstrap-ratification-request.mjs" \
     "$TEMPORARY/request.json" >/dev/null
   assert_inputs
-  assert_cast_unchanged
   assert_node_unchanged
   assert_jq_unchanged
   assert_cmp_unchanged
-  PART=$("$cast_bin" wallet sign --no-hash "$DIGEST" --ledger)
-  [[ "$PART" != *$'\r'* && "$PART" != *$'\n'* ]]
-  [[ "$PART" =~ ^0x[0-9a-fA-F]{130}$ ]]
-  assert_cast_unchanged
+  WC_REQUEST="$BASE/ratification-owner-$((INDEX + 1))-walletconnect-request.json"
+  WC_RESPONSE="$BASE/ratification-owner-$((INDEX + 1))-walletconnect-response.json"
+  if [[ ! -e "$WC_REQUEST" ]]; then
+    run_bounded_node "$ROOT/scripts/prepare-onekey-ios-walletconnect-request.mjs" \
+      "$USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG" "$TEMPORARY/typed-envelope.json" \
+      "$TEMPORARY/$INDEX.physical-account.json" "$EXPECTED" "$WC_REQUEST"
+  fi
+  run_bounded_node "$ROOT/scripts/check-onekey-ios-walletconnect-request.mjs" \
+    "$USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG" "$TEMPORARY/typed-envelope.json" \
+    "$TEMPORARY/$INDEX.physical-account.json" "$EXPECTED" "$WC_REQUEST"
+  if [[ ! -e "$WC_RESPONSE" ]]; then
+    if run_bounded_walletconnect "$ROOT/scripts/sign-onekey-ios-walletconnect-typed-data.mjs" \
+      "$USDOM_ONEKEY_IOS_WALLETCONNECT_CONFIG" "$WC_REQUEST" \
+      "$TEMPORARY/$INDEX.physical-account.json" "$WC_RESPONSE"; then :; else
+      STATUS=$?; (( STATUS == 80 )) && exit 80; exit "$STATUS"
+    fi
+  fi
+  run_bounded_node "$ROOT/scripts/extract-onekey-ios-walletconnect-signature.mjs" \
+    "$WC_REQUEST" "$WC_RESPONSE" > "$TEMPORARY/$INDEX.hex"
+  chmod 0600 "$TEMPORARY/$INDEX.hex"
   assert_node_unchanged
   assert_jq_unchanged
   assert_cmp_unchanged
-  "$cast_bin" wallet verify --address "$EXPECTED" --no-hash "$DIGEST" "$PART" >/dev/null
-  printf '%s' "$PART" > "$TEMPORARY/$INDEX.hex"
+  printf 'Desconecte o dispositivo do signer %s antes de conectar a proxima identidade.\n' "$EXPECTED" >&2
 done
 exec </dev/null
-FIRST=$(<"$TEMPORARY/0.hex")
-SECOND=$(<"$TEMPORARY/1.hex")
-printf '0x%s%s\n' "${FIRST:2}" "${SECOND:2}" > "$TEMPORARY/signature.hex"
-chmod 0600 "$TEMPORARY/signature.hex"
+run_bounded_node "$ROOT/scripts/assemble-checkpoint-bootstrap-ratification-signatures.mjs" \
+  "$TEMPORARY/request.json" "${OWNERS[0]}" "$TEMPORARY/0.hex" \
+  "${OWNERS[1]}" "$TEMPORARY/1.hex" "$TEMPORARY/signature.hex"
 [[ $(<"$TEMPORARY/signature.hex") =~ ^0x[0-9a-fA-F]{260}$ ]]
 sha256_file "$TEMPORARY/signature.hex" > "$TEMPORARY/signature.sha256"
 chmod 0600 "$TEMPORARY/signature.sha256"
 assert_inputs
-assert_cast_unchanged
 assert_node_unchanged
 assert_jq_unchanged
 assert_cmp_unchanged
@@ -286,16 +328,15 @@ if [[ -e "$SIGNATURE_SHA" ]]; then
     exit 1
   }
 else
-  "$node_bin" "$ROOT/scripts/install-private-file-immutable-stdin.mjs" "$SIGNATURE_SHA" < "$TEMPORARY/signature.sha256"
+  run_bounded_node "$ROOT/scripts/install-private-file-immutable-stdin.mjs" "$SIGNATURE_SHA" < "$TEMPORARY/signature.sha256"
 fi
 snapshot "$SIGNATURE_SHA" "$TEMPORARY/signature-sha.installed.txt"
 "$cmp_bin" -s "$TEMPORARY/signature.sha256" "$TEMPORARY/signature-sha.installed.txt"
 assert_inputs
-assert_cast_unchanged
 assert_node_unchanged
 assert_jq_unchanged
 assert_cmp_unchanged
-"$node_bin" "$ROOT/scripts/install-private-file-immutable-stdin.mjs" "$SIGNATURE" < "$TEMPORARY/signature.hex"
+run_bounded_node "$ROOT/scripts/install-private-file-immutable-stdin.mjs" "$SIGNATURE" < "$TEMPORARY/signature.hex"
 snapshot "$SIGNATURE" "$TEMPORARY/signature.installed.hex"
 "$cmp_bin" -s "$TEMPORARY/signature.hex" "$TEMPORARY/signature.installed.hex"
 printf '%s\n' 'Two-owner checkpoint ratification signature created locally; nothing was transmitted.'

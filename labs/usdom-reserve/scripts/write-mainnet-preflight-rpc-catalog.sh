@@ -20,8 +20,8 @@ pin_tool() {
 assert_tool_unchanged() {
   local name=$1 bin_name="${1}_bin" identity_name="${1}_identity" parent_identity_name="${1}_parent_identity" sha_name="${1}_sha256" path parent
   path=${!bin_name}; parent=$(dirname "$path"); [[ $(realpath "$(command -v "$name")") == "$path" && $(realpath "$parent") == "$parent" ]]
-  [[ $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
-  [[ $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]]
+  [[ $(stat -Lc '%d:%i:%u:%a' "$parent") == "${!parent_identity_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]] || return 1
+  [[ $(sha256sum "$path" | cut -d ' ' -f 1) == "${!sha_name}" && $(stat -Lc '%d:%i:%s:%Y:%Z' "$path") == "${!identity_name}" ]] || return 1
 }
 pin_tool node; pin_tool timeout
 ROOT=$(realpath "$(dirname "$0")/.."); test "$PWD" = "$ROOT"

@@ -12,6 +12,7 @@ import {
   finalizedBurnFields,
   finalizedBurnStatementHash,
   normalizeFinalizedBurn,
+  reserveDepositId,
 } from '../../sdk/proof-reserve.mjs';
 
 const h = n => '0x' + n.toString(16).padStart(64, '0');
@@ -23,6 +24,17 @@ const burn = {
   amount:'9007199254740993', domDomain:h(3), height:'4', blockHash:h(5), stateRoot:h(6),
   finalityBeaconSlot:'7', validUntil:'1800600000',
 };
+
+test('deposit identity matches Solidity ABI encoding and binds every domain field', () => {
+  const input={chainId:'31337',reserve:'0x0000000000000000000000000000000000001234',
+    funder:'0x0000000000000000000000000000000000005678',salt:repeated(0xab,32)};
+  const base=reserveDepositId(input);
+  assert.equal(base,'0xc72de19b4817ee2b6d6085948efda1b1b419061229927cfd5b4aff8f5465e504');
+  assert.notEqual(base,reserveDepositId({...input,chainId:'31338'}));
+  assert.notEqual(base,reserveDepositId({...input,reserve:input.funder}));
+  assert.notEqual(base,reserveDepositId({...input,funder:input.reserve}));
+  assert.notEqual(base,reserveDepositId({...input,salt:repeated(0xac,32)}));
+});
 
 test('proof statement preserves uint64 precision and rejects noncanonical fields', () => {
   assert.equal(normalizeFinalizedBurn(burn).amount, 9007199254740993n);
@@ -48,6 +60,18 @@ test('native burn intent binds payout fields but excludes later finality identit
   }
   assert.notEqual(base, burnIntentHash({chainId:'31338', reserve, burn}));
   assert.notEqual(base, burnIntentHash({chainId:'31337', reserve:burn.recipient, burn}));
+});
+
+test('native burn intent matches the Rust canonical ABI vector', () => {
+  const nativeVector={
+    burnId:'0xd0b8ffc2dc9668fc6d73bee43ebc979ed69e5cd0d2d8d1656d753539816b762b',
+    requestId:repeated(0x09,32),recipient:repeated(0x08,20),amount:'250',domDomain:repeated(0x11,32),
+    height:'1',blockHash:h(1),stateRoot:h(2),finalityBeaconSlot:'1',validUntil:'1800600000',
+  };
+  assert.equal(
+    burnIntentHash({chainId:'31337',reserve:repeated(0x66,20),burn:nativeVector}),
+    '0x4f9a7214fb6b5701fe358a82952462bc172f220721a72b264e4b738558a1d842',
+  );
 });
 
 test('proof statement binds every burn field, chain and reserve', () => {

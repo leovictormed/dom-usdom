@@ -1,0 +1,33 @@
+ETAPA 1335 — DEADLINES DOS INSTALADORES DE ARQUIVOS PRIVADOS
+Data: 2026-10-26
+
+Problema
+
+Os executores de depósito e resgate instalavam artefatos privados com semântica
+create-once e validação de modo, porém as dezesseis invocações do instalador não
+possuíam deadline próprio. Um subprocesso travado poderia manter a cerimônia e
+seus recursos abertos por tempo indefinido.
+
+Correção
+
+Todas as chamadas de `install-private-file-new-stdin.mjs` agora executam sob
+deadline foreground TERM/KILL de 120 segundos: oito no depósito e oito no
+resgate. A cobertura inclui pacotes, baselines, validações, transações brutas,
+recibos, provas de finalidade e evidências terminais. Não resta invocação direta
+do instalador nos dois executores.
+
+O `set -euo pipefail` dos executores preserva o status nas chamadas isoladas e
+nos pipelines com `jq`: timeout ou falha do instalador abortam a etapa. As
+garantias existentes de arquivo novo, privado, direto e idempotente continuam
+implementadas pelo instalador.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 16/16 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 74/74 aprovada.
+- Inventário estático: 8/8 chamadas limitadas no depósito e 8/8 no resgate.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

@@ -23,6 +23,7 @@ native-usdom-v4-poc = [
     "dep:dom-usdom-state",
     "dep:dom-usdom-privacy",
     "dep:alloy",
+    "dep:alloy-trie",
     "dep:serde",
     "dep:sha2",
     "dep:dom-usdom-checkpoint-program",
@@ -150,6 +151,7 @@ dom-usdom-state = { path = "../dom-usdom-state", optional = true }
 dom-usdom-privacy = { path = "../dom-usdom-privacy", optional = true }
 usdom-ethereum-finality-experiment = { path = "../../labs/usdom-ethereum-finality", optional = true }
 alloy = { version = "=2.1.0", default-features = false, optional = true }
+alloy-trie = { version = "=0.9.8", optional = true }
 serde = { version = "=1.0.229", features = ["derive"], optional = true }
 sha2 = { workspace = true, optional = true }
 dom-usdom-checkpoint-program = { path = "../dom-usdom-checkpoint-program", optional = true, features = ["host-reference"] }

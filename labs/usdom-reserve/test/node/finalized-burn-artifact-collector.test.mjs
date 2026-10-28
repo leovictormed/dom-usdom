@@ -9,6 +9,7 @@ import {collectFinalizedBurnArtifacts} from '../../sdk/finalized-burn-artifact-c
 import {
   FINALIZED_BURN_GROTH16_VERIFIER_PARAMETERS,FINALIZED_BURN_IMAGE_ID,
 } from '../../sdk/finalized-burn-submission.mjs';
+import {proofReserveDeploymentConfigHash} from '../../sdk/configuration.mjs';
 import {
   BURN_INTENT_TYPEHASH,BURN_STATEMENT_TYPEHASH,PRIVATE_BURN_ID_TYPEHASH,
   finalizedBurnStatementHash,
@@ -18,6 +19,7 @@ import {
   FINALIZED_BURN_RISC0_JOURNAL_SCHEMA_HASH,VERIFIER_CONFIG_SCHEMA,
   finalizedBurnVerifierConfigHash,
 } from '../../sdk/verifier-config.mjs';
+import {PINNED_RISC0_MAINNET_V3} from '../../sdk/risc0-verifier-reference.mjs';
 
 const hash=byte=>'0x'+byte.toString(16).padStart(2,'0').repeat(32);
 const rawSha=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -80,16 +82,22 @@ async function fixture() {
     powRulesHash:hash(6),nativeAssetId:hash(7),noteTreeRulesHash:hash(8),nullifierRulesHash:hash(9),
     balanceRulesHash:hash(10),finalityRulesHash:hash(11),proofSystem:FINALIZED_BURN_PROOF_SYSTEM,
     verifyingKeySha256:hash(12),trustedSetupRequired:true,trustedSetupTranscriptSha256:hash(19),
-    provingProgramSha256:'0x883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21',
+    provingProgramSha256:'0xbf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511',
     sourceManifestSha256:hash(14),verifierArtifactSha256:hash(15),maxProofBytes:'260',
     minimumFinalityBeaconSlot:'12000000',ethereumChainId:'1',
-    riscZeroVerifier:'0x0000000000000000000000000000000000000010',riscZeroVerifierCodeHash:hash(17),
+    riscZeroVerifier:PINNED_RISC0_MAINNET_V3.verifier_address,
+    riscZeroVerifierCodeHash:PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash,
     riscZeroVerifierSelector:FINALIZED_BURN_RISC0_GROTH16_V3_SELECTOR,
     finalizedBurnGuestImageId:FINALIZED_BURN_IMAGE_ID,
     journalSchemaHash:FINALIZED_BURN_RISC0_JOURNAL_SCHEMA_HASH,
   };
   reserveConfiguration.verifierConfigHash=
     finalizedBurnVerifierConfigHash(verifierConfiguration).verifierConfigHash;
+  const release={...reserveConfiguration,
+    reserveConfigHash:proofReserveDeploymentConfigHash(reserveConfiguration).reserveConfigHash};
+  const releaseConfigBytes=Buffer.from(JSON.stringify(release));
+  const verifierConfigBytes=Buffer.from(
+    finalizedBurnVerifierConfigHash(verifierConfiguration).canonicalManifest);
   const burn={burnId:hash(31),requestId:hash(32),
     recipient:'0x0000000000000000000000000000000000000030',amount:'1000000',
     domDomain:reserveConfiguration.domDomain,height:'100360',blockHash:hash(33),stateRoot:hash(34),
@@ -163,12 +171,13 @@ async function fixture() {
     const target=path.join(root,relative); await privateDirectory(root,path.dirname(relative));
     await copyFile(source,target); await chmod(target,0o600);
   }
-  return {root,reserveConfiguration,verifierConfiguration,files};
+  return {root,reserveConfiguration,releaseConfigBytes,verifierConfiguration,verifierConfigBytes,files};
 }
 
 async function collect(f) {
   return collectFinalizedBurnArtifacts(f.root,{reserveConfiguration:f.reserveConfiguration,
-    verifierConfiguration:f.verifierConfiguration,releaseConfigSha256:'51'.repeat(32),
+    releaseConfigBytes:f.releaseConfigBytes,verifierConfiguration:f.verifierConfiguration,
+    verifierConfigBytes:f.verifierConfigBytes,releaseConfigSha256:rawSha(f.releaseConfigBytes),
     verifierManifestSha256:
       finalizedBurnVerifierConfigHash(f.verifierConfiguration).manifestSha256.slice(2)});
 }
@@ -190,6 +199,18 @@ test('collector binds the complete private finalized-burn receipt graph',async()
     assert.equal(result.evmSealSha256,result.submission.proof.sha256);
     assert.equal(result.inputBytes,String(f.files[
       'labs/usdom-reserve/evidence/finalized-burn-source/finalized-burn-input.bin'].length));
+  } finally { await rm(f.root,{recursive:true,force:true}); }
+});
+
+test('collector rejects a release object detached from its authenticated bytes',async()=>{
+  const f=await fixture();
+  try {
+    await assert.rejects(()=>collectFinalizedBurnArtifacts(f.root,{
+      reserveConfiguration:{...f.reserveConfiguration,withdrawalDelaySeconds:'1'},
+      releaseConfigBytes:f.releaseConfigBytes,verifierConfiguration:f.verifierConfiguration,
+      verifierConfigBytes:f.verifierConfigBytes,releaseConfigSha256:rawSha(f.releaseConfigBytes),
+      verifierManifestSha256:rawSha(f.verifierConfigBytes),
+    }),/release bytes differ from parsed authority/);
   } finally { await rm(f.root,{recursive:true,force:true}); }
 });
 
@@ -249,8 +270,9 @@ test('collector rejects origin mutation after its private replica is complete',a
   const relative='labs/usdom-reserve/evidence/finalized-burn-evm-proof/finalized-burn-evm-seal.bin';
   try {
     await assert.rejects(()=>collectFinalizedBurnArtifacts(f.root,{
-      reserveConfiguration:f.reserveConfiguration,verifierConfiguration:f.verifierConfiguration,
-      releaseConfigSha256:'51'.repeat(32),
+      reserveConfiguration:f.reserveConfiguration,releaseConfigBytes:f.releaseConfigBytes,
+      verifierConfiguration:f.verifierConfiguration,verifierConfigBytes:f.verifierConfigBytes,
+      releaseConfigSha256:rawSha(f.releaseConfigBytes),
       verifierManifestSha256:
         finalizedBurnVerifierConfigHash(f.verifierConfiguration).manifestSha256.slice(2),
       beforeOriginRecheck:async()=>writeFile(path.join(f.root,relative),Buffer.alloc(260,7)),

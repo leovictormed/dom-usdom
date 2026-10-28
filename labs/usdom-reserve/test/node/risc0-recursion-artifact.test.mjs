@@ -49,7 +49,10 @@ test('all Node proof launchers preflight and propagate the recursion binding',as
     assert.match(source,/await requireRisc0RecursionArtifact\(\{/);
     assert.match(source,/\.environment/);
     const preflight=source.indexOf('await requireRisc0RecursionArtifact({');
-    const cargo=source.indexOf("await runCommand('cargo'",preflight);
+    const cargo=Math.min(...[
+      source.indexOf("await runCommand('cargo'",preflight),
+      source.indexOf('await runCommand(CARGO',preflight),
+    ].filter(index=>index>=0));
     assert(preflight>=0 && cargo>preflight,`${name} must preflight before spawning Cargo`);
   }
 });

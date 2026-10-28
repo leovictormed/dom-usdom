@@ -1,0 +1,29 @@
+ETAPA 1535B — verificação algébrica real do MPC Groth16
+
+O crate dom-usdom-privacy agora contém um verificador/produtor offline de contribuições
+delta Phase 2, `dom-usdom-groth16-ceremony`.
+Cada contribuição multiplica delta_g1/delta_g2 pelo mesmo escalar CSPRNG não zero/não
+unitário e multiplica todos h_query/l_query pelo inverso. O escalar e seu inverso são
+zeroizados e nunca serializados. O verificador exige byte-exatidão de alpha/beta/gamma,
+gamma_abc/A/B, recusa identidades e usa equações de pairing; H/L são agregados por desafio
+Fiat-Shamir ligado aos dois arquivos, evitando custo de uma final exponentiation por item.
+
+O fingerprint é recomposto de SpendCircuit::default em SynthesisMode::Setup e inclui
+matrizes A/B/C canônicas, counts, domínio FFT, oito domínios do protocolo e Poseidon.
+`validate-final` exige PK <=64 MiB, VK derivada <=4 KiB, tamanhos de queries ligados ao
+fingerprint, prova positiva de burn e transfer e falha da mesma prova sob mutação isolada
+de cada um dos nove inputs públicos. O checker JavaScript percorre PK[0]..PK[n], chama o
+binário hash-pinado em cada elo, exige PK final byte-exata, deriva a VK e confere o
+fingerprint. O instalador invoca a mesma validação antes de qualquer arquivo create-once.
+
+Achado crítico preservado: essa transformação não remove tau/alpha/beta/gamma conhecidos
+por quem gerou uma PK0 single-party. Também as equações de pairing demonstram a existência
+de um escalar comum, mas não são uma prova de conhecimento pelo participante identificado.
+Logo o checker/instalador falha deliberadamente mesmo com uma cadeia delta válida até o
+repositório integrar (1) Phase 1 Powers-of-Tau BN254 multi-participante com validação de
+toda a cadeia e especialização verificável no fingerprint exato e (2) PoK DLEQ/Schnorr
+por contribuição, ligada a identidade/domínio/release e aos dois arquivos PK.
+
+Nenhuma cerimônia, segredo, rede, assinatura ou fundo foi usado. As flags permanecem
+false e a instalação de produção está tecnicamente bloqueada; hashes/atestação de PK0
+não são aceitos como substitutos dessas duas provas criptográficas.

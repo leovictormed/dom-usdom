@@ -1,0 +1,34 @@
+Stage 1247 — bounded deployment sequence cost arithmetic
+Date: 2026-10-26
+
+Finding
+-------
+The deployment sequence cost checker converted its command-line current cost
+and each persisted prior `maximumCost` with `BigInt` after checking decimal
+syntax but before imposing any lexical ceiling. Oversized local input or a
+malformed evidence file could therefore cause unnecessary arbitrary-precision
+work before the existing transaction and sequence caps rejected it.
+
+Correction
+----------
+A single bounded cost reader now rejects noncanonical inputs and any string
+longer than the transaction cost cap before conversion, then enforces nonzero
+and the exact per-transaction financial cap. Both current and prior costs use
+that reader before cumulative sequence arithmetic.
+
+Adversarial regression
+----------------------
+The CLI regression covers 100,000-digit current and persisted costs, cap plus
+one, leading-zero and negative values. It also verifies diagnostics never echo
+the rejected value, while a canonical valid cost still produces the exact sum.
+
+Validation
+----------
+- Node syntax check: pass.
+- Deployment sequence, execution, evidence and identity suites: 26/26 pass.
+- Targeted diff check: pass.
+
+Scope
+-----
+No production fact was changed. No Rust, Solidity, Cargo, Forge, real network,
+signature, deployment, funds, commit or push operation was performed.

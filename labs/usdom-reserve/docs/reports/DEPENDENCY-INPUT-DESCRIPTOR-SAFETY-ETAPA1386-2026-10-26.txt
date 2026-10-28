@@ -1,0 +1,29 @@
+Stage 1386 — descriptor-safe dependency input reads
+Date: 2026-10-26
+
+Finding
+The supply-chain checker discovered manifests and locks safely but later read them again by
+pathname with unbounded read_text(). A final-component substitution, hardlink alias, concurrent
+rewrite or oversized lock could therefore change the bytes after discovery or consume unbounded
+memory before policy validation.
+
+Correction
+- Cargo locks, Cargo manifests and npm locks now open with O_NOFOLLOW/O_CLOEXEC and are read
+  exactly once from the authenticated descriptor.
+- The checker binds pathname lstat to descriptor device/inode, requires a regular owner-owned
+  single-link file without group/other write access, and compares descriptor device/inode/size,
+  timestamps, owner, mode and link count before and after the bounded read.
+- Applied explicit 64 MiB lock and 2 MiB manifest caps and strict UTF-8 decoding.
+- TOML parsing now has a fail-closed diagnostic boundary; duplicate keys are explicitly covered
+  by the adversarial self-test instead of escaping as an uncaught parser traceback.
+- Regressions reject symlinks, hardlinks, oversized input and duplicate TOML keys.
+
+Validation
+- Python compilation: PASS.
+- dependency-policy adversarial self-test: PASS.
+- live dependency policy: PASS (36 Cargo locks/15,017 entries, 234 manifests, four npm
+  locks/241 entries).
+- focused supply-chain/toolchain suite: 7/7 PASS.
+- diff check: PASS.
+
+No repository hash was frozen. No network, signing, deployment, funds, commit or push occurred.

@@ -9,7 +9,7 @@ import {
   finalizedBurnVerifierConfigHash,
 } from './verifier-config.mjs';
 
-const finalizedBurnImageId='2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea';
+const finalizedBurnImageId='f0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae';
 const groth16VerifierParameters=
   '73c457ba541936f0d907daf0c7253a39a9c5c427c225ba7709e44702d3c6eedc';
 const sourceIndexFields=Object.freeze([
@@ -45,6 +45,7 @@ const packageSourceFields=Object.freeze([
   'releaseConfigSha256','verifierManifestSha256','sourceIndexPath','sourceIndexSha256',
   'inputPath','inputSha256','receiptIndexPath','receiptIndexSha256','proofIndexPath',
   'proofIndexSha256','sealPath','imageId','groth16VerifierParameters',
+  'activationScheduleCommitment',
 ]);
 const burnTuple=
   '(bytes32 burnId,bytes32 requestId,address recipient,uint64 amount,bytes32 domDomain,'+
@@ -54,7 +55,7 @@ const reserveInterface=new Interface([
   `function queueWithdrawal(${burnTuple} burn,bytes proof)`,
 ]);
 
-export const FINALIZED_BURN_SUBMISSION_SCHEMA='usdom-authenticated-finalized-burn-submission-v1';
+export const FINALIZED_BURN_SUBMISSION_SCHEMA='usdom-authenticated-finalized-burn-submission-v2';
 export const FINALIZED_BURN_IMAGE_ID='0x'+finalizedBurnImageId;
 export const FINALIZED_BURN_GROTH16_VERIFIER_PARAMETERS='0x'+groth16VerifierParameters;
 export {FINALIZED_BURN_EVM_SEAL_BYTES};
@@ -241,11 +242,11 @@ function parseProofIndex(input,receipt) {
 /** Validate authenticated proof artifacts and build deterministic unsigned queue calldata. */
 export function buildAuthenticatedFinalizedBurnSubmission({
   reserveConfiguration,verifierConfiguration,sourceIndex,sourceInput,receiptIndex,proofIndex,
-  evmSeal,releaseConfigSha256='0'.repeat(64),verifierManifestSha256,
+  evmSeal,releaseConfigSha256,verifierManifestSha256,
 }) {
   const configuration=proofReserveDeploymentConfigHash(reserveConfiguration);
   const verifier=finalizedBurnVerifierConfigHash(verifierConfiguration);
-  rawHash(releaseConfigSha256,'releaseConfigSha256',{nonzero:false});
+  rawHash(releaseConfigSha256,'releaseConfigSha256');
   const manifestSha=verifierManifestSha256??verifier.manifestSha256.slice(2);
   rawHash(manifestSha,'verifierManifestSha256');
   if(manifestSha!==verifier.manifestSha256.slice(2)
@@ -292,6 +293,7 @@ export function buildAuthenticatedFinalizedBurnSubmission({
       sealPath:'evidence/finalized-burn-evm-proof/finalized-burn-evm-seal.bin',
       imageId:FINALIZED_BURN_IMAGE_ID,
       groth16VerifierParameters:FINALIZED_BURN_GROTH16_VERIFIER_PARAMETERS,
+      activationScheduleCommitment:configuration.activationScheduleCommitment,
     },
     broadcastAuthorized:false,
   };
@@ -315,8 +317,42 @@ export function validateAuthenticatedFinalizedBurnSubmission(submission) {
     max:FINALIZED_BURN_EVM_SEAL_BYTES,
   });
   rawHash(submission.proof.sha256,'submission proof sha256');
-  bytes32(submission.statementHash,'submission statementHash');
-  bytes32(submission.journalDigest,'submission journalDigest');
+  const canonicalStatementHash=bytes32(submission.statementHash,'submission statementHash');
+  const canonicalJournalDigest=bytes32(submission.journalDigest,'submission journalDigest');
+  if(submission.statementHash!==canonicalStatementHash
+      || submission.journalDigest!==canonicalJournalDigest) {
+    throw new Error('submission public hashes must use canonical lowercase bytes32 encoding');
+  }
+  const chainId=uint(submission.ethereumChainId,256);
+  if(chainId===0n || chainId.toString()!==submission.ethereumChainId) {
+    throw new Error('submission Ethereum chain ID must be canonical and nonzero');
+  }
+  const activationScheduleCommitment=bytes32(
+    submission.source.activationScheduleCommitment,'submission activationScheduleCommitment',
+  );
+  for(const field of [
+    'releaseConfigSha256','verifierManifestSha256','sourceIndexSha256','inputSha256',
+    'receiptIndexSha256','proofIndexSha256',
+  ]) rawHash(submission.source[field],`submission source ${field}`);
+  if(new Set([
+    submission.source.sourceIndexSha256,submission.source.inputSha256,
+    submission.source.receiptIndexSha256,submission.source.proofIndexSha256,
+    submission.proof.sha256,
+  ]).size!==5) throw new Error('finalized-burn submission artifact hashes must be distinct');
+  if(submission.source.sourceIndexPath
+      !=='evidence/finalized-burn-source/finalized-burn-source-index.json'
+      || submission.source.inputPath!=='evidence/finalized-burn-source/finalized-burn-input.bin'
+      || submission.source.receiptIndexPath
+        !=='evidence/finalized-burn-receipt/finalized-burn-receipt-index.json'
+      || submission.source.proofIndexPath
+        !=='evidence/finalized-burn-evm-proof/finalized-burn-evm-proof-index.json'
+      || submission.source.sealPath
+        !=='evidence/finalized-burn-evm-proof/finalized-burn-evm-seal.bin'
+      || bytes32(submission.source.imageId,'submission source imageId')!==FINALIZED_BURN_IMAGE_ID
+      || bytes32(submission.source.groth16VerifierParameters,
+        'submission source groth16VerifierParameters')!==FINALIZED_BURN_GROTH16_VERIFIER_PARAMETERS) {
+    throw new Error('finalized-burn submission source provenance is not canonical');
+  }
   const canonicalBurn=Object.fromEntries(burnFields.map(field=>[
     field,typeof burn[field]==='bigint'?burn[field].toString():burn[field],
   ]));
@@ -333,6 +369,8 @@ export function validateAuthenticatedFinalizedBurnSubmission(submission) {
       || decodedProof.length!==submission.proof.bytes
       || sha256Raw(decodedProof)!==submission.proof.sha256
       || sha256(submission.statementHash)!==submission.journalDigest
+      || finalizedBurnStatementHash({chainId,reserve:submission.to,
+        activationScheduleCommitment,burn})!==submission.statementHash.toLowerCase()
       || reserveInterface.encodeFunctionData('queueWithdrawal',[burn,decodedProof])!==submission.data
       || keccak256(submission.data)!==submission.dataKeccak256) {
     throw new Error('finalized-burn submission package is not canonical');

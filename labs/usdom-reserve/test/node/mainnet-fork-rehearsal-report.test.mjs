@@ -17,6 +17,7 @@ const releaseConfig={ethereumChainId:'1',reserveConfigHash:'0x'+'11'.repeat(32),
   checkpointRegistryConfigHash:'0x'+'22'.repeat(32),activationScheduleCommitment:'0x'+'33'.repeat(32)};
 
 function fixture() {
+  const generationId='ab'.repeat(32),forkBlockNumber='22000000',forkBlockHash='0x'+'cd'.repeat(32);
   const evidenceFiles={};
   const scenarios=ids.map((id,index)=>{
     const fault={path:`evidence/fork-rehearsal/raw/${id}-fault.json`,sha256:(index+1).toString(16).padStart(64,'0')};
@@ -26,19 +27,20 @@ function fixture() {
       fundLossBaseUnits:'0',recoveryObserved:true,startedAtUnix:String(1000+index*10),
       finishedAtUnix:String(1009+index*10),preStateCommitment:'0x'+(40+index).toString(16).repeat(32),
       faultStateCommitment:'0x'+(40+index).toString(16).repeat(32),
-      postRecoveryStateCommitment:'0x'+(60+index).toString(16).repeat(32),
+      postRecoveryStateCommitment:'0x'+(40+index).toString(16).repeat(32),
       faultEvidence:fault,recoveryEvidence:recovery};
     evidenceFiles[fault.path]={sha256:fault.sha256,document:{
       schema:'usdom-mainnet-fork-fault-evidence-v1',scenarioId:id,releaseId:'release-1',
       sourceCommit:'a'.repeat(40),commandId:`${id}-fault-assertion`,assertionExitCode:'0',
       observedDecision:decisions[index],preStateCommitment:scenario.preStateCommitment,
       faultStateCommitment:scenario.faultStateCommitment,unsafeTransitionCount:'0',
-      fundLossBaseUnits:'0',capturedAtUnix:scenario.startedAtUnix}};
+      fundLossBaseUnits:'0',generationId,forkBlockNumber,forkBlockHash,
+      capturedAtUnix:scenario.startedAtUnix}};
     evidenceFiles[recovery.path]={sha256:recovery.sha256,document:{
       schema:'usdom-mainnet-fork-recovery-evidence-v1',scenarioId:id,releaseId:'release-1',
       sourceCommit:'a'.repeat(40),commandId:`${id}-recovery-assertion`,assertionExitCode:'0',
       recoveryObserved:true,postRecoveryStateCommitment:scenario.postRecoveryStateCommitment,
-      capturedAtUnix:scenario.finishedAtUnix}};
+      generationId,forkBlockNumber,forkBlockHash,capturedAtUnix:scenario.finishedAtUnix}};
     fault.sha256=forkRehearsalEvidenceDocumentSha256(evidenceFiles[fault.path].document);
     recovery.sha256=forkRehearsalEvidenceDocumentSha256(evidenceFiles[recovery.path].document);
     evidenceFiles[fault.path].sha256=fault.sha256;
@@ -50,6 +52,9 @@ function fixture() {
     reserveConfigHash:releaseConfig.reserveConfigHash,
     checkpointRegistryConfigHash:releaseConfig.checkpointRegistryConfigHash,
     activationScheduleCommitment:releaseConfig.activationScheduleCommitment,
+    generationId,forkBlockNumber,forkBlockHash,rpcSourceIds:['drpc','publicnode'],
+    rpcEndpointHashes:['c5b9f7564a09b1b2bbdff2c7145d474bbc2ccd025460d9c5b097a39474b7980c',
+      '7b71d04b616d2ce47598465ad04d63da212a14b1317f965044bf325b749a6746'],
     startedAtUnix:'1000',finishedAtUnix:'1100',scenarios},releaseEvidence:{...releaseEvidence},
     releaseConfig:{...releaseConfig},evidenceFiles};
 }
@@ -85,9 +90,12 @@ test('rejects release provenance and immutable configuration drift',()=>{
     value=>{value.observations.reserveConfigHash='0x'+'99'.repeat(32);},
     value=>{value.observations.checkpointRegistryConfigHash='0x'+'99'.repeat(32);},
     value=>{value.observations.activationScheduleCommitment='0x'+'99'.repeat(32);},
+    value=>{value.observations.generationId='99'.repeat(32);},
+    value=>{value.observations.forkBlockHash='0x'+'99'.repeat(32);},
+    value=>{value.observations.rpcSourceIds=['attacker','publicnode'];},
   ]) {
     const input=fixture(); mutate(input);
-    assert.throws(()=>buildMainnetForkRehearsalReport(input),/(exact release|differs)/);
+    assert.throws(()=>buildMainnetForkRehearsalReport(input),/(exact release|differs|invalid)/);
   }
 });
 
@@ -99,6 +107,9 @@ test('rejects every unsafe, lossy, bypassed, or unrecovered scenario',()=>{
   }
   const changed=fixture(); changed.observations.scenarios[1].faultStateCommitment='0x'+'77'.repeat(32);
   assert.throws(()=>buildMainnetForkRehearsalReport(changed),/changed protected state/);
+  const incompleteRecovery=fixture();
+  incompleteRecovery.observations.scenarios[1].postRecoveryStateCommitment='0x'+'77'.repeat(32);
+  assert.throws(()=>buildMainnetForkRehearsalReport(incompleteRecovery),/exact protected pre-fault state/);
 });
 
 test('rejects oversized decimal evidence before numeric conversion',()=>{
@@ -129,6 +140,21 @@ test('rejects raw machine evidence that does not prove the declared outcome',()=
   const path=recovery.observations.scenarios[5].recoveryEvidence.path;
   recovery.evidenceFiles[path].document.recoveryObserved=false;
   assert.throws(()=>buildMainnetForkRehearsalReport(recovery),/(bytes do not match|prove restoration)/);
+  const reversed=fixture();
+  const recoveryPath=reversed.observations.scenarios[0].recoveryEvidence.path;
+  reversed.evidenceFiles[recoveryPath].document.capturedAtUnix=
+    reversed.observations.scenarios[0].startedAtUnix;
+  const faultPath=reversed.observations.scenarios[0].faultEvidence.path;
+  reversed.evidenceFiles[faultPath].document.capturedAtUnix=
+    String(BigInt(reversed.observations.scenarios[0].startedAtUnix)+1n);
+  for(const evidencePath of [recoveryPath,faultPath]) {
+    const entry=reversed.evidenceFiles[evidencePath];
+    entry.sha256=forkRehearsalEvidenceDocumentSha256(entry.document);
+    const scenario=reversed.observations.scenarios[0];
+    if(evidencePath===recoveryPath) scenario.recoveryEvidence.sha256=entry.sha256;
+    else scenario.faultEvidence.sha256=entry.sha256;
+  }
+  assert.throws(()=>buildMainnetForkRehearsalReport(reversed),/recovery evidence predates fault evidence/);
 });
 
 test('rejects missing, reordered, stale, duplicate, mismatched, or extra evidence',()=>{

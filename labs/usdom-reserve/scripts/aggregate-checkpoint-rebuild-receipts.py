@@ -2,11 +2,20 @@
 """Aggregate independently verified RISC Zero receipts into one V3 stage record."""
 import hashlib, json, os, stat, sys
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from durable_create_once import install_create_once
 
 H64 = __import__('re').compile(r"[0-9a-f]{64}")
 MAX_JSON = 4 * 1024 * 1024
 
 def fail(message): raise ValueError(message)
+def strict_pairs(pairs):
+    value={}
+    for key,item in pairs:
+        if key in value: fail(f"duplicate JSON key {key!r}")
+        value[key]=item
+    return value
+def reject_json_float(value): fail(f"JSON floating-point number is forbidden: {value}")
 def capture(path, label):
     before=path.stat(follow_symlinks=False)
     if not stat.S_ISREG(before.st_mode) or before.st_nlink!=1 or before.st_size<=0 or before.st_size>MAX_JSON:
@@ -19,14 +28,14 @@ def capture(path, label):
     return data
 def parsed(path,label):
     data=capture(path,label)
-    try: value=json.loads(data.decode('utf-8'))
+    try: value=json.loads(data.decode('utf-8'),object_pairs_hook=strict_pairs,parse_float=reject_json_float)
     except Exception as error: fail(f"invalid {label}: {error}")
     return value,hashlib.sha256(data).hexdigest()
 def exact(value,keys,label):
     if not isinstance(value,dict) or set(value)!=set(keys): fail(f"{label} schema is invalid")
     return value
 def environment(name):
-    try: value=json.loads(os.environ[name])
+    try: value=json.loads(os.environ[name],object_pairs_hook=strict_pairs,parse_float=reject_json_float)
     except Exception: fail(f"{name} is invalid")
     if not isinstance(value,dict) or any(not isinstance(k,str) or not H64.fullmatch(v or '') for k,v in value.items()):
         fail(f"{name} is invalid")
@@ -68,11 +77,8 @@ def main():
     record={'schema':'usdom-rebuild-stage-verification-v1','stage':'receipts','inputs':inputs,'outputs':outputs,'claims':{
       'receiptsCryptographicallyVerified':True,'methodImageIdsMatched':True,'journalDigestsMatched':True,'elfReceiptPairsMatched':True}}
     encoded=(json.dumps(record,sort_keys=True,separators=(',',':'))+'\n').encode()
-    descriptor=os.open(record_path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
-    with os.fdopen(descriptor,'wb') as stream: stream.write(encoded); stream.flush(); os.fsync(stream.fileno())
-    parent=os.open(record_path.parent or Path('.'),os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-    try: os.fsync(parent)
-    finally: os.close(parent)
+    install_create_once(Path(os.path.abspath(record_path)),encoded,mode=0o600,maximum=MAX_JSON,
+                        private_parent=True,allow_equal=True)
     return 0
 if __name__=='__main__':
     try: raise SystemExit(main())

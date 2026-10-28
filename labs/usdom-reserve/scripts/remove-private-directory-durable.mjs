@@ -34,7 +34,13 @@ try {
       try { await rename(orphan,claimed); }
       catch(error) { if(error?.code==='ENOENT') continue; throw error; }
       await handle.sync();
-      await rm(claimed,{recursive:true,force:false});
+      try { await rm(claimed,{recursive:true,force:false}); }
+      catch(error) {
+        // A concurrent remover may atomically reclaim this purge tombstone
+        // after our rename. ENOENT proves that the direct claimed name is no
+        // longer ours; every other failure remains fatal.
+        if(error?.code!=='ENOENT') throw error;
+      }
       await handle.sync();
     }
   }

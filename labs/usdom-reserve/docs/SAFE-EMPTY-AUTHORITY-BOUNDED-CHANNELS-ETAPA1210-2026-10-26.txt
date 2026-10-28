@@ -1,0 +1,29 @@
+SAFE EMPTY AUTHORITY BOUNDED CHANNELS — STAGE 1210
+Date: 2026-10-26
+
+Finding
+=======
+
+Owner hardware-custody validation discarded stdout and the finalized-height
+checker ran directly. Both are predicates whose successful protocol output is
+exactly empty, but neither had a uniform external deadline, private channels or
+an assertion that success produced no text.
+
+Correction
+==========
+
+Both checks now use a shared empty-authority runner. It reattests Node and
+timeout, enforces a 120-second TERM/KILL deadline, captures stdout/stderr in
+private tmpfs, limits both to 64 KiB with fatal UTF-8 decoding, emits only a
+generic bounded failure and requires both channels to be byte-empty on success.
+
+Verification
+============
+
+- Bash syntax: pass.
+- Focused Safe/environment/process tests: 12/12 pass.
+- Broad operator-runbook plus Safe executor tests: 87/87 pass.
+- `git diff --check`: pass.
+
+No Rust, Cargo, Forge, real network, hardware signing, broadcast, deployment,
+funds, commit or push was executed.

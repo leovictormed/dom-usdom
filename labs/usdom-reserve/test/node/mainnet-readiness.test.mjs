@@ -2,8 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
-import {Interface,TypedDataEncoder,getAddress,getCreateAddress,keccak256,sha256,toUtf8Bytes} from 'ethers';
-import {assessMainnetReadiness} from '../../sdk/mainnet-readiness.mjs';
+import {readFileSync} from 'node:fs';
+import {finalizedBurnAuthorityFixture} from './finalized-burn-authority-fixture.mjs';
+import {Interface,TypedDataEncoder,Wallet,getAddress,getCreateAddress,id,keccak256,sha256,toUtf8Bytes} from 'ethers';
+import {assertNoImpossibleAssuranceRequirements,assessMainnetReadiness,
+ isForbiddenImpossibleAssuranceRequirement,readinessRequirementKeys}
+ from '../../sdk/mainnet-readiness.mjs';
 import {proofReserveDeploymentConfigHash,safeOwnersCommitment} from '../../sdk/configuration.mjs';
 import {
  BURN_INTENT_TYPEHASH,BURN_STATEMENT_TYPEHASH,PRIVATE_BURN_ID_TYPEHASH,finalizedBurnStatementHash,
@@ -24,7 +28,14 @@ import {
 } from '../../sdk/checkpoint-verifier-config.mjs';
 import {checkpointRegistryConfigurationFromRelease} from '../../sdk/checkpoint-submission.mjs';
 import {PINNED_RISC0_MAINNET_V3} from '../../sdk/risc0-verifier-reference.mjs';
+import {
+ FINALIZED_BURN_CAPACITY_IMAGE_ID,FINALIZED_BURN_CAPACITY_INPUT_BYTES,
+ FINALIZED_BURN_CAPACITY_INPUT_SHA256,FINALIZED_BURN_CAPACITY_PROGRAM_SHA256,
+ FINALIZED_BURN_CAPACITY_REPORT_SCHEMA,FINALIZED_BURN_CAPACITY_STATEMENT_HASH,
+ finalizedBurnCapacityAdapterConfigHash,finalizedBurnIsolatedEvmReceiptCommitment,
+} from '../../sdk/finalized-burn-capacity-report.mjs';
 import {rpcConsensusEvidence} from '../../sdk/rpc-consensus-evidence.mjs';
+import {buildClosedMainnetDepositPackage} from '../../sdk/closed-mainnet-deposit.mjs';
 import {finalizedBurnReleaseEvmReceiptCommitment} from '../../sdk/finalized-burn-e2e-report.mjs';
 import {assessMainnetPreflight,EMPTY_CODE_HASH,ETHEREUM_MAINNET_GENESIS_BLOCK_HASH,
  ETHEREUM_MAINNET_USDT_CODE_HASH} from '../../sdk/mainnet-preflight.mjs';
@@ -37,7 +48,7 @@ import {
  validateReleaseAuthorizationSigningRequest,
 } from '../../sdk/release-authorization.mjs';
 import {
-  RECOVERABLE_SAFE_CONTROL_SCHEMA,SAFE_MAINNET_IDENTITY,SAFE_VERSION,
+  SAFE_MAINNET_IDENTITY,buildRecoverableSafeControlDeploymentPackage,
 } from '../../sdk/safe-control-deployment.mjs';
 import {
   SAFE_CONTROL_RECOVERY_SCHEMA,SAFE_CONTROL_SNAPSHOT_SCHEMA,
@@ -45,6 +56,17 @@ import {
 } from '../../sdk/safe-control-observation.mjs';
 import {buildRecoverableSafeControlReleaseEvidence} from '../../sdk/safe-control-release-evidence.mjs';
 import {createRiscZeroHealthSourceCatalog} from '../../sdk/risc0-health-source-catalog.mjs';
+import {PRODUCTION_SOLC_SHA256} from '../../sdk/reproducible-build-environment.mjs';
+import {buildProductionOperationalGasEvidence,productionOperationalGasJobCommitment}
+ from '../../sdk/production-operational-gas-evidence.mjs';
+import {buildNativePrivacyInstallationReceipt,ceremonyContributionMessage,
+ ceremonyDestructionMessage,ceremonyFinalizationMessage,ceremonyObjectHash,
+ phase1ContributionMessage,phase1DestructionMessage,validateNativePrivacyCeremony}
+ from '../../sdk/native-privacy-ceremony.mjs';
+
+const safe141Fixture=JSON.parse(readFileSync(
+ new URL('../fixtures/safe-1.4.1-mainnet.json',import.meta.url),'utf8'));
+const initialSafeOwnersByRole=()=>{const owners=[101,102,103].map(value=>getAddress(address(value)));return {governance:[...owners],reserveGuardian:[...owners],checkpointGuardian:[...owners],usdtCustody:[...owners]};};
 import {
  FINALIZED_BURN_E2E_EVIDENCE_PATH,prepareFinalizedBurnReleaseEvidenceMaterialization,
 } from '../../sdk/finalized-burn-release-evidence-materialization.mjs';
@@ -85,12 +107,100 @@ import {buildCheckpointRegistryReproducibleBuildReport,
 import {buildResidualRiskReport,serializeResidualRiskReport} from '../../sdk/residual-risk-report.mjs';
 import {buildTrustedSetupDecisionReport,serializeTrustedSetupDecisionReport}
  from '../../sdk/trusted-setup-decision-report.mjs';
+import {PINNED_SNARKJS_PACKAGE_INTEGRITY,PINNED_SNARKJS_VERSION,
+ PINNED_SNARKJS_KNOWN_ADVISORIES,
+ RISC0_TRUSTED_SETUP_VERIFICATION_COMMANDS,
+ buildRisc0TrustedSetupPodmanPlan,
+ serializeRisc0TrustedSetupVerificationReport,
+} from '../../sdk/risc0-trusted-setup-verification-report.mjs';
+import {buildPilotFundsSnapshot,pilotFundsAuthorizationDigest,pilotFundsReleaseId,pilotFundsSnapshotCommitment}
+ from '../../sdk/pilot-funds-authorization.mjs';
 
 const address=n=>'0x'+n.toString(16).padStart(40,'0');
 const signingFingerprint='A'.repeat(40);
 const documentSha=path=>createHash('sha256').update(path).digest('hex');
 const document=path=>({path,sha256:documentSha(path)});
 const bytes32=byte=>'0x'+byte.repeat(32);
+const nativePrivacyAuthorityFixture=async()=>{
+ const digest=value=>createHash('sha256').update(value).digest('hex');
+ const circuitBytes=Buffer.from('readiness frozen spend circuit'),finalProvingKeyBytes=Buffer.from('readiness final pk'),verifyingKeyBytes=Buffer.from('readiness canonical vk');
+ const wallets=[1,2,3].map(value=>new Wallet(`0x${String(value).padStart(64,'0')}`));
+ const base={schema:'usdom-native-privacy-groth16-ceremony-v1',circuitSha256:digest(circuitBytes),r1csFingerprintSha256:'10'.repeat(32),releaseCommitment:'11'.repeat(32),privacyVerifierConfigHash:'22'.repeat(32),participantsRequired:3,initialProvingKeySha256:'12'.repeat(32),initialKeyProvenance:null,ceremonyVerifierBinarySha256:'14'.repeat(32)};
+ let phase1Previous='0'.repeat(64),phase1Accumulator='13'.repeat(32);const phase1=[];
+ for(let i=0;i<3;i++){const participant=wallets[i].address,record={ordinal:i+1,participant,participantCommitment:digest(Buffer.from(participant)),previousRecordHash:phase1Previous,previousAccumulatorSha256:phase1Accumulator,artifactSha256:String(i+7).repeat(64),accumulatorSha256:String(i+1).repeat(64),signature:'',destruction:null};record.destruction={participant,artifactSha256:record.artifactSha256,method:'isolated volatile entropy erased and independently witnessed',destroyedAt:`2026-10-27T11:0${i}:00.000Z`,signature:''};record.destruction.signature=await wallets[i].signMessage(phase1DestructionMessage(record.destruction));record.signature=await wallets[i].signMessage(phase1ContributionMessage(record));phase1.push(record);phase1Accumulator=record.accumulatorSha256;phase1Previous=ceremonyObjectHash(record);}
+ base.initialKeyProvenance={kind:'powers-of-tau-bn254-multiparty-specialization-v1',initialAccumulatorSha256:'13'.repeat(32),finalAccumulatorSha256:phase1Accumulator,specializationSha256:base.initialProvingKeySha256,contributions:phase1};
+ let previous='0'.repeat(64);const contributions=[];
+ for(let i=0;i<3;i++){const contribution={ordinal:i+1,participant:wallets[i].address,participantCommitment:digest(Buffer.from(wallets[i].address)),previousTranscriptHash:previous,previousProvingKeySha256:i===0?base.initialProvingKeySha256:contributions[i-1].contributionSha256,contributionSha256:String(i+3).repeat(64),phase2ArtifactSha256:String(i+6).repeat(64),circuitSha256:base.circuitSha256,r1csFingerprintSha256:base.r1csFingerprintSha256,releaseCommitment:base.releaseCommitment,signature:'',destruction:null};contribution.signature=await wallets[i].signMessage(ceremonyContributionMessage(contribution));contribution.destruction={participant:contribution.participant,contributionSha256:contribution.contributionSha256,method:'ephemeral isolated host securely erased and independently witnessed',destroyedAt:`2026-10-27T12:0${i}:00.000Z`,signature:''};contribution.destruction.signature=await wallets[i].signMessage(ceremonyDestructionMessage(contribution.destruction));contributions.push(contribution);previous=ceremonyObjectHash(contribution);}
+ const transcript={...base,contributions,beacon:'ab'.repeat(64),finalProvingKeySha256:digest(finalProvingKeyBytes),verifyingKeySha256:digest(verifyingKeyBytes),finalTranscriptHash:'',finalizationSignatures:[]};
+ transcript.finalTranscriptHash=ceremonyObjectHash({previousTranscriptHash:previous,beacon:transcript.beacon,finalProvingKeySha256:transcript.finalProvingKeySha256,verifyingKeySha256:transcript.verifyingKeySha256,circuitSha256:transcript.circuitSha256,releaseCommitment:transcript.releaseCommitment,privacyVerifierConfigHash:transcript.privacyVerifierConfigHash,r1csFingerprintSha256:transcript.r1csFingerprintSha256,initialProvingKeySha256:transcript.initialProvingKeySha256,initialKeyProvenance:transcript.initialKeyProvenance,ceremonyVerifierBinarySha256:transcript.ceremonyVerifierBinarySha256});
+ transcript.finalizationSignatures=await Promise.all(wallets.map(async wallet=>({participant:wallet.address,signature:await wallet.signMessage(ceremonyFinalizationMessage(transcript))})));
+ const transcriptBytes=Buffer.from(`${JSON.stringify(transcript)}\n`),runtimeManifestBytes=Buffer.from('{"schema":"native-runtime","generation":1}\n');
+ const validated=validateNativePrivacyCeremony(transcript,{circuitBytes,finalProvingKeyBytes,verifyingKeyBytes});
+ const receipt=buildNativePrivacyInstallationReceipt(validated,runtimeManifestBytes,transcriptBytes);
+ return {transcriptBytes,circuitBytes,finalProvingKeyBytes,verifyingKeyBytes,runtimeManifestBytes,installationReceiptBytes:Buffer.from(`${JSON.stringify(receipt)}\n`),installedTranscriptBytes:transcriptBytes,installedVerifyingKeyBytes:verifyingKeyBytes,installedRuntimeManifestBytes:runtimeManifestBytes,privacyVerifierConfigHash:validated.privacyVerifierConfigHash,verifyingKeySha256:validated.verifyingKeySha256};
+};
+const nativePrivacyAuthority=await nativePrivacyAuthorityFixture();
+const operationalGasAuthority=(releaseConfig,releaseConfigBytes)=>{
+ const interfaces=[new Interface(['function queueWithdrawal((bytes32,bytes32,address,uint64,bytes32,uint64,bytes32,bytes32,uint64,uint64),bytes)']),new Interface(['function pruneExpired(uint256)']),new Interface(['function pruneDiscardable(bytes32[])']),new Interface(['function execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)','function swapOwner(address,address,address)'])];
+ const hash=n=>'0x'+n.toString(16).padStart(64,'0');
+ const input=index=>index===0?interfaces[0].encodeFunctionData('queueWithdrawal',[[hash(1),hash(2),address(3),1,hash(4),1,hash(5),hash(6),1,999],`0x${'11'.repeat(260)}`]):index===1?interfaces[1].encodeFunctionData('pruneExpired',[256]):index===2?interfaces[2].encodeFunctionData('pruneDiscardable',[Array.from({length:256},(_,n)=>hash(n+1))]):interfaces[3].encodeFunctionData('execTransaction',[releaseConfig.governance,0,interfaces[3].encodeFunctionData('swapOwner',[address(21),address(22),address(23)]),0,0,0,0,address(0),address(0),'0x']);
+ const inputHash=value=>'0x'+createHash('sha256').update(Buffer.from(value.slice(2),'hex')).digest('hex');
+ const ids=['queueWithdrawal-worst-case','pruneExpired-256','pruneDiscardable-256','safe-admin-swapOwner-3-owner-2-threshold'];
+ const topics=[id('WithdrawalQueued(bytes32,bytes32,bytes32,uint64,uint64)'),id('WithdrawalDiscardedV2(bytes32,bytes32,uint64,uint64)'),id('WithdrawalDiscardedV2(bytes32,bytes32,uint64,uint64)'),id('ExecutionSuccess(bytes32,uint256)')];
+ const safeAddresses=[releaseConfig.governance.toLowerCase(),releaseConfig.guardian.toLowerCase()];
+ const safeImplementationCodeHashes=[releaseConfig.governanceImplementationCodeHash.toLowerCase(),releaseConfig.guardianImplementationCodeHash.toLowerCase()];
+ const safeRuntimeCodeHashes=[releaseConfig.governanceCodeHash.toLowerCase(),releaseConfig.guardianCodeHash.toLowerCase()];
+ let job={schema:'usdom-production-operational-gas-measurement-job/v3',ethereumChainId:'1',releaseConfigSha256:'0x'+documentSha(releaseConfigBytes),localBaselineSha256:hash(2),reserve:releaseConfig.reserve.toLowerCase(),reserveRuntimeCodeHash:releaseConfig.reserveRuntimeCodeHash.toLowerCase(),reserveConfigHash:releaseConfig.reserveConfigHash.toLowerCase(),safeAddresses,safeImplementationCodeHashes,safeRuntimeCodeHashes,requiredRuns:2,requiredIndependentRpcSources:2,requiredFinalityTag:'finalized',scenarios:ids.map((name,index)=>({id:name,target:index<3?releaseConfig.reserve.toLowerCase():safeAddresses[0],targetRuntimeCodeHash:index<3?releaseConfig.reserveRuntimeCodeHash.toLowerCase():safeRuntimeCodeHashes[0],maximumGasUsed:'0x100000',runs:[1,2].map(ordinal=>({ordinal,transactionHash:hash(100+index*2+ordinal),calldataSha256:inputHash(input(index))}))})),jobCommitment:hash(0)};
+ job.jobCommitment=productionOperationalGasJobCommitment(job);
+ const observations=job.scenarios.map((scenario,index)=>({id:scenario.id,runs:scenario.runs.map(run=>({ordinal:run.ordinal,sources:['alpha','beta'].map(sourceId=>({sourceId,chainId:'0x1',runtimeCodeHash:scenario.targetRuntimeCodeHash,implementationCodeHash:index===3?safeImplementationCodeHashes[0]:null,transaction:{hash:run.transactionHash,to:scenario.target,input:input(index)},receipt:{transactionHash:run.transactionHash,status:'0x1',blockNumber:'0x10',blockHash:hash(200+index),gasUsed:'0x5208',logs:Array.from({length:index===1||index===2?256:1},()=>({address:scenario.target,topics:[topics[index]],data:'0x'}))},block:{number:'0x10',hash:hash(200+index)},finalized:{number:'0x20',hash:hash(300+index)}}))}))}));
+ return {jobBytes:Buffer.from(JSON.stringify(job)),reportBytes:Buffer.from(JSON.stringify(buildProductionOperationalGasEvidence(job,observations))),releaseConfigBytes};
+};
+const trustedSetupAuthorityBytes=await readFile(new URL('../../config/risc0-trusted-setup-authority-v1.json',import.meta.url));
+const trustedSetupAuthority=JSON.parse(trustedSetupAuthorityBytes);
+const trustedSetupAuthoritySha256=createHash('sha256').update(trustedSetupAuthorityBytes).digest('hex');
+const trustedSetupContributionWords=Array.from({length:16},(_,index)=>(index+1).toString(16).padStart(8,'0')).join(' ');
+const trustedSetupPowersLog='[INFO]  snarkJS: Powers Of tau file OK!\n';
+const trustedSetupZkeyLog=`[INFO]  snarkJS: Contribution Hash:\n ${trustedSetupContributionWords}\n[INFO]  snarkJS: ZKey Ok!\n`;
+const trustedSetupVerificationEnvironment={schema:'usdom-risc0-trusted-setup-verification-environment/v7',
+ containerImageDigest:`sha256:${'77'.repeat(32)}`,networkDisabled:true,nodeVersion:'v24.19.0',
+ containerImageReference:`sha256:${'77'.repeat(32)}`,
+ containerRuntime:{path:'/usr/bin/podman',sha256:'88'.repeat(32)},
+ inputArtifacts:{r1csSha256:trustedSetupAuthority.r1cs_sha256,
+  powersOfTauBlake2b512:trustedSetupAuthority.powers_of_tau_blake2b512,zkeySha256:'11'.repeat(32),
+  expectedVerificationKeySha256:documentSha('evidence/verifying-key.bin')},
+ snarkjsVersion:PINNED_SNARKJS_VERSION,snarkjsPackageIntegrity:PINNED_SNARKJS_PACKAGE_INTEGRITY,
+ knownAdvisories:[...PINNED_SNARKJS_KNOWN_ADVISORIES],capabilitiesDropped:['ALL'],
+ commands:structuredClone(RISC0_TRUSTED_SETUP_VERIFICATION_COMMANDS),inputMountReadOnly:true,
+ noNewPrivileges:true,outputTmpfs:true,rootFilesystemReadOnly:true,runAsUser:'65532:65532'};
+const stableTrustedSetup=value=>Array.isArray(value)?value.map(stableTrustedSetup):value&&typeof value==='object'
+ ?Object.fromEntries(Object.keys(value).sort().map(key=>[key,stableTrustedSetup(value[key])])):value;
+const trustedSetupVerificationEnvironmentSha256=createHash('sha256').update(`${JSON.stringify(
+ stableTrustedSetup(trustedSetupVerificationEnvironment),null,2)}\n`).digest('hex');
+const trustedSetupPodmanPlan=buildRisc0TrustedSetupPodmanPlan(trustedSetupVerificationEnvironment);
+const trustedSetupImageInspectionUtf8=`${JSON.stringify(trustedSetupPodmanPlan.image)}\n`;
+const trustedSetupToolchainAttestationUtf8=`${JSON.stringify({nodeVersion:trustedSetupVerificationEnvironment.nodeVersion,
+ snarkjsVersion:trustedSetupVerificationEnvironment.snarkjsVersion,
+ snarkjsPackageIntegrity:trustedSetupVerificationEnvironment.snarkjsPackageIntegrity})}\n`;
+const trustedSetupVerificationReport={schema:'usdom-risc0-groth16-trusted-setup-verification/v6',status:'verified',
+ authoritySha256:trustedSetupAuthoritySha256,artifacts:{r1cs:{sha256:trustedSetupAuthority.r1cs_sha256,size:trustedSetupAuthority.r1cs_size},
+ powersOfTau:{blake2b512:trustedSetupAuthority.powers_of_tau_blake2b512,power:23,size:trustedSetupAuthority.powers_of_tau_size},
+ zkey:{sha256:'11'.repeat(32),size:trustedSetupAuthority.zkey_size,
+  verificationKeySha256:documentSha('evidence/verifying-key.bin')}},
+ snarkjs:{version:PINNED_SNARKJS_VERSION,packageIntegrity:PINNED_SNARKJS_PACKAGE_INTEGRITY,
+  isolated:true,networkDisabled:true,knownAdvisories:[...PINNED_SNARKJS_KNOWN_ADVISORIES],
+  powersOfTauVerified:true,zkeyVerified:true},contributionDigests:[trustedSetupContributionWords.replaceAll(' ','')],
+ verificationLogs:{powersOfTauSha256:createHash('sha256').update(trustedSetupPowersLog).digest('hex'),
+  powersOfTauUtf8:trustedSetupPowersLog,
+  zkeySha256:createHash('sha256').update(trustedSetupZkeyLog).digest('hex'),zkeyUtf8:trustedSetupZkeyLog},
+ containerExecution:{imageInspectionSha256:createHash('sha256').update(trustedSetupImageInspectionUtf8).digest('hex'),
+  imageInspectionUtf8:trustedSetupImageInspectionUtf8,planSha256:createHash('sha256').update(`${JSON.stringify(
+   stableTrustedSetup(trustedSetupPodmanPlan),null,2)}\n`).digest('hex'),imageIdentifier:trustedSetupPodmanPlan.image,
+  toolchainAttestationSha256:createHash('sha256').update(trustedSetupToolchainAttestationUtf8).digest('hex'),
+  toolchainAttestationUtf8:trustedSetupToolchainAttestationUtf8},
+ verificationEnvironment:{document:structuredClone(trustedSetupVerificationEnvironment),
+  sha256:trustedSetupVerificationEnvironmentSha256}};
+const trustedSetupVerificationSha256=createHash('sha256').update(
+ serializeRisc0TrustedSetupVerificationReport(trustedSetupVerificationReport)).digest('hex');
 function forkRehearsalFixture(releaseEvidence,releaseConfig) {
  const ids=['ethereum-reorganization','dom-reorganization','ethereum-unavailability',
   'dom-unavailability','censorship','recovery'];
@@ -98,21 +208,22 @@ function forkRehearsalFixture(releaseEvidence,releaseConfig) {
   'halt-ethereum-dependent-issuance-and-redemption','halt-checkpoint-advancement-and-redemption',
   'preserve-permissionless-retry-without-bypass','resume-only-after-release-bound-recovery-drill'];
  const evidenceFiles=Object.create(null);
+ const generationId='ab'.repeat(32),forkBlockNumber='22000000',forkBlockHash=bytes32('cd');
  const scenarios=ids.map((id,index)=>{
   const startedAtUnix=String(1792492000+index*10),finishedAtUnix=String(1792492009+index*10);
   const preStateCommitment=bytes32((0x40+index).toString(16));
-  const postRecoveryStateCommitment=bytes32((0x60+index).toString(16));
+  const postRecoveryStateCommitment=preStateCommitment;
   const faultPath=`evidence/fork-rehearsal/raw/${id}-fault.json`;
   const recoveryPath=`evidence/fork-rehearsal/raw/${id}-recovery.json`;
   const faultDocument={schema:'usdom-mainnet-fork-fault-evidence-v1',scenarioId:id,
    releaseId:releaseEvidence.releaseId,sourceCommit:releaseEvidence.sourceCommit,
    commandId:`${id}-fault-assertion`,assertionExitCode:'0',observedDecision:decisions[index],
    preStateCommitment,faultStateCommitment:preStateCommitment,unsafeTransitionCount:'0',
-   fundLossBaseUnits:'0',capturedAtUnix:startedAtUnix};
+   fundLossBaseUnits:'0',generationId,forkBlockNumber,forkBlockHash,capturedAtUnix:startedAtUnix};
   const recoveryDocument={schema:'usdom-mainnet-fork-recovery-evidence-v1',scenarioId:id,
    releaseId:releaseEvidence.releaseId,sourceCommit:releaseEvidence.sourceCommit,
    commandId:`${id}-recovery-assertion`,assertionExitCode:'0',recoveryObserved:true,
-   postRecoveryStateCommitment,capturedAtUnix:finishedAtUnix};
+   postRecoveryStateCommitment,generationId,forkBlockNumber,forkBlockHash,capturedAtUnix:finishedAtUnix};
   const faultSha=forkRehearsalEvidenceDocumentSha256(faultDocument);
   const recoverySha=forkRehearsalEvidenceDocumentSha256(recoveryDocument);
   evidenceFiles[faultPath]={sha256:faultSha,document:faultDocument};
@@ -129,6 +240,9 @@ function forkRehearsalFixture(releaseEvidence,releaseConfig) {
   reserveConfigHash:releaseConfig.reserveConfigHash,
   checkpointRegistryConfigHash:releaseConfig.checkpointRegistryConfigHash,
   activationScheduleCommitment:releaseConfig.activationScheduleCommitment,
+  generationId,forkBlockNumber,forkBlockHash,rpcSourceIds:['drpc','publicnode'],
+  rpcEndpointHashes:['c5b9f7564a09b1b2bbdff2c7145d474bbc2ccd025460d9c5b097a39474b7980c',
+   '7b71d04b616d2ce47598465ad04d63da212a14b1317f965044bf325b749a6746'],
   startedAtUnix:'1792492000',finishedAtUnix:'1792492100',scenarios};
  return {report:buildMainnetForkRehearsalReport({observations,releaseEvidence,releaseConfig,
   evidenceFiles}),evidenceFiles};
@@ -171,6 +285,7 @@ function checkpointRatificationFixture(releaseEvidence,releaseConfig) {
 function checkpointFinalizedEventFixture(releaseEvidence,releaseConfig) {
  const eventInterface=new Interface([
   'event Checkpoint(bytes32 indexed bridgeDomain,uint32 indexed domNetworkMagic,uint64 domHeight,bytes32 domBlock,bytes32 domStateRoot,bytes32 checkpointConfigHash)',
+  'event CheckpointFinalizedV2(bytes32 indexed statementHash,bytes32 domContextHash,uint256 domTotalDifficulty,uint128 totalIssued,uint128 totalBurned,bool issuanceClosed,uint256 checkpointCount)',
  ]);
  const encoded=eventInterface.encodeEventLog(eventInterface.getEvent('Checkpoint'),[
   releaseConfig.domDomain,releaseConfig.checkpointDomNetworkMagic,'100360',bytes32('c4'),
@@ -179,6 +294,9 @@ function checkpointFinalizedEventFixture(releaseEvidence,releaseConfig) {
   gracefullyShutdown:false,latestIssuanceClosed:false,latestHeight:'100360',latestBlock:bytes32('c4'),latestStateRoot:bytes32('c5'),
   latestContextHash:bytes32('c6'),latestTotalDifficulty:'2000000',latestTotalIssued:'100',latestTotalBurned:'20',checkpointCount:'1',
   candidateStatementHash:'0x'+'00'.repeat(32)};
+ const finalized=eventInterface.encodeEventLog(eventInterface.getEvent('CheckpointFinalizedV2'),[
+  bytes32('ca'),state.latestContextHash,state.latestTotalDifficulty,state.latestTotalIssued,
+  state.latestTotalBurned,state.latestIssuanceClosed,state.checkpointCount]);
  const observations=[1,2].map(index=>({operatorId:`operator-${index}`,
   originKeccak256:bytes32(`d${index}`),chainId:'1',transactionHash:bytes32('c7'),
   receiptStatus:'1',blockNumber:'22000000',blockHash:bytes32('c8'),
@@ -186,14 +304,20 @@ function checkpointFinalizedEventFixture(releaseEvidence,releaseConfig) {
   snapshotBlockHashAfter:bytes32('c8'),
   registryRuntimeCodeHash:releaseConfig.checkpointRegistryRuntimeCodeHash,
   checkpointEventCount:'1',log:{address:releaseConfig.checkpointRegistry,logIndex:'2',
+   transactionIndex:'1',transactionHash:bytes32('c7'),blockNumber:'22000000',
+   blockHash:bytes32('c8'),removed:false,
    topics:encoded.topics.map(value=>value.toLowerCase()),data:encoded.data.toLowerCase()},
+  finalizationLog:{address:releaseConfig.checkpointRegistry,logIndex:'3',transactionIndex:'1',
+   transactionHash:bytes32('c7'),blockNumber:'22000000',blockHash:bytes32('c8'),removed:false,
+   topics:finalized.topics.map(value=>value.toLowerCase()),data:finalized.data.toLowerCase()},
   state:{...state}}));
  const sourceSetCommitment=keccak256(toUtf8Bytes(
   `USDOM_CHECKPOINT_FINALIZED_EVENT_RPC_SOURCES_V2\n${observations.map(value=>
     `${value.operatorId}\u0000${value.originKeccak256}`).join('\n')}`));
- const observation={schema:'usdom-checkpoint-finalized-event-observation-v2',
+ const observation={schema:'usdom-checkpoint-finalized-event-observation-v3',
   releaseId:releaseEvidence.releaseId,sourceCommit:releaseEvidence.sourceCommit,
   sourceTag:releaseEvidence.sourceTag,ethereumChainId:'1',transactionHash:bytes32('c7'),
+  statementHash:bytes32('ca'),
   blockNumber:'22000000',blockHash:bytes32('c8'),blockTimestamp:'1792490200',
   sourceSetCommitment,observations};
  return buildCheckpointFinalizedEventReport({releaseEvidence,releaseConfig,observation});
@@ -216,7 +340,7 @@ const deployment=()=>({
 function preflightObservation(config,phase) {
  const observation={chainId:'1',genesisBlockHash:ETHEREUM_MAINNET_GENESIS_BLOCK_HASH,
   finalizedBlockNumber:'22000000',finalizedBlockHash:bytes32('70'),
-  snapshotBlockHashAfter:bytes32('70'),deployerNonce:config.deployerNonce,
+  snapshotBlockHashAfter:bytes32('70'),deployerNonce:config.checkpointRegistryDeployerNonce,
   checkpointRegistryDeployerNonce:config.checkpointRegistryDeployerNonce,
   codeHashes:{reserve:phase==='postdeployment'?config.reserveRuntimeCodeHash
     :'0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470',
@@ -266,13 +390,13 @@ function preflightObservation(config,phase) {
    eip1967Implementation:bytes32('00'),eip1967Admin:bytes32('00'),eip1967Beacon:bytes32('00')}};
  observation.finalizedBurnVerifierDeployment={status:true,from:config.verifierDeployer,
   nonce:config.verifierDeployerNonce,creates:config.verifier,derivedCreateAddress:config.verifier,
-  blockNumber:'21999997',blockHash:bytes32('75'),
+  blockNumber:'21999996',blockHash:bytes32('75'),
   canonicalBlockHash:bytes32('75'),transactionHash:bytes32('76'),to:null,value:'0',
   inputHash:config.verifierInitcodeHash};
  observation.checkpointVerifierDeployment={status:true,from:config.checkpointVerifierDeployer,
   nonce:config.checkpointVerifierDeployerNonce,creates:config.checkpointVerifier,
   derivedCreateAddress:config.checkpointVerifier,
-  blockNumber:'21999996',blockHash:bytes32('77'),canonicalBlockHash:bytes32('77'),
+  blockNumber:'21999997',blockHash:bytes32('77'),canonicalBlockHash:bytes32('77'),
   transactionHash:bytes32('78'),to:null,value:'0',inputHash:config.checkpointVerifierInitcodeHash};
  if(phase==='predeployment') return observation;
  observation.deployment={status:true,from:config.deployer,nonce:config.deployerNonce,creates:config.reserve,
@@ -303,7 +427,10 @@ function preflightObservation(config,phase) {
   guardianOwnersCommitment:config.guardianOwnersCommitment,
   withdrawalDelay:config.withdrawalDelaySeconds,
   governanceDelay:config.governanceDelaySeconds,maxOutstanding:config.maxOutstandingBaseUnits,
-  outflowCapacity:config.outflowCapacityBaseUnitsPerDay,paused:true,depositsClosed:false,
+  outflowCapacity:config.outflowCapacityBaseUnitsPerDay,paused:true,pilotRestrictedDeployment:true,
+  permissionlessDeposits:false,pilotDepositConsumed:false,authorizedPilotDeposit:bytes32('00'),
+  authorizedPilotSnapshot:bytes32('00'),authorizedPilotValidUntil:'0',pilotAuthorizationGeneration:'0',
+  permissionlessDepositsReadyAt:'0',depositsClosed:false,
   gracefullyShutdown:false,resumeReadyAt:'0',
   totalDeposited:'0',totalReleased:'0',totalProvedDebtAmount:'0',
   pendingQueue:{epoch:'1',count:'0',amount:'0',firstBurnId:bytes32('00'),lastBurnId:bytes32('00')},
@@ -335,14 +462,23 @@ function preflightObservation(config,phase) {
  observation.checkpointRegistrySlot0=config.checkpointRegistryConfigHash;
  return observation;
 }
+const mainnetPreflightRpcCatalog={schema:'usdom-mainnet-preflight-rpc-catalog-v2',sources:[
+ {operatorId:'operator-a',providerId:'provider-a',infrastructureId:'infra-a',
+  originKeccak256:bytes32('81'),tlsPolicy:'node-default-ca-hostname-expiry-origin-pinned-v1',
+  clockPolicy:'utc-wall-clock-sane-v1',clientPolicy:'ethereum-execution-client-stable-v1'},
+ {operatorId:'operator-b',providerId:'provider-b',infrastructureId:'infra-b',
+  originKeccak256:bytes32('82'),tlsPolicy:'node-default-ca-hostname-expiry-origin-pinned-v1',
+  clockPolicy:'utc-wall-clock-sane-v1',clientPolicy:'ethereum-execution-client-stable-v1'},
+]};
+const preflightRpcConsensus=()=>rpcConsensusEvidence(mainnetPreflightRpcCatalog.sources.map(source=>({
+ sourceId:source.operatorId,originKeccak256:source.originKeccak256,
+})));
 function preflightAttestation(config,phase) {
  const observation=preflightObservation(config,phase);
  return {...assessMainnetPreflight({phase,releaseConfig:config,observation,
-  riscZeroReference:{...PINNED_RISC0_MAINNET_V3}}),observation,
-  rpcConsensus:rpcConsensusEvidence([
-   {sourceId:'operator-a',originKeccak256:bytes32('81')},
-   {sourceId:'operator-b',originKeccak256:bytes32('82')},
-  ])};
+  riscZeroReference:{...PINNED_RISC0_MAINNET_V3}}),
+  collectionStartedAtMs:1792492800000,collectionCompletedAtMs:1792492801000,
+  observation,rpcConsensus:preflightRpcConsensus()};
 }
 function nativeReleaseAttestation(kind,config,subjectCommitment) {
  return {approvedBy:config.governance,checkpointRegistryConfigHash:config.checkpointRegistryConfigHash,
@@ -368,18 +504,15 @@ function releaseAuthorizationObservation(authorization,config) {
    {sourceId:'operator-b',originKeccak256:bytes32('82')}]),snapshotBlockHashAfter:bytes32('70')};
 }
 function controlPlaneEvidenceFixture(config) {
- const ownersByRole={governance:[101,102,103].map(value=>getAddress(address(value))),
-  reserveGuardian:[104,105,106].map(value=>getAddress(address(value))),
-  checkpointGuardian:[107,108,109].map(value=>getAddress(address(value)))};
+ const ownersByRole=initialSafeOwnersByRole();
  const replacements={governance:getAddress(address(110)),reserveGuardian:getAddress(address(111)),
-  checkpointGuardian:getAddress(address(112))};
- const controls=[
-  {role:'governance',safe:getAddress(config.governance)},
-  {role:'reserveGuardian',safe:getAddress(config.guardian)},
-  {role:'checkpointGuardian',safe:getAddress(config.checkpointGuardian)},
- ];
- const packageDocument={schema:RECOVERABLE_SAFE_CONTROL_SCHEMA,ethereumChainId:'1',
-  safeVersion:SAFE_VERSION,threshold:'2',ownersByRole,controls};
+  checkpointGuardian:getAddress(address(112)),usdtCustody:getAddress(address(113))};
+ const packageDocument=buildRecoverableSafeControlDeploymentPackage({ownersByRole,
+  proxyCreationCode:safe141Fixture.proxyCreationCode});
+ const controls=packageDocument.controls;
+ assert.equal(controls[0].safe,getAddress(config.governance));
+ assert.equal(controls[1].safe,getAddress(config.guardian));
+ assert.equal(controls[2].safe,getAddress(config.checkpointGuardian));
  const packageHash=_safeControlObservationInternals.documentHash(packageDocument);
  const roleState=(control,stateOwners,nonce)=>{
   const role={role:control.role,address:control.safe,runtimeCodeHash:config.governanceCodeHash,
@@ -412,6 +545,7 @@ function controlPlaneEvidenceFixture(config) {
  const recoveries=controls.map((control,index)=>({role:control.role,safe:control.safe,
   transactionHash:`0x${(0xa1+index).toString(16).repeat(32)}`,
   blockNumber:String(21999001+index),blockHash:`0x${(0xb1+index).toString(16).repeat(32)}`,
+  transactionIndex:'0',
   safeTxHash:`0x${(0xc1+index).toString(16).repeat(32)}`,
   signers:ownersByRole[control.role].slice(1),previousNonce:'0',newNonce:'1'}));
  const recoveryUnsigned={schema:SAFE_CONTROL_RECOVERY_SCHEMA,ethereumChainId:'1',packageHash,
@@ -436,7 +570,7 @@ function verifierManifest(activationScheduleCommitment) {
   finalityRulesHash:bytes32('0a'),proofSystem:FINALIZED_BURN_PROOF_SYSTEM,
   verifyingKeySha256:'0x'+documentSha('evidence/verifying-key.bin'),
   trustedSetupRequired:true,
-  trustedSetupTranscriptSha256:'0x'+documentSha('evidence/risc0-groth16-ceremony-transcript.txt'),
+  trustedSetupTranscriptSha256:'0x'+trustedSetupVerificationSha256,
   provingProgramSha256:'0x'+documentSha('evidence/proving-program.bin'),
   sourceManifestSha256:'0x'+documentSha('evidence/proving-program-sources.sha256'),
   verifierArtifactSha256:'0x'+documentSha(
@@ -467,7 +601,7 @@ function checkpointVerifierManifest(activationScheduleCommitment) {
   consensusExtensionWitnessRulesHash:bytes32('15'),
   proofSystem:CHECKPOINT_PROOF_SYSTEM,
   verifyingKeySha256:'0x'+documentSha('evidence/verifying-key.bin'),trustedSetupRequired:true,
-  trustedSetupTranscriptSha256:'0x'+documentSha('evidence/risc0-groth16-ceremony-transcript.txt'),
+  trustedSetupTranscriptSha256:'0x'+trustedSetupVerificationSha256,
   provingProgramSha256:'0x'+documentSha('evidence/checkpoint-proving-program.bin'),
   sourceManifestSha256:'0x'+documentSha('evidence/checkpoint-proving-program-sources.sha256'),
   verifierArtifactSha256:'0x'+documentSha(
@@ -479,6 +613,9 @@ function checkpointVerifierManifest(activationScheduleCommitment) {
   checkpointGuestImageId:bytes32('1c'),journalSchemaHash:CHECKPOINT_RISC0_JOURNAL_SCHEMA_HASH};
 }
 const checkpointProofRequiredKeys=[
+ 'production_checkpoint_registry_artifacts_pinned',
+ 'production_checkpoint_registry_bootstrap_ratified',
+ 'production_checkpoint_registry_positive_finalized_event_vector',
  'production_checkpoint_consensus_extension_private_input_implemented',
  'production_checkpoint_consensus_extension_guest_compiled',
  'production_checkpoint_registry_risc0_evm_adapter_image_id_pinned',
@@ -561,6 +698,36 @@ const recoverableControlPlaneRequiredKeys=[
  'production_recoverable_safe_control_unsigned_package_implemented',
  'production_recoverable_safe_control_two_of_three_enforced',
  'production_recoverable_safe_control_independent_hardware_keys_required',
+ 'production_onekey_classic_1s_model_pinned',
+ 'production_onekey_official_ble_transport_pinned',
+ 'production_onekey_ble_pairing_and_permissions_verified',
+ 'production_onekey_ble_device_identity_and_reconnection_verified',
+ 'production_onekey_usb_fallback_disabled',
+ 'production_onekey_ethereum_derivation_path_explicit',
+ 'production_onekey_address_verified_on_device',
+ 'production_onekey_sdk_firmware_transport_versions_pinned',
+ 'production_onekey_eip1559_and_eip712_signing_verified',
+ 'production_onekey_reject_cancel_disconnect_reconnect_verified',
+ 'production_onekey_ios_walletconnect_authority_pinned',
+ 'production_onekey_ios_walletconnect_session_runtime_pinned',
+ 'production_onekey_ios_exact_eip712_signing_verified',
+ 'production_onekey_mobile_physical_ceremony_ratified',
+ 'production_onekey_hardware_signing_approved',
+ 'production_onekey_ios_relayer_role_separation_verified',
+ 'production_onekey_ios_relayer_no_token_custody_verified',
+ 'production_onekey_ios_relayer_signed_safetx_exact_calldata_verified',
+ 'production_onekey_ios_relayer_economic_caps_verified',
+ 'production_onekey_ios_relayer_nonce_no_blind_retry_verified',
+ 'production_onekey_ios_relayer_emergency_rotation_verified',
+ 'production_onekey_ios_safe_custody_identity_verified',
+ 'production_onekey_ios_safe_custody_dual_rpc_finality_verified',
+ 'production_onekey_ios_safe_custody_relayer_no_usdt_verified',
+ 'production_onekey_ios_safe_custody_approve_eip712_finalized',
+ 'production_onekey_ios_safe_custody_deposit_eip712_finalized',
+ 'production_onekey_ios_safe_custody_deposit_event_verified',
+ 'production_onekey_ios_safe_custody_accounting_verified',
+ 'production_onekey_ios_safe_custody_operator_ratification_bound',
+ 'production_ledger_compatibility_disabled',
  'production_recoverable_safe_control_finalized_snapshot_collector_implemented',
  'production_recoverable_safe_control_catalog_bound_multirpc_collection',
  'production_recoverable_safe_control_catalog_bound_multirpc_planning',
@@ -573,7 +740,7 @@ const recoverableControlPlaneRequiredKeys=[
  'production_recoverable_safe_control_two_survivor_signatures_enforced',
  'production_recoverable_safe_control_recovery_unsigned_plan_implemented',
  'production_recoverable_safe_control_hardware_signature_handoff_implemented',
- 'production_recoverable_safe_control_signing_inputs_rechecked_per_ledger_action',
+ 'production_recoverable_safe_control_signing_inputs_rechecked_per_onekey_action',
  'production_recoverable_safe_control_signature_outputs_create_once',
  'production_recoverable_safe_control_recovery_transaction_assembly_implemented',
  'production_recoverable_safe_control_recovery_crash_safe_executor_implemented',
@@ -745,6 +912,7 @@ const requiredKeys=[
  'production_checkpoint_registry_contract_implemented','production_checkpoint_registry_verifier_implemented',
  'production_checkpoint_registry_verifier_proves_consensus_extension',
  'production_checkpoint_registry_artifact_pinning_implemented','production_checkpoint_registry_bootstrap_ratified',
+ 'production_checkpoint_registry_artifacts_pinned',
  'production_checkpoint_registry_positive_finalized_event_vector',
  ...checkpointProofRequiredKeys,
  ...checkpointReceiptCompletionRequiredKeys,
@@ -806,7 +974,7 @@ const requiredKeys=[
  'production_safe_control_durable_objects_bind_rpc_consensus',
  'production_deterministic_residual_risk_report_writer_implemented',
  'production_finalized_eip1271_release_authorization_materializer_implemented',
- 'production_release_authorization_signing_inputs_rechecked_per_ledger_action',
+ 'production_release_authorization_signing_inputs_rechecked_per_onekey_action',
  'production_release_authorization_signature_bundles_create_once',
  'production_release_authorization_multi_output_toctou_rejected',
  'production_release_authorization_catalog_bound_multirpc',
@@ -892,7 +1060,7 @@ const requiredKeys=[
  'production_safe_recovery_observer_role_derived_from_envelope',
  'production_safe_recovery_target_role_derived_from_envelope',
  'production_safe_recovery_signer_owner_transition_derived_from_plan',
- 'production_safe_recovery_executor_relayer_derived_from_ledger',
+ 'production_safe_recovery_executor_external_gas_only_relayer_verified',
  'production_deployment_handoff_observation_sha_derived_from_package',
  'production_deployment_executor_package_sha_derived_from_snapshot',
  'production_deployment_executor_observation_snapshotted',
@@ -972,11 +1140,49 @@ const requiredKeys=[
  'production_dom_sync_attestation_atomic_persistence_implemented',
  'production_dom_anchor_requires_quorum_sync_attestation',
 ];
+function recursiveCompletionFixture(releaseConfig) {
+ const f=finalizedBurnAuthorityFixture(),receipt=Buffer.from('verified receipt');
+ f.reserveConfiguration.reserveConfigHash=
+   proofReserveDeploymentConfigHash(f.reserveConfiguration).reserveConfigHash;
+ const groth=Buffer.alloc(1024,7),receiptIndex=JSON.parse(f.receiptIndex),proofIndex=JSON.parse(f.proofIndex);
+ const digest=value=>createHash('sha256').update(value).digest('hex');
+ receiptIndex.receipt_sha256=digest(receipt); receiptIndex.receipt_bytes=receipt.length;
+ const receiptIndexBytes=Buffer.from(JSON.stringify(receiptIndex)+'\n');
+ proofIndex.receipt_index_sha256=digest(receiptIndexBytes);
+ proofIndex.groth16_receipt_sha256=digest(groth); proofIndex.groth16_receipt_bytes=groth.length;
+ const proofIndexBytes=Buffer.from(JSON.stringify(proofIndex)+'\n'),outerReceipt=Buffer.from('outer receipt');
+ const outerIndexBytes=Buffer.from(JSON.stringify({outer_receipt_verified:true,dev_mode:false,
+   receipt_file:'checkpoint-outer-receipt.bin',receipt_sha256:digest(outerReceipt)}));
+ const releaseBytes=Buffer.from(JSON.stringify(f.reserveConfiguration));
+ const verifierBytes=Buffer.from(JSON.stringify(f.verifierConfiguration));
+ const authority={checkpointOuterReceipt:outerReceipt,checkpointOuterReceiptIndex:outerIndexBytes,
+   finalizedBurnReceipt:receipt,finalizedBurnReceiptIndex:receiptIndexBytes,
+   finalizedBurnProofIndex:proofIndexBytes,finalizedBurnSourceIndex:f.sourceIndex,
+   finalizedBurnSourceInput:f.sourceInput,finalizedBurnEvmSeal:f.evmSeal,
+   finalizedBurnGroth16Receipt:groth,releaseConfig:releaseBytes,verifierConfig:verifierBytes};
+ const report={schema:'usdom-finalized-burn-recursive-completion/v3',
+   checkpointOuterReceiptSha256:digest(outerReceipt),checkpointOuterReceiptIndexSha256:digest(outerIndexBytes),
+   checkpointOuterReceiptVerified:true,finalizedBurnReceiptSha256:digest(receipt),
+   finalizedBurnReceiptIndexSha256:digest(receiptIndexBytes),finalizedBurnReceiptVerified:true,
+   finalizedBurnProofIndexSha256:digest(proofIndexBytes),finalizedBurnSourceIndexSha256:digest(f.sourceIndex),
+   finalizedBurnSourceInputSha256:digest(f.sourceInput),finalizedBurnEvmSealSha256:digest(f.evmSeal),
+   finalizedBurnGroth16ReceiptSha256:digest(groth),releaseConfigSha256:digest(releaseBytes),
+   verifierConfigSha256:digest(verifierBytes),evmReceiptVerified:true,
+   adapterRuntimeCodeHash:releaseConfig.verifierCodeHash,
+   adapterInitcodeHash:releaseConfig.verifierInitcodeHash,adapterConfigHash:releaseConfig.verifierConfigHash};
+ authority.completionBytes=Buffer.from(JSON.stringify(report));
+ return {report,authority};
+}
 function readyFixture(mode='closed-mainnet') {
  const base=deployment();
+ const safePackage=buildRecoverableSafeControlDeploymentPackage({
+  ownersByRole:initialSafeOwnersByRole(),proxyCreationCode:safe141Fixture.proxyCreationCode});
+ base.governance=safePackage.controls[0].safe;
+ base.guardian=safePackage.controls[1].safe;
  const governanceOwners=[110,102,103].map(value=>getAddress(address(value)));
- const guardianOwners=[111,105,106].map(value=>getAddress(address(value)));
- const checkpointGuardianOwners=[112,108,109].map(value=>getAddress(address(value)));
+ const guardianOwners=[111,102,103].map(value=>getAddress(address(value)));
+ const checkpointGuardianOwners=[112,102,103].map(value=>getAddress(address(value)));
+ const usdtCustodyOwners=[113,102,103].map(value=>getAddress(address(value)));
  base.governanceOwnersCommitment=safeOwnersCommitment(governanceOwners);
  base.guardianOwnersCommitment=safeOwnersCommitment(guardianOwners);
  const schedule=activationSchedule({networkMagic:'1146047793',chainId:bytes32('02'),
@@ -989,14 +1195,15 @@ function readyFixture(mode='closed-mainnet') {
  const checkpointVerifierConfig=checkpointVerifierManifest(base.activationScheduleCommitment);
  const finalizedCheckpointVerifierConfig=checkpointVerifierConfigHash(checkpointVerifierConfig);
  const checkpointVerifierConfigManifestSha256=finalizedCheckpointVerifierConfig.manifestSha256.slice(2);
- const verifierDeployer=address(16),verifierDeployerNonce='2';
- base.verifier=getCreateAddress({from:verifierDeployer,nonce:2});
- const deployer=address(15),deployerNonce='7';
- base.reserve=getCreateAddress({from:deployer,nonce:7});
- const checkpointVerifierDeployer=address(17),checkpointVerifierDeployerNonce='3';
- const checkpointVerifier=getCreateAddress({from:checkpointVerifierDeployer,nonce:3});
- const checkpointRegistryDeployer=address(14),checkpointRegistryDeployerNonce='4';
- const checkpointRegistry=getCreateAddress({from:checkpointRegistryDeployer,nonce:4});
+ const deployer=address(15);
+ const verifierDeployer=deployer,verifierDeployerNonce='7';
+ base.verifier=getCreateAddress({from:verifierDeployer,nonce:7});
+ const checkpointVerifierDeployer=deployer,checkpointVerifierDeployerNonce='8';
+ const checkpointVerifier=getCreateAddress({from:checkpointVerifierDeployer,nonce:8});
+ const checkpointRegistryDeployer=deployer,checkpointRegistryDeployerNonce='9';
+ const checkpointRegistry=getCreateAddress({from:checkpointRegistryDeployer,nonce:9});
+ const deployerNonce='10';
+ base.reserve=getCreateAddress({from:deployer,nonce:10});
  base.domDomain=deriveDomDomain({domNetworkMagic:'1146047793',
   domChainId:verifierConfig.domChainId,ethereumChainId:base.ethereumChainId,
   reserve:base.reserve,checkpointRegistry});
@@ -1005,7 +1212,7 @@ function readyFixture(mode='closed-mainnet') {
  Object.assign(base,{checkpointRegistryDeployer,checkpointRegistryDeployerNonce,checkpointRegistry,
   checkpointVerifier,checkpointVerifierCodeHash:'0x'+'21'.repeat(32),
   checkpointVerifierConfigHash:finalizedCheckpointVerifierConfig.verifierConfigHash,
-  checkpointGuardian:address(12),
+  checkpointGuardian:safePackage.controls[2].safe,
   checkpointGuardianCodeHash:'0x'+'50'.repeat(32),
   checkpointGuardianImplementation:SAFE_MAINNET_IDENTITY.singleton,
   checkpointGuardianImplementationCodeHash:SAFE_MAINNET_IDENTITY.singletonCodeHash,
@@ -1052,19 +1259,26 @@ function readyFixture(mode='closed-mainnet') {
   nativeEthereumTrustedCheckpoint:bytes32('55'),
   checkpointRegistryConfigHash:checkpointConfig.checkpointConfigHash,
   reserveConfigHash:computed.reserveConfigHash,
-  realFundsAuthorized:mode==='real-funds',nativeRelaySafetyMarginSeconds:'3600',
+  // The technical release remains pre-funds in both modes. Real-funds
+  // readiness is conferred only by the dedicated pilot EIP-1271 state.
+  realFundsAuthorized:false,nativeRelaySafetyMarginSeconds:'3600',
   nativeMaxEthereumAnchorAgeSeconds:'1800',nativeMaxDomClockLeadSeconds:'120'};
  const requirements=Object.fromEntries(requiredKeys.map(key=>[key,true]));
  Object.assign(requirements,{deploy_authorized:true,mainnet_ready:true,real_funds_authorized:true,
   native_burn_state_witness_authorizes_consensus_or_payout:false,
   native_burn_block_prover_input_proves_finality:false,
+  native_privacy_policy_hash:'83'.repeat(32),
   production_withdrawal_queue_lease_period_seconds:604800,
   finality_evaluation:{selected_production_mechanism:'ethereum-checkpoint-finality'},
   checkpoint_poc_authorization:{production_mechanism_approved:true}});
  const operatorIntent={schema:1,network:'Ethereum mainnet',chainId:'1',token:{},
   prototype_trust_model:'prototype',production_trust_model:'production',
   local_test_values_not_approved_for_production:{},authority:'operator',native_asset_requirements:{},
-  current_phase:'release',release_assurance_policy:{},finality_direction:'checkpoint',
+  current_phase:'release',release_assurance_policy:{
+   external_audit_required_by_gate:false,absolute_zero_risk_required_by_gate:false,
+   required_basis:'objective validation and explicit acceptance of documented residual risk',
+   authority:'explicit operator release policy',
+  },finality_direction:'checkpoint',
   finality_comparison:'docs/FINALITY-COMPARISON.txt',
   checkpoint_poc_authorization:{production_mechanism_approved:true},
   production_approved:true,deploy_authorized:true,real_funds_authorized:true,undefined:[],
@@ -1076,15 +1290,17 @@ function readyFixture(mode='closed-mainnet') {
    acceptingAuthority:base.governance,acceptedAt:'1792492800',productionApproved:true,
    deployAuthorized:true,realFundsAuthorized:true,signature:'0x1234',rule:'exact release only'}};
  const controlPlaneEvidence=controlPlaneEvidenceFixture(releaseConfig);
- const safeRecoveryFinalBundle={schema:'usdom-safe-recovery-evidence-bundle/v1',
+ const safeRecoveryFinalBundle={schema:'usdom-safe-recovery-evidence-bundle/v2',
   ethereumChainId:'1',packageDocumentSha256:'1'.repeat(64),
   packageHash:controlPlaneEvidence.packageHash,baselineDocumentSha256:'2'.repeat(64),
-  planDocumentSha256:'3'.repeat(64),transactionPackageDocumentSha256:'4'.repeat(64),
+  planDocumentSha256:'3'.repeat(64),replacementProofsDocumentSha256:'a'.repeat(64),
+  transactionPackageDocumentSha256:'4'.repeat(64),
   rpcCatalogSha256:'5'.repeat(64),executions:controlPlaneEvidence.recoveryDrillReport.roles.map(
    (role,index)=>({role:role.safeRole,documentSha256:String(index+6).repeat(64),
     transactionHash:role.transactionHash})),reportDocumentSha256:'9'.repeat(64),
   recoveryHash:controlPlaneEvidence.recoveryHash};
  const evidence={schema:1,releaseId:'release-1',sourceCommit:'a'.repeat(40),sourceTag:'usdom-v1.0.0',
+  releaseValidationReport:document('evidence/release-validation.json'),
   reproducibleBuildReport:document('evidence/build.txt'),
   verifierReproducibleBuildReport:document('evidence/verifier-build.txt'),
   checkpointRegistryReproducibleBuildReport:document('evidence/checkpoint-registry-build.txt'),
@@ -1095,11 +1311,12 @@ function readyFixture(mode='closed-mainnet') {
   privacyCircuitAuditReports:[document('evidence/privacy.txt'),document('evidence/privacy-2.txt')],
   solidityAuditReports:[document('evidence/solidity.txt'),document('evidence/solidity-2.txt')],
   trustedSetup:{required:true,decisionReport:document('evidence/setup-decision.txt'),
-   transcript:document('evidence/risc0-groth16-ceremony-transcript.txt')},
+   transcript:{path:'evidence/risc0-groth16-ceremony-verification.json',sha256:trustedSetupVerificationSha256}},
   checkpointTrustedSetup:{required:true,
    decisionReport:document('evidence/checkpoint-setup-decision.txt'),
-   transcript:document('evidence/risc0-groth16-ceremony-transcript.txt')},
+   transcript:{path:'evidence/risc0-groth16-ceremony-verification.json',sha256:trustedSetupVerificationSha256}},
   checkpointProofCapacityReport:null,
+  finalizedBurnCapacityReport:null,
   realFinalizedEndToEndReport:null,
   operationsReviewReport:document('evidence/operations.txt'),
   mainnetForkRehearsalReport:document('evidence/fork.txt'),
@@ -1126,6 +1343,10 @@ function readyFixture(mode='closed-mainnet') {
     runtimeCodeHash:controlPlaneEvidence.roleReports.checkpointGuardian.runtimeCodeHash,
     configurationHash:controlPlaneEvidence.roleReports.checkpointGuardian.configurationHash,
     configurationReport:document('evidence/control-plane/checkpoint-guardian-configuration.json')},
+   usdtCustody:{address:controlPlaneEvidence.roleReports.usdtCustody.address,
+    runtimeCodeHash:controlPlaneEvidence.roleReports.usdtCustody.runtimeCodeHash,
+    configurationHash:controlPlaneEvidence.roleReports.usdtCustody.configurationHash,
+    configurationReport:document('evidence/control-plane/usdt-custody-configuration.json')},
   },
   controlPlaneEvidenceBundle:document(
     'evidence/control-plane/safe-control-release-evidence-bundle.json'),
@@ -1153,16 +1374,61 @@ function readyFixture(mode='closed-mainnet') {
  const evidenceFiles=Object.fromEntries([
   'build','verifier-build','checkpoint-registry-build','checkpoint-verifier-build','checkpoint-bootstrap',
   'checkpoint-finalized-event','consensus','consensus-2','privacy','privacy-2','solidity','solidity-2','setup-decision',
-  'checkpoint-setup-decision','risc0-groth16-ceremony-transcript',
+  'checkpoint-setup-decision',
   'operations','fork','security-validation','residual-risk-acceptance','cold-start',
   'predeployment',
  ].map(name=>{
   const path=`evidence/${name}.txt`;
   return [path,documentSha(path)];
  }));
+ const fixtureBindDocument=(document,value,bytes=Buffer.from(JSON.stringify(value)))=>{
+  document.sha256=createHash('sha256').update(bytes).digest('hex');
+  evidenceFiles[document.path]=document.sha256;
+  return bytes;
+ };
+ const controlPlaneEvidenceAuthority={
+  bundleBytes:fixtureBindDocument(evidence.controlPlaneEvidenceBundle,controlPlaneEvidence),
+  roleReportBytes:Object.fromEntries(['governance','guardian','checkpointGuardian','usdtCustody'].map(role=>[role,
+   fixtureBindDocument(evidence.controlPlane[role].configurationReport,controlPlaneEvidence.roleReports[role])])),
+  separationReportBytes:fixtureBindDocument(evidence.controlPlaneSeparationReport,
+   controlPlaneEvidence.separationReport),
+  recoveryDrillReportBytes:fixtureBindDocument(evidence.controlPlaneRecoveryDrillReport,
+   controlPlaneEvidence.recoveryDrillReport),
+  finalBundleBytes:fixtureBindDocument(evidence.safeRecoveryFinalEvidenceBundle,safeRecoveryFinalBundle),
+ };
+ const predeploymentAttestation=preflightAttestation(releaseConfig,'predeployment');
+ const predeploymentAttestationAuthority={reportBytes:fixtureBindDocument(
+  evidence.mainnetPredeploymentAttestationReport,predeploymentAttestation)};
+ const coldStartAttestation=preflightAttestation(releaseConfig,'postdeployment');
+ const coldStartAttestationAuthority={reportBytes:fixtureBindDocument(
+  evidence.mainnetColdStartAttestationReport,coldStartAttestation)};
  evidenceFiles['evidence/verifier-config.json']=verifierConfigManifestSha256;
+ evidenceFiles['evidence/risc0-groth16-ceremony-verification.json']=trustedSetupVerificationSha256;
  evidenceFiles['evidence/checkpoint-verifier-config.json']=checkpointVerifierConfigManifestSha256;
+ evidence.nativeRuntimeManifest.sha256=documentSha(nativePrivacyAuthority.runtimeManifestBytes);
+ evidence.nativeRuntimeSpendVerifyingKeyArtifact.sha256=nativePrivacyAuthority.verifyingKeySha256;
+ evidenceFiles[evidence.nativeRuntimeManifest.path]=evidence.nativeRuntimeManifest.sha256;
+ evidenceFiles[evidence.nativeRuntimeSpendVerifyingKeyArtifact.path]=nativePrivacyAuthority.verifyingKeySha256;
  evidenceFiles['evidence/risc0-health-sources.json']=documentSha('evidence/risc0-health-sources.json');
+ const toolchainLockSha256=documentSha('mainnet-toolchain-lock');
+ const cargoLockSha256=documentSha('Cargo.lock');
+ const vectorKinds=['checkpoint390','randomxCache','nativePrivacy'];
+ const releaseValidationReport={schema:'usdom-release-validation-report/v1',status:'passed',
+  releaseId:evidence.releaseId,sourceCommit:evidence.sourceCommit,sourceTag:evidence.sourceTag,
+  toolchainLockSha256,cargoLockSha256,runs:vectorKinds.map((kind,index)=>({kind,
+   runId:documentSha(`vector-command-${index}`),commandManifestSha256:documentSha(`vector-command-${index}`),
+   runSha256:documentSha(`vector-run-${index}`),terminalSha256:documentSha(`vector-terminal-${index}`),
+   processLogSha256:documentSha(`vector-log-${index}`),eventsSha256:documentSha(`vector-events-${index}`),
+   supervisorSha256:documentSha('vector-supervisor'),startedAt:`2026-10-27T${10+index}:00:00Z`,
+   finishedAt:`2026-10-27T${11+index}:00:00Z`}))};
+ const releaseValidationPath=evidence.releaseValidationReport.path;
+ const releaseValidationSha=createHash('sha256').update(JSON.stringify(releaseValidationReport)).digest('hex');
+ evidence.releaseValidationReport.sha256=releaseValidationSha;
+ evidenceFiles[releaseValidationPath]=releaseValidationSha;
+ const releaseValidationReportBytes=Buffer.from(JSON.stringify(releaseValidationReport));
+ const releaseValidationAuthority={reportBytes:releaseValidationReportBytes,
+  reconstructedReportBytes:Buffer.from(releaseValidationReportBytes),
+  reconstructedReport:structuredClone(releaseValidationReport)};
  const finalizedBurnE2eBurn={burnId:bytes32('a1'),requestId:bytes32('a2'),recipient:address(23),
   amount:'1000000',domDomain:releaseConfig.domDomain,height:'100360',blockHash:bytes32('a3'),
   stateRoot:bytes32('a4'),finalityBeaconSlot:'16000010',validUntil:'1800000000'};
@@ -1207,10 +1473,13 @@ function readyFixture(mode='closed-mainnet') {
  const e2eSha=createHash('sha256').update(JSON.stringify(finalizedBurnE2eReport)).digest('hex');
  evidence.realFinalizedEndToEndReport={path:e2ePath,sha256:e2eSha};
  evidenceFiles[e2ePath]=e2eSha;
- const capacityLayer=(name,programSha256,imageId,index)=>({name,programSha256,imageId,
+ const finalizedBurnE2eAuthority={reportBytes:Buffer.from(JSON.stringify(finalizedBurnE2eReport))};
+ const capacityLayer=(name,programSha256,imageId,index,receiptCount)=>({name,programSha256,imageId,
   inputSetSha256:(0x10+index).toString(16).repeat(32),inputBytes:'4096',
-  journalSetSha256:(0x20+index).toString(16).repeat(32),journalBytes:'32',journalCount:'1',
-  receiptSetSha256:(0x30+index).toString(16).repeat(32),receiptBytes:'8192',receiptCount:'1',
+  journalSetSha256:(0x20+index).toString(16).repeat(32),journalBytes:String(receiptCount*32),
+  journalCount:String(receiptCount),
+  receiptSetSha256:(0x30+index).toString(16).repeat(32),receiptBytes:'8192',
+  receiptCount:String(receiptCount),
   receiptKind:'succinct',receiptVerified:true,segmentLimitPo2:18,
   provingWallMilliseconds:'1000',peakResidentKiB:'1048576'});
  const capacityCheckpoint={previousHeight:'100000',previousBlock:bytes32('d5'),
@@ -1225,6 +1494,7 @@ function readyFixture(mode='closed-mainnet') {
  );
  const checkpointProofCapacityReport={schema:CHECKPOINT_PROOF_CAPACITY_REPORT_SCHEMA,
   artifactSetCommitmentSchema:CHECKPOINT_CAPACITY_ARTIFACT_SET_SCHEMA,
+  runId:'20261027T120000Z-123',artifactManifestPath:'artifact-manifest.json',artifactManifestSha256:'09'.repeat(32),
   releaseId:evidence.releaseId,sourceCommit:evidence.sourceCommit,ethereumChainId:'1',
   checkpointRegistry:releaseConfig.checkpointRegistry,adapter:releaseConfig.checkpointVerifier,
   adapterRuntimeCodeHash:releaseConfig.checkpointVerifierCodeHash,
@@ -1243,16 +1513,16 @@ function readyFixture(mode='closed-mainnet') {
   sourcePackageSha256:'d1'.repeat(32),
   randomxProverTranscriptSha256:'e1'.repeat(32),randomxResourceLogSha256:'e2'.repeat(32),
   hostFingerprintSha256:'d2'.repeat(32),logicalCpus:4,memoryTotalKiB:'8388608',layers:[
-   capacityLayer('randomx',CHECKPOINT_RANDOMX_PROGRAM_SHA256,CHECKPOINT_RANDOMX_IMAGE_ID,0),
+   capacityLayer('randomx',CHECKPOINT_RANDOMX_PROGRAM_SHA256,CHECKPOINT_RANDOMX_IMAGE_ID,0,390),
    capacityLayer('randomx-aggregate',CHECKPOINT_RANDOMX_AGGREGATE_PROGRAM_SHA256,
-    CHECKPOINT_RANDOMX_AGGREGATE_IMAGE_ID,1),
+    CHECKPOINT_RANDOMX_AGGREGATE_IMAGE_ID,1,2),
    capacityLayer('economic-chunk',CHECKPOINT_ECONOMIC_CHUNK_PROGRAM_SHA256,
-    CHECKPOINT_ECONOMIC_CHUNK_IMAGE_ID,2),
+    CHECKPOINT_ECONOMIC_CHUNK_IMAGE_ID,2,390),
    capacityLayer('economic-block',CHECKPOINT_ECONOMIC_BLOCK_PROGRAM_SHA256,
-    CHECKPOINT_ECONOMIC_BLOCK_IMAGE_ID,3),
-   capacityLayer('segment',CHECKPOINT_SEGMENT_PROGRAM_SHA256,CHECKPOINT_SEGMENT_IMAGE_ID,4),
+    CHECKPOINT_ECONOMIC_BLOCK_IMAGE_ID,3,390),
+   capacityLayer('segment',CHECKPOINT_SEGMENT_PROGRAM_SHA256,CHECKPOINT_SEGMENT_IMAGE_ID,4,2),
    capacityLayer('outer',checkpointVerifierConfig.provingProgramSha256.slice(2),
-    checkpointVerifierConfig.checkpointGuestImageId.slice(2),5),
+    checkpointVerifierConfig.checkpointGuestImageId.slice(2),5,1),
   ],outerGroth16ReceiptSha256:'d3'.repeat(32),outerGroth16ReceiptBytes:'2048',
   outerJournalDigestSha256:sha256(capacityStatementHash).slice(2),
   evmSealSha256:'d4'.repeat(32),evmSealBytes:'260',adapterCallAccepted:true,
@@ -1271,12 +1541,57 @@ function readyFixture(mode='closed-mainnet') {
   evmSealSha256:checkpointProofCapacityReport.evmSealSha256,
   adapterVerificationGas:checkpointProofCapacityReport.adapterVerificationGas,
  }).sha256;
+ const checkpointCapacityManifestBytes=Buffer.from(JSON.stringify({schema:'usdom-checkpoint-capacity-artifact-manifest/v1',runId:checkpointProofCapacityReport.runId,files:[{path:'evidence/test.bin',sha256:'08'.repeat(32),bytes:1}]},null,2)+'\n');
+ checkpointProofCapacityReport.artifactManifestSha256=documentSha(checkpointCapacityManifestBytes);
+ const checkpointProofCapacityAuthority={reportBytes:Buffer.from(JSON.stringify(checkpointProofCapacityReport)),manifestBytes:checkpointCapacityManifestBytes,reconstructedReport:structuredClone(checkpointProofCapacityReport)};
  const capacityPath='evidence/checkpoint-proof-capacity.json';
  const capacitySha=createHash('sha256').update(
   JSON.stringify(checkpointProofCapacityReport),
  ).digest('hex');
  evidence.checkpointProofCapacityReport={path:capacityPath,sha256:capacitySha};
  evidenceFiles[capacityPath]=capacitySha;
+ const finalizedCapacityManifestBytes=Buffer.from(JSON.stringify({
+  schema:'usdom-finalized-burn-capacity-artifact-manifest/v1',runId:'20261027T120000Z-124',
+  files:[{path:'work/evidence/test.bin',sha256:'0a'.repeat(32),bytes:1}],
+ },null,2)+'\n');
+ const finalizedBurnCapacityReport={
+  schema:FINALIZED_BURN_CAPACITY_REPORT_SCHEMA,runId:'20261027T120000Z-124',
+  artifactManifestPath:'artifact-manifest.json',artifactManifestSha256:documentSha(finalizedCapacityManifestBytes),
+  startedAt:'1792643744',completedAt:'1792647344',provingWallMilliseconds:'3540000',
+  peakResidentKiB:'2097152',rayonWorkers:1,segmentLimitPo2:18,prover:'local',devMode:false,
+  receiptKind:'groth16',receiptVerified:true,risc0ZkvmVersion:'3.0.6',mines:false,
+  broadcastAuthorized:false,releaseSpecific:false,ethereumChainId:'1',
+  inputSha256:FINALIZED_BURN_CAPACITY_INPUT_SHA256,inputBytes:FINALIZED_BURN_CAPACITY_INPUT_BYTES,
+  statementHash:FINALIZED_BURN_CAPACITY_STATEMENT_HASH,
+  guestProgramSha256:FINALIZED_BURN_CAPACITY_PROGRAM_SHA256,guestImageId:FINALIZED_BURN_CAPACITY_IMAGE_ID,
+  succinctReceiptSha256:'11'.repeat(32),succinctReceiptBytes:'4096',
+  groth16ReceiptSha256:'22'.repeat(32),groth16ReceiptBytes:'2048',
+  evmSealSha256:'33'.repeat(32),evmSealBytes:'260',
+  riscZeroVerifier:PINNED_RISC0_MAINNET_V3.verifier_address,
+  riscZeroVerifierCodeHash:PINNED_RISC0_MAINNET_V3.observed_runtime_code_hash,
+  finalizedObservationBlockNumber:'26245816',finalizedObservationBlockHash:'0x'+'44'.repeat(32),
+  observationSourceIds:['drpc','publicnode'],observationEndpointHashes:['55'.repeat(32),'66'.repeat(32)],
+  adapterRuntimeCodeHash:'0x'+'77'.repeat(32),
+  adapterVerifierConfigHash:finalizedBurnCapacityAdapterConfigHash(PINNED_RISC0_MAINNET_V3),
+  adapterCallAccepted:true,adapterVerificationGas:'400000',
+  isolatedEvmAdapter:'0x0000000000000000000000000000000000000002',
+  isolatedEvmTransactionHash:'0x'+'88'.repeat(32),isolatedEvmBlockHash:'0x'+'99'.repeat(32),
+  isolatedEvmBlockNumber:'2',isolatedEvmReceiptSha256:'aa'.repeat(32),
+ };
+ finalizedBurnCapacityReport.isolatedEvmReceiptSha256=finalizedBurnIsolatedEvmReceiptCommitment({
+  transactionHash:finalizedBurnCapacityReport.isolatedEvmTransactionHash,
+  blockHash:finalizedBurnCapacityReport.isolatedEvmBlockHash,
+  blockNumber:finalizedBurnCapacityReport.isolatedEvmBlockNumber,
+  adapter:finalizedBurnCapacityReport.isolatedEvmAdapter,
+  adapterRuntimeCodeHash:finalizedBurnCapacityReport.adapterRuntimeCodeHash,
+  adapterVerifierConfigHash:finalizedBurnCapacityReport.adapterVerifierConfigHash,
+  statementHash:finalizedBurnCapacityReport.statementHash,evmSealSha256:finalizedBurnCapacityReport.evmSealSha256,
+  adapterVerificationGas:finalizedBurnCapacityReport.adapterVerificationGas,
+ }).sha256;
+ const finalizedCapacityReportBytes=Buffer.from(JSON.stringify(finalizedBurnCapacityReport));
+ const finalizedCapacityPath='evidence/finalized-burn-capacity/finalized-burn-capacity-report.json';
+ evidence.finalizedBurnCapacityReport={path:finalizedCapacityPath,sha256:documentSha(finalizedCapacityReportBytes)};
+ evidenceFiles[finalizedCapacityPath]=evidence.finalizedBurnCapacityReport.sha256;
  for(const path of ['evidence/native-privacy-setup.json','evidence/native-runtime-activation.json',
   'evidence/native-wallet-custody.json','evidence/native-wallet-recovery.json']) {
   evidenceFiles[path]=documentSha(path);
@@ -1285,6 +1600,7 @@ function readyFixture(mode='closed-mainnet') {
   'evidence/control-plane/governance-configuration.json',
   'evidence/control-plane/guardian-configuration.json',
   'evidence/control-plane/checkpoint-guardian-configuration.json',
+  'evidence/control-plane/usdt-custody-configuration.json',
   'evidence/control-plane/control-plane-separation.json',
   'evidence/control-plane/control-plane-recovery-drill.json',
   'evidence/control-plane/safe-control-release-evidence-bundle.json',
@@ -1298,14 +1614,28 @@ function readyFixture(mode='closed-mainnet') {
   'out/DOMCheckpointRegistry.sol/DOMCheckpointRegistry.json',
   'out/DOMCheckpointRiscZeroVerifier.sol/DOMCheckpointRiscZeroVerifier.json',
  ]) evidenceFiles[path]=documentSha(path);
+ for(const [document,bytes] of [
+  [evidence.controlPlaneEvidenceBundle,controlPlaneEvidenceAuthority.bundleBytes],
+  [evidence.controlPlane.governance.configurationReport,controlPlaneEvidenceAuthority.roleReportBytes.governance],
+  [evidence.controlPlane.guardian.configurationReport,controlPlaneEvidenceAuthority.roleReportBytes.guardian],
+  [evidence.controlPlane.checkpointGuardian.configurationReport,controlPlaneEvidenceAuthority.roleReportBytes.checkpointGuardian],
+  [evidence.controlPlane.usdtCustody.configurationReport,controlPlaneEvidenceAuthority.roleReportBytes.usdtCustody],
+  [evidence.controlPlaneSeparationReport,controlPlaneEvidenceAuthority.separationReportBytes],
+  [evidence.controlPlaneRecoveryDrillReport,controlPlaneEvidenceAuthority.recoveryDrillReportBytes],
+  [evidence.safeRecoveryFinalEvidenceBundle,controlPlaneEvidenceAuthority.finalBundleBytes],
+ ]) evidenceFiles[document.path]=createHash('sha256').update(bytes).digest('hex');
+ evidenceFiles[evidence.nativeRuntimeManifest.path]=evidence.nativeRuntimeManifest.sha256;
+ evidenceFiles[evidence.nativeRuntimeSpendVerifyingKeyArtifact.path]=evidence.nativeRuntimeSpendVerifyingKeyArtifact.sha256;
  const contractSource=`
- bytes32 public constant PRODUCTION_VERIFIER_CODE_HASH = ${base.verifierCodeHash};
- bytes32 public constant PRODUCTION_VERIFIER_CONFIG_HASH = ${base.verifierConfigHash};
- bytes32 public constant PRODUCTION_RESERVE_PREACTIVATION_CONFIG_HASH = ${computed.reservePreActivationConfigHash};`;
+ bytes32 private constant PRODUCTION_VERIFIER_CODE_HASH = ${base.verifierCodeHash};
+ bytes32 private constant PRODUCTION_VERIFIER_CONFIG_HASH = ${base.verifierConfigHash};
+ bytes32 private constant PRODUCTION_RESERVE_PREACTIVATION_CONFIG_HASH = ${computed.reservePreActivationConfigHash};`;
  const checkpointContractSource=`
  bytes32 public constant PRODUCTION_VERIFIER_CODE_HASH = ${base.checkpointVerifierCodeHash};
  bytes32 public constant PRODUCTION_VERIFIER_CONFIG_HASH = ${base.checkpointVerifierConfigHash};
  bytes32 public constant PRODUCTION_CHECKPOINT_CONFIG_HASH = ${checkpointConfig.checkpointConfigHash};`;
+ const contractSourceAuthority={reserveBytes:Buffer.from(contractSource),
+  checkpointRegistryBytes:Buffer.from(checkpointContractSource)};
  const repositoryState={head:'b'.repeat(40),sourceCommit:'a'.repeat(40),
   headParents:['a'.repeat(40)],dirty:false,
   sourceAuthor:'Soren Planck <sorenplanck@tutamail.com>',
@@ -1324,6 +1654,7 @@ function readyFixture(mode='closed-mainnet') {
   nativePrivacyPanicBoundaryVerified:true,proofProgramPanicBoundaryVerified:true,
   risc0ProgramBinariesVerified:true,
   nativeWalletPanicBoundaryVerified:true};
+ const repositoryStateAuthority={bytes:Buffer.from(JSON.stringify(repositoryState))};
  const nativeRuntimeValidation={status:'valid',network:'Mainnet',network_magic:'444f4d31',
   manifest_sha256:evidence.nativeRuntimeManifest.sha256,chain_id:base.checkpointDomChainId.slice(2),
   first_v4_height:base.checkpointFirstV4Height,candidate_v2_first_height:'100001',
@@ -1353,7 +1684,7 @@ function readyFixture(mode='closed-mainnet') {
   deposit_reserve:base.reserve.slice(2).toLowerCase(),
   deposit_runtime_code_hash:releaseConfig.reserveRuntimeCodeHash.slice(2),
   deposit_bridge_domain:base.domDomain.slice(2),deposit_max_amount:base.maxOutstandingBaseUnits,
-  privacy_policy_hash:'83'.repeat(32),privacy_verifier_config_hash:'84'.repeat(32),
+  privacy_policy_hash:'83'.repeat(32),privacy_verifier_config_hash:nativePrivacyAuthority.privacyVerifierConfigHash,
   withdrawal_delay_secs:base.withdrawalDelaySeconds,min_execution_window_secs:'3600',
   max_certificate_lifetime_secs:'604800',relay_safety_margin_secs:'3600',
   max_ethereum_anchor_age_secs:'1800',max_dom_clock_lead_secs:'120',
@@ -1362,10 +1693,25 @@ function readyFixture(mode='closed-mainnet') {
   'native-privacy-trusted-setup',releaseConfig,`0x${nativeRuntimeValidation.privacy_verifier_config_hash}`);
  const nativeScheduledRuntimeActivationAttestation=nativeReleaseAttestation(
   'native-scheduled-runtime-activation',releaseConfig,`0x${evidence.nativeRuntimeManifest.sha256}`);
+ const scheduledRuntimeAttestationBytes=Buffer.from(
+  JSON.stringify(nativeScheduledRuntimeActivationAttestation));
+ evidence.nativeScheduledRuntimeActivationAttestationReport.sha256=
+  createHash('sha256').update(scheduledRuntimeAttestationBytes).digest('hex');
+ evidenceFiles[evidence.nativeScheduledRuntimeActivationAttestationReport.path]=
+  evidence.nativeScheduledRuntimeActivationAttestationReport.sha256;
  const nativeWalletCustodyAttestation=nativeReleaseAttestation(
   'native-wallet-custody',releaseConfig,bytes32('a2'));
  const nativeWalletRecoveryAttestation=nativeReleaseAttestation(
   'native-wallet-recovery',releaseConfig,bytes32('a2'));
+ const nativeReleaseAttestationAuthority={
+  nativePrivacyTrustedSetupBytes:fixtureBindDocument(
+   evidence.nativePrivacyTrustedSetupAttestationReport,nativePrivacyTrustedSetupAttestation),
+  nativeScheduledRuntimeActivationBytes:scheduledRuntimeAttestationBytes,
+  nativeWalletCustodyBytes:fixtureBindDocument(
+   evidence.nativeWalletCustodyAttestationReport,nativeWalletCustodyAttestation),
+  nativeWalletRecoveryBytes:fixtureBindDocument(
+   evidence.nativeWalletRecoveryAttestationReport,nativeWalletRecoveryAttestation),
+ };
  const requiredNativeAttestations={nativePrivacyTrustedSetup:nativePrivacyTrustedSetupAttestation,
   nativeScheduledRuntimeActivation:nativeScheduledRuntimeActivationAttestation,
   ...(mode==='real-funds'?{nativeWalletCustody:nativeWalletCustodyAttestation,
@@ -1377,6 +1723,8 @@ function readyFixture(mode='closed-mainnet') {
   {sourceId:'rpc-b',operatorId:'operator-b',providerId:'provider-b',
     infrastructureId:'infra-b',endpointHash:bytes32('c2')},
  ]});
+ const riscZeroHealthSourceCatalogAuthority={catalogBytes:fixtureBindDocument(
+  evidence.riscZeroHealthSourceCatalog,riscZeroHealthSourceCatalog)};
  const requirementsSha256=documentSha('production-requirements');
  const sourceManifestSha256=documentSha('source-manifest');
  const securityValidationReport=buildSecurityValidationReport({releaseEvidence:evidence,
@@ -1394,7 +1742,7 @@ function readyFixture(mode='closed-mainnet') {
  evidence.securityValidationReport.sha256=securitySha;
  evidenceFiles[securityPath]=securitySha;
  const reserveBuildObservation=buildId=>({buildId,
-  compilerExecutableSha256:documentSha('solc compiler executable'),
+  compilerExecutableSha256:PRODUCTION_SOLC_SHA256,
   compilerVersion:'0.8.37+commit.f401782d',
   artifactSha256:evidence.reserveArtifact.sha256,sourceSetSha256:documentSha('reserve source set'),
   runtimeCodeHash:releaseConfig.reserveRuntimeCodeHash,
@@ -1408,7 +1756,7 @@ function readyFixture(mode='closed-mainnet') {
  evidence.reproducibleBuildReport.sha256=reserveBuildSha;
  evidenceFiles[reserveBuildPath]=reserveBuildSha;
  const verifierBuildObservation=buildId=>({buildId,
-  compilerExecutableSha256:documentSha('solc compiler executable'),
+  compilerExecutableSha256:PRODUCTION_SOLC_SHA256,
   compilerVersion:'0.8.37+commit.f401782d',
   artifactSha256:evidence.verifierArtifact.sha256,sourceSetSha256:documentSha('verifier source set'),
   runtimeCodeHash:releaseConfig.verifierCodeHash,initcodeHash:releaseConfig.verifierInitcodeHash});
@@ -1421,7 +1769,7 @@ function readyFixture(mode='closed-mainnet') {
  evidence.verifierReproducibleBuildReport.sha256=verifierBuildSha;
  evidenceFiles[verifierBuildPath]=verifierBuildSha;
  const checkpointVerifierBuildObservation=buildId=>({buildId,
-  compilerExecutableSha256:documentSha('solc compiler executable'),
+  compilerExecutableSha256:PRODUCTION_SOLC_SHA256,
   compilerVersion:'0.8.37+commit.f401782d',
   artifactSha256:evidence.checkpointVerifierArtifact.sha256,
   sourceSetSha256:documentSha('checkpoint verifier source set'),
@@ -1439,7 +1787,7 @@ function readyFixture(mode='closed-mainnet') {
  evidence.checkpointVerifierReproducibleBuildReport.sha256=checkpointVerifierBuildSha;
  evidenceFiles[checkpointVerifierBuildPath]=checkpointVerifierBuildSha;
  const checkpointRegistryBuildObservation=buildId=>({buildId,
-  compilerExecutableSha256:documentSha('solc compiler executable'),
+  compilerExecutableSha256:PRODUCTION_SOLC_SHA256,
   compilerVersion:'0.8.37+commit.f401782d',
   artifactSha256:evidence.checkpointRegistryArtifact.sha256,
   sourceSetSha256:documentSha('checkpoint registry source set'),
@@ -1485,13 +1833,16 @@ function readyFixture(mode='closed-mainnet') {
  evidenceFiles[finalizedEventPath]=finalizedEventSha;
  evidence.checkpointTrustedSetup.decisionReport={...evidence.trustedSetup.decisionReport};
  const trustedSetupDecisionReport=buildTrustedSetupDecisionReport({releaseEvidence:evidence,
-  releaseConfig,verifierConfig,checkpointVerifierConfig});
+  releaseConfig,verifierConfig,checkpointVerifierConfig,trustedSetupVerificationReport,
+  trustedSetupAuthority,trustedSetupAuthoritySha256});
  const trustedSetupDecisionPath=evidence.trustedSetup.decisionReport.path;
  const trustedSetupDecisionSha=createHash('sha256').update(
   serializeTrustedSetupDecisionReport(trustedSetupDecisionReport)).digest('hex');
  evidence.trustedSetup.decisionReport.sha256=trustedSetupDecisionSha;
  evidence.checkpointTrustedSetup.decisionReport={...evidence.trustedSetup.decisionReport};
  evidenceFiles[trustedSetupDecisionPath]=trustedSetupDecisionSha;
+ const trustedSetupDecisionReportAuthority={reportBytes:Buffer.from(
+  serializeTrustedSetupDecisionReport(trustedSetupDecisionReport))};
  const residualRiskDraftSha256=documentSha('residual-risk-draft');
  const residualRiskReport=buildResidualRiskReport({releaseEvidence:evidence,releaseConfig,
   requirements,draftSha256:residualRiskDraftSha256});
@@ -1503,7 +1854,154 @@ function readyFixture(mode='closed-mainnet') {
  operatorIntent.residual_risk_acceptance.reportSha256=residualRiskSha;
  operatorIntent.residual_risk_acceptance.sourceTag=evidence.sourceTag;
  operatorIntent.residual_risk_acceptance.releaseEvidenceCommitment=releaseEvidenceCommitment(evidence);
- return {mode,requirements,operatorIntent,releaseConfig,evidence,evidenceFiles,repositoryState,contractSource,
+ const pilotReleaseBytes=Buffer.from(JSON.stringify(releaseConfig));
+ const pilotReleaseSha256=createHash('sha256').update(pilotReleaseBytes).digest('hex');
+ const pilotFundsSnapshot=buildPilotFundsSnapshot({releaseConfig,
+  releaseConfigSha256:pilotReleaseSha256,
+  deploymentPackageSha256:documentSha('pilot-deployment-package'),
+  safeControlBundleSha256:documentSha('pilot-safe-control-bundle'),
+  nativePrivacyInstallationSha256:documentSha('pilot-native-privacy-installation'),
+  checkpointCapacityEvidenceSha256:documentSha('pilot-checkpoint-capacity'),
+  finalizedBurnCapacityEvidenceSha256:documentSha('pilot-finalized-burn-capacity'),
+  operationalGasEvidenceSha256:documentSha('pilot-operational-gas'),
+  residualRiskDraftSha256,releaseValidationReportSha256:documentSha('pilot-release-validation'),
+  planSha256:documentSha('pilot-plan'),phaseCatalogSha256:documentSha('pilot-phase-catalog'),
+  pilotDepositBaseUnits:'1000000',funder:address(60),salt:bytes32('61'),receivingCommitment:bytes32('03')});
+ const pilotSnapshotCommitment=pilotFundsSnapshotCommitment(pilotFundsSnapshot);
+ const pilotFundsAuthorization={schema:'usdom-pilot-funds-authorization/v1',
+  snapshotCommitment:pilotSnapshotCommitment,releaseId:pilotFundsReleaseId(pilotSnapshotCommitment),
+  validAfter:'1000',validUntil:'2000',governance:releaseConfig.governance,
+  pilotDepositBaseUnits:pilotFundsSnapshot.pilotDepositBaseUnits,funder:pilotFundsSnapshot.funder,
+  salt:pilotFundsSnapshot.salt,receivingCommitment:pilotFundsSnapshot.receivingCommitment,
+  nonce:bytes32('64'),signature:'0x1234'};
+ const pilotFundsDigest=pilotFundsAuthorizationDigest(pilotFundsAuthorization,releaseConfig);
+ const pilotFundsAuthorizationState={schema:'usdom-pilot-funds-authorization-state/v1',
+  authorization:pilotFundsAuthorization,digest:pilotFundsDigest,consumed:false,
+  finalizedObservation:{chainId:'1',governance:releaseConfig.governance,
+   governanceCodeHash:releaseConfig.governanceCodeHash,finalizedBlockHash:bytes32('65'),
+   finalizedBlockNumber:'99',snapshotBlockHashAfter:bytes32('65'),finalizedBlockTimestamp:'1500',
+   rpcConsensus:rpcConsensusEvidence([{sourceId:'pilot-a',originKeccak256:bytes32('66')},
+    {sourceId:'pilot-b',originKeccak256:bytes32('67')}]),
+   approvals:{pilotFundsAuthorization:{digest:pilotFundsDigest,valid:true}}}};
+ const recursiveCompletion=recursiveCompletionFixture(releaseConfig);
+ const registryArtifactBytes=Buffer.from('registry-artifact'),registryReleaseBytes=Buffer.from('registry-release');
+ const randomxImageId=checkpointVerifierConfig.randomxReceiptImageId.slice(2);
+ const randomxImageIdBytes=Buffer.from(`${randomxImageId}\n`),randomxReceiptBytes=Buffer.from('randomx-receipt');
+ const randomxIndexBytes=Buffer.from(JSON.stringify({schema:'usdom-randomx-receipt-set-v1',
+  randomx_receipt_image_id:randomxImageId,randomx_relations_executed:true,receipts_verified:true,
+  dev_mode:false,generates_proofs:true,mines:false,receipt_count:1,receipts:[{index:0,
+   receipt_file:'randomx-receipt-0000.bin',receipt_sha256:documentSha(randomxReceiptBytes),receipt_bytes:randomxReceiptBytes.length}]}));
+ const restartWitnessBytes=Buffer.from('restart-witness');
+ const restartManifestBytes=Buffer.from(JSON.stringify({restart_checkpoint:{witness_file:'restart-witness.bin',witness_sha256:documentSha(restartWitnessBytes)}}));
+ const checkpointRegistryArtifactPinsReport={schema:'usdom-checkpoint-registry-artifact-pins/v1',
+  artifactPath:'out/DOMCheckpointRegistry.sol/DOMCheckpointRegistry.json',artifactSha256:documentSha(registryArtifactBytes),
+  releaseConfigPath:'config/proof-reserve.unconfigured.json',releaseConfigSha256:documentSha(registryReleaseBytes),
+  runtimeCodeHash:releaseConfig.checkpointRegistryRuntimeCodeHash,runtimeSize:1,
+  initcodeHash:releaseConfig.checkpointRegistryInitcodeHash,initcodeSize:1,
+  checkpointRegistryConfigHash:releaseConfig.checkpointRegistryConfigHash,
+  compilerVersion:'solc-test',sourceCount:1};
+ const checkpointRandomxImageRatificationReport={schema:'usdom-checkpoint-randomx-image-ratification/v1',
+  imageId:randomxImageId,
+  imageIdPath:'../../crates/dom-usdom-randomx-risc0-guest/elfs/usdom-randomx.iid',
+  imageIdFileSha256:documentSha(randomxImageIdBytes),receiptIndexPath:'evidence/randomx-receipt-set/randomx-receipt-set-index.json',
+  receiptIndexSha256:documentSha(randomxIndexBytes),receiptCount:1,randomxRelationsExecuted:true,receiptsVerified:true};
+ const checkpointRestartWitnessReport={schema:'usdom-checkpoint-restart-witness-live-exercise/v1',
+  manifestSha256:documentSha(restartManifestBytes),witnessSha256:documentSha(restartWitnessBytes),firstProcessPid:100,secondProcessPid:101,
+  firstStartupAccepted:true,secondStartupAccepted:true,sameDataDirectory:true,checkpointWitnessRequired:true};
+ const releaseConfigBytes=pilotReleaseBytes;
+ const wallet={schema:'usdom-native-receiving-wallet-public-v1',domDomain:releaseConfig.domDomain,
+  privacyPolicyHash:`0x${requirements.native_privacy_policy_hash}`,chainScalar:bytes32('02'),
+  receivingCommitment:pilotFundsSnapshot.receivingCommitment,
+  recipientAddress:Buffer.concat([Buffer.from('USDADR01'),Buffer.from(bytes32('02').slice(2),'hex'),
+   Buffer.from(pilotFundsSnapshot.receivingCommitment.slice(2),'hex'),Buffer.from('69'.repeat(32),'hex')]).toString('hex')};
+ const walletBytes=Buffer.from(JSON.stringify(wallet));
+ const walletSha256=createHash('sha256').update(walletBytes).digest('hex');
+ const pilotSnapshotBytes=Buffer.from(JSON.stringify(pilotFundsSnapshot));
+ const pilotAuthorizationBytes=Buffer.from(JSON.stringify(pilotFundsAuthorizationState));
+ const pilotFundsAuthority={snapshotBytes:pilotSnapshotBytes,
+  authorizationStateBytes:pilotAuthorizationBytes};
+ const depositPackage=buildClosedMainnetDepositPackage({release:releaseConfig,wallet,
+  funder:pilotFundsSnapshot.funder,salt:pilotFundsSnapshot.salt,
+  releaseConfigSha256:pilotReleaseSha256,walletIdentitySha256:walletSha256,
+  expectedPrivacyPolicyHash:wallet.privacyPolicyHash,pilotFundsSnapshot,pilotFundsAuthorizationState});
+ const depositPackageBytes=Buffer.from(JSON.stringify(depositPackage));
+ const depositPackageSha256=createHash('sha256').update(depositPackageBytes).digest('hex');
+ const depositBaseline={schema:'usdom-closed-mainnet-deposit-financial-baseline-v2',chainId:'1',
+  packageSha256:depositPackageSha256,funder:depositPackage.funder,token:depositPackage.token,
+  reserve:depositPackage.reserve,funderBalanceBaseUnits:'5000000',reserveBalanceBaseUnits:'7000000',
+  totalDepositedBaseUnits:'6000000',outstandingBaseUnits:'4000000',allowanceBaseUnits:'0',
+  observedAt:'finalized',rpcCount:2,snapshotBlockNumber:'19000000',snapshotBlockHash:bytes32('73')};
+ const depositBaselineBytes=Buffer.from(JSON.stringify(depositBaseline));
+ const depositBaselineSha256=createHash('sha256').update(depositBaselineBytes).digest('hex');
+ const depositFinality={schema:'usdom-closed-mainnet-deposit-finality-v2',transactionHash:bytes32('72'),
+  blockNumber:'19000032',blockHash:bytes32('74'),transactionIndex:'2',finalizedRpcCount:2,
+  gasUsed:'100000',effectiveGasPrice:'2000000000',actualCost:'200000000000000',maximumCost:'300000000000000'};
+ const depositFinalityBytes=Buffer.from(JSON.stringify(depositFinality));
+ const depositFinalitySha256=createHash('sha256').update(depositFinalityBytes).digest('hex');
+ const depositExecution={schema:'usdom-closed-mainnet-deposit-execution-v3',
+  packageSha256:depositPackageSha256,chainId:'1',steps:3,amountBaseUnits:'1000000',
+  financialBaselineSha256:depositBaselineSha256,depositFinalitySha256,
+  snapshotBlockNumber:'19000064',snapshotBlockHash:bytes32('75'),funderBalanceBefore:'5000000',
+  funderBalanceAfter:'4000000',reserveBalanceBefore:'7000000',reserveBalanceAfter:'8000000',
+  totalDepositedBefore:'6000000',totalDepositedAfter:'7000000',outstandingBefore:'4000000',
+  outstandingAfter:'5000000',allowanceBefore:'0',allowanceAfter:'0',outputLast:true,
+  transactionHashes:[bytes32('70'),bytes32('71'),bytes32('72')]};
+ const finalizedDepositAuthority={packageBytes:depositPackageBytes,
+  executionBytes:Buffer.from(JSON.stringify(depositExecution)),baselineBytes:depositBaselineBytes,
+  depositFinalityBytes,
+  releaseBytes:releaseConfigBytes,walletBytes,pilotFundsSnapshotBytes:pilotSnapshotBytes,
+  pilotFundsAuthorizationStateBytes:pilotAuthorizationBytes};
+ const configurationAuthority={releaseConfigBytes,
+  nativeRuntimeManifestBytes:nativePrivacyAuthority.runtimeManifestBytes,
+  scheduledRuntimeAttestationBytes};
+ const releaseAssuranceAuthority={
+  securityValidationReportBytes:Buffer.from(serializeSecurityValidationReport(securityValidationReport)),
+  operationsReviewReportBytes:Buffer.from(serializeOperationsReviewReport(operationsReviewReport)),
+  reserveReproducibleBuildReportBytes:Buffer.from(serializeReserveReproducibleBuildReport(reserveReproducibleBuildReport)),
+  verifierReproducibleBuildReportBytes:Buffer.from(serializeVerifierReproducibleBuildReport(verifierReproducibleBuildReport)),
+  mainnetForkRehearsalReportBytes:Buffer.from(serializeMainnetForkRehearsalReport(mainnetForkRehearsalReport)),
+  checkpointVerifierReproducibleBuildReportBytes:Buffer.from(serializeCheckpointVerifierReproducibleBuildReport(checkpointVerifierReproducibleBuildReport)),
+  checkpointRegistryReproducibleBuildReportBytes:Buffer.from(serializeCheckpointRegistryReproducibleBuildReport(checkpointRegistryReproducibleBuildReport)),
+  residualRiskReportBytes:Buffer.from(serializeResidualRiskReport(residualRiskReport)),
+ };
+ const checkpointBootstrapRatificationAuthority={
+  reportBytes:fixtureBindDocument(evidence.checkpointBootstrapRatificationReport,
+    checkpointBootstrapRatificationReport,
+    serializeCheckpointBootstrapRatificationReport(checkpointBootstrapRatificationReport)),
+  consensusBytes:Buffer.from(JSON.stringify(checkpointRatification.checkpointConsensus)),
+  nativeFactsBytes:Buffer.from(JSON.stringify(checkpointRatification.nativeFacts)),
+ };
+ const checkpointFinalizedEventAuthority={reportBytes:fixtureBindDocument(
+  evidence.checkpointFinalizedEventReport,checkpointFinalizedEventReport,
+  serializeCheckpointFinalizedEventReport(checkpointFinalizedEventReport))};
+ const nativeAttestationApprovalObservation=nativeApprovalObservation(requiredNativeAttestations,releaseConfig);
+ const releaseAuthorizationApprovalObservation=releaseAuthorizationObservation(
+  operatorIntent.residual_risk_acceptance,releaseConfig);
+ const approvalAuthority=value=>{
+  const bytes=Buffer.from(JSON.stringify(value));
+  return {bytes,sha256:createHash('sha256').update(bytes).digest('hex')};
+ };
+ const approvalObservationAuthority={
+  nativeAttestations:approvalAuthority(nativeAttestationApprovalObservation),
+  releaseAuthorization:approvalAuthority(releaseAuthorizationApprovalObservation),
+ };
+ const requirementsAuthority={bytes:Buffer.from(JSON.stringify(requirements))};
+ const readinessDocumentAuthority={operatorIntentBytes:Buffer.from(JSON.stringify(operatorIntent)),
+  releaseEvidenceBytes:Buffer.from(JSON.stringify(evidence))};
+ const compiledBinding=(runtimeCodeHash,initcodeHash)=>({bindingBytes:Buffer.from(JSON.stringify(
+  {runtimeCodeHash,initcodeHash}))});
+ const compiledArtifactAuthority={
+  reserve:compiledBinding(releaseConfig.reserveRuntimeCodeHash,releaseConfig.reserveInitcodeHash),
+  checkpointRegistry:compiledBinding(releaseConfig.checkpointRegistryRuntimeCodeHash,
+   releaseConfig.checkpointRegistryInitcodeHash),
+  finalizedBurnVerifier:compiledBinding(releaseConfig.verifierCodeHash,
+   releaseConfig.verifierInitcodeHash),
+  checkpointVerifier:compiledBinding(releaseConfig.checkpointVerifierCodeHash,
+   releaseConfig.checkpointVerifierInitcodeHash),
+ };
+ return {mode,requirements,requirementsAuthority,operatorIntent,releaseConfig,evidence,evidenceFiles,
+  readinessDocumentAuthority,repositoryState,
+  repositoryStateAuthority,contractSource,contractSourceAuthority,
   trustedReleaseSigningKeyFingerprint:signingFingerprint,
   checkpointContractSource,verifierConfig,checkpointVerifierConfig,
   riscZeroReference:{...PINNED_RISC0_MAINNET_V3},
@@ -1515,32 +2013,67 @@ function readyFixture(mode='closed-mainnet') {
   compiledVerifierInitcodeHash:releaseConfig.verifierInitcodeHash,
   compiledCheckpointVerifierRuntimeCodeHash:releaseConfig.checkpointVerifierCodeHash,
   compiledCheckpointVerifierInitcodeHash:releaseConfig.checkpointVerifierInitcodeHash,
-  predeploymentAttestation:preflightAttestation(releaseConfig,'predeployment'),
-  coldStartAttestation:preflightAttestation(releaseConfig,'postdeployment'),
+  compiledArtifactAuthority,
+  predeploymentAttestation,predeploymentAttestationAuthority,
+  coldStartAttestation,coldStartAttestationAuthority,
   nativePrivacyTrustedSetupAttestation,nativeScheduledRuntimeActivationAttestation,
-  nativeWalletCustodyAttestation,nativeWalletRecoveryAttestation,
-  nativeAttestationApprovalObservation:nativeApprovalObservation(requiredNativeAttestations,releaseConfig),
-  releaseAuthorizationApprovalObservation:releaseAuthorizationObservation(
-    operatorIntent.residual_risk_acceptance,releaseConfig),
-  nativeRuntimeValidation,
-  riscZeroHealthSourceCatalog,finalizedBurnE2eReport,checkpointProofCapacityReport,
+  nativeWalletCustodyAttestation,nativeWalletRecoveryAttestation,nativeReleaseAttestationAuthority,
+  nativeAttestationApprovalObservation,releaseAuthorizationApprovalObservation,
+  approvalObservationAuthority,
+  nativeRuntimeValidation,configurationAuthority,
+  riscZeroHealthSourceCatalog,riscZeroHealthSourceCatalogAuthority,
+  finalizedBurnE2eReport,finalizedBurnE2eAuthority,
+  checkpointProofCapacityReport,checkpointProofCapacityAuthority,
+  finalizedBurnCapacityReport,finalizedBurnCapacityAuthority:{reportBytes:finalizedCapacityReportBytes,
+   manifestBytes:finalizedCapacityManifestBytes,validated:true},
+  productionOperationalGasAuthority:operationalGasAuthority(releaseConfig,releaseConfigBytes),
+  finalizedDepositAuthority,
+  releaseValidationReport,releaseValidationAuthority,releaseAssuranceAuthority,
+  toolchainLockSha256,cargoLockSha256,
   securityValidationReport,requirementsSha256,sourceManifestSha256,
   operationsReviewReport,operatorRunbookSha256,
   reserveReproducibleBuildReport,verifierReproducibleBuildReport,
   mainnetForkRehearsalReport,mainnetForkRehearsalEvidenceFiles:forkRehearsal.evidenceFiles,
-  checkpointBootstrapRatificationReport,
+  checkpointBootstrapRatificationReport,checkpointBootstrapRatificationAuthority,
   ethereumCheckpointConsensus:checkpointRatification.checkpointConsensus,
   nativePreactivationFacts:checkpointRatification.nativeFacts,
-  checkpointFinalizedEventReport,
+  checkpointFinalizedEventReport,checkpointFinalizedEventAuthority,
+  pilotFundsSnapshot,pilotFundsAuthorizationState,pilotFundsAuthority,
   checkpointVerifierReproducibleBuildReport,
   checkpointRegistryReproducibleBuildReport,
+  checkpointRegistryArtifactPinsReport,
+  checkpointRegistryArtifactPinsAuthority:{reportBytes:Buffer.from(JSON.stringify(checkpointRegistryArtifactPinsReport)),artifactBytes:registryArtifactBytes,releaseConfigBytes:registryReleaseBytes,
+   binding:{runtimeCodeHash:releaseConfig.checkpointRegistryRuntimeCodeHash,runtimeSize:1,
+    initcodeHash:releaseConfig.checkpointRegistryInitcodeHash,initcodeSize:1,
+    checkpointRegistryConfigHash:releaseConfig.checkpointRegistryConfigHash,compilerVersion:'solc-test',sourceCount:1}},
+  checkpointRandomxImageRatificationReport,
+  checkpointRandomxImageRatificationAuthority:{reportBytes:Buffer.from(JSON.stringify(checkpointRandomxImageRatificationReport)),imageIdBytes:randomxImageIdBytes,receiptIndexBytes:randomxIndexBytes,receiptBytes:[randomxReceiptBytes]},
+  checkpointRestartWitnessReport,
+  checkpointRestartWitnessAuthority:{reportBytes:Buffer.from(JSON.stringify(checkpointRestartWitnessReport)),manifestBytes:restartManifestBytes,witnessBytes:restartWitnessBytes},
+  finalizedBurnRecursiveCompletionReport:recursiveCompletion.report,
+  finalizedBurnRecursiveCompletionAuthority:recursiveCompletion.authority,
   residualRiskReport,residualRiskDraftSha256,
-  trustedSetupDecisionReport,
+  trustedSetupDecisionReport,trustedSetupVerificationReport,trustedSetupAuthority,
+  trustedSetupAuthoritySha256,trustedSetupDecisionReportAuthority,
   controlPlaneEvidenceArtifacts:{bundle:controlPlaneEvidence,
    roleReports:structuredClone(controlPlaneEvidence.roleReports),
    separationReport:structuredClone(controlPlaneEvidence.separationReport),
    recoveryDrillReport:structuredClone(controlPlaneEvidence.recoveryDrillReport),
-   finalBundle:safeRecoveryFinalBundle}};
+   finalBundle:safeRecoveryFinalBundle},controlPlaneEvidenceAuthority,
+  nativePrivacyCeremonyAuthority:nativePrivacyAuthority};
+}
+
+function rebindRepositoryState(fixture) {
+ fixture.repositoryStateAuthority={bytes:Buffer.from(JSON.stringify(fixture.repositoryState))};
+}
+function rebindRequirements(fixture) {
+ fixture.requirementsAuthority={bytes:Buffer.from(JSON.stringify(fixture.requirements))};
+}
+function rebindReadinessDocuments(fixture) {
+ fixture.readinessDocumentAuthority={
+  operatorIntentBytes:Buffer.from(JSON.stringify(fixture.operatorIntent)),
+  releaseEvidenceBytes:Buffer.from(JSON.stringify(fixture.evidence)),
+ };
 }
 
 test('configured hash-addressed evidence can satisfy both fail-closed release modes',()=>{
@@ -1550,6 +2083,223 @@ test('configured hash-addressed evidence can satisfy both fail-closed release mo
   assert.equal(report.blockerCount,0);
  }
 });
+test('release validation requires descriptor-bound raw reconstruction',()=>{
+ for(const mutate of [
+  fixture=>{ fixture.releaseValidationAuthority=null; },
+  fixture=>{ fixture.releaseValidationAuthority.reconstructedReportBytes=Buffer.from('{}'); },
+  fixture=>{
+   const substituted=structuredClone(fixture.releaseValidationReport);
+   substituted.runs[0].processLogSha256=documentSha('substituted-process-log');
+   const bytes=Buffer.from(JSON.stringify(substituted));
+   fixture.releaseValidationReport=substituted;
+   fixture.releaseValidationAuthority.reportBytes=bytes;
+   fixture.evidence.releaseValidationReport.sha256=createHash('sha256').update(bytes).digest('hex');
+   fixture.evidenceFiles[fixture.evidence.releaseValidationReport.path]=
+    fixture.evidence.releaseValidationReport.sha256;
+  },
+ ]) {
+  const fixture=readyFixture();
+  mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false);
+  assert.ok(report.blockers.some(({code})=>code==='release_validation_report_invalid'));
+ }
+});
+test('finalized-deposit claims require package, execution receipt and upstream byte authority',()=>{
+ for(const mutate of [
+  fixture=>{ fixture.finalizedDepositAuthority=null; },
+  fixture=>{ fixture.finalizedDepositAuthority.packageBytes=Buffer.from('{'); },
+  fixture=>{ fixture.finalizedDepositAuthority.depositFinalityBytes=Buffer.from('{'); },
+  fixture=>{
+   const receipt=JSON.parse(fixture.finalizedDepositAuthority.executionBytes.toString());
+   receipt.packageSha256='ab'.repeat(32);
+   fixture.finalizedDepositAuthority.executionBytes=Buffer.from(JSON.stringify(receipt));
+  },
+ ]) {
+  const fixture=readyFixture('real-funds');
+  mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false);
+  assert.ok(report.blockers.some(({code})=>code==='finalized_deposit_authority_invalid'));
+ }
+});
+test('terminal readiness objects cannot substitute coordinated B semantics under authority bytes A',()=>{
+ const cases=[
+  [fixture=>{
+    fixture.checkpointBootstrapRatificationReport=structuredClone(fixture.checkpointBootstrapRatificationReport);
+    fixture.checkpointBootstrapRatificationReport.snapshotBlockNumber='1000001';
+    for(const approval of fixture.checkpointBootstrapRatificationReport.approvals) {
+      approval.snapshotBlockNumber='1000001';
+    }
+   },'checkpoint_bootstrap_ratification_report_invalid'],
+  [fixture=>{
+    fixture.checkpointFinalizedEventReport=structuredClone(fixture.checkpointFinalizedEventReport);
+    fixture.checkpointFinalizedEventReport.blockTimestamp='1792492999';
+    for(const observation of fixture.checkpointFinalizedEventReport.observations) {
+      observation.blockTimestamp='1792492999';
+    }
+   },'checkpoint_finalized_event_report_invalid'],
+  [fixture=>{
+    fixture.controlPlaneEvidenceArtifacts=structuredClone(fixture.controlPlaneEvidenceArtifacts);
+    fixture.controlPlaneEvidenceArtifacts.bundle.roleReports.governance.configurationHash=bytes32('98');
+    fixture.controlPlaneEvidenceArtifacts.roleReports.governance.configurationHash=bytes32('98');
+   },'control_plane_evidence_content_invalid'],
+  [fixture=>{
+    fixture.predeploymentAttestation=structuredClone(fixture.predeploymentAttestation);
+    fixture.predeploymentAttestation.collectionCompletedAtMs++;
+   },'predeployment_attestation_authority_invalid'],
+  [fixture=>{
+    fixture.coldStartAttestation=structuredClone(fixture.coldStartAttestation);
+    fixture.coldStartAttestation.collectionStartedAtMs++;
+    fixture.coldStartAttestationAuthority={reportBytes:
+      Buffer.from(JSON.stringify(fixture.coldStartAttestation))};
+   },'cold_start_attestation_authority_invalid'],
+ ];
+ for(const [mutate,code] of cases) {
+  const fixture=readyFixture('real-funds'); mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false);
+  assert.ok(report.blockers.some(blocker=>blocker.code===code),code);
+ }
+});
+test('production configuration claims require release, native manifest and scheduled-attestation bytes',()=>{
+ for(const mutate of [
+  fixture=>{ fixture.configurationAuthority=null; },
+  fixture=>{
+   fixture.releaseConfig=structuredClone(fixture.releaseConfig);
+   fixture.releaseConfig.maxOutstandingBaseUnits='2000000';
+  },
+  fixture=>{
+   fixture.nativeScheduledRuntimeActivationAttestation=
+    structuredClone(fixture.nativeScheduledRuntimeActivationAttestation);
+   fixture.nativeScheduledRuntimeActivationAttestation.completedAt='1792492801';
+  },
+  fixture=>{ fixture.nativeRuntimeValidation={...fixture.nativeRuntimeValidation,
+    manifest_sha256:'ab'.repeat(32)}; },
+ ]) {
+  const fixture=readyFixture('real-funds'); mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false);
+  assert.ok(report.blockers.some(({code})=>code==='production_configuration_authority_invalid'));
+ }
+});
+test('release assurance reports require their exact descriptor-bound bytes',()=>{
+ const missingCases=[
+  ['securityValidationReportBytes','security_validation_report_invalid'],
+  ['operationsReviewReportBytes','operations_review_report_invalid'],
+  ['reserveReproducibleBuildReportBytes','reserve_reproducible_build_report_invalid'],
+  ['verifierReproducibleBuildReportBytes','verifier_reproducible_build_report_invalid'],
+  ['mainnetForkRehearsalReportBytes','mainnet_fork_rehearsal_report_invalid'],
+  ['checkpointVerifierReproducibleBuildReportBytes','checkpoint_verifier_reproducible_build_report_invalid'],
+  ['checkpointRegistryReproducibleBuildReportBytes','checkpoint_registry_reproducible_build_report_invalid'],
+  ['residualRiskReportBytes','residual_risk_report_invalid'],
+ ];
+ for(const [field,code] of missingCases) {
+  const fixture=readyFixture(); fixture.releaseAssuranceAuthority[field]=null;
+  const report=assessMainnetReadiness(fixture);
+  assert(report.blockers.some(blocker=>blocker.code===code),field);
+ }
+ const substituted=readyFixture();
+ substituted.securityValidationReport=structuredClone(substituted.securityValidationReport);
+ substituted.securityValidationReport.checks[0].stdoutSha256='ab'.repeat(32);
+ substituted.releaseAssuranceAuthority.securityValidationReportBytes=Buffer.from(
+  serializeSecurityValidationReport(substituted.securityValidationReport));
+ const report=assessMainnetReadiness(substituted);
+ assert(report.blockers.some(({code})=>code==='security_validation_report_invalid'));
+});
+test('finalized-burn capacity requires the preserved run graph and rejects a report from another graph',()=>{
+ const missing=readyFixture('closed-mainnet');
+ missing.finalizedBurnCapacityAuthority=null;
+ let report=assessMainnetReadiness(missing);
+ assert(report.blockers.some(blocker=>blocker.code==='finalized_burn_capacity_authority_invalid'));
+ const substituted=readyFixture('closed-mainnet');
+ substituted.finalizedBurnCapacityReport={...substituted.finalizedBurnCapacityReport,
+  peakResidentKiB:'2097153'};
+ report=assessMainnetReadiness(substituted);
+ assert(report.blockers.some(blocker=>blocker.code==='finalized_burn_capacity_authority_invalid'));
+});
+test('capacity claims reject coordinated report B bytes under release descriptor A',()=>{
+ const checkpoint=readyFixture('closed-mainnet');
+ checkpoint.checkpointProofCapacityReport={...checkpoint.checkpointProofCapacityReport,
+  compressionPeakResidentKiB:'1048575'};
+ checkpoint.checkpointProofCapacityAuthority={...checkpoint.checkpointProofCapacityAuthority,
+  reportBytes:Buffer.from(JSON.stringify(checkpoint.checkpointProofCapacityReport)),
+  reconstructedReport:structuredClone(checkpoint.checkpointProofCapacityReport)};
+ let report=assessMainnetReadiness(checkpoint);
+ assert(report.blockers.some(blocker=>blocker.code==='checkpoint_proof_capacity_report_invalid'));
+
+ const finalized=readyFixture('closed-mainnet');
+ finalized.finalizedBurnCapacityReport={...finalized.finalizedBurnCapacityReport,
+  peakResidentKiB:'2097151'};
+ finalized.finalizedBurnCapacityAuthority={...finalized.finalizedBurnCapacityAuthority,
+  reportBytes:Buffer.from(JSON.stringify(finalized.finalizedBurnCapacityReport))};
+ report=assessMainnetReadiness(finalized);
+ assert(report.blockers.some(blocker=>blocker.code==='finalized_burn_capacity_authority_invalid'));
+});
+test('operational gas claims require live job and report bytes after ledger completion',()=>{
+ for(const mutate of [
+  fixture=>{fixture.productionOperationalGasAuthority=null;},
+  fixture=>{fixture.productionOperationalGasAuthority.reportBytes=Buffer.from('{}');},
+  fixture=>{fixture.productionOperationalGasAuthority.jobBytes=Buffer.from('{}');},
+ ]) {
+  const fixture=readyFixture('closed-mainnet');mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert(report.blockers.some(blocker=>blocker.code==='production_operational_gas_authority_invalid'));
+ }
+});
+test('native privacy ceremony claims require the preserved ceremony and exact installed copies',()=>{
+ for(const mutate of [
+  fixture=>{fixture.nativePrivacyCeremonyAuthority=null;},
+  fixture=>{fixture.nativePrivacyCeremonyAuthority.transcriptBytes=Buffer.from('{}');},
+  fixture=>{const receipt=JSON.parse(fixture.nativePrivacyCeremonyAuthority.installationReceiptBytes);
+   receipt.nativeRuntimeManifestSha256='ff'.repeat(32);
+   fixture.nativePrivacyCeremonyAuthority.installationReceiptBytes=Buffer.from(`${JSON.stringify(receipt)}\n`);},
+  fixture=>{fixture.nativePrivacyCeremonyAuthority.installedVerifyingKeyBytes=Buffer.from('foreign vk');},
+ ]) {
+  const fixture=readyFixture('closed-mainnet');
+  fixture.nativePrivacyCeremonyAuthority={...fixture.nativePrivacyCeremonyAuthority};mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert(report.blockers.some(blocker=>blocker.code==='native_privacy_ceremony_authority_invalid'));
+ }
+});
+test('recursive burn completion rejects zero digests even with the real adapter pins',()=>{
+ const fixture=readyFixture('closed-mainnet');
+ for(const field of Object.keys(fixture.finalizedBurnRecursiveCompletionReport)) {
+  if(field.endsWith('Sha256')) fixture.finalizedBurnRecursiveCompletionReport[field]='0'.repeat(64);
+ }
+ const report=assessMainnetReadiness(fixture);
+ for(const claim of ['production_finalized_burn_recursive_checkpoint_artifacts_pinned',
+  'production_finalized_burn_recursive_checkpoint_receipt_verified',
+  'production_finalized_burn_risc0_evm_receipt_verifier_implemented']) {
+  assert.ok(report.blockers.some(blocker=>blocker.code===`${claim}_completion_invalid`));
+ }
+});
+
+test('real-funds readiness rejects a consumed pilot authorization fixture',()=>{
+ const fixture=readyFixture('real-funds');
+ fixture.pilotFundsAuthorizationState.consumed=true;
+ fixture.pilotFundsAuthority.authorizationStateBytes=
+  Buffer.from(JSON.stringify(fixture.pilotFundsAuthorizationState));
+ const report=assessMainnetReadiness(fixture);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(blocker=>blocker.code==='pilot_funds_authorization_invalid'));
+});
+
+test('pilot funds readiness derives snapshot and authorization state from authority bytes',()=>{
+ for(const mutate of [
+  fixture=>{fixture.pilotFundsSnapshot={...fixture.pilotFundsSnapshot,pilotDepositBaseUnits:'2'};},
+  fixture=>{fixture.pilotFundsAuthorizationState.consumed=true;},
+  fixture=>{fixture.pilotFundsAuthority.snapshotBytes=Buffer.from(JSON.stringify(
+   {...fixture.pilotFundsSnapshot,pilotDepositBaseUnits:'2'}));},
+  fixture=>{fixture.pilotFundsAuthority.authorizationStateBytes=Buffer.from(JSON.stringify(
+   {...fixture.pilotFundsAuthorizationState,consumed:true}));},
+ ]) {
+  const fixture=readyFixture('real-funds'); mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false);
+  assert(report.blockers.some(blocker=>blocker.code==='pilot_funds_authorization_invalid'));
+ }
+});
 
 test('release gate enforces the deterministic production DOM domain',()=>{
  const fixture=readyFixture();
@@ -1557,6 +2307,245 @@ test('release gate enforces the deterministic production DOM domain',()=>{
  const report=assessMainnetReadiness(fixture);
  assert.equal(report.ready,false);
  assert(report.blockers.some(blocker=>blocker.code==='release_dom_domain_derivation_mismatch'));
+});
+
+test('absent DOM-domain inputs keep exact missing blockers without a derivative invalid blocker',()=>{
+ const fixture=readyFixture();
+ for(const field of ['checkpointDomNetworkMagic','checkpointDomChainId','reserve',
+  'checkpointRegistry','domDomain']) fixture.releaseConfig[field]=null;
+ const report=assessMainnetReadiness(fixture);
+ for(const field of ['checkpointDomNetworkMagic','checkpointDomChainId','reserve',
+  'checkpointRegistry','domDomain']) {
+  assert(report.blockers.some(blocker=>blocker.code===`release_${field}_missing`));
+ }
+ assert(!report.blockers.some(blocker=>blocker.code==='release_dom_domain_derivation_invalid'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_dom_domain_derivation_mismatch'));
+});
+
+test('absent CREATE plan fields keep exact missing blockers without derivative invalid plans',()=>{
+ const fixture=readyFixture();
+ const plans=[
+  ['deployer','deployerNonce','reserve','release_deployment_plan_invalid'],
+  ['checkpointRegistryDeployer','checkpointRegistryDeployerNonce','checkpointRegistry',
+    'release_checkpoint_registry_deployment_plan_invalid'],
+  ['verifierDeployer','verifierDeployerNonce','verifier','release_verifier_deployment_plan_invalid'],
+  ['checkpointVerifierDeployer','checkpointVerifierDeployerNonce','checkpointVerifier',
+    'release_checkpoint_verifier_deployment_plan_invalid'],
+ ];
+ for(const [deployer,nonce,addressField] of plans) {
+  fixture.releaseConfig[deployer]=null; fixture.releaseConfig[nonce]=null;
+  fixture.releaseConfig[addressField]=null;
+ }
+ const report=assessMainnetReadiness(fixture);
+ for(const [deployer,nonce,addressField,derived] of plans) {
+  for(const field of [deployer,nonce,addressField]) {
+   assert(report.blockers.some(blocker=>blocker.code===`release_${field}_missing`));
+  }
+  assert(!report.blockers.some(blocker=>blocker.code===derived));
+ }
+ for(const [deployer,,,derived] of plans) {
+  const malformed=readyFixture(); malformed.releaseConfig[deployer]=address(0);
+  assert(assessMainnetReadiness(malformed).blockers.some(blocker=>blocker.code===derived));
+ }
+});
+
+test('incomplete CREATE topology keeps field blockers without a derivative topology blocker',()=>{
+ const fixture=readyFixture();
+ fixture.releaseConfig.verifierDeployer=null;
+ fixture.releaseConfig.verifierDeployerNonce=null;
+ fixture.releaseConfig.verifier=null;
+ let report=assessMainnetReadiness(fixture);
+ for(const field of ['verifierDeployer','verifierDeployerNonce','verifier']) {
+  assert(report.blockers.some(blocker=>blocker.code===`release_${field}_missing`));
+ }
+ assert(!report.blockers.some(blocker=>blocker.code==='release_deployment_topology_invalid'));
+ const inconsistent=readyFixture(); inconsistent.releaseConfig.verifierDeployerNonce='9';
+ report=assessMainnetReadiness(inconsistent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_deployment_topology_invalid'));
+});
+
+test('absent contract roles keep missing blockers without claiming an identity collision',()=>{
+ const fixture=readyFixture(); fixture.releaseConfig.reserve=null;
+ let report=assessMainnetReadiness(fixture);
+ assert(report.blockers.some(blocker=>blocker.code==='release_reserve_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_contract_identity_collision'));
+ const duplicate=readyFixture(); duplicate.releaseConfig.reserve=duplicate.releaseConfig.verifier;
+ report=assessMainnetReadiness(duplicate);
+ assert(report.blockers.some(blocker=>blocker.code==='release_contract_identity_collision'));
+ const malformed=readyFixture(); malformed.releaseConfig.reserve='not-an-address';
+ report=assessMainnetReadiness(malformed);
+ assert(report.blockers.some(blocker=>blocker.code==='release_contract_identity_collision'));
+});
+
+test('absent owner sets keep missing blockers without invalid or reuse derivatives',()=>{
+ const fixture=readyFixture();
+ for(const role of ['governance','guardian','checkpointGuardian']) {
+  fixture.releaseConfig[`${role}Owners`]=null;
+ }
+ let report=assessMainnetReadiness(fixture);
+ for(const role of ['governance','guardian','checkpointGuardian']) {
+  assert(report.blockers.some(blocker=>blocker.code===`release_${role}Owners_missing`));
+  assert(!report.blockers.some(blocker=>blocker.code===`release_${role}_owners_invalid`));
+ }
+ assert(!report.blockers.some(blocker=>blocker.code==='release_control_plane_owner_reuse'));
+ const malformed=readyFixture(); malformed.releaseConfig.governanceOwners=[];
+ report=assessMainnetReadiness(malformed);
+ assert(report.blockers.some(blocker=>blocker.code==='release_governance_owners_invalid'));
+ const reused=readyFixture(); reused.releaseConfig.checkpointGuardianOwners[0]=
+  reused.releaseConfig.governanceOwners[0];
+ report=assessMainnetReadiness(reused);
+ assert(!report.blockers.some(blocker=>blocker.code==='release_control_plane_owner_reuse'));
+});
+
+test('absent source commit keeps its blocker without impossible parent and diff diagnostics',()=>{
+ const fixture=readyFixture(); fixture.evidence.sourceCommit=null;
+ fixture.repositoryState.sourceCommit=null;
+ fixture.repositoryState.headParents=[];
+ fixture.repositoryState.releaseEvidenceChanges=null;
+ fixture.readinessDocumentAuthority.releaseEvidenceBytes=Buffer.from(JSON.stringify(fixture.evidence));
+ fixture.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(fixture.repositoryState));
+ let report=assessMainnetReadiness(fixture);
+ assert(report.blockers.some(blocker=>blocker.code==='source_commit_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_evidence_parent_mismatch'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_evidence_diff_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='source_tag_signature_unverified'));
+ assert(!report.blockers.some(blocker=>blocker.code==='source_tag_mismatch'));
+ const invalidParent=readyFixture(); invalidParent.repositoryState.headParents=[];
+ invalidParent.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(invalidParent.repositoryState));
+ report=assessMainnetReadiness(invalidParent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_evidence_parent_mismatch'));
+ const missingDiff=readyFixture(); missingDiff.repositoryState.releaseEvidenceChanges=null;
+ missingDiff.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(missingDiff.repositoryState));
+ report=assessMainnetReadiness(missingDiff);
+ assert(report.blockers.some(blocker=>blocker.code==='release_evidence_diff_missing'));
+});
+
+test('absent source commit does not claim signature or identity failures for a nonexistent object',()=>{
+ const fixture=readyFixture(); fixture.evidence.sourceCommit=null;
+ fixture.readinessDocumentAuthority.releaseEvidenceBytes=Buffer.from(JSON.stringify(fixture.evidence));
+ Object.assign(fixture.repositoryState,{sourceCommit:null,sourceCommitSignatureVerified:false,
+  releaseCommitSignatureVerified:false,sourceAuthor:null,sourceCommitter:null,
+  releaseAuthor:'Wrong <wrong@example.test>',releaseCommitter:'Wrong <wrong@example.test>',
+  sourceCommitSignerFingerprint:'B'.repeat(40),releaseCommitSignerFingerprint:'B'.repeat(40)});
+ fixture.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(fixture.repositoryState));
+ let report=assessMainnetReadiness(fixture);
+ assert(report.blockers.some(blocker=>blocker.code==='source_commit_missing'));
+ for(const code of ['source_commit_signature_unverified','source_author_mismatch',
+  'source_committer_mismatch','release_evidence_commit_signature_unverified',
+  'release_evidence_author_mismatch','release_evidence_committer_mismatch',
+  'source_commit_signer_mismatch','release_evidence_commit_signer_mismatch']) {
+  assert(!report.blockers.some(blocker=>blocker.code===code));
+ }
+ const present=readyFixture(); Object.assign(present.repositoryState,
+  {sourceCommitSignatureVerified:false,releaseCommitSignatureVerified:false,
+   sourceAuthor:'Wrong <wrong@example.test>',
+   sourceCommitter:'Wrong <wrong@example.test>',releaseAuthor:'Wrong <wrong@example.test>',
+   releaseCommitter:'Wrong <wrong@example.test>',sourceCommitSignerFingerprint:'B'.repeat(40)});
+ present.repositoryState.releaseCommitSignerFingerprint='B'.repeat(40);
+ present.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(present.repositoryState));
+ report=assessMainnetReadiness(present);
+ for(const code of ['source_commit_signature_unverified','source_author_mismatch',
+  'source_committer_mismatch','release_evidence_commit_signature_unverified',
+  'release_evidence_author_mismatch','release_evidence_committer_mismatch',
+  'source_commit_signer_mismatch','release_evidence_commit_signer_mismatch']) {
+  assert(report.blockers.some(blocker=>blocker.code===code));
+ }
+});
+
+test('uninspected source commit does not claim signature or identity failures for another object',()=>{
+ const absent=readyFixture(); absent.repositoryState.sourceCommit=null;
+ absent.repositoryState.sourceCommitSignatureVerified=false;
+ absent.repositoryState.sourceAuthor='Wrong <wrong@example.test>';
+ absent.repositoryState.sourceCommitter='Wrong <wrong@example.test>';
+ absent.repositoryState.sourceCommitSignerFingerprint='B'.repeat(40);
+ absent.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(absent.repositoryState));
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='source_commit_mismatch'));
+ assert(!report.blockers.some(blocker=>blocker.code==='source_commit_signature_unverified'));
+ assert(!report.blockers.some(blocker=>blocker.code==='source_author_mismatch'));
+ assert(!report.blockers.some(blocker=>blocker.code==='source_committer_mismatch'));
+ assert(!report.blockers.some(blocker=>blocker.code==='source_commit_signer_mismatch'));
+
+ const present=readyFixture(); present.repositoryState.sourceCommitSignatureVerified=false;
+ present.repositoryState.sourceAuthor='Wrong <wrong@example.test>';
+ present.repositoryState.sourceCommitter='Wrong <wrong@example.test>';
+ present.repositoryState.sourceCommitSignerFingerprint='B'.repeat(40);
+ present.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(present.repositoryState));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>blocker.code==='source_commit_signature_unverified'));
+ assert(report.blockers.some(blocker=>blocker.code==='source_author_mismatch'));
+ assert(report.blockers.some(blocker=>blocker.code==='source_committer_mismatch'));
+ assert(report.blockers.some(blocker=>blocker.code==='source_commit_signer_mismatch'));
+});
+
+test('absent release-evidence commit does not claim signature or identity failures for source HEAD',()=>{
+ const absent=readyFixture();
+ absent.repositoryState.head=absent.evidence.sourceCommit;
+ absent.repositoryState.headParents=[];
+ absent.repositoryState.releaseEvidenceChanges=null;
+ absent.repositoryState.releaseCommitSignatureVerified=false;
+ absent.repositoryState.releaseAuthor='Wrong <wrong@example.test>';
+ absent.repositoryState.releaseCommitter='Wrong <wrong@example.test>';
+ absent.repositoryState.releaseCommitSignerFingerprint='B'.repeat(40);
+ absent.repositoryState.tagSignatureVerified=false;
+ absent.repositoryState.tagSignerFingerprint='B'.repeat(40);
+ absent.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(absent.repositoryState));
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_evidence_commit_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_evidence_commit_signature_unverified'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_evidence_author_mismatch'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_evidence_committer_mismatch'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_evidence_commit_signer_mismatch'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_evidence_parent_mismatch'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_evidence_diff_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='source_tag_signature_unverified'));
+ assert(!report.blockers.some(blocker=>blocker.code==='source_tag_signer_mismatch'));
+
+ const present=readyFixture(); present.repositoryState.releaseCommitSignatureVerified=false;
+ present.repositoryState.headParents=[];
+ present.repositoryState.releaseEvidenceChanges=null;
+ present.repositoryState.tagCommit=present.evidence.sourceCommit;
+ present.repositoryState.tagSignatureVerified=false;
+ present.repositoryState.releaseAuthor='Wrong <wrong@example.test>';
+ present.repositoryState.releaseCommitter='Wrong <wrong@example.test>';
+ present.repositoryState.releaseCommitSignerFingerprint='B'.repeat(40);
+ present.repositoryState.tagSignerFingerprint='B'.repeat(40);
+ present.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(present.repositoryState));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_evidence_commit_signature_unverified'));
+ assert(report.blockers.some(blocker=>blocker.code==='release_evidence_author_mismatch'));
+ assert(report.blockers.some(blocker=>blocker.code==='release_evidence_committer_mismatch'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_evidence_commit_signer_mismatch'));
+ assert(report.blockers.some(blocker=>blocker.code==='release_evidence_parent_mismatch'));
+ assert(report.blockers.some(blocker=>blocker.code==='release_evidence_diff_missing'));
+ assert(report.blockers.some(blocker=>blocker.code==='source_tag_mismatch'));
+ assert(report.blockers.some(blocker=>blocker.code==='source_tag_signature_unverified'));
+ assert(report.blockers.some(blocker=>blocker.code==='source_tag_signer_mismatch'));
+});
+
+test('absent or noncanonical source tag does not claim a signature failure for no Git ref',()=>{
+ for(const sourceTag of [null,'latest']) {
+  const fixture=readyFixture(); fixture.evidence.sourceTag=sourceTag;
+  fixture.readinessDocumentAuthority.releaseEvidenceBytes=Buffer.from(JSON.stringify(fixture.evidence));
+  fixture.repositoryState.tagCommit=null; fixture.repositoryState.tagSignatureVerified=false;
+  fixture.repositoryState.tagSignerFingerprint='B'.repeat(40);
+  fixture.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(fixture.repositoryState));
+  const report=assessMainnetReadiness(fixture);
+  assert(report.blockers.some(blocker=>blocker.code===(sourceTag===null
+    ?'source_tag_missing':'source_tag_invalid')));
+  assert(!report.blockers.some(blocker=>blocker.code==='source_tag_signature_unverified'));
+  assert(!report.blockers.some(blocker=>blocker.code==='source_tag_signer_mismatch'));
+ }
+ const present=readyFixture(); present.repositoryState.tagSignatureVerified=false;
+ present.repositoryState.tagSignerFingerprint='B'.repeat(40);
+ present.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(present.repositoryState));
+ const report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>blocker.code==='source_tag_signature_unverified'));
+ assert(report.blockers.some(blocker=>blocker.code==='source_tag_signer_mismatch'));
 });
 
 test('release gate semantically validates the security report against immutable source inputs',()=>{
@@ -1692,6 +2681,16 @@ test('release gate semantically validates the checkpoint verifier reproducible b
  }
 });
 
+test('release readiness rejects a shared burn and checkpoint guest ImageID',()=>{
+ const fixture=readyFixture();
+ fixture.checkpointVerifierConfig.checkpointGuestImageId=
+  fixture.verifierConfig.finalizedBurnGuestImageId;
+ const report=assessMainnetReadiness(fixture);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='risc0_adapter_image_capability_collision'));
+});
+
 test('release gate semantically validates the checkpoint registry reproducible build',()=>{
  for(const mutate of [
   fixture=>{fixture.checkpointRegistryReproducibleBuildReport.observations[1].artifactSha256=
@@ -1732,6 +2731,9 @@ test('release gate semantically validates the shared trusted-setup decision',()=
   fixture=>{fixture.trustedSetupDecisionReport.decision='not-required';},
   fixture=>{fixture.trustedSetupDecisionReport.finalizedBurnVerifier.verifyingKeySha256=
    bytes32('99');},
+  fixture=>{fixture.trustedSetupVerificationReport.snarkjs.zkeyVerified=false;},
+  fixture=>{fixture.trustedSetupVerificationReport.artifacts.zkey.verificationKeySha256='99'.repeat(32);},
+  fixture=>{fixture.trustedSetupAuthoritySha256='88'.repeat(32);},
   fixture=>{const decision=fixture.evidence.checkpointTrustedSetup.decisionReport;
    fixture.evidence.checkpointTrustedSetup.decisionReport={...decision,
     path:'evidence/other-decision.txt'};
@@ -1739,16 +2741,29 @@ test('release gate semantically validates the shared trusted-setup decision',()=
  ]) {
   const fixture=readyFixture();
   fixture.trustedSetupDecisionReport=structuredClone(fixture.trustedSetupDecisionReport);
+  fixture.trustedSetupVerificationReport=structuredClone(fixture.trustedSetupVerificationReport);
   mutate(fixture);
   const report=assessMainnetReadiness(fixture);
   assert.equal(report.ready,false);
   assert(report.blockers.some(blocker=>blocker.code==='trusted_setup_decision_report_invalid'));
  }
 });
+test('trusted-setup decision rejects coordinated object B and bytes B under descriptor A',()=>{
+ const fixture=readyFixture();
+ fixture.trustedSetupDecisionReport={...fixture.trustedSetupDecisionReport,decision:'not-required'};
+ fixture.trustedSetupDecisionReportAuthority={reportBytes:Buffer.from(
+  serializeTrustedSetupDecisionReport(fixture.trustedSetupDecisionReport))};
+ const report=assessMainnetReadiness(fixture);
+ assert(report.blockers.some(({code})=>code==='trusted_setup_decision_report_invalid'));
+});
 
 test('offline release signer rederives the exact owner-bound EIP-712 request',()=>{
  const fixture=readyFixture();
- const authorization={...fixture.operatorIntent.residual_risk_acceptance,signature:null};
+ const bundleBytes=Buffer.from(JSON.stringify(fixture.controlPlaneEvidenceArtifacts.bundle));
+ const bundleSha256=createHash('sha256').update(bundleBytes).digest('hex');
+ fixture.evidence.controlPlaneEvidenceBundle.sha256=bundleSha256;
+ const authorization={...fixture.operatorIntent.residual_risk_acceptance,
+  releaseEvidenceCommitment:releaseEvidenceCommitment(fixture.evidence),signature:null};
  const typed=releaseAuthorizationTypedData(authorization,fixture.releaseConfig);
  const request={schema:'usdom-release-authorization-request/v2',
   releaseId:fixture.evidence.releaseId,sourceCommit:fixture.evidence.sourceCommit,
@@ -1760,7 +2775,7 @@ test('offline release signer rederives the exact owner-bound EIP-712 request',()
   digest:releaseAuthorizationDigest(authorization,fixture.releaseConfig),
   typedData:TypedDataEncoder.getPayload(typed.domain,typed.types,typed.message)};
  const inputs={request,bundle:fixture.controlPlaneEvidenceArtifacts.bundle,
-  bundleSha256:fixture.evidence.controlPlaneEvidenceBundle.sha256,
+  bundleBytes,bundleSha256,
   releaseConfig:fixture.releaseConfig,releaseEvidence:fixture.evidence};
  assert.equal(validateReleaseAuthorizationSigningRequest(inputs).digest,request.digest);
  const mutations=[
@@ -1783,16 +2798,24 @@ test('offline release signer rederives the exact owner-bound EIP-712 request',()
  ];
  for(const mutate of mutations) {
   const changed=structuredClone(inputs); mutate(changed);
+  changed.bundleBytes=bundleBytes;
   assert.throws(()=>validateReleaseAuthorizationSigningRequest(changed));
  }
+ const detached=structuredClone(inputs); detached.bundle.ethereumChainId='2';
+ detached.bundleBytes=bundleBytes;
+ assert.throws(()=>validateReleaseAuthorizationSigningRequest(detached),/bytes differ from parsed authority/);
 });
 
 test('offline native signer independently derives all four artifact-bound requests',()=>{
  const fixture=readyFixture('real-funds');
+ const bundleBytes=Buffer.from(JSON.stringify(fixture.controlPlaneEvidenceArtifacts.bundle));
+ const bundleSha256=createHash('sha256').update(bundleBytes).digest('hex');
+ fixture.evidence.controlPlaneEvidenceBundle.sha256=bundleSha256;
  const subjects={nativePrivacyTrustedSetup:`0x${fixture.nativeRuntimeValidation.privacy_verifier_config_hash}`,
   nativeScheduledRuntimeActivation:`0x${fixture.evidence.nativeRuntimeManifest.sha256}`,
-  nativeWalletCustody:bytes32('a2'),nativeWalletRecovery:bytes32('a2'),
-  walletPublicIdentitySha256:'a2'.repeat(32)};
+  nativeWalletCustody:bytes32('a3'),nativeWalletRecovery:bytes32('a4'),
+  walletPublicIdentitySha256:'a2'.repeat(32),walletCustodyEvidenceSha256:'a3'.repeat(32),
+  walletRecoveryEvidenceSha256:'a4'.repeat(32)};
  const kinds={nativePrivacyTrustedSetup:'native-privacy-trusted-setup',
   nativeScheduledRuntimeActivation:'native-scheduled-runtime-activation',
   nativeWalletCustody:'native-wallet-custody',nativeWalletRecovery:'native-wallet-recovery'};
@@ -1803,7 +2826,7 @@ test('offline native signer independently derives all four artifact-bound reques
   return [name,{attestation:built.attestation,digest:built.digest,
    typedData:TypedDataEncoder.getPayload(typed.domain,typed.types,typed.message)}];
  }));
- const request={schema:'usdom-native-release-attestation-requests/v2',
+ const request={schema:'usdom-native-release-attestation-requests/v3',
   releaseId:fixture.evidence.releaseId,sourceCommit:fixture.evidence.sourceCommit,
   finalizedAnchor:{blockNumber:'22000000',blockHash:bytes32('70'),blockTimestamp:'1792492800',
    governance:fixture.releaseConfig.governance,
@@ -1811,17 +2834,20 @@ test('offline native signer independently derives all four artifact-bound reques
    rpcConsensus:rpcConsensusEvidence([{sourceId:'operator-a',originKeccak256:bytes32('81')},
     {sourceId:'operator-b',originKeccak256:bytes32('82')}])},subjects,requests};
  const inputs={request,bundle:fixture.controlPlaneEvidenceArtifacts.bundle,
-  bundleSha256:fixture.evidence.controlPlaneEvidenceBundle.sha256,
+  bundleBytes,bundleSha256,
   releaseConfig:fixture.releaseConfig,releaseEvidence:fixture.evidence,
   privacyVerifierConfigHash:fixture.nativeRuntimeValidation.privacy_verifier_config_hash,
   nativeRuntimeManifestSha256:fixture.evidence.nativeRuntimeManifest.sha256,
-  walletPublicIdentitySha256:'a2'.repeat(32)};
+  walletPublicIdentitySha256:'a2'.repeat(32),walletCustodyEvidenceSha256:'a3'.repeat(32),
+  walletRecoveryEvidenceSha256:'a4'.repeat(32)};
  assert.equal(Object.keys(validateNativeReleaseAttestationSigningRequest(inputs).digests).length,4);
  const mutations=[
   value=>{value.request.requests.nativeWalletCustody.digest=bytes32('99');},
   value=>{value.request.requests.nativePrivacyTrustedSetup.typedData.message.subjectCommitment=bytes32('99');},
   value=>{value.request.subjects.nativeWalletRecovery=bytes32('99');},
   value=>{value.walletPublicIdentitySha256='9'.repeat(64);},
+  value=>{value.walletCustodyEvidenceSha256='9'.repeat(64);},
+  value=>{value.walletRecoveryEvidenceSha256='9'.repeat(64);},
   value=>{value.nativeRuntimeManifestSha256='9'.repeat(64);},
   value=>{value.privacyVerifierConfigHash='9'.repeat(64);},
   value=>{value.bundleSha256='9'.repeat(64);},
@@ -1831,8 +2857,13 @@ test('offline native signer independently derives all four artifact-bound reques
  ];
  for(const mutate of mutations) {
   const changed=structuredClone(inputs); mutate(changed);
+  changed.bundleBytes=bundleBytes;
   assert.throws(()=>validateNativeReleaseAttestationSigningRequest(changed));
  }
+ const detached=structuredClone(inputs); detached.bundle.ethereumChainId='2';
+ detached.bundleBytes=bundleBytes;
+ assert.throws(()=>validateNativeReleaseAttestationSigningRequest(detached),
+  /bytes differ from parsed authority/);
 });
 
 test('finalized-burn E2E evidence is semantically bound to proof, verifier and release',()=>{
@@ -1869,8 +2900,18 @@ test('finalized-burn E2E evidence is semantically bound to proof, verifier and r
  }
 });
 
+test('finalized-burn E2E rejects coordinated report B bytes under release descriptor A',()=>{
+ const fixture=readyFixture();
+ fixture.finalizedBurnE2eReport={...fixture.finalizedBurnE2eReport,peakResidentKiB:'2047'};
+ fixture.finalizedBurnE2eAuthority={reportBytes:Buffer.from(JSON.stringify(fixture.finalizedBurnE2eReport))};
+ const report=assessMainnetReadiness(fixture);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(({code})=>code==='finalized_burn_e2e_report_invalid'));
+});
+
 test('finalized-burn E2E materialization is fixed, canonical and evidence-only',()=>{
  const fixture=readyFixture();
+ fixture.evidence.realFinalizedEndToEndReport=null;
  const prepared=prepareFinalizedBurnReleaseEvidenceMaterialization({
   report:fixture.finalizedBurnE2eReport,evidence:fixture.evidence,
   releaseConfig:fixture.releaseConfig,verifierConfig:fixture.verifierConfig,
@@ -1882,6 +2923,7 @@ test('finalized-burn E2E materialization is fixed, canonical and evidence-only',
  assert.deepEqual(JSON.parse(prepared.reportContent),fixture.finalizedBurnE2eReport);
  assert.deepEqual(JSON.parse(prepared.evidenceContent),prepared.evidence);
  const collision=readyFixture();
+ collision.evidence.realFinalizedEndToEndReport=null;
  collision.evidence.operationsReviewReport={path:FINALIZED_BURN_E2E_EVIDENCE_PATH,
   sha256:'ab'.repeat(32)};
  assert.throws(()=>prepareFinalizedBurnReleaseEvidenceMaterialization({
@@ -1889,6 +2931,15 @@ test('finalized-burn E2E materialization is fixed, canonical and evidence-only',
   releaseConfig:collision.releaseConfig,verifierConfig:collision.verifierConfig,
   riscZeroReference:collision.riscZeroReference,
  }));
+ const stale=readyFixture();
+ stale.evidence.realFinalizedEndToEndReport={
+  path:'evidence/finalized-burn-e2e/stale-report.json',sha256:'ab'.repeat(32),
+ };
+ assert.throws(()=>prepareFinalizedBurnReleaseEvidenceMaterialization({
+  report:stale.finalizedBurnE2eReport,evidence:stale.evidence,
+  releaseConfig:stale.releaseConfig,verifierConfig:stale.verifierConfig,
+  riscZeroReference:stale.riscZeroReference,
+ }),/already binds a different finalized-burn E2E report/);
  const substituted=readyFixture(); substituted.finalizedBurnE2eReport.releaseSpecific=false;
  assert.throws(()=>prepareFinalizedBurnReleaseEvidenceMaterialization({
   report:substituted.finalizedBurnE2eReport,evidence:substituted.evidence,
@@ -1941,6 +2992,40 @@ test('control-plane evidence content is parsed and cross-reconciled',()=>{
  }
 });
 
+test('absent control-plane evidence does not cascade into a semantic-content blocker',()=>{
+ const fixture=readyFixture();
+ const documents=[
+  fixture.evidence.controlPlaneEvidenceBundle,
+  ...['governance','guardian','checkpointGuardian'].map(role=>
+   fixture.evidence.controlPlane[role].configurationReport),
+  fixture.evidence.controlPlaneSeparationReport,
+  fixture.evidence.controlPlaneRecoveryDrillReport,
+  fixture.evidence.safeRecoveryFinalEvidenceBundle,
+ ];
+ for(const document of documents) {
+  delete fixture.evidenceFiles[document.path];
+  document.sha256='';
+ }
+ fixture.controlPlaneEvidenceArtifacts=null;
+ fixture.controlPlaneEvidenceAuthority=null;
+ const report=assessMainnetReadiness(fixture);
+ assert.equal(report.ready,false);
+ assert.ok(report.blockers.some(blocker=>
+  blocker.code==='evidence_controlPlaneEvidenceBundle_missing'));
+ assert.ok(!report.blockers.some(blocker=>
+  blocker.code==='control_plane_evidence_content_invalid'));
+});
+
+test('partial control-plane semantic authority remains fail-closed',()=>{
+ const fixture=readyFixture();
+ fixture.controlPlaneEvidenceArtifacts=null;
+ fixture.controlPlaneEvidenceAuthority={bundleBytes:Buffer.from('{}')};
+ const report=assessMainnetReadiness(fixture);
+ assert.equal(report.ready,false);
+ assert.ok(report.blockers.some(blocker=>
+  blocker.code==='control_plane_evidence_content_invalid'));
+});
+
 test('external audits and a zero-risk guarantee are not release requirements',()=>{
  for(const mode of ['closed-mainnet','real-funds']) {
   const fixture=readyFixture(mode);
@@ -1954,6 +3039,7 @@ test('external audits and a zero-risk guarantee are not release requirements',()
    production_control_plane_configuration_independently_reviewed:false,
    absolute_zero_risk_guaranteed:false,
   });
+  rebindRequirements(fixture);
   fixture.residualRiskReport=buildResidualRiskReport({
    releaseEvidence:fixture.evidence,releaseConfig:fixture.releaseConfig,
    requirements:fixture.requirements,draftSha256:fixture.residualRiskDraftSha256,
@@ -1962,15 +3048,91 @@ test('external audits and a zero-risk guarantee are not release requirements',()
    serializeResidualRiskReport(fixture.residualRiskReport)).digest('hex');
   fixture.evidence.residualRiskAcceptanceReport.sha256=residualRiskSha;
   fixture.evidenceFiles[fixture.evidence.residualRiskAcceptanceReport.path]=residualRiskSha;
+  fixture.releaseAssuranceAuthority.residualRiskReportBytes=
+   Buffer.from(serializeResidualRiskReport(fixture.residualRiskReport));
   fixture.operatorIntent.residual_risk_acceptance.reportSha256=residualRiskSha;
   fixture.operatorIntent.residual_risk_acceptance.releaseEvidenceCommitment=
    releaseEvidenceCommitment(fixture.evidence);
   fixture.releaseAuthorizationApprovalObservation=releaseAuthorizationObservation(
    fixture.operatorIntent.residual_risk_acceptance,fixture.releaseConfig);
+  const approvalBytes=Buffer.from(JSON.stringify(fixture.releaseAuthorizationApprovalObservation));
+  fixture.approvalObservationAuthority.releaseAuthorization={bytes:approvalBytes,
+   sha256:createHash('sha256').update(approvalBytes).digest('hex')};
+  rebindReadinessDocuments(fixture);
   const report=assessMainnetReadiness(fixture);
   assert.equal(report.ready,true,JSON.stringify(report.blockers));
   assert.equal(report.blockerCount,0);
  }
+});
+
+test('external assurance claims cannot re-enter readiness requirement lists or subgroups',()=>{
+ const forbidden=/audit|audited|independently_reviewed|zero_risk/i;
+ const forbiddenKnown=new Set([
+  'production_checkpoint_registry_independently_audited',
+  'issuance_commitment_relation_independently_reviewed',
+  'native_privacy_circuit_independently_audited',
+  'production_control_plane_configuration_independently_reviewed',
+  'absolute_zero_risk_guaranteed',
+ ]);
+ const subgroups=[checkpointProofRequiredKeys,checkpointReceiptCompletionRequiredKeys,
+  recoverableControlPlaneRequiredKeys,proofOperationalCapacityRequiredKeys,
+  productionActivationAndPrivacyRequiredKeys,realFundsCustodyRequiredKeys,
+  riscZeroAdapterRequiredKeys,riscZeroGuestInputRequiredKeys,finalizedBurnSubmissionRequiredKeys,
+  ethereumFinalityPanicBoundaryRequiredKeys,nativeStatePanicBoundaryRequiredKeys,
+  nativePrivacyPanicBoundaryRequiredKeys,proofProgramBoundaryRequiredKeys,
+  nativeWalletPanicBoundaryRequiredKeys,preflightSnapshotRequiredKeys,
+  renewableBurnClaimRequiredKeys,riscZeroConfigRequiredKeys];
+ for(const keys of [readinessRequirementKeys('closed-mainnet'),
+  readinessRequirementKeys('real-funds'),requiredKeys,...subgroups]) {
+  assert.deepEqual(keys.filter(key=>forbiddenKnown.has(key)),[]);
+  assert.deepEqual(keys.filter(key=>forbidden.test(key)),[]);
+ }
+ assert.throws(()=>readinessRequirementKeys('unsupported'),/mode/);
+});
+
+test('external-audit and zero-risk aliases cannot be reintroduced as readiness gates',()=>{
+ const aliases=[
+  'third_party_security_review_required','mandatory_independent_assurance',
+  'external_security_assessment_must_pass','risk_free_release_guaranteed',
+  'no_residual_risk_required','absolute_safety_risk_requirement',
+ ];
+ for(const alias of aliases) assert.equal(isForbiddenImpossibleAssuranceRequirement(alias),true,alias);
+ assert.throws(()=>assertNoImpossibleAssuranceRequirements(['technical_gate',...aliases]),
+  /impossible assurance requirement reintroduced/);
+ for(const allowed of ['objective_security_validation_required_by_release_gate',
+  'documented_residual_risk_acceptance_required_by_release_gate']) {
+  assert.equal(isForbiddenImpossibleAssuranceRequirement(allowed),false,allowed);
+ }
+});
+
+test('release policy explicitly keeps impossible assurances optional and residual risk accepted',()=>{
+ for(const mutate of [
+  fixture=>{fixture.operatorIntent.release_assurance_policy.external_audit_required_by_gate=true;},
+  fixture=>{fixture.operatorIntent.release_assurance_policy.absolute_zero_risk_required_by_gate=true;},
+  fixture=>{delete fixture.operatorIntent.release_assurance_policy.required_basis;},
+ ]) {
+  const fixture=readyFixture(); mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false);
+  assert(report.blockers.some(({code})=>code==='operator_release_assurance_policy_invalid'));
+ }
+});
+
+test('checkpoint registry assurance booleans cannot replace their semantic evidence',()=>{
+ const noBootstrap=readyFixture();
+ noBootstrap.evidence.checkpointBootstrapRatificationReport=null;
+ let report=assessMainnetReadiness(noBootstrap);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='evidence_checkpointBootstrapRatificationReport_missing'));
+
+ const noFinalizedEvent=readyFixture();
+ noFinalizedEvent.evidence.checkpointFinalizedEventReport=null;
+ report=assessMainnetReadiness(noFinalizedEvent);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='evidence_checkpointFinalizedEventReport_missing'));
+
 });
 
 test('source, release-evidence commit and tag signatures use the operator-pinned key',()=>{
@@ -1985,6 +3147,7 @@ test('source, release-evidence commit and tag signatures use the operator-pinned
  ];
  for(const change of changes) {
   const fixture=readyFixture(); change(fixture);
+  rebindRepositoryState(fixture);
   const report=assessMainnetReadiness(fixture);
   assert.equal(report.ready,false,JSON.stringify(report.blockers));
   assert(report.blockers.some(blocker=>
@@ -2003,9 +3166,116 @@ test('a self-signed repository cannot replace the out-of-repository trust anchor
  fixture.repositoryState.sourceCommitSignerFingerprint=attacker;
  fixture.repositoryState.releaseCommitSignerFingerprint=attacker;
  fixture.repositoryState.tagSignerFingerprint=attacker;
+ rebindRepositoryState(fixture);
  const report=assessMainnetReadiness(fixture);
  assert.equal(report.ready,false);
  assert(report.blockers.some(blocker=>blocker.code==='operator_release_signing_key_mismatch'));
+});
+
+test('repository provenance is derived from the exact checker snapshot bytes',()=>{
+ for(const mutate of [
+  fixture=>{fixture.repositoryState.dirty=true;},
+  fixture=>{fixture.repositoryStateAuthority.bytes=Buffer.from(JSON.stringify(
+   {...fixture.repositoryState,dirty:true}));},
+  fixture=>{fixture.repositoryStateAuthority=null;},
+ ]) {
+  const fixture=readyFixture(); mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false);
+  assert(report.blockers.some(blocker=>blocker.code==='repository_state_authority_invalid'));
+ }
+});
+
+test('production pin constants are derived from the exact contract source bytes',()=>{
+ for(const mutate of [
+  fixture=>{fixture.contractSource+='\n// substituted object\n';},
+  fixture=>{fixture.contractSourceAuthority.reserveBytes=Buffer.concat([
+   fixture.contractSourceAuthority.reserveBytes,Buffer.from('\n// substituted bytes\n')]);},
+  fixture=>{fixture.checkpointContractSource+='\n// substituted object\n';},
+  fixture=>{fixture.contractSourceAuthority.checkpointRegistryBytes=Buffer.concat([
+   fixture.contractSourceAuthority.checkpointRegistryBytes,Buffer.from('\n// substituted bytes\n')]);},
+  fixture=>{fixture.contractSourceAuthority=null;},
+ ]) {
+  const fixture=readyFixture(); mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false);
+  assert(report.blockers.some(blocker=>blocker.code==='contract_source_authority_invalid'));
+ }
+});
+
+test('compiled hash summaries are derived from exact artifact binding bytes',()=>{
+ const cases=[
+  ['reserve','compiledReserveRuntimeCodeHash'],
+  ['checkpointRegistry','compiledCheckpointRegistryRuntimeCodeHash'],
+  ['finalizedBurnVerifier','compiledVerifierRuntimeCodeHash'],
+  ['checkpointVerifier','compiledCheckpointVerifierRuntimeCodeHash'],
+ ];
+ for(const [name,field] of cases) {
+  const objectB=readyFixture(); objectB[field]=bytes32('ab');
+  let report=assessMainnetReadiness(objectB);
+  assert(report.blockers.some(blocker=>blocker.code==='compiled_artifact_authority_invalid'),name);
+  const bytesB=readyFixture();
+  const binding=JSON.parse(bytesB.compiledArtifactAuthority[name].bindingBytes.toString('utf8'));
+  binding.runtimeCodeHash=bytes32('ab');
+  bytesB.compiledArtifactAuthority[name].bindingBytes=Buffer.from(JSON.stringify(binding));
+  report=assessMainnetReadiness(bytesB);
+  assert(report.blockers.some(blocker=>blocker.code==='compiled_artifact_authority_invalid'),name);
+ }
+ const missing=readyFixture(); missing.compiledArtifactAuthority=null;
+ const report=assessMainnetReadiness(missing);
+ assert(report.blockers.some(blocker=>blocker.code==='compiled_artifact_authority_invalid'));
+});
+
+test('unconfigured artifact bindings retain component blockers without a false authority blocker',()=>{
+ const fixture=readyFixture();
+ fixture.compiledArtifactAuthority={};
+ fixture.compiledArtifactBindingErrors={};
+ for(const [name,runtime,initcode] of [
+  ['reserve','compiledReserveRuntimeCodeHash','compiledReserveInitcodeHash'],
+  ['checkpointRegistry','compiledCheckpointRegistryRuntimeCodeHash','compiledCheckpointRegistryInitcodeHash'],
+  ['finalizedBurnVerifier','compiledVerifierRuntimeCodeHash','compiledVerifierInitcodeHash'],
+  ['checkpointVerifier','compiledCheckpointVerifierRuntimeCodeHash','compiledCheckpointVerifierInitcodeHash'],
+ ]) {
+  fixture[runtime]=null; fixture[initcode]=null;
+  fixture.compiledArtifactBindingErrors[name]='release constructor inputs are not configured';
+ }
+ const report=assessMainnetReadiness(fixture);
+ assert(!report.blockers.some(blocker=>blocker.code==='compiled_artifact_authority_invalid'));
+ for(const component of ['reserve','checkpoint_registry','verifier','checkpoint_verifier']) {
+  assert(report.blockers.some(blocker=>blocker.code===`compiled_${component}_runtime_unavailable`));
+  assert(report.blockers.some(blocker=>blocker.code===`compiled_${component}_initcode_unavailable`));
+ }
+});
+
+test('effective production requirements are derived from their exact snapshot bytes',()=>{
+ for(const mutate of [
+  fixture=>{fixture.requirements.consensus_proof_implemented=false;},
+  fixture=>{fixture.requirementsAuthority.bytes=Buffer.from(JSON.stringify(
+   {...fixture.requirements,consensus_proof_implemented:false}));},
+  fixture=>{fixture.requirementsAuthority=null;},
+ ]) {
+  const fixture=readyFixture(); mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false);
+  assert(report.blockers.some(blocker=>blocker.code==='requirements_authority_invalid'));
+ }
+});
+
+test('operator intent and release evidence are derived from their exact document bytes',()=>{
+ for(const mutate of [
+  fixture=>{fixture.operatorIntent.deploy_authorized=false;},
+  fixture=>{fixture.readinessDocumentAuthority.operatorIntentBytes=Buffer.from(JSON.stringify(
+   {...fixture.operatorIntent,deploy_authorized:false}));},
+  fixture=>{fixture.evidence.releaseId='substituted-release';},
+  fixture=>{fixture.readinessDocumentAuthority.releaseEvidenceBytes=Buffer.from(JSON.stringify(
+   {...fixture.evidence,releaseId:'substituted-release'}));},
+  fixture=>{fixture.readinessDocumentAuthority=null;},
+ ]) {
+  const fixture=readyFixture(); mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false);
+  assert(report.blockers.some(blocker=>blocker.code==='readiness_document_authority_invalid'));
+ }
 });
 
 test('release evidence rejects noncanonical or option-like source tags',()=>{
@@ -2059,6 +3329,7 @@ test('release provenance requires a direct signed evidence-only child commit',()
  ];
  for(const [mutate,expected] of cases) {
   const fixture=readyFixture(); mutate(fixture);
+  rebindRepositoryState(fixture);
   const report=assessMainnetReadiness(fixture);
   assert.equal(report.ready,false,expected);
   assert(report.blockers.some(blocker=>blocker.code===expected),JSON.stringify(report.blockers));
@@ -2067,6 +3338,7 @@ test('release provenance requires a direct signed evidence-only child commit',()
  allowed.repositoryState.releaseEvidenceChanges.push(
   {status:'A',path:'labs/usdom-reserve/evidence/new-attestation.json'},
   {status:'M',path:'labs/usdom-reserve/evidence/existing-report.txt'});
+ rebindRepositoryState(allowed);
  assert.equal(assessMainnetReadiness(allowed).ready,true);
 });
 
@@ -2113,9 +3385,24 @@ test('production release config uses the exact schema and native timing policy',
   [fixture=>{fixture.releaseConfig.realFundsAuthorized='false';},
    'release_real_funds_authorization_invalid'],
   [fixture=>{fixture.releaseConfig.governanceOwners=null;},
-   'release_governance_owners_invalid'],
+   'release_governanceOwners_missing'],
   [fixture=>{fixture.releaseConfig.governanceOwners[2]=fixture.releaseConfig.governanceOwners[1];},
    'release_governance_owners_invalid'],
+  [fixture=>{fixture.releaseConfig.governanceOwners[0]=
+    '0x0000000000000000000000000000000000000011';},
+   'release_governance_owners_invalid'],
+  [fixture=>{fixture.releaseConfig.checkpointGuardianOwners[0]=fixture.releaseConfig.governance;},
+   'release_checkpointGuardian_owners_invalid'],
+  [fixture=>{fixture.releaseConfig.guardianOwners[0]=fixture.releaseConfig.governanceImplementation;},
+   'release_guardian_owners_invalid'],
+  [fixture=>{fixture.releaseConfig.checkpointGuardianOwners[0]=SAFE_MAINNET_IDENTITY.fallbackHandler;},
+   'release_checkpointGuardian_owners_invalid'],
+  [fixture=>{fixture.releaseConfig.checkpointVerifier=fixture.releaseConfig.verifier;},
+   'release_contract_identity_collision'],
+  [fixture=>{fixture.releaseConfig.guardianImplementation=address(99);},
+   'release_safe_implementation_identity_invalid'],
+  [fixture=>{fixture.releaseConfig.guardianImplementationCodeHash=bytes32('99');},
+   'release_safe_implementation_identity_invalid'],
   [fixture=>{fixture.releaseConfig.nativeRelaySafetyMarginSeconds=3600;},
    'release_native_burn_timing_invalid'],
   [fixture=>{fixture.releaseConfig.nativeRelaySafetyMarginSeconds='03600';},
@@ -2137,6 +3424,18 @@ test('production release config uses the exact schema and native timing policy',
   assert.equal(report.ready,false,expected);
   assert(report.blockers.some(blocker=>blocker.code===expected),JSON.stringify(report.blockers));
  }
+});
+
+test('Safe proxies share the pinned singleton without allowing an operational-role collision',()=>{
+ const fixture=readyFixture();
+ assert.equal(fixture.releaseConfig.governanceImplementation,SAFE_MAINNET_IDENTITY.singleton);
+ assert.equal(fixture.releaseConfig.guardianImplementation,SAFE_MAINNET_IDENTITY.singleton);
+ assert.equal(fixture.releaseConfig.checkpointGuardianImplementation,SAFE_MAINNET_IDENTITY.singleton);
+ assert.equal(assessMainnetReadiness(fixture).ready,true);
+ fixture.releaseConfig.verifier=SAFE_MAINNET_IDENTITY.singleton;
+ const report=assessMainnetReadiness(fixture);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(blocker=>blocker.code==='release_contract_identity_collision'));
 });
 
 test('native runtime manifest, checker output, key and attestations form one release identity',()=>{
@@ -2205,6 +3504,12 @@ test('native runtime manifest, checker output, key and attestations form one rel
  ];
  for(const [mutate,expected] of cases) {
   const fixture=readyFixture(); mutate(fixture);
+  const attestationBytes=Buffer.from(JSON.stringify(fixture.nativePrivacyTrustedSetupAttestation));
+  fixture.nativeReleaseAttestationAuthority.nativePrivacyTrustedSetupBytes=attestationBytes;
+  fixture.evidence.nativePrivacyTrustedSetupAttestationReport.sha256=
+   createHash('sha256').update(attestationBytes).digest('hex');
+  fixture.evidenceFiles[fixture.evidence.nativePrivacyTrustedSetupAttestationReport.path]=
+   fixture.evidence.nativePrivacyTrustedSetupAttestationReport.sha256;
   const report=assessMainnetReadiness(fixture);
   assert.equal(report.ready,false,expected);
   assert(report.blockers.some(blocker=>blocker.code===expected),JSON.stringify(report.blockers));
@@ -2264,6 +3569,9 @@ test('production authorization requires one exact finalized governance approval'
     bytes32('01');},'release_authorization_digest_mismatch'],
   [fixture=>{fixture.releaseAuthorizationApprovalObservation.approvals.releaseAuthorization.valid=false;},
    'release_authorization_eip1271_rejected'],
+  [fixture=>{fixture.releaseAuthorizationApprovalObservation.finalizedBlockTimestamp=
+    (BigInt(fixture.operatorIntent.residual_risk_acceptance.acceptedAt)+86401n).toString();},
+   'release_authorization_stale'],
   [fixture=>{fixture.operatorIntent.residual_risk_acceptance.acceptedAt='1792492901';
     fixture.releaseAuthorizationApprovalObservation.approvals.releaseAuthorization.digest=
       releaseAuthorizationDigest(fixture.operatorIntent.residual_risk_acceptance,
@@ -2271,9 +3579,34 @@ test('production authorization requires one exact finalized governance approval'
  ];
  for(const [mutate,code] of cases) {
   const fixture=readyFixture(); mutate(fixture);
+  const bytes=Buffer.from(JSON.stringify(fixture.releaseAuthorizationApprovalObservation));
+  fixture.approvalObservationAuthority.releaseAuthorization={bytes,
+   sha256:createHash('sha256').update(bytes).digest('hex')};
   const report=assessMainnetReadiness(fixture);
   assert.equal(report.ready,false,code);
   assert(report.blockers.some(blocker=>blocker.code===code),JSON.stringify(report.blockers));
+ }
+});
+test('EIP-1271 approval snapshots reject objects and bytes detached from their descriptors',()=>{
+ for(const [objectField,authorityField,code] of [
+  ['releaseAuthorizationApprovalObservation','releaseAuthorization',
+   'release_authorization_approval_snapshot_authority_invalid'],
+  ['nativeAttestationApprovalObservation','nativeAttestations',
+   'native_attestation_approval_snapshot_authority_invalid'],
+ ]) {
+  const objectOnly=readyFixture();
+  objectOnly[objectField]={...objectOnly[objectField],finalizedBlockNumber:'22000001'};
+  let report=assessMainnetReadiness(objectOnly);
+  assert(report.blockers.some(blocker=>blocker.code===code),`${objectField} object B`);
+
+  const bytesOnly=readyFixture();
+  bytesOnly[objectField]={...bytesOnly[objectField],finalizedBlockNumber:'22000001'};
+  bytesOnly.approvalObservationAuthority[authorityField]={
+   ...bytesOnly.approvalObservationAuthority[authorityField],
+   bytes:Buffer.from(JSON.stringify(bytesOnly[objectField])),
+  };
+  report=assessMainnetReadiness(bytesOnly);
+  assert(report.blockers.some(blocker=>blocker.code===code),`${objectField} bytes B`);
  }
 });
 
@@ -2291,6 +3624,16 @@ test('independent evidence slots reject duplicate paths and duplicate file conte
  report=assessMainnetReadiness(duplicateContent);
  assert.equal(report.ready,false);
  assert(report.blockers.some(blocker=>blocker.code==='duplicate_evidence_content'));
+});
+
+test('release evidence documents reject the reserved all-zero SHA-256 sentinel',()=>{
+ const fixture=readyFixture();
+ const target=fixture.evidence.operationsReviewReport;
+ target.sha256='0'.repeat(64);
+ fixture.evidenceFiles[target.path]=target.sha256;
+ const report=assessMainnetReadiness(fixture);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(blocker=>blocker.code==='evidence_operationsReviewReport_missing'));
 });
 
 test('both RISC Zero adapters bind the same upstream ceremony evidence',()=>{
@@ -2455,8 +3798,41 @@ test('native privacy and scheduled-runtime attestations are exact and release-bo
  ];
  for(const [mutate,code] of mutations) {
   const fixture=readyFixture(); mutate(fixture);
+  for(const [objectField,bytesField,evidenceField] of [
+   ['nativePrivacyTrustedSetupAttestation','nativePrivacyTrustedSetupBytes',
+    'nativePrivacyTrustedSetupAttestationReport'],
+   ['nativeScheduledRuntimeActivationAttestation','nativeScheduledRuntimeActivationBytes',
+    'nativeScheduledRuntimeActivationAttestationReport'],
+  ]) {
+   const document=fixture.evidence[evidenceField];
+   if(!document) continue;
+   const bytes=Buffer.from(JSON.stringify(fixture[objectField]));
+   fixture.nativeReleaseAttestationAuthority[bytesField]=bytes;
+   document.sha256=createHash('sha256').update(bytes).digest('hex');
+   fixture.evidenceFiles[document.path]=document.sha256;
+  }
   const report=assessMainnetReadiness(fixture);
   assert.equal(report.ready,false,code);
+  assert(report.blockers.some(blocker=>blocker.code===code),code);
+ }
+});
+
+test('native release attestations reject coordinated object B and bytes B under descriptor A',()=>{
+ const cases=[
+  ['nativePrivacyTrustedSetupAttestation','nativePrivacyTrustedSetupBytes',
+   'native_privacy_trusted_setup_attestation_authority_invalid','closed-mainnet'],
+  ['nativeScheduledRuntimeActivationAttestation','nativeScheduledRuntimeActivationBytes',
+   'native_scheduled_runtime_activation_attestation_authority_invalid','closed-mainnet'],
+  ['nativeWalletCustodyAttestation','nativeWalletCustodyBytes',
+   'native_wallet_custody_attestation_authority_invalid','real-funds'],
+  ['nativeWalletRecoveryAttestation','nativeWalletRecoveryBytes',
+   'native_wallet_recovery_attestation_authority_invalid','real-funds'],
+ ];
+ for(const [field,bytesField,code,mode] of cases) {
+  const fixture=readyFixture(mode);
+  fixture[field]={...fixture[field],completedAt:String(BigInt(fixture[field].completedAt)+1n)};
+  fixture.nativeReleaseAttestationAuthority[bytesField]=Buffer.from(JSON.stringify(fixture[field]));
+  const report=assessMainnetReadiness(fixture);
   assert(report.blockers.some(blocker=>blocker.code===code),code);
  }
 });
@@ -2504,10 +3880,900 @@ test('native attestation approvals require one exact finalized EIP-1271 snapshot
  ];
  for(const [mutate,code] of mutations) {
   const fixture=readyFixture(); mutate(fixture);
+  const attestationBytes=Buffer.from(JSON.stringify(fixture.nativePrivacyTrustedSetupAttestation));
+  fixture.nativeReleaseAttestationAuthority.nativePrivacyTrustedSetupBytes=attestationBytes;
+  fixture.evidence.nativePrivacyTrustedSetupAttestationReport.sha256=
+   createHash('sha256').update(attestationBytes).digest('hex');
+  fixture.evidenceFiles[fixture.evidence.nativePrivacyTrustedSetupAttestationReport.path]=
+   fixture.evidence.nativePrivacyTrustedSetupAttestationReport.sha256;
+  const bytes=Buffer.from(JSON.stringify(fixture.nativeAttestationApprovalObservation));
+  fixture.approvalObservationAuthority.nativeAttestations={bytes,
+   sha256:createHash('sha256').update(bytes).digest('hex')};
   const report=assessMainnetReadiness(fixture);
   assert.equal(report.ready,false,code);
   assert(report.blockers.some(blocker=>blocker.code===code),code);
  }
+});
+
+test('absent release config hash pins do not claim native attestation mismatches',()=>{
+ const absent=readyFixture(); absent.releaseConfig.reserveConfigHash=null;
+ absent.releaseConfig.checkpointRegistryConfigHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_reserveConfigHash_missing'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointRegistryConfigHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code.startsWith('native_')&&(blocker.code.endsWith('_reserveConfigHash_mismatch')
+   ||blocker.code.endsWith('_checkpointRegistryConfigHash_mismatch'))),JSON.stringify(report.blockers));
+
+ const present=readyFixture();
+ present.nativePrivacyTrustedSetupAttestation.reserveConfigHash=bytes32('99');
+ const bytes=Buffer.from(JSON.stringify(present.nativePrivacyTrustedSetupAttestation));
+ present.nativeReleaseAttestationAuthority.nativePrivacyTrustedSetupBytes=bytes;
+ const descriptor=present.evidence.nativePrivacyTrustedSetupAttestationReport;
+ descriptor.sha256=createHash('sha256').update(bytes).digest('hex');
+ present.evidenceFiles[descriptor.path]=descriptor.sha256;
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_privacy_trusted_setup_reserveConfigHash_mismatch'));
+});
+
+test('absent release config hash pins do not claim residual-risk mismatches',()=>{
+ const absent=readyFixture(); absent.releaseConfig.reserveConfigHash=null;
+ absent.releaseConfig.checkpointRegistryConfigHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_reserveConfigHash_missing'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointRegistryConfigHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_reserveConfigHash_mismatch'
+   ||blocker.code==='operator_residual_risk_checkpointRegistryConfigHash_mismatch'));
+
+ const present=readyFixture();
+ present.operatorIntent.residual_risk_acceptance.reserveConfigHash=bytes32('99');
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_reserveConfigHash_mismatch'));
+});
+
+test('absent governance pin does not claim residual-risk authority failure',()=>{
+ const absent=readyFixture(); absent.releaseConfig.governance=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_governance_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_authority_mismatch'
+   ||blocker.code==='operator_residual_risk_authority_invalid'));
+
+ const present=readyFixture();
+ present.operatorIntent.residual_risk_acceptance.acceptingAuthority=address(5);
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_authority_mismatch'));
+});
+
+test('absent release ID does not claim residual-risk release mismatch',()=>{
+ const absent=readyFixture(); absent.evidence.releaseId=null;
+ absent.readinessDocumentAuthority.releaseEvidenceBytes=Buffer.from(JSON.stringify(absent.evidence));
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_evidence_unconfigured'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_release_mismatch'));
+
+ const present=readyFixture();
+ present.operatorIntent.residual_risk_acceptance.releaseId='another-release';
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_release_mismatch'));
+});
+
+test('absent source commit does not claim residual-risk commit mismatch',()=>{
+ const absent=readyFixture(); absent.evidence.sourceCommit=null;
+ absent.readinessDocumentAuthority.releaseEvidenceBytes=Buffer.from(JSON.stringify(absent.evidence));
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='source_commit_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_commit_mismatch'));
+
+ const present=readyFixture();
+ present.operatorIntent.residual_risk_acceptance.sourceCommit='b'.repeat(40);
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_commit_mismatch'));
+});
+
+test('absent source tag does not claim residual-risk tag mismatch',()=>{
+ const absent=readyFixture(); absent.evidence.sourceTag=null;
+ absent.readinessDocumentAuthority.releaseEvidenceBytes=Buffer.from(JSON.stringify(absent.evidence));
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='source_tag_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_tag_mismatch'));
+
+ const present=readyFixture();
+ present.operatorIntent.residual_risk_acceptance.sourceTag='usdom-v9.9.9';
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_tag_mismatch'));
+});
+
+test('absent release evidence base does not claim residual-risk commitment mismatch',()=>{
+ const absent=readyFixture(); absent.evidence.sourceTag=null;
+ absent.readinessDocumentAuthority.releaseEvidenceBytes=Buffer.from(JSON.stringify(absent.evidence));
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='source_tag_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_evidence_commitment_mismatch'));
+
+ const present=readyFixture();
+ present.operatorIntent.residual_risk_acceptance.releaseEvidenceCommitment=bytes32('99');
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_evidence_commitment_mismatch'));
+});
+
+test('absent residual-risk report does not claim acceptance report mismatch',()=>{
+ const absent=readyFixture(); absent.evidence.residualRiskAcceptanceReport=null;
+ absent.readinessDocumentAuthority.releaseEvidenceBytes=Buffer.from(JSON.stringify(absent.evidence));
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='evidence_residualRiskAcceptanceReport_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_report_mismatch'));
+
+ const present=readyFixture();
+ present.operatorIntent.residual_risk_acceptance.reportSha256='2'.repeat(64);
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_report_mismatch'));
+});
+
+test('noncanonical residual-risk acceptance does not run derived authorization checks',()=>{
+ const invalid=readyFixture(); delete invalid.operatorIntent.residual_risk_acceptance.reportSha256;
+ invalid.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(invalid.operatorIntent));
+ const report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_schema_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_report_mismatch'
+   ||blocker.code==='operator_release_authorization_invalid'));
+
+ const present=readyFixture();
+ present.operatorIntent.residual_risk_acceptance.reportSha256='2'.repeat(64);
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ const divergent=assessMainnetReadiness(present);
+ assert(divergent.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_report_mismatch'));
+});
+
+test('noncanonical operator intent does not run derived acceptance checks',()=>{
+ const invalid=readyFixture(); delete invalid.operatorIntent.production_approved;
+ invalid.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(invalid.operatorIntent));
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>blocker.code==='operator_intent_schema_invalid'));
+ assert(report.blockers.some(blocker=>blocker.code==='operator_production_approval_invalid'));
+ assert(!report.blockers.some(blocker=>blocker.code==='operator_production_unapproved'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_release_authorization_scope_mismatch'));
+
+ const present=readyFixture(); present.operatorIntent.production_approved=false;
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>blocker.code==='operator_production_unapproved'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_release_authorization_scope_mismatch'));
+});
+
+test('noncanonical release config does not run derived acceptance checks',()=>{
+ const invalid=readyFixture(); delete invalid.releaseConfig.governance;
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>blocker.code==='release_config_schema_invalid'));
+ assert(report.blockers.some(blocker=>blocker.code==='release_governance_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_release_authorization_invalid'));
+
+ const present=readyFixture(); present.releaseConfig.governance=null;
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>blocker.code==='release_governance_missing'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_release_authorization_invalid'));
+});
+
+test('noncanonical release evidence does not run derived acceptance checks',()=>{
+ const invalid=readyFixture(); invalid.evidence.unexpected=true;
+ invalid.operatorIntent.residual_risk_acceptance.reportSha256='2'.repeat(64);
+ invalid.readinessDocumentAuthority.releaseEvidenceBytes=
+  Buffer.from(JSON.stringify(invalid.evidence));
+ invalid.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(invalid.operatorIntent));
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>blocker.code==='release_evidence_schema_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_report_mismatch'));
+
+ const present=readyFixture();
+ present.operatorIntent.residual_risk_acceptance.reportSha256='2'.repeat(64);
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_residual_risk_report_mismatch'));
+});
+
+test('absent release chain ID does not claim a wrong chain',()=>{
+ const absent=readyFixture(); delete absent.releaseConfig.ethereumChainId;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_config_schema_invalid'));
+ assert(report.blockers.some(blocker=>blocker.code==='release_ethereumChainId_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_wrong_chain'));
+
+ const present=readyFixture(); present.releaseConfig.ethereumChainId='2';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>blocker.code==='release_wrong_chain'));
+});
+
+test('absent deployment method does not claim an invalid method',()=>{
+ const absent=readyFixture(); delete absent.releaseConfig.deploymentMethod;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_config_schema_invalid'));
+ assert(report.blockers.some(blocker=>blocker.code==='release_deploymentMethod_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_deployment_method_invalid'));
+
+ const present=readyFixture(); present.releaseConfig.deploymentMethod='CREATE2';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_deployment_method_invalid'));
+});
+
+test('absent release token does not claim an invalid token address',()=>{
+ const absent=readyFixture(); delete absent.releaseConfig.token;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_config_schema_invalid'));
+ assert(report.blockers.some(blocker=>blocker.code==='release_token_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_invalid_token'));
+
+ const present=readyFixture(); present.releaseConfig.token='invalid';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>blocker.code==='release_invalid_token'));
+});
+
+test('absent native burn timing field does not claim an invalid timing policy',()=>{
+ const absent=readyFixture(); delete absent.releaseConfig.withdrawalDelaySeconds;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_config_schema_invalid'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_withdrawalDelaySeconds_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_native_burn_timing_invalid'));
+
+ const present=readyFixture(); present.releaseConfig.withdrawalDelaySeconds='invalid';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_native_burn_timing_invalid'));
+});
+
+test('absent reserve commitment field does not claim an invalid config',()=>{
+ const absent=readyFixture(); absent.releaseConfig.governanceCodeHash='';
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_governanceCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='release_config_invalid'));
+
+ const present=readyFixture(); present.releaseConfig.governanceCodeHash='invalid';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>blocker.code==='release_config_invalid'));
+});
+
+test('absent checkpoint commitment field does not claim an invalid config',()=>{
+ const absent=readyFixture(); absent.releaseConfig.checkpointGuardianCodeHash='';
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointGuardianCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_checkpoint_registry_config_invalid'));
+
+ const present=readyFixture(); present.releaseConfig.checkpointGuardianCodeHash='invalid';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpoint_registry_config_invalid'));
+});
+
+test('absent bytecode hash does not claim an invalid hash',()=>{
+ const absent=readyFixture(); absent.releaseConfig.reserveRuntimeCodeHash='';
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_reserveRuntimeCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_reserve_runtime_codehash_invalid'));
+
+ const present=readyFixture(); present.releaseConfig.reserveRuntimeCodeHash='invalid';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_reserve_runtime_codehash_invalid'));
+});
+
+test('absent Ethereum anchor fields do not claim invalid values',()=>{
+ const absent=readyFixture();
+ absent.releaseConfig.ethereumGenesisValidatorsRoot='';
+ absent.releaseConfig.nativeEthereumTrustedCheckpoint='';
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_ethereumGenesisValidatorsRoot_missing'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_nativeEthereumTrustedCheckpoint_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_ethereum_genesis_validators_root_invalid'
+   ||blocker.code==='release_native_ethereum_trusted_checkpoint_invalid'));
+
+ const present=readyFixture();
+ present.releaseConfig.ethereumGenesisValidatorsRoot=bytes32('99');
+ present.releaseConfig.nativeEthereumTrustedCheckpoint='invalid';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_ethereum_genesis_validators_root_invalid'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_native_ethereum_trusted_checkpoint_invalid'));
+});
+
+test('absent control-plane address pin does not claim snapshot address failure',()=>{
+ const absent=readyFixture(); absent.releaseConfig.guardian=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_guardian_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='control_plane_guardian_address_invalid'
+   ||blocker.code==='control_plane_guardian_address_mismatch'));
+
+ const present=readyFixture(); present.evidence.controlPlane.guardian.address='invalid';
+ present.readinessDocumentAuthority.releaseEvidenceBytes=
+  Buffer.from(JSON.stringify(present.evidence));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='control_plane_guardian_address_invalid'));
+});
+
+test('absent control-plane codehash pin does not claim snapshot mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.guardianCodeHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_guardianCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='control_plane_guardian_codehash_mismatch'));
+
+ const present=readyFixture();
+ present.evidence.controlPlane.guardian.runtimeCodeHash='invalid';
+ present.readinessDocumentAuthority.releaseEvidenceBytes=
+  Buffer.from(JSON.stringify(present.evidence));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='control_plane_guardian_codehash_mismatch'));
+});
+
+test('absent control-plane owner set does not claim semantic mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.guardianOwners=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_guardianOwners_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='control_plane_evidence_content_invalid'));
+
+ const present=readyFixture();
+ present.releaseConfig.guardianOwners=[address(31),...present.releaseConfig.guardianOwners.slice(1)];
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='control_plane_evidence_content_invalid'));
+});
+
+test('absent control-plane snapshot does not claim semantic mismatch',()=>{
+ const absent=readyFixture(); absent.evidence.controlPlane.guardian=null;
+ absent.readinessDocumentAuthority.releaseEvidenceBytes=
+  Buffer.from(JSON.stringify(absent.evidence));
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='control_plane_guardian_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='control_plane_evidence_content_invalid'),JSON.stringify(report.blockers));
+
+ const present=readyFixture(); present.evidence.controlPlane.guardian.address=address(31);
+ present.readinessDocumentAuthority.releaseEvidenceBytes=
+  Buffer.from(JSON.stringify(present.evidence));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='control_plane_evidence_content_invalid'));
+});
+
+test('absent control-plane document does not claim semantic mismatch',()=>{
+ const absent=readyFixture();
+ absent.evidence.controlPlane.guardian.configurationReport=null;
+ absent.readinessDocumentAuthority.releaseEvidenceBytes=
+  Buffer.from(JSON.stringify(absent.evidence));
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='control_plane_guardian_report_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='control_plane_evidence_content_invalid'));
+
+ const present=readyFixture(); present.evidence.controlPlane.guardian.address=address(31);
+ present.readinessDocumentAuthority.releaseEvidenceBytes=
+  Buffer.from(JSON.stringify(present.evidence));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='control_plane_evidence_content_invalid'));
+});
+
+test('invalid real-funds flag does not claim manual promotion',()=>{
+ const absent=readyFixture('real-funds'); absent.releaseConfig.realFundsAuthorized=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_real_funds_authorization_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_real_funds_manual_flag'
+   ||blocker.code==='pilot_funds_authorization_invalid'));
+
+ const present=readyFixture('real-funds'); present.releaseConfig.realFundsAuthorized=true;
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_real_funds_manual_flag'));
+});
+
+test('invalid production-ready flag does not claim an explicit not-ready decision',()=>{
+ const invalid=readyFixture(); invalid.releaseConfig.productionReady=null;
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_production_ready_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_not_production_ready'));
+
+ const present=readyFixture(); present.releaseConfig.productionReady=false;
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_not_production_ready'));
+});
+
+test('invalid operator deployment flag does not claim explicit denial',()=>{
+ const invalid=readyFixture(); delete invalid.operatorIntent.deploy_authorized;
+ invalid.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(invalid.operatorIntent));
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_deploy_authorization_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_deploy_unauthorized'));
+
+ const present=readyFixture(); present.operatorIntent.deploy_authorized=false;
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_deploy_unauthorized'));
+});
+
+test('invalid operator real-funds flag does not claim explicit denial',()=>{
+ const invalid=readyFixture('real-funds');
+ delete invalid.operatorIntent.real_funds_authorized;
+ invalid.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(invalid.operatorIntent));
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_real_funds_authorization_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_real_funds_unauthorized'));
+
+ const present=readyFixture('real-funds');
+ present.operatorIntent.real_funds_authorized=false;
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_real_funds_unauthorized'));
+});
+
+test('invalid requirements deployment flag does not claim explicit denial',()=>{
+ const invalid=readyFixture(); delete invalid.requirements.deploy_authorized;
+ invalid.requirementsAuthority.bytes=Buffer.from(JSON.stringify(invalid.requirements));
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='requirements_deploy_authorization_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='requirements_deploy_unauthorized'));
+
+ const present=readyFixture(); present.requirements.deploy_authorized=false;
+ present.requirementsAuthority.bytes=Buffer.from(JSON.stringify(present.requirements));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='requirements_deploy_unauthorized'));
+});
+
+test('invalid requirements mainnet-ready flag does not claim explicit denial',()=>{
+ const invalid=readyFixture('real-funds'); delete invalid.requirements.mainnet_ready;
+ invalid.requirementsAuthority.bytes=Buffer.from(JSON.stringify(invalid.requirements));
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='requirements_mainnet_ready_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='requirements_mainnet_not_ready'));
+
+ const present=readyFixture('real-funds'); present.requirements.mainnet_ready=false;
+ present.requirementsAuthority.bytes=Buffer.from(JSON.stringify(present.requirements));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='requirements_mainnet_not_ready'));
+});
+
+test('invalid requirements real-funds flag does not claim explicit denial',()=>{
+ const invalid=readyFixture('real-funds');
+ delete invalid.requirements.real_funds_authorized;
+ invalid.requirementsAuthority.bytes=Buffer.from(JSON.stringify(invalid.requirements));
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='requirements_real_funds_authorization_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='requirements_real_funds_unauthorized'));
+
+ const present=readyFixture('real-funds');
+ present.requirements.real_funds_authorized=false;
+ present.requirementsAuthority.bytes=Buffer.from(JSON.stringify(present.requirements));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='requirements_real_funds_unauthorized'));
+});
+
+test('invalid requirements finality approval does not claim explicit denial',()=>{
+ const invalid=readyFixture();
+ delete invalid.requirements.checkpoint_poc_authorization.production_mechanism_approved;
+ invalid.requirementsAuthority.bytes=Buffer.from(JSON.stringify(invalid.requirements));
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='production_finality_approval_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='production_finality_unapproved'));
+
+ const present=readyFixture();
+ present.requirements.checkpoint_poc_authorization.production_mechanism_approved=false;
+ present.requirementsAuthority.bytes=Buffer.from(JSON.stringify(present.requirements));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='production_finality_unapproved'));
+});
+
+test('absent owner commitment does not claim a derived mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.governanceOwnersCommitment=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_governanceOwnersCommitment_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_governance_owners_commitment_mismatch'));
+
+ const present=readyFixture();
+ present.releaseConfig.governanceOwnersCommitment='0x'+'99'.repeat(32);
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_governance_owners_commitment_mismatch'));
+});
+
+test('absent release pin does not claim a contract-source mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.verifierCodeHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_verifierCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='contract_PRODUCTION_VERIFIER_CODE_HASH_mismatch'));
+
+ const present=readyFixture(); present.releaseConfig.verifierCodeHash='0x'+'99'.repeat(32);
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='contract_PRODUCTION_VERIFIER_CODE_HASH_mismatch'));
+});
+
+test('invalid authorization flag does not claim a derived scope mismatch',()=>{
+ const invalid=readyFixture(); invalid.operatorIntent.deploy_authorized=null;
+ invalid.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(invalid.operatorIntent));
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_deploy_authorization_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_release_authorization_scope_mismatch'));
+
+ const present=readyFixture(); present.operatorIntent.deploy_authorized=false;
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_release_authorization_scope_mismatch'));
+});
+
+test('absent operator signing fingerprint does not claim a mismatch',()=>{
+ const absent=readyFixture(); delete absent.operatorIntent.release_signing_key_fingerprint;
+ absent.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(absent.operatorIntent));
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='operator_intent_schema_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_release_signing_key_mismatch'));
+
+ const present=readyFixture();
+ present.operatorIntent.release_signing_key_fingerprint='B'.repeat(40);
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_release_signing_key_mismatch'));
+});
+
+test('absent checkpoint guardian owners do not run config derivation',()=>{
+ const absent=readyFixture(); absent.releaseConfig.checkpointGuardianOwners=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointGuardianOwners_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_checkpoint_registry_config_invalid'));
+
+ const present=readyFixture(); present.releaseConfig.checkpointGuardianOwners=[];
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointGuardian_owners_invalid'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpoint_registry_config_invalid'));
+});
+
+test('absent network-magic pin does not claim native runtime mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.checkpointDomNetworkMagic=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointDomNetworkMagic_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_runtime_network_magic_mismatch'));
+
+ const present=readyFixture(); present.releaseConfig.checkpointDomNetworkMagic='3735928559';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_runtime_network_magic_mismatch'));
+});
+
+test('absent release hash pin does not claim native runtime mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.checkpointDomChainId=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointDomChainId_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_runtime_chain_id_mismatch'));
+
+ const present=readyFixture(); present.releaseConfig.checkpointDomChainId='0x'+'99'.repeat(32);
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_runtime_chain_id_mismatch'));
+});
+
+test('absent trusted-checkpoint pin does not claim native runtime mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.nativeEthereumTrustedCheckpoint=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_nativeEthereumTrustedCheckpoint_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_runtime_ethereum_trusted_checkpoint_mismatch'));
+
+ const present=readyFixture();
+ present.releaseConfig.nativeEthereumTrustedCheckpoint='0x'+'99'.repeat(32);
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_runtime_ethereum_trusted_checkpoint_mismatch'));
+});
+
+test('absent V4 activation-height pin does not claim native runtime mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.checkpointFirstV4Height=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointFirstV4Height_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_runtime_first_v4_height_mismatch'));
+
+ const present=readyFixture(); present.releaseConfig.checkpointFirstV4Height='999';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_runtime_first_v4_height_mismatch'));
+});
+
+test('absent Ethereum chain pin does not claim native runtime mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.ethereumChainId=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_ethereumChainId_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_runtime_ethereum_chain_id_mismatch'));
+
+ const present=readyFixture(); present.releaseConfig.ethereumChainId='2';
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_runtime_ethereum_chain_id_mismatch'));
+});
+
+test('absent address pin does not claim native runtime mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.reserve=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_reserve_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_runtime_reserve_mismatch'
+   ||blocker.code==='native_runtime_deposit_reserve_mismatch'));
+
+ const present=readyFixture(); present.releaseConfig.reserve=address(77);
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_runtime_reserve_mismatch'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_runtime_deposit_reserve_mismatch'));
+});
+
+test('absent operational hash pin does not claim native runtime mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.reserveRuntimeCodeHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_reserveRuntimeCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_runtime_deposit_codehash_mismatch'));
+
+ const present=readyFixture(); present.releaseConfig.reserveRuntimeCodeHash='0x'+'99'.repeat(32);
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_runtime_deposit_codehash_mismatch'));
+});
+
+test('invalid operator finality approval does not claim explicit denial',()=>{
+ const invalid=readyFixture();
+ delete invalid.operatorIntent.checkpoint_poc_authorization.production_mechanism_approved;
+ invalid.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(invalid.operatorIntent));
+ let report=assessMainnetReadiness(invalid);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_production_finality_approval_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='operator_production_finality_unapproved'));
+
+ const present=readyFixture();
+ present.operatorIntent.checkpoint_poc_authorization.production_mechanism_approved=false;
+ present.readinessDocumentAuthority.operatorIntentBytes=
+  Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='operator_production_finality_unapproved'));
+});
+
+test('absent native approval finalized hash does not claim the snapshot changed',()=>{
+ const assess=fixture=>{
+  const bytes=Buffer.from(JSON.stringify(fixture.nativeAttestationApprovalObservation));
+  fixture.approvalObservationAuthority.nativeAttestations={bytes,
+   sha256:createHash('sha256').update(bytes).digest('hex')};
+  return assessMainnetReadiness(fixture);
+ };
+ const absent=readyFixture(); absent.nativeAttestationApprovalObservation.finalizedBlockHash=null;
+ let report=assess(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_attestation_approval_block_hash_invalid'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_attestation_approval_snapshot_changed'));
+
+ const present=readyFixture();
+ present.nativeAttestationApprovalObservation.snapshotBlockHashAfter=bytes32('71');
+ report=assess(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_attestation_approval_snapshot_changed'));
+});
+
+test('absent governance codehash pin does not claim native approval mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.governanceCodeHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_governanceCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_attestation_approval_governance_codehash_mismatch'));
+
+ const present=readyFixture();
+ present.nativeAttestationApprovalObservation.governanceCodeHash=bytes32('51');
+ const bytes=Buffer.from(JSON.stringify(present.nativeAttestationApprovalObservation));
+ present.approvalObservationAuthority.nativeAttestations={bytes,
+  sha256:createHash('sha256').update(bytes).digest('hex')};
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_attestation_approval_governance_codehash_mismatch'));
+});
+
+test('absent governance address pin does not claim native approval identity failure',()=>{
+ const absent=readyFixture(); absent.releaseConfig.governance=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_governance_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_attestation_approval_governance_mismatch'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_attestation_approval_governance_invalid'));
+
+ const present=readyFixture(); present.nativeAttestationApprovalObservation.governance=address(5);
+ const bytes=Buffer.from(JSON.stringify(present.nativeAttestationApprovalObservation));
+ present.approvalObservationAuthority.nativeAttestations={bytes,
+  sha256:createHash('sha256').update(bytes).digest('hex')};
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_attestation_approval_governance_mismatch'));
+});
+
+test('absent chain ID pin does not claim native approval chain mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.ethereumChainId=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_ethereumChainId_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='native_attestation_approval_chain_mismatch'));
+
+ const present=readyFixture(); present.nativeAttestationApprovalObservation.chainId='2';
+ const bytes=Buffer.from(JSON.stringify(present.nativeAttestationApprovalObservation));
+ present.approvalObservationAuthority.nativeAttestations={bytes,
+  sha256:createHash('sha256').update(bytes).digest('hex')};
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='native_attestation_approval_chain_mismatch'));
+});
+
+test('absent chain ID pin does not claim release approval chain mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.ethereumChainId=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_ethereumChainId_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_authorization_approval_chain_mismatch'));
+
+ const present=readyFixture(); present.releaseAuthorizationApprovalObservation.chainId='2';
+ const bytes=Buffer.from(JSON.stringify(present.releaseAuthorizationApprovalObservation));
+ present.approvalObservationAuthority.releaseAuthorization={bytes,
+  sha256:createHash('sha256').update(bytes).digest('hex')};
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_authorization_approval_chain_mismatch'));
+});
+
+test('absent governance address pin does not claim release approval identity failure',()=>{
+ const absent=readyFixture(); absent.releaseConfig.governance=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_governance_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_authorization_approval_governance_mismatch'));
+
+ const present=readyFixture();
+ present.releaseAuthorizationApprovalObservation.governance=address(5);
+ const bytes=Buffer.from(JSON.stringify(present.releaseAuthorizationApprovalObservation));
+ present.approvalObservationAuthority.releaseAuthorization={bytes,
+  sha256:createHash('sha256').update(bytes).digest('hex')};
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_authorization_approval_governance_mismatch'));
+});
+
+test('absent governance codehash pin does not claim release approval mismatch',()=>{
+ const absent=readyFixture(); absent.releaseConfig.governanceCodeHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_governanceCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='release_authorization_approval_governance_codehash_mismatch'));
+
+ const present=readyFixture();
+ present.releaseAuthorizationApprovalObservation.governanceCodeHash=bytes32('51');
+ const bytes=Buffer.from(JSON.stringify(present.releaseAuthorizationApprovalObservation));
+ present.approvalObservationAuthority.releaseAuthorization={bytes,
+  sha256:createHash('sha256').update(bytes).digest('hex')};
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_authorization_approval_governance_codehash_mismatch'));
 });
 
 test('real-funds custody and recovery attestations bind the same wallet identity',()=>{
@@ -2523,6 +4789,17 @@ test('real-funds custody and recovery attestations bind the same wallet identity
  ];
  for(const [mutate,code] of mutations) {
   const fixture=readyFixture('real-funds'); mutate(fixture);
+  for(const [objectField,bytesField,evidenceField] of [
+   ['nativeWalletCustodyAttestation','nativeWalletCustodyBytes','nativeWalletCustodyAttestationReport'],
+   ['nativeWalletRecoveryAttestation','nativeWalletRecoveryBytes','nativeWalletRecoveryAttestationReport'],
+  ]) {
+   const document=fixture.evidence[evidenceField];
+   if(!document) continue;
+   const bytes=Buffer.from(JSON.stringify(fixture[objectField]));
+   fixture.nativeReleaseAttestationAuthority[bytesField]=bytes;
+   document.sha256=createHash('sha256').update(bytes).digest('hex');
+   fixture.evidenceFiles[document.path]=document.sha256;
+  }
   const report=assessMainnetReadiness(fixture);
   assert.equal(report.ready,false,code);
   assert(report.blockers.some(blocker=>blocker.code===code),code);
@@ -2626,7 +4903,8 @@ test('finalized-burn and checkpoint adapters must bind one chain and upstream ve
   fixture.verifierConfig[field]=field==='riscZeroVerifier' ? address(17) : bytes32('2b');
   fixture.checkpointVerifierConfig[field]=field==='riscZeroVerifier' ? address(18) : bytes32('2c');
   report=assessMainnetReadiness(fixture);
-  assert(report.blockers.some(blocker=>blocker.code===`risc0_${field}_adapter_mismatch`),field);
+  assert(report.blockers.some(blocker=>blocker.code==='verifier_config_manifest_invalid'),field);
+  assert(report.blockers.some(blocker=>blocker.code==='checkpoint_verifier_config_manifest_invalid'),field);
  }
 });
 
@@ -2646,7 +4924,7 @@ test('repository manifests cannot replace the reviewed RISC Zero mainnet verifie
  const untrustedManifest=readyFixture();
  untrustedManifest.verifierConfig.riscZeroVerifier=address(99);
  report=assessMainnetReadiness(untrustedManifest);
- assert(report.blockers.some(blocker=>blocker.code==='risc0_finalized_burn_riscZeroVerifier_untrusted'));
+ assert(report.blockers.some(blocker=>blocker.code==='verifier_config_manifest_invalid'));
 });
 
 test('RISC Zero incident source catalog is hash-addressed release evidence',()=>{
@@ -2662,6 +4940,17 @@ test('RISC Zero incident source catalog is hash-addressed release evidence',()=>
  delete missingEvidence.evidenceFiles[missingEvidence.evidence.riscZeroHealthSourceCatalog.path];
  report=assessMainnetReadiness(missingEvidence);
  assert(report.blockers.some(({code})=>code==='evidence_riscZeroHealthSourceCatalog_missing'));
+ const substituted=readyFixture();
+ substituted.riscZeroHealthSourceCatalog=createRiscZeroHealthSourceCatalog({sources:[
+  {sourceId:'rpc-a',operatorId:'operator-a',providerId:'provider-a',
+   infrastructureId:'infra-a',endpointHash:bytes32('c3')},
+  {sourceId:'rpc-b',operatorId:'operator-b',providerId:'provider-b',
+   infrastructureId:'infra-b',endpointHash:bytes32('c4')},
+ ]});
+ substituted.riscZeroHealthSourceCatalogAuthority={catalogBytes:
+  Buffer.from(JSON.stringify(substituted.riscZeroHealthSourceCatalog))};
+ report=assessMainnetReadiness(substituted);
+ assert(report.blockers.some(({code})=>code==='risc0_health_source_catalog_invalid'));
 });
 
 test('machine predeployment and cold-start attestations are independently recomputed',()=>{
@@ -2681,6 +4970,9 @@ test('machine predeployment and cold-start attestations are independently recomp
   fixture=>{fixture.predeploymentAttestation.observation.token.extra=true;},
   fixture=>{fixture.predeploymentAttestation.rpcConsensus.sources.pop();},
   fixture=>{fixture.predeploymentAttestation.rpcConsensus.sourceSetCommitment=bytes32('99');},
+  fixture=>{delete fixture.predeploymentAttestation.collectionStartedAtMs;},
+  fixture=>{fixture.predeploymentAttestation.collectionCompletedAtMs=
+    fixture.predeploymentAttestation.collectionStartedAtMs+10*60*1000+1;},
   fixture=>{fixture.predeploymentAttestation.extra=true;},
  ];
  for(const change of predeploymentChanges) {
@@ -2705,6 +4997,9 @@ test('machine predeployment and cold-start attestations are independently recomp
   fixture=>{delete fixture.coldStartAttestation.observation.snapshotBlockHashAfter;},
   fixture=>{fixture.coldStartAttestation.rpcConsensus.sources.pop();},
   fixture=>{fixture.coldStartAttestation.rpcConsensus.sourceSetCommitment=bytes32('99');},
+  fixture=>{fixture.coldStartAttestation.collectionStartedAtMs='1792492800000';},
+  fixture=>{fixture.coldStartAttestation.collectionStartedAtMs=
+    fixture.coldStartAttestation.collectionCompletedAtMs+1;},
  ];
  for(const change of coldStartChanges) {
   const fixture=readyFixture('real-funds'); change(fixture);
@@ -2742,7 +5037,12 @@ test('the checked-in candidate is rejected with explicit nonduplicated blockers'
   readFile(new URL('../../config/mainnet-release-evidence.unconfigured.json',import.meta.url),'utf8').then(JSON.parse),
  ]);
  const report=assessMainnetReadiness({mode:'closed-mainnet',requirements,operatorIntent,releaseConfig,
-  evidence,evidenceFiles:{},contractSource,checkpointContractSource});
+  requirementsAuthority:{bytes:Buffer.from(JSON.stringify(requirements))},
+  readinessDocumentAuthority:{operatorIntentBytes:Buffer.from(JSON.stringify(operatorIntent)),
+   releaseEvidenceBytes:Buffer.from(JSON.stringify(evidence))},
+  evidence,evidenceFiles:{},contractSource,checkpointContractSource,
+  contractSourceAuthority:{reserveBytes:Buffer.from(contractSource),
+   checkpointRegistryBytes:Buffer.from(checkpointContractSource)}});
  assert.equal(report.ready,false);
  const codes=report.blockers.map(blocker=>blocker.code);
  assert.equal(new Set(codes).size,codes.length);
@@ -2752,6 +5052,151 @@ test('the checked-in candidate is rejected with explicit nonduplicated blockers'
  assert.match(operatorIntent.production_trust_model,/quorum restricted to prototype/i);
  assert(!operatorIntent.undefined.some(parameter=>/notary|threshold|testnet token/i.test(parameter)),
   'proof-authorized mainnet release must not require prototype quorum or unrelated testnet parameters');
+});
+
+test('production finality selection accepts only the implemented checkpoint mechanism',()=>{
+ const fixture=readyFixture();
+ assert.equal(assessMainnetReadiness(fixture).ready,true);
+ fixture.requirements.finality_evaluation.selected_production_mechanism='operator-defined-finality';
+ const report=assessMainnetReadiness(fixture);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(blocker=>blocker.code==='production_finality_unsupported'));
+ assert(!report.blockers.some(blocker=>blocker.code==='production_finality_unselected'));
+});
+
+test('absent production finality selection does not claim an approval decision failed',()=>{
+ const fixture=readyFixture();
+ fixture.requirements.finality_evaluation.selected_production_mechanism='';
+ fixture.requirements.checkpoint_poc_authorization.production_mechanism_approved=false;
+ fixture.operatorIntent.checkpoint_poc_authorization.production_mechanism_approved=false;
+ fixture.operatorIntent.finality_direction='decision-pending';
+ let report=assessMainnetReadiness(fixture);
+ assert(report.blockers.some(blocker=>blocker.code==='production_finality_unselected'));
+ assert(!report.blockers.some(blocker=>blocker.code==='production_finality_unapproved'));
+ assert(!report.blockers.some(blocker=>blocker.code==='operator_production_finality_unapproved'));
+ assert(!report.blockers.some(blocker=>blocker.code==='operator_finality_direction_invalid'));
+ assert(!report.blockers.some(blocker=>blocker.code==='operator_finality_direction_invalid'));
+
+ fixture.requirements.finality_evaluation.selected_production_mechanism='checkpoint';
+ report=assessMainnetReadiness(fixture);
+ assert(!report.blockers.some(blocker=>blocker.code==='production_finality_unselected'));
+ assert(report.blockers.some(blocker=>blocker.code==='production_finality_unapproved'));
+ assert(report.blockers.some(blocker=>blocker.code==='operator_production_finality_unapproved'));
+ assert(report.blockers.some(blocker=>blocker.code==='operator_finality_direction_invalid'));
+});
+
+test('production finality requires an independent matching operator decision',()=>{
+ for(const [mutate,code] of [
+  [fixture=>{fixture.operatorIntent.checkpoint_poc_authorization.production_mechanism_approved=false;},
+   'operator_production_finality_unapproved'],
+  [fixture=>{fixture.operatorIntent.checkpoint_poc_authorization={};},
+   'operator_production_finality_approval_invalid'],
+  [fixture=>{fixture.operatorIntent.finality_direction='probabilistic-pow';},
+   'operator_finality_direction_invalid'],
+  [fixture=>{fixture.operatorIntent.finality_comparison='docs/OTHER.txt';},
+   'operator_finality_comparison_invalid'],
+ ]) {
+  const fixture=readyFixture();
+  mutate(fixture);
+  const report=assessMainnetReadiness(fixture);
+  assert.equal(report.ready,false,code);
+  assert(report.blockers.some(blocker=>blocker.code===code),code);
+ }
+});
+
+test('absent operator intent does not claim its finality fields are invalid',()=>{
+ const absent=readyFixture(); absent.operatorIntent=null;
+ absent.readinessDocumentAuthority.operatorIntentBytes=Buffer.from('null');
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='operator_intent_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='operator_finality_comparison_invalid'));
+ assert(!report.blockers.some(blocker=>blocker.code==='operator_production_finality_unapproved'));
+
+ const present=readyFixture(); present.operatorIntent.finality_comparison='docs/OTHER.txt';
+ present.operatorIntent.checkpoint_poc_authorization.production_mechanism_approved=false;
+ present.operatorIntent.finality_direction='probabilistic-pow';
+ present.readinessDocumentAuthority.operatorIntentBytes=Buffer.from(JSON.stringify(present.operatorIntent));
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>blocker.code==='operator_finality_comparison_invalid'));
+ assert(report.blockers.some(blocker=>blocker.code==='operator_production_finality_unapproved'));
+ assert(report.blockers.some(blocker=>blocker.code==='operator_finality_direction_invalid'));
+});
+
+test('absent reserve artifact pins do not claim compiled hash mismatches',()=>{
+ const absent=readyFixture(); absent.releaseConfig.reserveRuntimeCodeHash=null;
+ absent.releaseConfig.reserveInitcodeHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_reserveRuntimeCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='compiled_reserve_runtime_mismatch'));
+ assert(report.blockers.some(blocker=>blocker.code==='release_reserveInitcodeHash_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='compiled_reserve_initcode_mismatch'));
+
+ const present=readyFixture(); present.releaseConfig.reserveRuntimeCodeHash=bytes32('99');
+ present.releaseConfig.reserveInitcodeHash=bytes32('98');
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>blocker.code==='compiled_reserve_runtime_mismatch'));
+ assert(report.blockers.some(blocker=>blocker.code==='compiled_reserve_initcode_mismatch'));
+});
+
+test('absent checkpoint registry pins do not claim compiled hash mismatches',()=>{
+ const absent=readyFixture(); absent.releaseConfig.checkpointRegistryRuntimeCodeHash=null;
+ absent.releaseConfig.checkpointRegistryInitcodeHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointRegistryRuntimeCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='compiled_checkpoint_registry_runtime_mismatch'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointRegistryInitcodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='compiled_checkpoint_registry_initcode_mismatch'));
+
+ const present=readyFixture();
+ present.releaseConfig.checkpointRegistryRuntimeCodeHash=bytes32('99');
+ present.releaseConfig.checkpointRegistryInitcodeHash=bytes32('98');
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='compiled_checkpoint_registry_runtime_mismatch'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='compiled_checkpoint_registry_initcode_mismatch'));
+});
+
+test('absent finalized-burn verifier pins do not claim compiled hash mismatches',()=>{
+ const absent=readyFixture(); absent.releaseConfig.verifierCodeHash=null;
+ absent.releaseConfig.verifierInitcodeHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>blocker.code==='release_verifierCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='compiled_verifier_runtime_mismatch'));
+ assert(report.blockers.some(blocker=>blocker.code==='release_verifierInitcodeHash_missing'));
+ assert(!report.blockers.some(blocker=>blocker.code==='compiled_verifier_initcode_mismatch'));
+
+ const present=readyFixture(); present.releaseConfig.verifierCodeHash=bytes32('99');
+ present.releaseConfig.verifierInitcodeHash=bytes32('98');
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>blocker.code==='compiled_verifier_runtime_mismatch'));
+ assert(report.blockers.some(blocker=>blocker.code==='compiled_verifier_initcode_mismatch'));
+});
+
+test('absent checkpoint verifier pins do not claim compiled hash mismatches',()=>{
+ const absent=readyFixture(); absent.releaseConfig.checkpointVerifierCodeHash=null;
+ absent.releaseConfig.checkpointVerifierInitcodeHash=null;
+ let report=assessMainnetReadiness(absent);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointVerifierCodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='compiled_checkpoint_verifier_runtime_mismatch'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpointVerifierInitcodeHash_missing'));
+ assert(!report.blockers.some(blocker=>
+  blocker.code==='compiled_checkpoint_verifier_initcode_mismatch'));
+
+ const present=readyFixture(); present.releaseConfig.checkpointVerifierCodeHash=bytes32('99');
+ present.releaseConfig.checkpointVerifierInitcodeHash=bytes32('98');
+ report=assessMainnetReadiness(present);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='compiled_checkpoint_verifier_runtime_mismatch'));
+ assert(report.blockers.some(blocker=>
+  blocker.code==='compiled_checkpoint_verifier_initcode_mismatch'));
 });
 
 test('an intermediate burn-state witness can never claim consensus or payout authority',()=>{
@@ -2877,4 +5322,79 @@ test('a substituted config, compiled pin, evidence hash or authorization fails c
  assert.throws(()=>assessMainnetReadiness({...readyFixture(),mode:'invalid'}),/mode/);
  const realFunds=readyFixture('real-funds'); realFunds.evidence.mainnetColdStartAttestationReport=null;
  assert.equal(assessMainnetReadiness(realFunds).ready,false);
+});
+
+test('checkpoint registry artifact declaration cannot replace compiled release bindings',()=>{
+ const missingRuntime=readyFixture();
+ assert.equal(missingRuntime.requirements.production_checkpoint_registry_artifacts_pinned,true);
+ missingRuntime.compiledCheckpointRegistryRuntimeCodeHash=null;
+ let report=assessMainnetReadiness(missingRuntime);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='compiled_checkpoint_registry_runtime_unavailable'));
+
+ const changedInitcode=readyFixture();
+ assert.equal(changedInitcode.requirements.production_checkpoint_registry_artifacts_pinned,true);
+ changedInitcode.compiledCheckpointRegistryInitcodeHash='0x'+'98'.repeat(32);
+ report=assessMainnetReadiness(changedInitcode);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='compiled_checkpoint_registry_initcode_mismatch'));
+
+ const changedConfig=readyFixture();
+ assert.equal(changedConfig.requirements.production_checkpoint_registry_artifacts_pinned,true);
+ changedConfig.releaseConfig.checkpointRegistryConfigHash='0x'+'98'.repeat(32);
+ report=assessMainnetReadiness(changedConfig);
+ assert.equal(report.ready,false);
+ assert(report.blockers.some(blocker=>
+  blocker.code==='release_checkpoint_registry_config_hash_mismatch'));
+});
+
+test('checkpoint ledger reports reject coordinated semantic B under report bytes A',()=>{
+ const registry=readyFixture();
+ registry.checkpointRegistryArtifactPinsReport={...registry.checkpointRegistryArtifactPinsReport,
+  compilerVersion:'solc-test-b'};
+ registry.checkpointRegistryArtifactPinsAuthority={...registry.checkpointRegistryArtifactPinsAuthority,
+  binding:{...registry.checkpointRegistryArtifactPinsAuthority.binding,compilerVersion:'solc-test-b'}};
+ let report=assessMainnetReadiness(registry);
+ assert(report.blockers.some(({code})=>code==='checkpoint_registry_artifact_pins_report_invalid'));
+
+ const randomx=readyFixture();
+ const receiptBytes=randomx.checkpointRandomxImageRatificationAuthority.receiptBytes[0];
+ const index={...JSON.parse(randomx.checkpointRandomxImageRatificationAuthority.receiptIndexBytes),
+  receipt_count:2,receipts:[
+   {index:0,receipt_file:'randomx-receipt-0000.bin',receipt_sha256:documentSha(receiptBytes),receipt_bytes:receiptBytes.length},
+   {index:1,receipt_file:'randomx-receipt-0001.bin',receipt_sha256:documentSha(receiptBytes),receipt_bytes:receiptBytes.length},
+  ]};
+ const indexBytes=Buffer.from(JSON.stringify(index));
+ randomx.checkpointRandomxImageRatificationReport={...randomx.checkpointRandomxImageRatificationReport,
+  receiptIndexSha256:documentSha(indexBytes),receiptCount:2};
+ randomx.checkpointRandomxImageRatificationAuthority={...randomx.checkpointRandomxImageRatificationAuthority,
+  receiptIndexBytes:indexBytes,receiptBytes:[receiptBytes,receiptBytes]};
+ report=assessMainnetReadiness(randomx);
+ assert(report.blockers.some(({code})=>code==='checkpoint_randomx_image_ratification_invalid'));
+
+ const restart=readyFixture();
+ restart.checkpointRestartWitnessReport={...restart.checkpointRestartWitnessReport,
+  firstProcessPid:102,secondProcessPid:103};
+ report=assessMainnetReadiness(restart);
+ assert(report.blockers.some(({code})=>code==='checkpoint_restart_witness_report_invalid'));
+});
+
+test('compiled artifact failures retain their actionable local validation cause',()=>{
+ const fixture=readyFixture();
+ fixture.compiledReserveRuntimeCodeHash=null;
+ fixture.compiledReserveInitcodeHash=null;
+ fixture.compiledArtifactBindingErrors={reserve:'invalid address in release configuration'};
+ const report=assessMainnetReadiness(fixture);
+ for(const code of ['compiled_reserve_runtime_unavailable','compiled_reserve_initcode_unavailable']) {
+  const blocker=report.blockers.find(value=>value.code===code);
+  assert.ok(blocker,code);
+  assert.match(blocker.detail,/binding failure: invalid address in release configuration$/);
+ }
+
+ fixture.compiledArtifactBindingErrors.reserve='invalid\nmultiline diagnostic';
+ const sanitized=assessMainnetReadiness(fixture);
+ assert.doesNotMatch(sanitized.blockers.find(value=>
+  value.code==='compiled_reserve_runtime_unavailable').detail,/multiline/);
 });

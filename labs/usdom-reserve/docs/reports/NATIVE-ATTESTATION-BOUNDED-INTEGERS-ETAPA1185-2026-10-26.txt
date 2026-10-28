@@ -1,0 +1,17 @@
+Stage 1185 — native-attestation bounded integer parsing
+Date: 2026-10-26
+
+Native EIP-712 attestation construction and signing-request validation still
+accepted arbitrary-length decimal chain IDs, completion times and finalized
+anchor coordinates before BigInt or ethers conversion. Chain ID now has a
+78-digit lexical ceiling and exact uint256 bound. Completion time and finalized
+block number/timestamp have 20-digit lexical ceilings and exact nonzero uint64
+bounds.
+
+Adversarial coverage rejects 100,000-digit completion/chain values and the exact
+2^256 chain boundary before EIP-712 encoding. The full focused native-
+attestation suite passes 7/7 with pinned Node 24.19.0; targeted diff-check
+passes.
+
+No production fact, Cargo, Rust, Forge, real network, signing, deployment,
+funds, commit or push changed or ran.

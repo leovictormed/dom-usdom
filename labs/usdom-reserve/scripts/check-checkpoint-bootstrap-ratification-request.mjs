@@ -26,7 +26,9 @@ try {
     (bytes,index)=>parse(bytes,inputs[index]));
   const request=parse(requestBytes,'ratification request snapshot');
   const result=validateCheckpointBootstrapRatificationSigningRequest({request,releaseEvidence,
-    releaseConfig,checkpointConsensus,nativeFacts,finalizedAnchor:request.finalizedAnchor,
+    releaseEvidenceBytes:inputBytes[0],releaseConfig,releaseConfigBytes:inputBytes[1],
+    checkpointConsensus,checkpointConsensusBytes:inputBytes[2],nativeFacts,
+    nativeFactsBytes:inputBytes[3],finalizedAnchor:request.finalizedAnchor,
     inputDocuments:{releaseEvidenceSha256:sha(inputBytes[0]),releaseConfigSha256:sha(inputBytes[1]),
       checkpointConsensusSha256:sha(inputBytes[2]),nativeFactsSha256:sha(inputBytes[3])}});
   const [requestAfter,...inputsAfter]=await Promise.all([

@@ -1,0 +1,20 @@
+{
+  "schema": "usdom-walletconnect-sign-client-dependency-authority/v1",
+  "package": "@walletconnect/sign-client",
+  "version": "2.26.0",
+  "integrity": "sha512-zu15NhOmGp1o0LsV9t6V1w+DFYx0UdljNLspqXu2L0GDJlU0Nv5Z70gadrbQGHn8tN70aQrrbOxfMCB48GTe8Q==",
+  "license": "WalletConnect Community License Agreement (20 August 2025)",
+  "licenseSha256": "1cb6f8cfe21f54ab1105105717eaa2ba08343037a2a9c41dfd5ab09e3ce270fc",
+  "runtimePins": [
+    {"package":"@walletconnect/core","version":"2.26.0","integrity":"sha512-lvnqCLEp5Z3DqUFih/FPKbgJHauby5XNAe1clwIf2jYhACFWusRCgUoCK8ULyIopW9FIAqF87ldw/V0Z9v5GAQ==","license":"SEE LICENSE IN LICENSE.md"},
+    {"package":"@walletconnect/types","version":"2.26.0","integrity":"sha512-XmM6ZFeIvL0oJ+cK8xq8FKk6G9qVXGhXIsWl0lyTZ921Tjvn5eYOd3qIZW34E+8V2alP6uv8c7Fy5GWgz/j7aw==","license":"SEE LICENSE IN LICENSE.md"},
+    {"package":"@walletconnect/utils","version":"2.26.0","integrity":"sha512-zCpuG8vVvL+vHiX2wE+pChr123prvlQE37lJoHNcRiD2+3RxXFPoHnjJ/zAhN+ivdjK743FHsrP2DRXXqno1fg==","license":"SEE LICENSE IN LICENSE.md"},
+    {"package":"@walletconnect/jsonrpc-utils","version":"1.0.8","integrity":"sha512-vdeb03bD8VzJUL6ZtzRYsFMq1eZQcM3EAzT0a3st59dyLfJ0wq+tKMpmGH7HlB7waD858UWgfIcudbPFsbzVdw==","license":"MIT"},
+    {"package":"@walletconnect/logger","version":"3.0.2","integrity":"sha512-7wR3wAwJTOmX4gbcUZcFMov8fjftY05+5cO/d4cpDD8wDzJ+cIlKdYOXaXfxHLSYeDazMXIsxMYjHYVDfkx+nA==","license":"MIT"},
+    {"package":"@walletconnect/time","version":"1.0.2","integrity":"sha512-uzdd9woDcJ1AaBZRhqy5rNC9laqWGErfc4dxA9a87mPdKOgWMD85mcFo9dIYIts/Jwocfwn07EC6EzclKubk/g==","license":"MIT"}
+  ],
+  "communityLicenseAccepted": false,
+  "auditVulnerabilities": 0,
+  "runtimeConfigured": false,
+  "networkExecutionApproved": false
+}

@@ -1,0 +1,36 @@
+ETAPA 1287 — LIMITE EXTERNO PARA CONFIRMAÇÃO DE RECIBOS DO PILOTO FECHADO
+Data: 2026-10-26
+
+Problema
+
+Os executores de depósito e resgate aguardavam `cast receipt --confirmations 2`
+sem um limite externo. Uma transação não incluída, uma interrupção do RPC ou um
+processo filho travado podia manter a cerimônia indefinidamente presa após a
+publicação ou durante a retomada pelo hash já conhecido.
+
+Correção
+
+As duas esperas de recibo agora executam sob `timeout --foreground`, com prazo
+de 1.800 segundos, TERM no vencimento e KILL após mais cinco segundos. O
+redirecionamento para o arquivo candidato continua fora do subprocesso e o
+`set -euo pipefail` existente mantém a falha fechada: timeout, erro do RPC ou
+recibo ausente interrompem a cerimônia antes de instalar ou aceitar evidência.
+
+A retomada continua baseada no raw imutável, no hash esperado e na decisão de
+nonce já persistida. O limite não autoriza uma republicação nova nem relaxa as
+comparações de identidade, bloco, status, gás e preço entre os dois RPCs.
+
+Regressão
+
+O teste de consenso de recibos exige o wrapper exato nos dois executores e
+garante uma única espera `cast receipt` por executor.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal do piloto fechado: 23/23 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 67/67 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

@@ -25,10 +25,12 @@ export function summarizeReadinessBlockers(blockers,{buildSkipped=false}={}) {
     counts.set(group,(counts.get(group)??0)+1);
   }
   const groups=[...counts].map(([group,count])=>({group,count}))
-    .sort((a,b)=>b.count-a.count||a.group.localeCompare(b.group));
+    .sort((a,b)=>b.count-a.count||(a.group<b.group?-1:a.group>b.group?1:0));
   return Object.freeze({
     schema:'usdom-readiness-diagnostic/v1',
     buildSkipped,
+    actionAuthorized:false,
+    scope:'Readiness reports gate evidence for the requested mode; they never authorize signing, broadcast, deployment or movement of funds.',
     limitation:buildSkipped
       ? 'Compiled-artifact and native-runtime validation was intentionally not executed; related blockers are diagnostic and cannot be cleared by this report.'
       : null,

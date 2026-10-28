@@ -1,0 +1,39 @@
+USDOM mainnet readiness — Stage 1319
+Date: 2026-10-26
+
+Finding
+=======
+
+The reserve artifact safety gate followed its artifact pathname and passed
+unbounded bytes to JSON.parse. The artifact's embedded rawMetadata string used a
+second JSON.parse. This admitted symlinked input, unbounded input and duplicate
+JSON keys at two release-critical authority boundaries.
+
+Correction
+==========
+
+The checker opens the artifact with O_NOFOLLOW and validates through fstat that
+it is a regular, owner-owned, mode-0600, single-link file between 1 byte and
+4 MiB. It reads one descriptor snapshot and applies the bounded strict parser.
+The SDK applies the same bounded strict parser to embedded rawMetadata.
+
+Validation
+==========
+
+- Syntax checks passed for the checker and SDK.
+- Duplicate embedded metadata and static descriptor-ingress regressions pass.
+- Focused gate tests: 2/2 passed.
+- Independent operator suite: 84/84 passed.
+- git diff --check passed.
+
+The canonical artifact identity cases currently stop at an unrelated ABI/hash
+drift in concurrently generated `out/` content. They were intentionally not
+used as passing evidence and should be rerun by the root in its isolated Forge
+artifact window; this stage did not modify Solidity, compiled identities or
+expected hashes.
+
+Scope
+=====
+
+No production fact, Rust, Solidity, Cargo, Forge, network, Ledger, signing,
+deployment, funds, commit or push operation occurred.

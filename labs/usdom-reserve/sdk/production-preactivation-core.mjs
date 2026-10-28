@@ -1,5 +1,6 @@
 import {checkpointRegistryPreActivationConfigHash} from './checkpoint-registry.mjs';
 import {safeOwnersCommitment} from './configuration.mjs';
+import {deriveDomDomain} from './preactivation-policy.mjs';
 
 export const NATIVE_PREACTIVATION_FACTS_SCHEMA='usdom-native-preactivation-facts-v1';
 const fields=Object.freeze([
@@ -23,7 +24,9 @@ function hash(value,label) {
   return value.toLowerCase();
 }
 function decimal(value,bits,label) {
-  if(typeof value!=='string'||!/^(0|[1-9][0-9]*)$/.test(value)) {
+  const maxDigits={32:10,64:20,256:78}[bits];
+  if(maxDigits===undefined||typeof value!=='string'||value.length>maxDigits
+      ||!/^(0|[1-9][0-9]*)$/.test(value)) {
     throw new Error(`${label} must be a canonical decimal string`);
   }
   const parsed=BigInt(value);
@@ -89,6 +92,12 @@ export function materializeProductionPreActivationCore({releaseConfig,nativeFact
       'checkpointInitialTotalDifficulty')};
   if(BigInt(facts.checkpointFirstV4Height)!==BigInt(facts.checkpointInitialHeight)+1n) {
     throw new Error('pre-activation predecessor height mismatch');
+  }
+  const expectedDomDomain=deriveDomDomain({domNetworkMagic:facts.checkpointDomNetworkMagic,
+    domChainId:facts.checkpointDomChainId,ethereumChainId:releaseConfig.ethereumChainId,
+    reserve:releaseConfig.reserve,checkpointRegistry:releaseConfig.checkpointRegistry});
+  if(facts.domDomain!==expectedDomDomain) {
+    throw new Error('pre-activation DOM domain does not match the production deployment identity');
   }
   const finalized=identity(finalizedBurnVerifier,'finalized-burn verifier');
   const checkpoint=identity(checkpointVerifier,'checkpoint verifier');

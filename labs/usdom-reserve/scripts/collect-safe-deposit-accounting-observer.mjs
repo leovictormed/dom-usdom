@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+import {materializeSafeDepositAccountingObserver} from '../sdk/safe-deposit-accounting-observer.mjs';
+const args=process.argv.slice(2);if(args.length!==8){console.error('usage: collect-safe-deposit-accounting-observer AUTHORITY PLAN APPROVE_ENVELOPE DEPOSIT_ENVELOPE APPROVE_FINALIZED DEPOSIT_FINALIZED ORIGIN_ID OUTPUT (RPC URL on stdin)');process.exit(64);}
+let bytes='';for await(const chunk of process.stdin){bytes+=chunk;if(bytes.length>8192)throw new Error('RPC endpoint input too large');}if(!bytes.endsWith('\n')||bytes.slice(0,-1).includes('\n'))throw new Error('RPC endpoint input framing invalid');
+try{await materializeSafeDepositAccountingObserver({authorityPath:args[0],planPath:args[1],approveEnvelopePath:args[2],depositEnvelopePath:args[3],approveFinalizedPath:args[4],depositFinalizedPath:args[5],originId:args[6],rpcUrl:bytes.slice(0,-1),outputPath:args[7]});process.stdout.write(`PASS: authenticated Safe deposit observer ${args[6]} installed\n`);}catch(error){console.error(error.message);process.exitCode=1;}

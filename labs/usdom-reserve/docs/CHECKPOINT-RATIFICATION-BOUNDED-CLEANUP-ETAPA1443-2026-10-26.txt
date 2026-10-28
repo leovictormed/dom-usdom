@@ -1,0 +1,22 @@
+Etapa 1443 — cleanup bounded da ratificação de checkpoint
+
+Problema
+
+A cerimônia de ratificação do checkpoint bootstrap apagava seu diretório privado
+com Node sem deadline. Um filho travado poderia reter requests, bundle Safe e
+material derivado de assinatura, além de bloquear o encerramento da cerimônia.
+
+Correção
+
+Timeout agora é autenticado com proprietário, modo, link count, diretório,
+identidade e SHA-256, e possui reatestação fail-closed. O cleanup reatesta Node e
+timeout, executa rmSync com TERM em 30 segundos e KILL após cinco, suprime output
+e exige ausência do diretório. Falha em qualquer etapa força status de erro.
+
+Validação
+
+- Sintaxe shell: aprovada.
+- Cleanup, pinning, escrita durável, ambiente e descritores: 17/17 aprovados.
+- git diff --check: aprovado.
+
+Nenhuma rede, Ledger, assinatura, deploy, fundos, commit ou push foi executado.

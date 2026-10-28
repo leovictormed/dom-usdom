@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+exec bash "$(dirname "$0")/reject-legacy-eoa-mainnet-deposit.sh"
 set -euo pipefail
 set +x
 umask 077
@@ -32,15 +33,16 @@ RESERVE_DIRECTORY=$(CDPATH='' cd -- "$SCRIPT_DIRECTORY/.." && pwd -P)
 command -v cast >/dev/null
 command -v node >/dev/null
 command -v timeout >/dev/null
+: "${USDOM_SAFE_USDT_CUSTODY_AUTHORITY:?USDOM_SAFE_USDT_CUSTODY_AUTHORITY is required}"
+cd "$RESERVE_DIRECTORY"
 
-FIRST_ADDRESS=$(timeout --signal=TERM --kill-after=5s 300s cast wallet address --ledger)
-SECOND_ADDRESS=$(timeout --signal=TERM --kill-after=5s 300s cast wallet address --ledger)
+FIRST_ADDRESS=$(timeout --signal=TERM --kill-after=5s 30s node scripts/read-safe-usdt-custody-address.mjs "$USDOM_SAFE_USDT_CUSTODY_AUTHORITY")
+SECOND_ADDRESS=$(timeout --signal=TERM --kill-after=5s 30s node scripts/read-safe-usdt-custody-address.mjs "$USDOM_SAFE_USDT_CUSTODY_AUTHORITY")
 if [[ ! "$FIRST_ADDRESS" =~ ^0x[0-9a-fA-F]{40}$ || "$FIRST_ADDRESS" != "$SECOND_ADDRESS" ]]; then
-  printf '%s\n' 'Ledger returned a missing, malformed or unstable funder address.' >&2
+  printf '%s\n' 'Safe custody authority returned a missing, malformed or unstable funder address.' >&2
   exit 1
 fi
 
 export USDOM_DEPOSIT_FUNDER=$FIRST_ADDRESS
-cd "$RESERVE_DIRECTORY"
 exec timeout --signal=TERM --kill-after=2s 120s \
   node scripts/prepare-closed-mainnet-deposit.mjs

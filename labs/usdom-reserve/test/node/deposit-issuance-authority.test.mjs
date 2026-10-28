@@ -17,7 +17,8 @@ test('deposit to issuance authority is complete across proof, state and persiste
 
 test('gate rejects replay, recipient, runtime and restart boundary removal',()=>{
   const mutations=[
-    ['reserve','block.chainid, address(this), funder, salt','funder, salt'],
+    ['reserve','deploymentChainId, address(this), funder, salt','funder, salt'],
+    ['reserve','deploymentChainId = block.chainid','deploymentChainId = 1'],
     ['finality','code.code_hash() == policy.runtime_code_hash','true'],
     ['state','deposit.receiving_commitment().into()','[0; 32]'],
     ['state','self.consumed_deposits.contains_key(&value.deposit_id)','false'],

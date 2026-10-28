@@ -1,0 +1,27 @@
+ETAPA 1328 — LIMITES DOS GATES DE SUFICIÊNCIA DE GÁS
+Data: 2026-10-26
+
+Problema
+
+Cada executor valida nos dois RPCs a cobertura integral do custo máximo antes
+da assinatura e novamente antes da publicação. As quatro invocações do checker
+de suficiência não tinham deadline.
+
+Correção
+
+Todas as invocações de `check-pilot-gas-funding.mjs` agora executam sob deadline
+foreground TERM/KILL de 120 segundos: duas no depósito e duas no resgate.
+
+Timeout, falha, divergência de saldo ou cobertura insuficiente abortam antes da
+autorização correspondente. A exigência dual-RPC e os custos máximos permanecem
+inalterados.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 74/74 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

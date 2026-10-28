@@ -62,7 +62,7 @@ contract ReserveHandler is TestBase {
         if (bound == 0 || reserve.paused()) return;
         USDOMReserve.Burn memory b = makeBurn(uint64(uint256(raw) % bound) + 1);
         (uint64 slot,) = reserve.previewWithdrawal(b.amount);
-        if (uint256(slot) + reserve.MIN_EXECUTION_WINDOW() > b.validUntil) return;
+        if (uint256(slot) + 1 hours > b.validUntil) return;
         reserve.queueWithdrawal(b, sign(b));
         requests.push(b);
         ++successfulQueues;

@@ -1,0 +1,45 @@
+Stage 1407 — candidate-v2 issuance deposit reservation
+Date: 2026-10-26
+
+Finding
+
+V4 admission reserved each verified Ethereum deposit for one volatile candidate
+after Stage 1381, but candidate-v2 did not retain or compare verified issuance
+deposit IDs. Distinct valid v2 envelope/witness pairs containing the same
+deposit could therefore occupy multiple entries in the shared 16-candidate,
+16-MiB pool and present competing candidate identities for one issuance.
+
+Correction
+
+Candidate-v2 verification now returns both the header commitment and the public
+deposit IDs derived from its authoritative verified transitions. Before queue
+insertion, those IDs are compared with metadata retained by existing v2
+candidates. Any overlap fails policy without replacing the first candidate.
+Exact candidate retransmission still returns through the ID fast path before
+proof work. Candidates without issuance and disjoint deposits are unaffected.
+
+The helper is shared with v4 overlap checks so both phases apply the same set
+semantics. V2 retains at most four 32-byte issuance IDs per already bounded
+candidate, derived only after proof/state verification; untrusted request bytes
+cannot directly populate the reservation metadata.
+
+Lifecycle note
+
+V2's compact state commitment does not expose the full canonical consumed-
+deposit map used by Stage 1387's cheap v4 post-ingress pruning. V2 continues to
+release exact locally mined candidates on canonical completion and discard
+stale candidates during full template revalidation. Restart clears the
+volatile queue. This change closes competing live reservations without
+inventing unauthenticated state outside the v2 witness model.
+
+Evidence
+
+- `cargo test -p dom-chain --features native-usdom-v4-poc
+  queued_issuance_reserves_each_deposit_for_one_candidate --lib`: 1 passed,
+  0 failed.
+- The focal table covers exact/mixed overlap and disjoint IDs; feature
+  compilation covers verified v2 metadata propagation and candidate storage.
+- Code was formatted with `cargo fmt --all`; `git diff --check` passes.
+- No RandomX mining, external network, wallet, signature, deployment, funds,
+  commit or push occurred.
+

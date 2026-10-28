@@ -185,7 +185,8 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
                 || config.governanceDelay > 30 days || config.maxOutstanding == 0 || config.outflowCapacity == 0
                 || config.outflowCapacity > config.maxOutstanding
         ) revert InvalidConfiguration();
-        if (_tokenStaticWord(address(config.token), abi.encodeCall(IERC20Metadata.decimals, ())) != bytes32(uint256(6))) {
+        if (_tokenStaticWord(address(config.token), abi.encodeCall(IERC20Metadata.decimals, ())) != bytes32(uint256(6)))
+        {
             revert UnsupportedToken();
         }
         bytes32 configuredTokenCodeHash = address(config.token).codehash;
@@ -644,6 +645,9 @@ contract USDOMReserve is EIP712, ReentrancyGuard {
         firstPendingBurn = bytes32(0);
         lastPendingBurn = bytes32(0);
         threshold = threshold_;
+        // `_validateNotaries` caps the array at MAX_NOTARIES (16), so this
+        // narrowing conversion cannot truncate.
+        // forge-lint: disable-next-line(unsafe-typecast)
         notaryCount = uint8(signers.length);
         currentConfigHash = keccak256(abi.encode(signers, threshold_));
         activeNotarySet = signers;

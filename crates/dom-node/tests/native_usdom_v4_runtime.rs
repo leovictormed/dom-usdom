@@ -25,9 +25,12 @@ use dom_node::node::DomNode;
 use dom_node::node_handle::NodeHandleImpl;
 use dom_pow::{
     hash_meets_target, randomx_pool::MinerVm, target_to_compact,
-    target_to_difficulty_for_network_height, CompactTarget,
+    target_to_difficulty_for_network_height, validate_pow_randomx, CompactTarget,
 };
-use dom_rpc::{NodeHandle, RpcError, UsdomV4HistoryAnchorV1, UsdomV4HistoryRequestV1};
+use dom_rpc::{
+    NodeHandle, RpcError, UsdomV4HistoryAnchorV1, UsdomV4HistoryRequestV1,
+    UsdomV4IssuanceStatusRequestV1,
+};
 use dom_serialization::DomSerialize;
 use dom_store::DomStore;
 use dom_usdom_checkpoint_program::{
@@ -47,7 +50,7 @@ use rand::{rngs::StdRng, SeedableRng};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, MutexGuard,
 };
 use tempfile::TempDir;
 use usdom_ethereum_finality_experiment::{
@@ -63,6 +66,61 @@ const TEST_MAP_SIZE: usize = 64 << 20;
 const DOMAIN: [u8; 32] = [0x11; 32];
 const RANDOMX_RECEIPT_IMAGE_ID_HEX: &str =
     "8efa49d4fe0f616840013adb1d3029ef71642099cb336c577a2691f7eea1dc24";
+
+const REGTEST_FAST_MINING_ENV: &str = "DOM_REGTEST_FAST_MINING";
+const REGTEST_REAL_RANDOMX_ENV: &str = "DOM_REGTEST_REAL_RANDOMX";
+static REGTEST_POW_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// Serializes this integration-test binary's process-global PoW mode and
+/// restores the caller's environment when a test finishes. Without this
+/// guard, a concurrent REAL_RANDOMX test can silently override a fast test.
+struct RegtestPowEnvGuard {
+    _lock: MutexGuard<'static, ()>,
+    previous_fast: Option<std::ffi::OsString>,
+    previous_real: Option<std::ffi::OsString>,
+}
+
+impl RegtestPowEnvGuard {
+    fn fast() -> Self {
+        Self::set(true)
+    }
+
+    fn real_randomx() -> Self {
+        Self::set(false)
+    }
+
+    fn set(fast: bool) -> Self {
+        let lock = REGTEST_POW_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = Self {
+            _lock: lock,
+            previous_fast: std::env::var_os(REGTEST_FAST_MINING_ENV),
+            previous_real: std::env::var_os(REGTEST_REAL_RANDOMX_ENV),
+        };
+        if fast {
+            std::env::set_var(REGTEST_FAST_MINING_ENV, "1");
+            std::env::remove_var(REGTEST_REAL_RANDOMX_ENV);
+        } else {
+            std::env::remove_var(REGTEST_FAST_MINING_ENV);
+            std::env::set_var(REGTEST_REAL_RANDOMX_ENV, "1");
+        }
+        guard
+    }
+}
+
+impl Drop for RegtestPowEnvGuard {
+    fn drop(&mut self) {
+        match self.previous_fast.take() {
+            Some(value) => std::env::set_var(REGTEST_FAST_MINING_ENV, value),
+            None => std::env::remove_var(REGTEST_FAST_MINING_ENV),
+        }
+        match self.previous_real.take() {
+            Some(value) => std::env::set_var(REGTEST_REAL_RANDOMX_ENV, value),
+            None => std::env::remove_var(REGTEST_REAL_RANDOMX_ENV),
+        }
+    }
+}
 
 fn supported_forks() -> EthereumForks {
     let fork = |epoch, version| EthereumFork {
@@ -333,7 +391,7 @@ fn connect_final_v1_child(
 
 #[tokio::test]
 async fn candidate_startup_selects_one_persisted_phase_and_rejects_missing_boundary_marker() {
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+    let _pow_env = RegtestPowEnvGuard::fast();
     std::env::set_var("DOM_PORTMAP", "off");
     let (key_bytes, selected_bridge) = test_spend_key_and_bridge();
 
@@ -534,7 +592,7 @@ fn canonical_first_v2_checkpoint_source_roundtrips_from_persisted_regtest_chain(
         std::fs::rename(candidate, export_root).unwrap();
         return;
     }
-    std::env::set_var("DOM_REGTEST_REAL_RANDOMX", "1");
+    let _pow_env = RegtestPowEnvGuard::real_randomx();
     let directory = TempDir::new().unwrap();
     let (key_bytes, selected_bridge) = test_spend_key_and_bridge();
     let (canonical, chain_id, v1_schedule) =
@@ -1570,10 +1628,23 @@ fn mine_dom_child_with_empty_usdom_v2_batch(
 }
 
 fn mine_regtest_header_parallel(
-    template: dom_consensus::BlockHeader,
+    mut template: dom_consensus::BlockHeader,
     pow_seed: Hash256,
     target: [u8; 32],
 ) -> Result<dom_consensus::BlockHeader, String> {
+    if dom_pow::pow_validation_mode_for_network(NETWORK_MAGIC_REGTEST)
+        .map_err(|error| format!("select regtest PoW mode: {error}"))?
+        == dom_pow::PowValidationMode::FastDevOnly
+    {
+        template.pow.nonce = 0;
+        let hash = dom_pow::fast_pow_hash(pow_seed.as_bytes(), &template.pow_preimage());
+        if !hash_meets_target(&hash, &target) {
+            return Err("fast regtest hash does not meet canonical target".to_owned());
+        }
+        template.pow.randomx_hash = Hash256::from_bytes(hash);
+        return Ok(template);
+    }
+
     let worker_count = std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1)
@@ -1620,7 +1691,31 @@ fn mine_regtest_header_parallel(
                             return;
                         }
                     };
-                    if hash_meets_target(&hash, &target)
+                    if !hash_meets_target(&hash, &target) {
+                        nonce = match nonce.checked_add(stride) {
+                            Some(next) => next,
+                            None => return,
+                        };
+                        continue;
+                    }
+                    let independently_valid = match validate_pow_randomx(
+                        &header.pow_preimage(),
+                        &hash,
+                        pow_seed.as_bytes(),
+                        &target,
+                    ) {
+                        Ok(valid) => valid,
+                        Err(error) => {
+                            found.store(true, Ordering::Release);
+                            if let Ok(mut slot) = first_error.lock() {
+                                slot.get_or_insert_with(|| {
+                                    format!("independently validate RandomX candidate: {error}")
+                                });
+                            }
+                            return;
+                        }
+                    };
+                    if independently_valid
                         && found
                             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                             .is_ok()
@@ -1659,6 +1754,34 @@ fn mine_regtest_header_parallel(
         return Err(error);
     }
     Err("RandomX nonce space exhausted without a valid regtest header".to_owned())
+}
+
+#[test]
+fn regtest_pow_environment_modes_are_exclusive_and_restored() {
+    let previous_fast = std::env::var_os(REGTEST_FAST_MINING_ENV);
+    let previous_real = std::env::var_os(REGTEST_REAL_RANDOMX_ENV);
+
+    {
+        let _pow_env = RegtestPowEnvGuard::fast();
+        assert_eq!(
+            std::env::var_os(REGTEST_FAST_MINING_ENV).as_deref(),
+            Some(std::ffi::OsStr::new("1"))
+        );
+        assert!(std::env::var_os(REGTEST_REAL_RANDOMX_ENV).is_none());
+    }
+    assert_eq!(std::env::var_os(REGTEST_FAST_MINING_ENV), previous_fast);
+    assert_eq!(std::env::var_os(REGTEST_REAL_RANDOMX_ENV), previous_real);
+
+    {
+        let _pow_env = RegtestPowEnvGuard::real_randomx();
+        assert!(std::env::var_os(REGTEST_FAST_MINING_ENV).is_none());
+        assert_eq!(
+            std::env::var_os(REGTEST_REAL_RANDOMX_ENV).as_deref(),
+            Some(std::ffi::OsStr::new("1"))
+        );
+    }
+    assert_eq!(std::env::var_os(REGTEST_FAST_MINING_ENV), previous_fast);
+    assert_eq!(std::env::var_os(REGTEST_REAL_RANDOMX_ENV), previous_real);
 }
 
 #[test]
@@ -1712,7 +1835,7 @@ fn checkpoint_fixture_uses_the_pinned_randomx_guest_image_id() {
 
 #[tokio::test]
 async fn native_runtime_requires_explicit_regtest_activation_and_exact_wire_framing() {
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+    let _pow_env = RegtestPowEnvGuard::fast();
     std::env::set_var("DOM_PORTMAP", "off");
     let ordinary_dir = TempDir::new().unwrap();
     let ordinary =
@@ -1877,7 +2000,11 @@ async fn native_runtime_requires_explicit_regtest_activation_and_exact_wire_fram
 
 #[tokio::test]
 async fn authenticated_history_rpc_pages_are_tip_domain_and_state_anchored() {
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+    let _pow_env = RegtestPowEnvGuard::real_randomx();
+    assert_eq!(
+        dom_pow::pow_validation_mode_for_network(NETWORK_MAGIC_REGTEST).unwrap(),
+        dom_pow::PowValidationMode::RandomX,
+    );
     let dir = TempDir::new().unwrap();
     let (canonical, chain_id) = activate_native_genesis(&dir);
     let node = std::sync::Arc::new(
@@ -1931,6 +2058,45 @@ async fn authenticated_history_rpc_pages_are_tip_domain_and_state_anchored() {
         .unwrap();
 
     let handle = NodeHandleImpl(std::sync::Arc::clone(&node));
+    let absent_candidate = [0x46; 32];
+    let absent_deposit = [0x47; 32];
+    let absent = handle
+        .usdom_v4_issuance_status_v1(UsdomV4IssuanceStatusRequestV1 {
+            schema_version: 1,
+            network_magic: NETWORK_MAGIC_REGTEST,
+            chain_id: *chain_id.as_bytes(),
+            candidate_id: absent_candidate,
+            deposit_id: absent_deposit,
+        })
+        .expect("authenticated absent issuance status");
+    assert_eq!(absent.schema_version, 1);
+    assert_eq!(absent.identity.network_magic, NETWORK_MAGIC_REGTEST);
+    assert_eq!(absent.identity.chain_id, *chain_id.as_bytes());
+    assert!(!absent.queued);
+    assert!(!absent.consumed);
+    assert!(absent.issuance_commitment.is_none());
+    assert!(absent.inclusion.is_none());
+    assert_eq!(absent.scanned_from, None);
+    assert_eq!(absent.scanned_to, None);
+
+    let wrong_chain = handle.usdom_v4_issuance_status_v1(UsdomV4IssuanceStatusRequestV1 {
+        schema_version: 1,
+        network_magic: NETWORK_MAGIC_REGTEST,
+        chain_id: [0x99; 32],
+        candidate_id: absent_candidate,
+        deposit_id: absent_deposit,
+    });
+    assert!(matches!(wrong_chain, Err(RpcError::InvalidScan(_))));
+
+    let wrong_schema = handle.usdom_v4_issuance_status_v1(UsdomV4IssuanceStatusRequestV1 {
+        schema_version: 2,
+        network_magic: NETWORK_MAGIC_REGTEST,
+        chain_id: *chain_id.as_bytes(),
+        candidate_id: absent_candidate,
+        deposit_id: absent_deposit,
+    });
+    assert!(matches!(wrong_schema, Err(RpcError::InvalidScan(_))));
+
     let initial_anchor = UsdomV4HistoryAnchorV1 {
         height: 0,
         block_hash: *canonical.hash.as_bytes(),
@@ -2050,7 +2216,7 @@ async fn authenticated_history_rpc_pages_are_tip_domain_and_state_anchored() {
 
 #[tokio::test]
 async fn native_orphan_replay_preserves_exact_packages_and_converges_child_before_parent() {
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+    let _pow_env = RegtestPowEnvGuard::fast();
     let dir = TempDir::new().unwrap();
     let (canonical, chain_id) = activate_native_genesis(&dir);
     let node = DomNode::init_native_usdom_v4_regtest_with_map_size(
@@ -2144,7 +2310,7 @@ async fn native_orphan_replay_preserves_exact_packages_and_converges_child_befor
 
 #[tokio::test]
 async fn native_future_soft_buffer_preserves_exact_package_until_valid_redelivery() {
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+    let _pow_env = RegtestPowEnvGuard::fast();
     let dir = TempDir::new().unwrap();
     let (canonical, chain_id) = activate_native_genesis(&dir);
     let node = DomNode::init_native_usdom_v4_regtest_with_map_size(
@@ -2236,7 +2402,7 @@ async fn native_future_queue_runtime_drain_commits_and_relays_exact_package() {
         .with_env_filter(tracing_subscriber::EnvFilter::new("info"))
         .with_test_writer()
         .try_init();
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+    let _pow_env = RegtestPowEnvGuard::fast();
     std::env::set_var("DOM_PORTMAP", "off");
     let dir = TempDir::new().unwrap();
     let (canonical, chain_id) = activate_native_genesis(&dir);
@@ -2350,7 +2516,7 @@ async fn two_native_nodes_sync_exact_package_over_authenticated_v4_ibd() {
         )
         .with_test_writer()
         .try_init();
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+    let _pow_env = RegtestPowEnvGuard::fast();
     std::env::set_var("DOM_PORTMAP", "off");
     let server_dir = TempDir::new().unwrap();
     let client_dir = TempDir::new().unwrap();
@@ -2470,7 +2636,7 @@ async fn two_v2_nodes_sync_exact_package_and_witnesses_over_authenticated_v2_ibd
         )
         .with_test_writer()
         .try_init();
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+    let _pow_env = RegtestPowEnvGuard::fast();
     std::env::set_var("DOM_PORTMAP", "off");
     let (key_bytes, selected_bridge) = test_spend_key_and_bridge();
     let server_dir = TempDir::new().unwrap();
@@ -2723,7 +2889,7 @@ async fn two_v2_nodes_sync_exact_package_and_witnesses_over_authenticated_v2_ibd
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn v2_miner_rewards_dom_and_persists_an_exact_empty_usdom_batch_without_issuance() {
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+    let _pow_env = RegtestPowEnvGuard::fast();
     std::env::set_var("DOM_PORTMAP", "off");
     let (key_bytes, selected_bridge) = test_spend_key_and_bridge();
     let dir = TempDir::new().unwrap();
@@ -2850,7 +3016,7 @@ async fn v2_miner_rewards_dom_and_persists_an_exact_empty_usdom_batch_without_is
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_miner_builds_persists_and_relays_the_exact_empty_v4_package() {
-    std::env::set_var("DOM_REGTEST_FAST_MINING", "1");
+    let _pow_env = RegtestPowEnvGuard::fast();
     std::env::set_var("DOM_PORTMAP", "off");
     let dir = TempDir::new().unwrap();
     activate_native_genesis(&dir);

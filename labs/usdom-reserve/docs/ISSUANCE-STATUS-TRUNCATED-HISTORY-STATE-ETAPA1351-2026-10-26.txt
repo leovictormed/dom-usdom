@@ -1,0 +1,59 @@
+Stage 1351 — explicit truncated-history issuance state
+Date: 2026-10-26
+
+Finding
+
+For a deposit consumed more than 256 canonical blocks ago, issuance status
+could return `consumed=true` and `inclusion=null`. That proved only that some
+candidate consumed the deposit; it did not authenticate the requested
+candidate/deposit pair. Without an explicit outcome, receipt-recovery software
+could mistake deposit consumption for confirmation of the submitted candidate.
+
+Correction
+
+The response now carries an exact `pair_state` and a machine-readable
+`history_truncated` flag. The pair states are:
+
+- `absent`: no canonical consumption and no exact eligible pool entry;
+- `queued`: the exact pair is still eligible in the volatile pool;
+- `canonical`: the exact pair has an authenticated canonical inclusion;
+- `candidate_mismatch`: a complete search proves another candidate consumed
+  the deposit;
+- `history_truncated`: the deposit is consumed but its inclusion predates the
+  bounded search, so this endpoint cannot confirm or reject the candidate.
+
+Internally inconsistent combinations fail closed. In particular, inclusion or
+truncation without canonical consumption and simultaneous effective queued and
+consumed states return an internal error.
+
+Design decision
+
+An authenticated persistent deposit-to-inclusion index would provide archival
+resolution, but it requires a versioned database migration plus atomic connect,
+disconnect, reorg and restart validation. Adding an unaudited index to a live
+consensus persistence path would be less robust than returning an explicit
+inconclusive state. The new contract preserves bounded work and prevents false
+confirmation now; a future archival index can replace `history_truncated`
+without weakening callers.
+
+Lock-scope review
+
+The chain lock must remain held across identity, height-index lookup and
+history authentication to prevent reorg drift. The runtime lock must be taken
+under the global chain-before-runtime order to snapshot pool residency and
+canonical USDOM state. Runtime mutations also acquire the chain lock first, so
+dropping only the runtime guard would not improve writer concurrency while the
+chain snapshot remains active. The absent-deposit fast path and the 256-block
+limit continue to bound lock duration.
+
+Evidence
+
+- dom-node pair-state regression: 1 passed, 0 failed; five valid states and
+  three incoherent combinations are covered.
+- dom-rpc authenticated endpoint serialization regression: 1 passed, 0 failed.
+- The first RPC run correctly exposed an incoherent legacy fixture and a
+  misplaced expected field; the fixture was corrected and the rerun passed.
+- Targeted rustfmt and git diff --check pass.
+- No RandomX mining, network, wallet, signature, deployment, funds, commit or
+  push occurred.
+

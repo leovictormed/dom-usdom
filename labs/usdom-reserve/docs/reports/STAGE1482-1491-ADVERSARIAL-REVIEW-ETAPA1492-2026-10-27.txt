@@ -1,0 +1,21 @@
+Etapa 1492 — revisão adversarial final dos scripts 1482–1491
+
+Escopo: gerador, plano 33/33, checker, bootstrap Ubuntu e entrypoint único.
+
+Achados corrigidos
+- O diretório fixo de evidências era criado com modo 0700, mas uma árvore já
+  existente por symlink não era recusada explicitamente.
+- O catálogo RPC conferia modo do alvo, porém não recusava explicitamente o
+  próprio pathname como symlink/hardlink.
+- O diretório público do plano e os diretórios de keystore/backup precisavam
+  validar realpath, owner e mode antes de publicar.
+- O plano público criado sob umask 077 não era normalizado explicitamente para
+  0644 nem revalidava owner/mode/link count na retomada.
+
+Correções
+- Todas essas fronteiras agora recusam links, exigem realpath exato, owner e
+  mode; arquivos fixos exigem link count 1. Publicação usa no-clobber e bytes
+  existentes precisam coincidir.
+- A revisão não encontrou eval/source de dados, expansão não cotada capaz de
+  injetar comandos, segredo em stdout ou overwrite restante nas rotas novas.
+- Checker e regressão fixam as barreiras. Nenhuma operação foi executada.

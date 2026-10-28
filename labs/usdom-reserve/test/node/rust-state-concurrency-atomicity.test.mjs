@@ -33,7 +33,7 @@ function count(source, needle) {
 
 test("Rust USDOM synchronization and publication boundaries remain inventoried", () => {
   const rust = files();
-  assert.equal(rust.length, 59);
+  assert.equal(rust.length, 63);
   const source = rust.map(production).join("\n");
   assert.deepEqual({
     exclusiveLocks: count(source, "lock_exclusive("),

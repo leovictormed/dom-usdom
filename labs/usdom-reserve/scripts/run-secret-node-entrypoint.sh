@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
-set -euo pipefail
 # These short-lived operators read the local RPC bearer token. Refuse inherited
 # tracing and crash artifacts before Node captures the token into process memory.
 set +x
 unset BASH_XTRACEFD 2>/dev/null || true
+set -euo pipefail
+set +o history 2>/dev/null || true
+unset HISTFILE BASH_ENV ENV CDPATH
+export HISTFILE=/dev/null
+for fd_path in /proc/$$/fd/*; do
+  inherited_fd=${fd_path##*/}
+  [[ $inherited_fd =~ ^[0-9]+$ ]] || exit 1
+  (( inherited_fd <= 2 )) && continue
+  [[ $inherited_fd == 255 ]] && continue
+  exec {inherited_fd}>&-
+done
+unset fd_path inherited_fd
 export RUST_BACKTRACE=0
 export RUST_LIB_BACKTRACE=0
 if ! ulimit -c 0; then
@@ -17,7 +28,7 @@ if (($# != 1)); then
   exit 64
 fi
 case $1 in
-  submit-finalized-deposit-issuance.mjs|initialize-closed-mainnet-genesis.mjs|mine-closed-mainnet-issuance-block.mjs)
+  submit-finalized-deposit-issuance.mjs|initialize-closed-mainnet-genesis.mjs|mine-closed-mainnet-issuance-block.mjs|mine-closed-mainnet-burn-block.mjs)
     entrypoint=$1
     ;;
   *)

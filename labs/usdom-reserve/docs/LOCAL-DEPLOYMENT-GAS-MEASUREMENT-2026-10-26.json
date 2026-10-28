@@ -1,8 +1,8 @@
 {
-  "schema": "usdom-local-deployment-gas-measurement/v1",
+  "schema": "usdom-local-deployment-gas-measurement/v2",
   "network": "anvil-local-chain-31337",
   "node": {
-    "path": "/home/leonardov/.local/toolchains/node-v24.19.0-linux-x64/bin/node",
+    "path": "node",
     "sha256": "bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12",
     "version": "v24.19.0"
   },
@@ -14,25 +14,25 @@
   "supportArtifacts": {
     "riscZero": {
       "artifactPath": "out/DOMFinalizedBurnRiscZeroVerifier.t.sol/MockRiscZeroVerifierV3.json",
-      "artifactSha256": "5e604dd34cbaf6d91a8f95fb4629c270af6ae0c801b285bac2ef19b5adea09bf"
+      "artifactExecutableSha256": "6050f704a8239541f7161028f650133aa9053b7c926084a97423c643c98900ac"
     },
     "token": {
       "artifactPath": "out/Mocks.sol/HostileToken.json",
-      "artifactSha256": "7c6bd6b7f92a0693d9e768aff34a45e8d7a9fff8f363fb2549a89873234c346d"
+      "artifactExecutableSha256": "da53e319c3ed2142ffdd4a1dae209a8438933aebc04c29d7b5af1da173ed0df1"
     },
     "singleton": {
       "artifactPath": "out/Mocks.sol/MockGovernance.json",
-      "artifactSha256": "76ca5be187f6e52775057264bb949cb02dfdfe125a6d916bdd5eb41a1102a0ef"
+      "artifactExecutableSha256": "a6b143f0eab5cbfcd3484efa5671110c50602c8140e134e7d42851beba421094"
     },
     "control": {
       "artifactPath": "out/Mocks.sol/MockMutableSingletonControl.json",
-      "artifactSha256": "7a090483930861a5ed89c28dd1ff523454821d689dc5e8929d4336812140cb23"
+      "artifactExecutableSha256": "7a4e81c9859e5fae3d8f6d323fe61f0ad54c8e959e88e5b764f0c2cfed3cbf70"
     }
   },
   "contracts": {
     "finalizedBurnVerifier": {
       "artifactPath": "out/DOMFinalizedBurnRiscZeroVerifier.sol/DOMFinalizedBurnRiscZeroVerifier.json",
-      "artifactSha256": "efdf2caf03cf1e59c2ea796869670b9e492e9cad7ce454c632ac530987b6b940",
+      "artifactExecutableSha256": "c42c53a808fad4b7be397a7c38459f7900decb639ec23f64a3e83fe1044898d4",
       "initcodeSha256": "d64d00e2bc49c4b8c24f8340aee5f87ce8438fc3ddf0ea6465000f2081c771dd",
       "initcodeBytes": 2573,
       "runtimeCodeHash": "0x53494166b1d39cffda8a4f82d636c52c16e5642b046715591e5e2655a3d53226",
@@ -44,7 +44,7 @@
     },
     "checkpointVerifier": {
       "artifactPath": "out/DOMCheckpointRiscZeroVerifier.sol/DOMCheckpointRiscZeroVerifier.json",
-      "artifactSha256": "0286dc029260a0269fd460ce1b82583d11bee18c89b297cfac46c639bbec9cfc",
+      "artifactExecutableSha256": "8c55af497d6d9fa155ea15879ec4022b84be6710b137acfb0899332e60c7fa22",
       "initcodeSha256": "374ac2e82f2f4fb753c2b0c98ecfef766abfce1831d8a6725a851ad746f425b0",
       "initcodeBytes": 2573,
       "runtimeCodeHash": "0x7fbe243c361e064f95a95d9996285b55360c6cf71f5ddc6df82c2f5f565cd4aa",
@@ -56,34 +56,34 @@
     },
     "checkpointRegistry": {
       "artifactPath": "out/DOMCheckpointRegistry.sol/DOMCheckpointRegistry.json",
-      "artifactSha256": "5f2e09d1845dbcd8292c8fbf443efad67357700d1bc3f4d075141566ff7c2338",
-      "initcodeSha256": "893fc31f3967d255172bdaa210e923d1725d8cd9b1d4057ee1a43985b1d77061",
-      "initcodeBytes": 15058,
-      "runtimeCodeHash": "0x28096bde6fda40b648736db5f7d1e7b49cebb90b170bcab2618567bbdd9a52ea",
-      "runtimeBytes": 10163,
-      "gasUsed": "2545275",
-      "auditedCreateGasCeiling": "2600000",
-      "measuredMargin": "54725",
-      "plannedGasLimit": "3555578"
+      "artifactExecutableSha256": "58f814140e3c82c43661f513744c2b1ba1907c5d3e64e8df274780ca023801a6",
+      "initcodeSha256": "7c22b141299fe618bcf5a29998a4137a5f376982d3a4af8ab76ead431031f9a4",
+      "initcodeBytes": 15802,
+      "runtimeCodeHash": "0x2508395a9b6338326271b68d5ab326e8f06c7db1dc9ba3fe251daf6787041b32",
+      "runtimeBytes": 10675,
+      "gasUsed": "2659546",
+      "auditedCreateGasCeiling": "2700000",
+      "measuredMargin": "40454",
+      "plannedGasLimit": "3693505"
     },
     "reserve": {
       "artifactPath": "out/USDOMProofReserve.sol/USDOMProofReserve.json",
-      "artifactSha256": "fc09f786231a82fc6830172ecba5a7737ce53a8387d9784268e8cb137780352b",
-      "initcodeSha256": "f3efa6b0f66edfaf220c11663ae9fd04b36dd5b7e82fc6f8a9179160202c8675",
-      "initcodeBytes": 26498,
-      "runtimeCodeHash": "0xd0a0fcc936986c1222769b81d4f4046368b77614314d18f18d6b59f075136d60",
-      "runtimeBytes": 20100,
-      "gasUsed": "4707900",
+      "artifactExecutableSha256": "f526b7253a80dcdc223768dc038e07b7fd524c2b5f3dcd8d2b7e25d8ba14c666",
+      "initcodeSha256": "62d457a44a639572c352e6fee0bb59e9c124200211e31e63220a5fdb20f397ca",
+      "initcodeBytes": 26937,
+      "runtimeCodeHash": "0x6b8ef7cd37ef0af349651e4f26fc416163553794d06a6b3b162a8487e2a87e81",
+      "runtimeBytes": 20339,
+      "gasUsed": "4764316",
       "auditedCreateGasCeiling": "4800000",
-      "measuredMargin": "92100",
-      "plannedGasLimit": "6521713"
+      "measuredMargin": "35684",
+      "plannedGasLimit": "6526685"
     }
   },
   "aggregate": {
-    "measuredGas": "8170065",
-    "plannedGasLimit": "12094527",
+    "measuredGas": "8340752",
+    "plannedGasLimit": "12237426",
     "sequenceGasLimit": "12500000",
-    "policyMargin": "405473"
+    "policyMargin": "262574"
   },
   "limitations": [
     "local chain bypasses chain-id-1 production-pin branches",

@@ -17,18 +17,21 @@ const decisions=Object.freeze(new Map([
   ['recovery','resume-only-after-release-bound-recovery-drill'],
 ]));
 const topFields=['schema','releaseId','sourceCommit','sourceTag','ethereumChainId','reserveConfigHash',
-  'checkpointRegistryConfigHash','activationScheduleCommitment','startedAtUnix','finishedAtUnix','scenarios'];
+  'checkpointRegistryConfigHash','activationScheduleCommitment','generationId','forkBlockNumber',
+  'forkBlockHash','rpcSourceIds','rpcEndpointHashes','startedAtUnix','finishedAtUnix','scenarios'];
 const scenarioFields=['id','faultObserved','decisionObserved','unsafeTransitionCount','fundLossBaseUnits',
   'recoveryObserved','startedAtUnix','finishedAtUnix','preStateCommitment','faultStateCommitment',
   'postRecoveryStateCommitment','faultEvidence','recoveryEvidence'];
 const reportFields=['schema','status','releaseId','sourceCommit','sourceTag','ethereumChainId',
-  'reserveConfigHash','checkpointRegistryConfigHash','activationScheduleCommitment','startedAtUnix',
+  'reserveConfigHash','checkpointRegistryConfigHash','activationScheduleCommitment','generationId',
+  'forkBlockNumber','forkBlockHash','rpcSourceIds','rpcEndpointHashes','startedAtUnix',
   'finishedAtUnix','observationsSha256','scenarioCount','scenarios','successCondition','failureCondition'];
 const faultEvidenceFields=['schema','scenarioId','releaseId','sourceCommit','commandId',
   'assertionExitCode','observedDecision','preStateCommitment','faultStateCommitment',
-  'unsafeTransitionCount','fundLossBaseUnits','capturedAtUnix'];
+  'unsafeTransitionCount','fundLossBaseUnits','generationId','forkBlockNumber','forkBlockHash','capturedAtUnix'];
 const recoveryEvidenceFields=['schema','scenarioId','releaseId','sourceCommit','commandId',
-  'assertionExitCode','recoveryObserved','postRecoveryStateCommitment','capturedAtUnix'];
+  'assertionExitCode','recoveryObserved','postRecoveryStateCommitment','generationId',
+  'forkBlockNumber','forkBlockHash','capturedAtUnix'];
 
 function fail(message) { throw new Error(message); }
 function exact(value,fields,label) {
@@ -66,6 +69,18 @@ function stable(value) {
 function digest(value) {
   return createHash('sha256').update(`${JSON.stringify(stable(value))}\n`).digest('hex');
 }
+function validateExecutionIdentity(value) {
+  if(!sha.test(value.generationId??'')) fail('fork rehearsal generationId is invalid');
+  if(decimal(value.forkBlockNumber,64,'forkBlockNumber')===0n) fail('fork block number must be nonzero');
+  bytes32(value.forkBlockHash,'forkBlockHash');
+  const ids=['drpc','publicnode'];
+  const endpointHashes=['c5b9f7564a09b1b2bbdff2c7145d474bbc2ccd025460d9c5b097a39474b7980c',
+    '7b71d04b616d2ce47598465ad04d63da212a14b1317f965044bf325b749a6746'];
+  if(JSON.stringify(value.rpcSourceIds)!==JSON.stringify(ids)
+      ||JSON.stringify(value.rpcEndpointHashes)!==JSON.stringify(endpointHashes)) {
+    fail('fork rehearsal RPC source identity is invalid');
+  }
+}
 export function serializeForkRehearsalEvidenceDocument(value) {
   return Buffer.from(`${JSON.stringify(stable(value))}\n`);
 }
@@ -99,9 +114,12 @@ function validateEvidenceDocument({kind,entry,scenario,observations,scenarioStar
     }
   }
   if(value.scenarioId!==scenario.id||value.releaseId!==observations.releaseId
-      ||value.sourceCommit!==observations.sourceCommit) fail(`${scenario.id} ${kind} evidence release binding differs`);
+      ||value.sourceCommit!==observations.sourceCommit||value.generationId!==observations.generationId
+      ||value.forkBlockNumber!==observations.forkBlockNumber
+      ||value.forkBlockHash!==observations.forkBlockHash) fail(`${scenario.id} ${kind} evidence release/generation binding differs`);
   const captured=decimal(value.capturedAtUnix,64,`${scenario.id} ${kind} capturedAtUnix`);
   if(captured<scenarioStarted||captured>scenarioFinished) fail(`${scenario.id} ${kind} evidence time is invalid`);
+  return captured;
 }
 
 export function buildMainnetForkRehearsalReport({observations,releaseEvidence,releaseConfig,
@@ -119,6 +137,7 @@ export function buildMainnetForkRehearsalReport({observations,releaseEvidence,re
     if(bytes32(observations[field],field)!==releaseConfig[field]) fail(`${field} differs from release config`);
   }
   if(observations.ethereumChainId!==releaseConfig.ethereumChainId) fail('ethereumChainId differs from release config');
+  validateExecutionIdentity(observations);
   const started=decimal(observations.startedAtUnix,64,'startedAtUnix');
   const finished=decimal(observations.finishedAtUnix,64,'finishedAtUnix');
   if(started===0n||finished<started||finished-started>7n*86400n) fail('rehearsal time window is invalid');
@@ -145,8 +164,11 @@ export function buildMainnetForkRehearsalReport({observations,releaseEvidence,re
     }
     const pre=bytes32(scenario.preStateCommitment,`${scenario.id} preStateCommitment`);
     const during=bytes32(scenario.faultStateCommitment,`${scenario.id} faultStateCommitment`);
-    bytes32(scenario.postRecoveryStateCommitment,`${scenario.id} postRecoveryStateCommitment`);
+    const recovered=bytes32(scenario.postRecoveryStateCommitment,
+      `${scenario.id} postRecoveryStateCommitment`);
     if(pre!==during) fail(`${scenario.id} changed protected state while the fault was active`);
+    if(recovered!==pre) fail(`${scenario.id} did not restore the exact protected pre-fault state`);
+    const capturedAt={};
     for(const [kind,reference] of [['fault',document(scenario.faultEvidence,
       `${scenario.id} faultEvidence`)],['recovery',document(scenario.recoveryEvidence,
       `${scenario.id} recoveryEvidence`)]]) {
@@ -156,7 +178,11 @@ export function buildMainnetForkRehearsalReport({observations,releaseEvidence,re
       if(entry?.sha256!==reference.sha256) {
         fail(`${scenario.id} ${kind} evidence content hash mismatch`);
       }
-      validateEvidenceDocument({kind,entry,scenario,observations,scenarioStarted,scenarioFinished});
+      capturedAt[kind]=validateEvidenceDocument({kind,entry,scenario,observations,
+        scenarioStarted,scenarioFinished});
+    }
+    if(capturedAt.recovery<capturedAt.fault) {
+      fail(`${scenario.id} recovery evidence predates fault evidence`);
     }
     return structuredClone(scenario);
   });
@@ -168,10 +194,13 @@ export function buildMainnetForkRehearsalReport({observations,releaseEvidence,re
     reserveConfigHash:observations.reserveConfigHash,
     checkpointRegistryConfigHash:observations.checkpointRegistryConfigHash,
     activationScheduleCommitment:observations.activationScheduleCommitment,
+    generationId:observations.generationId,forkBlockNumber:observations.forkBlockNumber,
+    forkBlockHash:observations.forkBlockHash,rpcSourceIds:[...observations.rpcSourceIds],
+    rpcEndpointHashes:[...observations.rpcEndpointHashes],
     startedAtUnix:observations.startedAtUnix,finishedAtUnix:observations.finishedAtUnix,
     observationsSha256:digest(observations),scenarioCount:scenarios.length.toString(),scenarios,
-    successCondition:'all-six-faults-observed; exact fail-closed decision; zero unsafe transitions; zero fund loss; protected state unchanged during fault; recovery evidenced',
-    failureCondition:'any missing, stale, release-mismatched, hash-mismatched, state-changing, loss-bearing, bypassed, unrecovered, or unexpected scenario fails the report',
+    successCondition:'all-six-faults-observed; exact fail-closed decision; zero unsafe transitions; zero fund loss; protected state unchanged during fault; exact pre-fault state restored; recovery evidence at or after fault evidence',
+    failureCondition:'any missing, stale, release-mismatched, hash-mismatched, state-changing, loss-bearing, bypassed, causally inverted, incompletely restored, unrecovered, or unexpected scenario fails the report',
   });
 }
 
@@ -191,6 +220,9 @@ export function validateMainnetForkRehearsalReport({report,releaseEvidence,relea
     ethereumChainId:report.ethereumChainId,reserveConfigHash:report.reserveConfigHash,
     checkpointRegistryConfigHash:report.checkpointRegistryConfigHash,
     activationScheduleCommitment:report.activationScheduleCommitment,
+    generationId:report.generationId,forkBlockNumber:report.forkBlockNumber,
+    forkBlockHash:report.forkBlockHash,rpcSourceIds:structuredClone(report.rpcSourceIds),
+    rpcEndpointHashes:structuredClone(report.rpcEndpointHashes),
     startedAtUnix:report.startedAtUnix,finishedAtUnix:report.finishedAtUnix,
     scenarios:structuredClone(report.scenarios)};
   const expected=buildMainnetForkRehearsalReport({observations,releaseEvidence,releaseConfig,evidenceFiles});

@@ -5,15 +5,20 @@ import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readDirectFile,readDirectProjectFile} from '../sdk/direct-project-file.mjs';
-import {writePrivateFileDurable,writePrivateFileDurableNew} from '../sdk/durable-private-file.mjs';
+import {writePrivateFileDurableNew} from '../sdk/durable-private-file.mjs';
+import {durableReplacementFailureExitCode,replaceLockedParentFileDurable}
+  from '../sdk/durable-locked-parent-replacement.mjs';
 import {
   CHECKPOINT_CAPACITY_EVIDENCE_PATH,
+  CHECKPOINT_CAPACITY_MANIFEST_PATH,
   prepareCheckpointCapacityReleaseEvidenceMaterialization,
 } from '../sdk/checkpoint-capacity-release-evidence-materialization.mjs';
 import {validateReleaseSourceBoundary} from '../sdk/release-source-boundary.mjs';
 import {PINNED_RISC0_MAINNET_V3} from '../sdk/risc0-verifier-reference.mjs';
-import {parseStrictJson} from '../sdk/strict-json.mjs';
+import {parseStrictJsonBytes} from '../sdk/strict-json.mjs';
 import {captureCheckpointCapacityRun} from '../sdk/checkpoint-run-snapshot.mjs';
+import {buildCheckpointCapacityArtifactManifest,collectCheckpointCapacityArtifacts} from '../sdk/checkpoint-capacity-artifact-collector.mjs';
+import {buildCheckpointProofCapacityReport} from '../sdk/checkpoint-proof-capacity-report.mjs';
 import {snapshotExecutable} from '../sdk/stable-executable.mjs';
 import {runPinnedExecutable} from '../sdk/pinned-executable-child.mjs';
 
@@ -29,6 +34,7 @@ const releasePath='config/proof-reserve.unconfigured.json';
 const verifierPath='config/checkpoint-verifier.unconfigured.json';
 const evidencePath='config/mainnet-release-evidence.unconfigured.json';
 const gitExecutable=await snapshotExecutable('git');
+const pythonExecutable=await snapshotExecutable('python3');
 
 const rawSha=value=>createHash('sha256').update(value).digest('hex');
 function fail(message) { throw new Error(message); }
@@ -87,7 +93,7 @@ async function latestCompletedRun(sourceCommit) {
   const snapshot=await captureCheckpointCapacityRun(runRoot);
   try {
     const {statusBytes,reportBytes}=snapshot;
-    const status=parseStrictJson(statusBytes.toString('utf8'),{label:'checkpoint capacity run status'});
+    const status=parseStrictJsonBytes(statusBytes,{label:'checkpoint capacity run status'});
     exact(status,['recordedAt','reportSha256','runId','schema','sourceCommit','status'],
       'checkpoint capacity run status');
     if(status.schema!=='usdom-checkpoint-capacity-run-v1' || status.status!=='succeeded'
@@ -97,15 +103,46 @@ async function latestCompletedRun(sourceCommit) {
         || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z$/.test(status.recordedAt)) {
       fail('latest checkpoint capacity run is not a canonical success for this source commit');
     }
-    return {runId,runRoot,statusBytes,reportBytes,snapshot,
-      report:parseStrictJson(reportBytes.toString('utf8'),{
-        label:'checkpoint capacity report',maxBytes:4*1024*1024,maxDepth:64,
-      })};
+    const report=parseStrictJsonBytes(reportBytes,{label:'checkpoint capacity report',maxBytes:4*1024*1024,maxDepth:64});
+    const manifestBytes=await readPrivateFile(path.join(runRoot,'artifact-manifest.json'),{maximum:16*1024*1024});
+    const manifest=parseStrictJsonBytes(manifestBytes,{label:'checkpoint capacity artifact manifest',maxBytes:16*1024*1024,maxDepth:16});
+    if(manifest?.schema!=='usdom-checkpoint-capacity-artifact-manifest/v1'||manifest.runId!==runId
+        ||rawSha(manifestBytes)!==report.artifactManifestSha256||report.runId!==runId
+        ||report.artifactManifestPath!=='artifact-manifest.json') fail('checkpoint capacity manifest identity is invalid');
+    return {runId,runRoot,statusBytes,reportBytes,manifestBytes,snapshot,report};
   } catch(error) { await snapshot.cleanup(); throw error; }
 }
 
-async function assertRunUnchanged({snapshot}) {
+async function assertRunUnchanged({snapshot,runRoot,manifestBytes}) {
   await snapshot.assertOriginsUnchanged();
+  const current=await readPrivateFile(path.join(runRoot,'artifact-manifest.json'),{maximum:16*1024*1024});
+  if(!current.equals(manifestBytes)) fail('checkpoint capacity artifact manifest changed during materialization');
+}
+
+async function reconstructRunReport(latest,validation) {
+  const regeneratedManifest=await buildCheckpointCapacityArtifactManifest(
+    path.join(latest.runRoot,'work/labs/usdom-reserve'),latest.runId);
+  if(!regeneratedManifest.bytes.equals(latest.manifestBytes)) {
+    fail('checkpoint capacity manifest differs from the complete preserved artifact inventory');
+  }
+  const layerByName=new Map(latest.report.layers.map(layer=>[layer.name,layer]));
+  const metric=name=>({provingWallMilliseconds:layerByName.get(name)?.provingWallMilliseconds,
+    peakResidentKiB:layerByName.get(name)?.peakResidentKiB});
+  const collected=await collectCheckpointCapacityArtifacts(
+    path.join(latest.runRoot,'work/labs/usdom-reserve'),{
+      checkpointVerifierConfig:validation.checkpointVerifierConfig,
+      metrics:{randomx:metric('randomx'),randomxAggregate:metric('randomx-aggregate'),
+        segment:metric('segment'),outer:metric('outer'),compression:{
+          provingWallMilliseconds:latest.report.compressionWallMilliseconds,
+          peakResidentKiB:latest.report.compressionPeakResidentKiB,
+        }},
+      beforeOriginRecheck:()=>assertRunUnchanged(latest),
+    });
+  const {schema,artifactSetCommitmentSchema,outerJournalDigestSha256,layers,...base}=latest.report;
+  const reconstructed=buildCheckpointProofCapacityReport(base,collected.measuredLayers,validation);
+  if(JSON.stringify(reconstructed)!==JSON.stringify(latest.report)) {
+    fail('checkpoint capacity report differs from its preserved receipt graph');
+  }
 }
 
 async function ensureDirectParent(relative) {
@@ -122,13 +159,20 @@ async function ensureDirectParent(relative) {
   }
 }
 
-async function atomicWrite(relative,content) {
+async function compareAndSwapEvidence(relative,content,previousBytes) {
   if(typeof relative!=='string' || relative==='' || relative.startsWith('/') || relative.includes('\\')
       || relative.split('/').some(part=>part==='' || part==='.' || part==='..')) {
     fail('materialization path is not canonical');
   }
   await ensureDirectParent(relative);
-  await writePrivateFileDurable(path.join(root,relative),content);
+  const target=path.join(root,relative),parent=path.dirname(target),metadata=await lstat(parent);
+  if(!metadata.isDirectory()||metadata.isSymbolicLink()||metadata.uid!==currentUid
+      ||(metadata.mode&0o022)!==0) fail('release evidence parent is unsafe');
+  const bytes=Buffer.from(content);
+  await replaceLockedParentFileDurable({target,contents:bytes,expectedSha256:rawSha(bytes),
+    expectedPreviousSha256:rawSha(previousBytes),expectedParentDevice:String(metadata.dev),
+    expectedParentInode:String(metadata.ino),metadataInspectorExecutable:pythonExecutable.path,
+    metadataInspectorSha256:pythonExecutable.sha256,expectedMode:0o600});
 }
 
 async function immutableWrite(relative,content) {
@@ -161,49 +205,65 @@ async function main() {
     readDirectProjectFile(root,releasePath),readDirectProjectFile(root,verifierPath),
     readDirectProjectFile(root,evidencePath),
   ]);
-  const releaseConfig=parseStrictJson(releaseBytes.toString('utf8'),{label:releasePath});
-  const checkpointVerifierConfig=parseStrictJson(verifierBytes.toString('utf8'),{label:verifierPath});
-  const evidence=parseStrictJson(evidenceBytes.toString('utf8'),{label:evidencePath});
+  const releaseConfig=parseStrictJsonBytes(releaseBytes,{label:releasePath});
+  const checkpointVerifierConfig=parseStrictJsonBytes(verifierBytes,{label:verifierPath});
+  const evidence=parseStrictJsonBytes(evidenceBytes,{label:evidencePath});
   if(!/^[0-9a-f]{40}$/.test(evidence.sourceCommit??'')) {
     fail('release evidence sourceCommit is not configured');
   }
   await assertSourceBoundary(evidence.sourceCommit);
   const latest=await latestCompletedRun(evidence.sourceCommit);
+  let primaryError=null,successRecord=null;
   try {
+    const validation={evidence,releaseConfig,checkpointVerifierConfig,
+      riscZeroReference:PINNED_RISC0_MAINNET_V3};
+    await reconstructRunReport(latest,validation);
     const prepared=prepareCheckpointCapacityReleaseEvidenceMaterialization({
-      report:latest.report,evidence,releaseConfig,checkpointVerifierConfig,
-      riscZeroReference:PINNED_RISC0_MAINNET_V3,
+      report:latest.report,...validation,
     });
     await assertSourceBoundary(evidence.sourceCommit);
     await assertInputsUnchanged({releaseBytes,verifierBytes,evidenceBytes});
     await assertRunUnchanged(latest);
     await immutableWrite(CHECKPOINT_CAPACITY_EVIDENCE_PATH,prepared.reportContent);
+    await immutableWrite(CHECKPOINT_CAPACITY_MANIFEST_PATH,latest.manifestBytes);
     await assertSourceBoundary(evidence.sourceCommit);
     await assertInputsUnchanged({releaseBytes,verifierBytes,evidenceBytes});
     await assertRunUnchanged(latest);
-    await atomicWrite(evidencePath,prepared.evidenceContent);
+    await compareAndSwapEvidence(evidencePath,prepared.evidenceContent,evidenceBytes);
     await assertSourceBoundary(evidence.sourceCommit);
     await assertInputsUnchanged({releaseBytes,verifierBytes,evidenceBytes:Buffer.from(prepared.evidenceContent)});
     await assertRunUnchanged(latest);
-    const [installedReport,installedEvidence]=await Promise.all([
+    const [installedReport,installedManifest,installedEvidence]=await Promise.all([
       readDirectFile(path.join(root,CHECKPOINT_CAPACITY_EVIDENCE_PATH),{
         minimum:Buffer.byteLength(prepared.reportContent),
         maximum:Buffer.byteLength(prepared.reportContent),privateMode:true,
         label:'installed checkpoint capacity release report',
       }),
+      readDirectFile(path.join(root,CHECKPOINT_CAPACITY_MANIFEST_PATH),{
+        minimum:latest.manifestBytes.length,maximum:latest.manifestBytes.length,privateMode:true,
+        label:'installed checkpoint capacity artifact manifest',
+      }),
       readDirectProjectFile(root,evidencePath),
     ]);
     if(!installedReport.equals(Buffer.from(prepared.reportContent))
+        ||!installedManifest.equals(latest.manifestBytes)
         ||!installedEvidence.equals(Buffer.from(prepared.evidenceContent))) {
       fail('installed checkpoint capacity release generation differs from prepared bytes');
     }
-    console.log(JSON.stringify({ok:true,runId:latest.runId,path:CHECKPOINT_CAPACITY_EVIDENCE_PATH,
-      sha256:prepared.sha256,broadcastAuthorized:false},null,2));
-  } finally { await latest.snapshot.cleanup(); }
+    successRecord={ok:true,runId:latest.runId,path:CHECKPOINT_CAPACITY_EVIDENCE_PATH,
+      sha256:prepared.sha256,broadcastAuthorized:false};
+  } catch(error) {
+    primaryError=error;
+    throw error;
+  } finally {
+    try { await latest.snapshot.cleanup(); }
+    catch(cleanupError) { if(primaryError===null) throw cleanupError; }
+  }
+  console.log(JSON.stringify(successRecord,null,2));
 }
 
 try { await main(); }
 catch(error) {
   writeReleaseFailure('materialize-checkpoint-capacity-release-evidence',error);
-  process.exitCode=1;
+  process.exitCode=durableReplacementFailureExitCode(error);
 }

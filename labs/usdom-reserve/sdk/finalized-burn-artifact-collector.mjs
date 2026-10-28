@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   FINALIZED_BURN_EVM_SEAL_BYTES,FINALIZED_BURN_IMAGE_ID,
-  buildAuthenticatedFinalizedBurnSubmission,
+  buildAuthenticatedFinalizedBurnSubmission,proofReserveConfigurationFromRelease,
 } from './finalized-burn-submission.mjs';
 import {parseStrictJsonBytes} from './strict-json.mjs';
 import {readDirectFile} from './direct-project-file.mjs';
@@ -17,7 +17,7 @@ const currentUid=process.getuid();
 const maximumArtifactBytes=256*1024*1024;
 const rawHashPattern=/^[0-9a-f]{64}$/;
 const finalizedBurnProgramSha256=
-  '883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21';
+  'bf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511';
 const groth16VerifierParameters=
   '73c457ba541936f0d907daf0c7253a39a9c5c427c225ba7709e44702d3c6eedc';
 const jobFields=Object.freeze([
@@ -142,9 +142,20 @@ async function privateReplica(originRoot,catalog,expected) {
 
 /** Validate the complete release-specific finalized-burn artifact graph on disk. */
 export async function collectFinalizedBurnArtifacts(workspaceRoot,{
-  reserveConfiguration,verifierConfiguration,releaseConfigSha256,verifierManifestSha256,
+  reserveConfiguration,releaseConfigBytes,verifierConfiguration,verifierConfigBytes,
+  releaseConfigSha256,verifierManifestSha256,
   beforeOriginRecheck,
 }) {
+  const release=parseStrictJsonBytes(releaseConfigBytes,{label:'proof reserve release configuration',
+    maxBytes:4*1024*1024,maxDepth:64});
+  const parsedVerifier=parseStrictJsonBytes(verifierConfigBytes,{label:'finalized-burn verifier manifest',
+    maxBytes:4*1024*1024,maxDepth:64});
+  if(JSON.stringify(proofReserveConfigurationFromRelease(release))!==JSON.stringify(reserveConfiguration)
+      ||JSON.stringify(parsedVerifier)!==JSON.stringify(verifierConfiguration)
+      ||rawSha(releaseConfigBytes)!==releaseConfigSha256
+      ||rawSha(verifierConfigBytes)!==verifierManifestSha256) {
+    throw new Error('finalized-burn release bytes differ from parsed authority');
+  }
   const originRoot=canonicalRoot(path.resolve(workspaceRoot));
   const prefix='labs/usdom-reserve/evidence';
   const paths=Object.freeze({

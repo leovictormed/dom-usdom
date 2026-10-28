@@ -166,6 +166,7 @@ assert_node_unchanged
 assert_node_unchanged
 SECRET_DIRECTORY=$(mktemp -d -p /dev/shm usdom-burn-submit.XXXXXXXX)
 chmod 0700 -- "$SECRET_DIRECTORY"
+SECRET_DIRECTORY_IDENTITY=$(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY")
 RECOVERY_PASSWORD_FILE="$SECRET_DIRECTORY/recovery-password"
 STATE_PASSWORD_FILE="$SECRET_DIRECTORY/state-password"
 cleanup() {
@@ -173,9 +174,19 @@ cleanup() {
   trap - EXIT HUP INT TERM
   unset recovery_password
   if [[ "$SECRET_DIRECTORY" == /dev/shm/usdom-burn-submit.* \
-    && -d "$SECRET_DIRECTORY" && ! -L "$SECRET_DIRECTORY" ]]; then
-    assert_node_unchanged &&
-      "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' "$SECRET_DIRECTORY" || status=1
+    && $(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY" 2>/dev/null) == "$SECRET_DIRECTORY_IDENTITY" ]]; then
+    if assert_node_unchanged &&
+      run_pinned_timeout --foreground --signal=TERM --kill-after=5s 30s \
+        "$NODE_BIN" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+        "$SECRET_DIRECTORY" > /dev/null 2> /dev/null &&
+      assert_node_unchanged && assert_runtime_tool timeout && test ! -e "$SECRET_DIRECTORY"; then
+      :
+    else
+      status=1
+    fi
+  else
+    # Never erase a pathname that no longer names our private submission directory.
+    status=1
   fi
   exit "$status"
 }
@@ -259,7 +270,7 @@ exec </dev/null
 
 test "$(fixed_input_commitment)" = "$input_commitment"
 test "$(sha256sum -- "$keystore_binary" | cut -d ' ' -f 1)" = "$keystore_binary_sha256"
-run_pinned_timeout --signal=TERM --kill-after=5s 300s "$keystore_binary" unlock \
+if ! run_pinned_timeout --signal=TERM --kill-after=5s 300s "$keystore_binary" unlock \
   --manifest-file "$MANIFEST" \
   --manifest-sha256 "$manifest_sha256" \
   --recovery-file "$RECOVERY_FILE" \
@@ -268,7 +279,11 @@ run_pinned_timeout --signal=TERM --kill-after=5s 300s "$keystore_binary" unlock 
   --credential-file "$KEYSTORE_CREDENTIAL" \
   --keystore-lock-file "$KEYSTORE_LOCK" \
   --evidence-file "$KEYSTORE_EVIDENCE" \
-  --output-password-file "$STATE_PASSWORD_FILE"
+  --output-password-file "$STATE_PASSWORD_FILE" \
+  >"$SECRET_DIRECTORY/keystore.stdout" 2>"$SECRET_DIRECTORY/keystore.stderr"; then
+  printf '%s\n' 'Native wallet unlock failed; private diagnostics were suppressed.' >&2
+  exit 1
+fi
 
 test "$(fixed_input_commitment)" = "$input_commitment"
 test "$(sha256sum -- "$submit_binary" | cut -d ' ' -f 1)" = "$submit_binary_sha256"
@@ -281,7 +296,7 @@ chmod 0600 "$intent_draft"
 assert_node_unchanged
 "$NODE_BIN" "$LAB_ROOT/scripts/install-private-file-immutable-stdin.mjs" --json "$SUBMISSION_INTENT" < "$intent_draft"
 test "$(fixed_input_commitment)" = "$input_commitment"
-run_pinned_timeout --signal=TERM --kill-after=5s 300s "$submit_binary" \
+if ! run_pinned_timeout --signal=TERM --kill-after=5s 300s "$submit_binary" \
   --manifest-file "$MANIFEST" \
   --manifest-sha256 "$manifest_sha256" \
   --prepared-state-directory "$PREPARED_STATE" \
@@ -290,7 +305,11 @@ run_pinned_timeout --signal=TERM --kill-after=5s 300s "$submit_binary" \
   --credential-file "$CREDENTIAL_FILE" \
   --authority-lock-file "$AUTHORITY_LOCK" \
   --bootstrap-evidence-file "$BOOTSTRAP_EVIDENCE" \
-  --receipt-file "$SUBMISSION_RECEIPT"
+  --receipt-file "$SUBMISSION_RECEIPT" \
+  >"$SECRET_DIRECTORY/submit.stdout" 2>"$SECRET_DIRECTORY/submit.stderr"; then
+  printf '%s\n' 'Private burn submission failed; private diagnostics were suppressed.' >&2
+  exit 1
+fi
 test -f "$SUBMISSION_RECEIPT"; test ! -L "$SUBMISSION_RECEIPT"
 test "$(stat -c '%u:%a:%h' "$SUBMISSION_RECEIPT")" = "$(id -u):600:1"
 jq -e --arg manifest "$manifest_sha256" \

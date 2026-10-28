@@ -39,6 +39,8 @@ test('RISC Zero upstream health fails closed for every identity or emergency-sto
     o=>{o.finalizedBlockNumber=null;},o=>{o.finalizedBlockNumber=false;},
     o=>{o.finalizedBlockNumber='';},o=>{o.finalizedBlockNumber=' ';},
     o=>{o.finalizedBlockNumber='0x016e3600';},o=>{o.finalizedBlockNumber='024000000';},
+    o=>{o.finalizedBlockNumber='9'.repeat(100000);},
+    o=>{o.finalizedBlockNumber=(1n<<64n).toString();},
     o=>{o.finalizedBlockNumber=24000000;},o=>{o.finalizedBlockHash=hash('00');},
     o=>{o.snapshotBlockHashAfter=hash('22');},o=>{delete o.snapshotBlockHashAfter;},
     o=>{o.riscZeroVerifier.address=address(1);},o=>{o.riscZeroVerifier.codeHash=hash('22');},

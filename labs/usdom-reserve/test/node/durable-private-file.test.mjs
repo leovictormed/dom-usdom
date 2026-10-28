@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {chmod,link,lstat,mkdtemp,mkdir,readFile,rm,symlink,writeFile} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {symlinkSync,unlinkSync} from 'node:fs';
+import {homedir,tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {
   writeFileDurable,writePrivateFileDurable,writePrivateJsonDurable,
   removePrivateFileDurableIfExists,writePrivateFileDurableNew,
+  writePrivateFileDurableNewOrEqual,
 } from '../../sdk/durable-private-file.mjs';
 
 const component=path.resolve(import.meta.dirname,'../..');
@@ -36,6 +38,9 @@ test('durable private writes are exact, owner-only and reject indirect targets',
   const immutableTarget=path.join(root,'immutable.json');
   await writePrivateFileDurableNew(immutableTarget,'first\n');
   await assert.rejects(writePrivateFileDurableNew(immutableTarget,'second\n'),/already exists/);
+  await writePrivateFileDurableNewOrEqual(immutableTarget,'first\n');
+  await assert.rejects(writePrivateFileDurableNewOrEqual(immutableTarget,'second\n'),
+    /contains different bytes/);
   assert.equal(await readFile(immutableTarget,'utf8'),'first\n');
 
   const linkedTarget=path.join(root,'linked-target');
@@ -86,12 +91,36 @@ test('immutable private installer is idempotent and never replaces an inode',asy
     input:'{"release":1}\n',encoding:'utf8',
   });
   assert.notEqual(indirectRun.status,0);
-  assert.match(indirectRun.stderr,/safe direct regular file/);
+  assert.match(indirectRun.stderr,/durable target is unsafe|safe direct regular file/);
   const hardlink=path.join(root,'hardlink.json');
   await link(target,hardlink);
   const hardlinkRun=run('{"release":1}\n');
   assert.notEqual(hardlinkRun.status,0);
-  assert.match(hardlinkRun.stderr,/safe direct regular file/);
+  assert.match(hardlinkRun.stderr,/durable target is unsafe|safe direct regular file/);
+});
+
+for(const fault of ['after-temporary-fsync','after-create-once-link']) test(`private create-once recovers SIGKILL at ${fault}`,async t=>{
+  const root=await mkdtemp(path.join(tmpdir(),'usdom-private-crash-')); t.after(()=>rm(root,{recursive:true,force:true}));
+  const target=path.join(root,'artifact');
+  const program=`import {writeFileDurable} from ${JSON.stringify(new URL('../../sdk/durable-private-file.mjs',import.meta.url).href)}; await writeFileDurable(process.argv[1],Buffer.from('durable\\n'),{mode:0o600,replace:false,privateParent:true,faultInjection:point=>{if(point===process.argv[2])process.kill(process.pid,'SIGKILL')}});`;
+  const killed=spawnSync(process.execPath,['--input-type=module','-e',program,target,fault],{encoding:'utf8'});
+  assert.equal(killed.signal,'SIGKILL');
+  await writePrivateFileDurableNewOrEqual(target,'durable\n');
+  assert.equal(await readFile(target,'utf8'),'durable\n'); assert.equal((await lstat(target)).nlink,1);
+});
+
+test('private create-once rejects an arbitrary recoverable-looking hardlink',async t=>{
+  const root=await mkdtemp(path.join(tmpdir(),'usdom-private-hardlink-temp-')); t.after(()=>rm(root,{recursive:true,force:true}));
+  const foreign=path.join(root,'foreign'),target=path.join(root,'artifact'); await writeFile(foreign,'foreign\n',{mode:0o600}); await chmod(foreign,0o600);
+  await link(foreign,path.join(root,'.artifact.2147483647.0123456789abcdef01234567.tmp'));
+  await assert.rejects(writePrivateFileDurableNewOrEqual(target,'expected\n'),/hardlink has no target|not the create-once target/);
+});
+
+test('private create-once rejects target substitution after existing-inode validation',async t=>{
+  const root=await mkdtemp(path.join(tmpdir(),'usdom-private-target-race-')); t.after(()=>rm(root,{recursive:true,force:true}));
+  const target=path.join(root,'artifact'),foreign=path.join(root,'foreign'); await writePrivateFileDurableNew(target,'expected\n'); await writeFile(foreign,'expected\n',{mode:0o600});
+  await assert.rejects(writePrivateFileDurableNewOrEqual(target,'expected\n',{faultInjection:point=>{if(point==='after-existing-target-validation'){unlinkSync(target);symlinkSync(foreign,target);}}}),/safe direct regular file|durable target is unsafe/);
+  assert.ok((await lstat(target)).isSymbolicLink());
 });
 
 test('durable private invalidation is idempotent and rejects indirect completion artifacts',async t=>{
@@ -202,6 +231,32 @@ test('private child-directory setup pins its 0700 root and never follows a symli
   assert.equal(await lstat(path.join(root,'blocked')).then(()=>true,()=>false),false);
 });
 
+test('owned directory-path setup creates a direct 0755 public root and fails closed',async t=>{
+  const target=await mkdtemp(path.join(homedir(),'.usdom-owned-directory-'));
+  await rm(target,{recursive:true});
+  t.after(()=>rm(target,{recursive:true,force:true}));
+  const helper=path.join(component,'scripts','ensure-private-directory-path.py');
+  const run=(value=target,mode='0755')=>spawnSync('python3',[helper,value,mode],{encoding:'utf8'});
+  const created=run();
+  assert.equal(created.status,0,created.stderr);
+  assert.equal((await lstat(target)).mode&0o777,0o755);
+  assert.equal(run().status,0);
+
+  await chmod(target,0o775);
+  assert.notEqual(run().status,0);
+  await rm(target,{recursive:true});
+  const indirect=`${target}-indirect`;
+  const destination=`${target}-destination`;
+  t.after(()=>rm(indirect,{force:true}));
+  t.after(()=>rm(destination,{recursive:true,force:true}));
+  await mkdir(destination,{mode:0o755});
+  await chmod(destination,0o755);
+  await symlink(destination,indirect);
+  assert.notEqual(run(indirect).status,0);
+  assert.equal((await lstat(destination)).mode&0o777,0o755);
+  assert.notEqual(run(`${target}-invalid`,'0777').status,0);
+});
+
 test('submission and finalized-deposit writers use the fsynced private boundary',async()=>{
   const scripts=[
     'prepare-authenticated-checkpoint-submission.mjs',
@@ -232,4 +287,23 @@ test('submission and finalized-deposit writers use the fsynced private boundary'
   assert.match(depositCollector,/parseStrictJsonBytes\(manifestBytes/);
   assert.match(depositCollector,/decodeUtf8\(transactionBytes,'deposit transaction hash'\)/);
   assert.match(depositCollector,/transactionText!==`\$\{txHash\}\\n`/);
+});
+
+test('absolute private directory setup creates each child once and rejects indirect ancestry',async t=>{
+  const root=await mkdtemp(path.join(process.env.HOME,'.usdom-private-path-test-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  await chmod(root,0o700);
+  const helper=path.join(component,'scripts','ensure-private-directory-path.py');
+  const target=path.join(root,'one','two');
+  const run=value=>spawnSync('/usr/bin/python3',[helper,value],{encoding:'utf8'});
+  assert.equal(run(target).status,0);
+  assert.equal((await lstat(path.join(root,'one'))).mode&0o777,0o700);
+  assert.equal((await lstat(target)).mode&0o777,0o700);
+  assert.equal(run(target).status,0);
+  const outside=await mkdtemp(path.join(tmpdir(),'usdom-private-path-outside-'));
+  t.after(()=>rm(outside,{recursive:true,force:true}));
+  await symlink(outside,path.join(root,'indirect'));
+  assert.notEqual(run(path.join(root,'indirect','child')).status,0);
+  const loose=path.join(root,'loose'); await mkdir(loose,{mode:0o755}); await chmod(loose,0o755);
+  assert.notEqual(run(path.join(loose,'child')).status,0);
 });

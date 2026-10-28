@@ -1,0 +1,34 @@
+ETAPA 1339 — LIMITES DOS HELPERS DE DECISÃO DO PILOTO
+Data: 2026-10-26
+
+Problema
+
+Cinco helpers locais ainda eram executados diretamente nos dois executores:
+três cálculos de custo de recibo e duas classificações de recuperação de nonce.
+Uma execução travada ou uma saída inesperadamente grande poderia reter a
+cerimônia ou alimentar decisões posteriores sem um limite próprio.
+
+Correção
+
+As cinco chamadas agora executam sob deadline foreground TERM/KILL de 120
+segundos. Os cálculos de custo admitem no máximo 1024 bytes e precisam produzir
+um objeto JSON com exatamente `actualCost`, `effectiveGasPrice`, `gasUsed` e
+`maximumCost`, todos decimais canônicos. As classificações de nonce admitem no
+máximo 32 bytes e somente os valores `publish` ou `recover-receipt`.
+
+O limite é lido com um byte sentinela adicional (`head -c 1025` ou `head -c
+33`); `set -euo pipefail`, a verificação do tamanho e o schema exato fazem
+timeout, excesso, falha ou saída inesperada abortarem antes de uma publicação ou
+da criação da evidência de finalidade.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal de nonce, custo e executores: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 74/74 aprovada.
+- Inventário estático: 2/2 classificadores de nonce e 3/3 calculadores de custo
+  possuem deadline, teto e validação semântica.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

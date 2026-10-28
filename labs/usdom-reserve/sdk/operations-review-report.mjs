@@ -5,7 +5,8 @@ const bytes32=/^0x[0-9a-fA-F]{64}$/;
 const commit=/^[0-9a-f]{40}$/;
 const tag=/^usdom-v[0-9]+\.[0-9]+\.[0-9]+$/;
 const evidenceNames=Object.freeze([
-  'securityValidationReport','riscZeroHealthSourceCatalog','realFinalizedEndToEndReport',
+  'securityValidationReport','releaseValidationReport','riscZeroHealthSourceCatalog',
+  'realFinalizedEndToEndReport',
   'checkpointProofCapacityReport','controlPlaneEvidenceBundle','controlPlaneSeparationReport',
   'controlPlaneRecoveryDrillReport','mainnetPredeploymentAttestationReport',
   'nativeScheduledRuntimeActivationAttestationReport',

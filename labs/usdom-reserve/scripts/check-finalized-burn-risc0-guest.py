@@ -19,8 +19,8 @@ IID = GUEST / "elfs/usdom-finalized-burn.iid"
 PROVENANCE = GUEST / "PROVENANCE.json"
 GUEST_LOCK = GUEST / "Cargo.lock"
 
-EXPECTED_ARTIFACT_SHA = "883ec39b03e3a0703e592026fc7d92a15ce7d949cb937551c5dd8360184cde21"
-EXPECTED_IMAGE_ID = "2e26f74497b54b680dfff4c116d56280d016f01d0125329f49bf6d744b1c18ea"
+EXPECTED_ARTIFACT_SHA = "bf3202187d7c0643204bcb936b34a53b41b871cc4d633781dc96956c7de9d511"
+EXPECTED_IMAGE_ID = "f0d9c98287719bf6fca6626ab96f0b14e305662873a9e3b5d4894a50f206a1ae"
 EXPECTED_BUILD_LOCK_SHA = "4b121d8cd50110e8235933ac405b7dfac3bb92d43f959082af638a24ea539765"
 EXPECTED_BUILDER_DIGEST = "sha256:7ae0a27fa72b10fb5c1066005bd949ae43dc4ead8a284f2d6572b99c82ab4468"
 
@@ -127,12 +127,15 @@ def main() -> None:
         "cargoLockSha256": EXPECTED_BUILD_LOCK_SHA,
         "programBinarySha256": EXPECTED_ARTIFACT_SHA,
         "imageId": EXPECTED_IMAGE_ID,
-        "workspaceCargoLockSha256": "571022e832a552ef7710cdd2dc8643e974436fae44c7c2f003acd05ee0106c34",
+        "workspaceCargoLockSha256": "8ddb926652b8fd54a38926ee9dd202657c5d7cd50fbaa765a5d1ee39db2c0106",
         "sourceManifestSha256": "08ad4751e4540705eaf43bfd8cebb5738b924cbdccab22be52bed33b62970be7",
         "reproducibleBuilds": 2,
         "byteIdentical": True,
         "guestRustReleaseAssetSha256": "100b597d605b706bec94e1d32bfaaf5851df8d75173f986d4b56a3e90916be53",
         "productionApproved": False,
+        "statementSchema": "UDFINL04",
+        "checkpointStatementSchema": "UDCPST06",
+        "checkpointOuterImageId": "311d58dadcb97cac783e3ec0efe3c4570f42b944cbda1e48aeb56b055682257b",
     }
     if provenance != expected_provenance:
         fail("guest provenance record drift")

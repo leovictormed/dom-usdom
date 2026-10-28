@@ -4,17 +4,23 @@ import {AbiCoder,Interface,keccak256} from 'ethers';
 import {
   RELEASE_AUTHORIZATION_DOMAIN_VERSION,buildReleaseAuthorization,
   collectReleaseAuthorizationApproval,releaseAuthorizationDigest,releaseAuthorizationTypedData,
-  releaseEvidenceCommitment,
+  releaseEvidenceCommitment,validateReleaseAuthorizationFreshness,
 } from '../../sdk/release-authorization.mjs';
-import {EIP1271_MAGIC_VALUE} from '../../sdk/finalized-eip1271-approval.mjs';
+import {EIP1271_MAGIC_VALUE,validEip1271Signature} from '../../sdk/finalized-eip1271-approval.mjs';
 import {collectReleaseAuthorizationAnchor,collectReleaseAuthorizationApprovalConsensus,
  validateReleaseSigningNetworkObservation}
   from '../../sdk/release-authorization-rpc.mjs';
 
 const address=byte=>'0x'+byte.repeat(20);
 const hash=byte=>'0x'+byte.repeat(32);
+test('EIP-1271 opaque bytes have one canonical lowercase JSON representation',()=>{
+ assert.equal(validEip1271Signature('0xabcd'),true);
+ assert.equal(validEip1271Signature('0xABCD'),false);
+});
 const raw=byte=>byte.repeat(32);
+const implementation=address('12');
 const releaseConfig={ethereumChainId:'1',governance:address('11'),governanceCodeHash:hash('22'),
+ governanceImplementation:implementation,governanceImplementationCodeHash:keccak256('0x60016000'),
  reserveConfigHash:hash('33'),checkpointRegistryConfigHash:hash('44'),
  governanceOwners:[address('61'),address('62'),address('63')],
  guardianOwners:[address('64'),address('65'),address('66')],
@@ -38,17 +44,26 @@ const validReturn=AbiCoder.defaultAbiCoder().encode(['bytes4'],[EIP1271_MAGIC_VA
 const sources=[{sourceId:'operator-a',originKeccak256:hash('81')},
  {sourceId:'operator-b',originKeccak256:hash('82')}];
 
-function provider({result=validReturn,chainId='0x1',endingHash=blockHash}={}) {
+function provider({result=validReturn,chainId='0x1',endingHash=blockHash,implementationCode=code,
+ singleton=implementation,singletonAfter=singleton,governanceCodeAfter=code,
+ finalizedNumber='0x14fb180',finalizedTimestamp='0x'+BigInt(1792492900).toString(16)}={}) {
  const calls=[];
+ let storageReads=0;
+ let governanceCodeReads=0;
  return {calls,async send(method,params) {
   calls.push([method,params]);
   if(method==='eth_chainId') return chainId;
   if(method==='eth_getBlockByNumber') {
-   if(params[0]==='finalized') return {number:'0x14fb180',hash:blockHash,
-    timestamp:'0x'+BigInt(1792492900).toString(16)};
-   return {number:'0x14fb180',hash:endingHash,timestamp:'0x'+BigInt(1792492900).toString(16)};
+   if(params[0]==='finalized') return {number:finalizedNumber,hash:blockHash,
+    timestamp:finalizedTimestamp};
+   return {number:finalizedNumber,hash:endingHash,timestamp:finalizedTimestamp};
   }
-  if(method==='eth_getCode') return code;
+  if(method==='eth_getCode') return params[0].toLowerCase()===implementation.toLowerCase()
+   ?implementationCode:(governanceCodeReads++===0?code:governanceCodeAfter);
+  if(method==='eth_getStorageAt') {
+   const selected=storageReads++===0?singleton:singletonAfter;
+   return '0x'+'00'.repeat(12)+selected.slice(2);
+  }
   if(method==='eth_call') return result;
   throw new Error(`unexpected method ${method}`);
  }};
@@ -91,6 +106,15 @@ test('release authorization digest binds authority, scope, report and exact rele
   governanceOwners:[address('61'),address('61'),address('63')]}),/distinct nonzero/);
 });
 
+test('release authorization rejects oversized integers before EIP-712 conversion',()=>{
+ assert.throws(()=>releaseAuthorizationDigest({...authorization,
+  acceptedAt:'9'.repeat(100000)},releaseConfig),/acceptedAt/);
+ assert.throws(()=>releaseAuthorizationDigest(authorization,{...releaseConfig,
+  ethereumChainId:'9'.repeat(100000)}),/ethereumChainId/);
+ assert.throws(()=>releaseAuthorizationDigest(authorization,{...releaseConfig,
+  ethereumChainId:(1n<<256n).toString()}),/uint256/);
+});
+
 test('release evidence commitment is canonical, acyclic and path-safe',()=>{
  const reordered={reserveArtifact:{sha256:raw('71'),
   path:'out/USDOMProofReserve.sol/USDOMProofReserve.json'},
@@ -110,6 +134,30 @@ test('release evidence commitment is canonical, acyclic and path-safe',()=>{
  assert.throws(()=>releaseEvidenceCommitment({...releaseEvidence,extra:Number.NaN}),/noncanonical number/);
  assert.throws(()=>releaseEvidenceCommitment({...releaseEvidence,
   releaseEvidenceCommitment:hash('99')}),/cannot contain releaseEvidenceCommitment/);
+ assert.throws(()=>releaseEvidenceCommitment({...releaseEvidence,
+  reserveArtifact:{...releaseEvidence.reserveArtifact,sha256:'0'.repeat(64)}}),/nonzero SHA-256/);
+});
+
+test('release authorization rejects coordinated zero identity placeholders',()=>{
+ for(const changed of [
+  {...authorization,sourceCommit:'0'.repeat(40)},
+  {...authorization,releaseEvidenceCommitment:hash('00')},
+  {...authorization,reportSha256:'0'.repeat(64)},
+  {...authorization,reserveConfigHash:hash('00')},
+  {...authorization,checkpointRegistryConfigHash:hash('00')},
+ ]) {
+  const config={...releaseConfig};
+  if(changed.reserveConfigHash===hash('00')) config.reserveConfigHash=hash('00');
+  if(changed.checkpointRegistryConfigHash===hash('00')) {
+   config.checkpointRegistryConfigHash=hash('00');
+  }
+  assert.throws(()=>releaseAuthorizationDigest(changed,config));
+ }
+ assert.throws(()=>buildReleaseAuthorization({
+  releaseEvidence:{...releaseEvidence,residualRiskAcceptanceReport:{
+   ...releaseEvidence.residualRiskAcceptanceReport,sha256:'0'.repeat(64)}},
+  releaseConfig,operatorIntent,acceptedAt:'1792492800',
+ }),/hash-addressed residual-risk report is required/);
 });
 
 test('builder creates one signing request without mutating authorization inputs',()=>{
@@ -154,6 +202,14 @@ test('collector checks release authorization through finalized EIP-1271 state',a
   releaseConfig,authorization}),/chain ID differs/);
 });
 
+test('collector rejects Safe proxy implementation substitution and finalized TOCTOU',async()=>{
+ for(const rpc of [provider({singleton:address('13')}),provider({implementationCode:'0x6002'}),
+  provider({singletonAfter:address('13')}),provider({governanceCodeAfter:'0x6002'})]) {
+  await assert.rejects(()=>collectReleaseAuthorizationApproval({provider:rpc,releaseConfig,authorization}),
+   /implementation/);
+ }
+});
+
 test('authorization RPC consensus rechecks one identical finalized anchor and approval',async()=>{
  const config={...releaseConfig,governanceCodeHash:keccak256(code)};
  const anchor=await collectReleaseAuthorizationAnchor({providers:[provider(),provider()],
@@ -167,10 +223,35 @@ test('authorization RPC consensus rechecks one identical finalized anchor and ap
  assert.equal(observation.rpcConsensus.sourceCount,'2');
  await assert.rejects(()=>collectReleaseAuthorizationAnchor({providers:[provider(),
   provider({endingHash:hash('77')})],releaseConfig:config,sources}),/anchor changed/);
+ await assert.rejects(()=>collectReleaseAuthorizationAnchor({providers:[provider(),
+  provider({singleton:address('13')})],releaseConfig:config,sources}),/implementation/);
+ await assert.rejects(()=>collectReleaseAuthorizationAnchor({providers:[provider(),
+  provider({implementationCode:'0x6002'})],releaseConfig:config,sources}),/implementation/);
  await assert.rejects(()=>collectReleaseAuthorizationApprovalConsensus({providers:[provider(),
   provider({endingHash:hash('77')})],releaseConfig:config,authorization,sources}),/invalid or unstable/);
  await assert.rejects(()=>collectReleaseAuthorizationApprovalConsensus({providers:[provider(),provider()],
   releaseConfig:config,authorization,sources:[sources[0]]}),/source identities must match/);
+});
+
+test('authorization expires and current EIP-1271 state remains authoritative',async()=>{
+ const fresh={...authorization,acceptedAt:'1792492800'};
+ assert.deepEqual(validateReleaseAuthorizationFreshness({authorization:fresh,
+  observation:{finalizedBlockTimestamp:'1792579200'}}),{
+  acceptedAt:'1792492800',finalizedBlockTimestamp:'1792579200'});
+ assert.throws(()=>validateReleaseAuthorizationFreshness({authorization:fresh,
+  observation:{finalizedBlockTimestamp:'1792579201'}}),/stale/);
+ assert.throws(()=>validateReleaseAuthorizationFreshness({authorization:fresh,
+  observation:{finalizedBlockTimestamp:'1792492799'}}),/later than finalized/);
+ const config={...releaseConfig,governanceCodeHash:keccak256(code)};
+ await assert.rejects(()=>collectReleaseAuthorizationApprovalConsensus({
+  providers:[provider({finalizedTimestamp:'0x'+BigInt(1792579201).toString(16)}),
+    provider({finalizedTimestamp:'0x'+BigInt(1792579201).toString(16)})],
+  releaseConfig:config,authorization:fresh,sources,
+ }),/stale/);
+ await assert.rejects(()=>collectReleaseAuthorizationApprovalConsensus({
+  providers:[provider({result:'0x'}),provider({result:'0x'})],
+  releaseConfig:config,authorization:fresh,sources,
+ }),/invalid or unstable/);
 });
 
 test('presign observation preserves governance, RPC identities and monotonic finality',async()=>{
@@ -187,4 +268,24 @@ test('presign observation preserves governance, RPC identities and monotonic fin
   {...observed,rpcConsensus:{...observed.rpcConsensus,sourceCount:'3'}},
  ]) assert.throws(()=>validateReleaseSigningNetworkObservation({authorized,observed:changed}),
   /differs from signing authorization/);
+ for(const blockNumber of ['9'.repeat(100_000),(1n<<64n).toString(),'022000001','-1']) {
+  assert.throws(()=>validateReleaseSigningNetworkObservation({authorized,
+   observed:{...observed,blockNumber}}),/block number is invalid/);
+ }
+});
+
+test('authorization anchor rejects oversized or noncanonical RPC quantities before conversion',async()=>{
+ const config={...releaseConfig,governanceCodeHash:keccak256(code)};
+ for(const mutation of [
+  {chainId:`0x${'f'.repeat(100_000)}`},
+  {finalizedNumber:`0x${'f'.repeat(100_000)}`},
+  {finalizedTimestamp:`0x${'f'.repeat(100_000)}`},
+  {finalizedNumber:`0x${(1n<<64n).toString(16)}`},
+  {finalizedTimestamp:`0x${(1n<<64n).toString(16)}`},
+  {finalizedNumber:'0x014fb180'},
+ ]) {
+  await assert.rejects(()=>collectReleaseAuthorizationAnchor({
+   providers:[provider(mutation),provider(mutation)],releaseConfig:config,sources,
+  }),/RPC finalized anchor is invalid/);
+ }
 });

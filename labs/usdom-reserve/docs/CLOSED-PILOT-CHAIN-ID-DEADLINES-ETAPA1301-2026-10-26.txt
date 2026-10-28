@@ -1,0 +1,28 @@
+ETAPA 1301 — LIMITES PARA IDENTIFICAÇÃO DE CADEIA
+Data: 2026-10-26
+
+Problema
+
+Os executores confirmam repetidamente que cada RPC pertence à Ethereum mainnet,
+inclusive imediatamente antes de ações críticas. As sete chamadas estáticas
+`cast chain-id`, três no depósito e quatro no resgate, não tinham prazo externo.
+
+Correção
+
+Todas agora executam sob
+`timeout --foreground --signal=TERM --kill-after=5s 120s`. Timeout, falha ou
+identificador diferente de 1 interrompe o fluxo no próprio boundary, antes de
+qualquer ação que dependa daquela revalidação.
+
+A regressão exige igualdade entre o inventário total de chamadas e o inventário
+de wrappers: três no depósito e quatro no resgate, impedindo chamada direta.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal: 13/13 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 70/70 aprovada.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

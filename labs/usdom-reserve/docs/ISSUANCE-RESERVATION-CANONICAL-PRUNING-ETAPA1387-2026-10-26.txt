@@ -1,0 +1,52 @@
+Stage 1387 — canonical pruning of queued issuance reservations
+Date: 2026-10-26
+
+Finding
+
+The Stage-1381 deposit reservation was released when local mining explicitly
+completed a canonical candidate or when template construction discarded a
+stale candidate. Canonical packages received from a peer do not invoke the
+local miner completion callback. If such a package consumed a deposit reserved
+by a local candidate, the canonical state advanced but the dead local envelope,
+its bytes and its reservation remained until this node later built a template.
+On a non-mining node, enough such entries could retain all 16 volatile slots
+indefinitely and reject otherwise valid submissions.
+
+Correction
+
+Every successful v4 package ingress now reconciles the volatile queue with the
+resulting canonical native state. An entire candidate is removed if any of its
+verified issuance deposit IDs is now consumed; an atomic multi-transition
+envelope cannot remain valid after one issuance becomes invalid. Removed bytes
+are checked and subtracted exactly. Private-only candidates and issuance for
+unconsumed deposits remain untouched.
+
+Lifecycle conclusions
+
+- Local canonical mining still removes the exact candidate only after an exact
+  height/hash canonicality recheck. Side-chain races retain it.
+- Permanent invalidity during template construction removes a candidate and
+  its reservation; retryable errors rotate it without early release.
+- A restart reconstructs canonical state but intentionally starts with an empty
+  volatile queue. Relayers must resubmit unconsumed deposits. This avoids
+  persisting stale local authority.
+- After a reorg removes a formerly canonical issuance, an already removed
+  volatile candidate is not resurrected; resubmission is checked against the
+  new canonical state and proof policy.
+- V2 uses the same exact canonical completion and volatile restart model, but
+  its candidate record currently lacks the verified public deposit-ID metadata
+  needed for this cheap post-ingress pruning. This stage changes only the v4
+  reservation introduced in Stage 1381.
+
+Evidence
+
+- `cargo test -p dom-chain --features native-usdom-v4-poc
+  canonical_consumption_releases_queued_issuance_reservation --lib`: 1 passed,
+  0 failed in 0.30s.
+- The regression proves no premature removal before canonical consumption,
+  exact removal afterward, byte/count accounting and retention of a candidate
+  without issuance.
+- `cargo fmt --all -- --check` and `git diff --check` pass.
+- No RandomX mining, external network, wallet, signature, deployment, funds,
+  commit or push occurred.
+

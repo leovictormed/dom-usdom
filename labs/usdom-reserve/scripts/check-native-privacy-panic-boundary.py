@@ -7,14 +7,23 @@ import hashlib
 import re
 import sys
 from pathlib import Path
+from specialized_manifest import cargo_targets, manifest
 
 
 REPO = Path(__file__).resolve().parents[3]
 CRATE = REPO / "crates/dom-usdom-privacy"
 SOURCE_ROOT = CRATE / "src"
 MANIFEST = CRATE / "MANIFEST.sha256"
-EXPECTED_SOURCES = {"circuit.rs", "lib.rs", "verifier.rs"}
-EXPECTED_MANIFEST_PATHS = {"Cargo.toml", "src/circuit.rs", "src/lib.rs", "src/verifier.rs"}
+EXPECTED_SOURCES = {
+    "bin/dom-usdom-groth16-ceremony.rs",
+    "ceremony.rs",
+    "circuit.rs",
+    "lib.rs",
+    "phase1.rs",
+    "verifier.rs",
+}
+EXPECTED_EXAMPLES={"vectors.rs"}
+EXPECTED_MANIFEST_PATHS = {"Cargo.toml", *(f"src/{name}" for name in EXPECTED_SOURCES),*(f"examples/{name}" for name in EXPECTED_EXAMPLES)}
 PANIC_PRIMITIVES = re.compile(
     r"\.(?:unwrap|expect)\s*\(|\b(?:panic|unreachable|todo|unimplemented)!\s*\("
 )
@@ -41,37 +50,16 @@ def check_text(source: str, label: str) -> None:
 
 
 def check_sources() -> None:
-    discovered = {path.name for path in SOURCE_ROOT.glob("*.rs")}
+    payloads=manifest(CRATE,"MANIFEST.sha256",EXPECTED_MANIFEST_PATHS)
+    discovered = {name[4:] for name in payloads if name.startswith("src/")}
     if discovered != EXPECTED_SOURCES:
         fail(
             "native-privacy source inventory changed without panic-boundary review: "
             f"missing={sorted(EXPECTED_SOURCES - discovered)}, "
             f"new={sorted(discovered - EXPECTED_SOURCES)}"
         )
-    for name in sorted(EXPECTED_SOURCES):
-        check_text((SOURCE_ROOT / name).read_text(encoding="utf-8"), name)
-
-    listed: dict[str, str] = {}
-    crate_root = CRATE.resolve()
-    for number, line in enumerate(MANIFEST.read_text(encoding="utf-8").splitlines(), 1):
-        match = MANIFEST_LINE.fullmatch(line)
-        if match is None or match.group(2) in listed:
-            fail(f"malformed or duplicate native-privacy manifest line {number}")
-        relative = match.group(2)
-        candidate = CRATE / relative
-        path = candidate.resolve()
-        if candidate.is_symlink() or not path.is_relative_to(crate_root) or not path.is_file():
-            fail(f"invalid native-privacy manifest path: {relative}")
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if actual != match.group(1):
-            fail(f"native-privacy manifest digest mismatch: {relative}")
-        listed[relative] = actual
-    if set(listed) != EXPECTED_MANIFEST_PATHS:
-        fail(
-            "native-privacy manifest inventory mismatch: "
-            f"missing={sorted(EXPECTED_MANIFEST_PATHS - set(listed))}, "
-            f"extra={sorted(set(listed) - EXPECTED_MANIFEST_PATHS)}"
-        )
+    cargo_targets(CRATE,payloads)
+    for name in sorted(EXPECTED_SOURCES):check_text(payloads[f"src/{name}"].decode(),name)
 
 
 def self_test() -> None:
@@ -103,7 +91,7 @@ def main(arguments: list[str]) -> None:
         self_test()
     elif not arguments:
         check_sources()
-        print("PASS: all 3 native-privacy production sources are panic-primitive free; 4-file manifest verified")
+        print("PASS: all 6 native-privacy production sources are panic-primitive free; 7-file manifest verified")
     else:
         raise SystemExit("Usage: check-native-privacy-panic-boundary.py [--self-test]")
 

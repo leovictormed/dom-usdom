@@ -25,6 +25,13 @@ const bn254ScalarField = BigInt(
   '0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001',
 );
 const coder = AbiCoder.defaultAbiCoder();
+
+export function reserveDepositId({chainId,reserve,funder,salt}) {
+  const idValue=uint(chainId,256); const reserveAddress=getAddress(reserve); const funderAddress=getAddress(funder);
+  if(idValue===0n||BigInt(reserveAddress)===0n||BigInt(funderAddress)===0n||!/^0x[0-9a-fA-F]{64}$/.test(salt??'')) throw new Error('invalid deposit identity');
+  return keccak256(coder.encode(['uint256','address','address','bytes32'],
+    [idValue,reserveAddress,funderAddress,salt.toLowerCase()]));
+}
 function hash(value) {
   if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(value) || value.toLowerCase() === zero) {
     throw new Error('nonzero bytes32 required');

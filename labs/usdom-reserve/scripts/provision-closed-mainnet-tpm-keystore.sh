@@ -37,6 +37,8 @@ REPOSITORY_ROOT=$(CDPATH='' cd -- "$LAB_ROOT/../.." && pwd -P)
 for tool_boundary_command in stat realpath id dirname sha256sum cut timeout; do command -v "$tool_boundary_command" >/dev/null; done
 source "$LAB_ROOT/scripts/pinned-shell-tool-functions.sh"
 pin_runtime_tool timeout
+pin_runtime_tool cargo
+cargo() { assert_runtime_tool cargo; "$cargo_bin" "$@"; }
 run_pinned_timeout() { assert_runtime_tool timeout; "$timeout_bin" "$@"; }
 pin_runtime_tool node
 node() { assert_runtime_tool node; "$node_bin" "$@"; }
@@ -116,6 +118,7 @@ for output in "$CREDENTIAL_FILE" "$EVIDENCE_FILE"; do
 done
 SECRET_DIRECTORY=$(mktemp -d -p /dev/shm usdom-tpm-keystore.XXXXXXXX)
 chmod 0700 -- "$SECRET_DIRECTORY"
+SECRET_DIRECTORY_IDENTITY=$(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY")
 RECOVERY_PASSWORD_FILE="$SECRET_DIRECTORY/recovery-password"
 OWNER_AUTH_FILE="$SECRET_DIRECTORY/tpm-owner-auth"
 cleanup() {
@@ -123,9 +126,19 @@ cleanup() {
   trap - EXIT HUP INT TERM
   unset recovery_password tpm_owner_authorization
   if [[ "$SECRET_DIRECTORY" == /dev/shm/usdom-tpm-keystore.* \
-    && -d "$SECRET_DIRECTORY" && ! -L "$SECRET_DIRECTORY" ]]; then
-    node -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
-      "$SECRET_DIRECTORY" || status=1
+    && $(stat -c '%u:%d:%i:%a' "$SECRET_DIRECTORY" 2>/dev/null) == "$SECRET_DIRECTORY_IDENTITY" ]]; then
+    if assert_runtime_tool node &&
+      run_pinned_timeout --foreground --signal=TERM --kill-after=5s 30s \
+        "$node_bin" -e 'require("fs").rmSync(process.argv[1],{recursive:true,force:true})' \
+        "$SECRET_DIRECTORY" > /dev/null 2> /dev/null &&
+      assert_runtime_tool node && assert_runtime_tool timeout && test ! -e "$SECRET_DIRECTORY"; then
+      :
+    else
+      status=1
+    fi
+  else
+    # Refuse to erase a replacement for the credential directory we created.
+    status=1
   fi
   exit "$status"
 }
@@ -176,7 +189,7 @@ if [[ ! -d "$TPM_RUNTIME" || -L "$TPM_RUNTIME" \
 fi
 
 cd "$REPOSITORY_ROOT"
-run_pinned_timeout --signal=TERM --kill-after=30s 3600s cargo build --quiet --release --locked -p dom-node \
+run_pinned_timeout --signal=TERM --kill-after=30s 3600s cargo build --quiet --release --locked --offline --no-default-features -p dom-node \
   --features usdom-wallet-operator --bin dom-usdom-wallet-tpm-keystore
 keystore_binary="$REPOSITORY_ROOT/target/release/dom-usdom-wallet-tpm-keystore"
 if [[ ! -x "$keystore_binary" || -L "$keystore_binary" ]]; then

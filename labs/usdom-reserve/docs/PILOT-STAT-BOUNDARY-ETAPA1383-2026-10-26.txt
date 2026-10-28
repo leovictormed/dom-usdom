@@ -1,0 +1,31 @@
+ETAPA 1383 — BOUNDARY ÚNICO PARA METADADOS STAT
+Data: 2026-10-26
+
+Problema
+
+Trinta e cinco invocações `stat` decidiam tamanho, modo, propriedade, link count
+e estabilidade de arquivos sem deadline e teto uniformes. Esses valores
+controlam aceitação de artefatos privados e limites sentinela.
+
+Correção
+
+As 21 leituras do depósito e 14 do resgate passam agora por `stat_run`, definido
+antes do primeiro uso. O helper fixa locale C, aplica deadline foreground
+TERM/KILL de 120 segundos, lê no máximo 257 bytes e rejeita retorno acima de
+256 bytes antes de entregá-lo às comparações existentes.
+
+Uma regressão permite somente o `stat` interno do helper e fixa os 35 pontos
+cobertos. Continuam exigidos os valores específicos de tamanho, modo 0600,
+link único, UID e identidade pré/pós-hash. Falha, timeout ou saída excedente
+abortam antes de assinatura, publicação ou evidência terminal.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal relevante: 19/19 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário: 35/35 leituras usam `stat_run`; zero `stat` direto resta.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.

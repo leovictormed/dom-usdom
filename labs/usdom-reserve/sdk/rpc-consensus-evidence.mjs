@@ -14,7 +14,7 @@ export function rpcConsensusEvidence(sources) {
       ||!HASH.test(value.originKeccak256??'')||BigInt(value.originKeccak256)===0n)
       ||new Set(entries.map(v=>v.operatorId)).size!==entries.length
       ||new Set(entries.map(v=>v.originKeccak256)).size!==entries.length) throw new Error('RPC consensus sources invalid');
-  const sorted=[...entries].sort((a,b)=>a.operatorId.localeCompare(b.operatorId));
+  const sorted=[...entries].sort((a,b)=>a.operatorId<b.operatorId?-1:a.operatorId>b.operatorId?1:0);
   if(entries.some((v,i)=>v.operatorId!==sorted[i].operatorId)) throw new Error('RPC consensus sources not ordered');
   return {schema:'usdom-rpc-consensus-evidence-v1',sourceCount:String(entries.length),sources:entries,
     sourceSetCommitment:keccak256(toUtf8Bytes(`USDOM_RPC_CONSENSUS_SOURCES_V1\n${entries.map(v=>

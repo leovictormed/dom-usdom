@@ -7,6 +7,10 @@ for tool_boundary_command in stat realpath id dirname sha256sum cut timeout; do 
 source "$ROOT/scripts/pinned-shell-tool-functions.sh"
 pin_runtime_tool timeout
 run_pinned_timeout() { assert_runtime_tool timeout; "$timeout_bin" "$@"; }
+pin_runtime_tool node
+node() { assert_runtime_tool node; "$node_bin" "$@"; }
+pin_runtime_tool python3
+python3() { assert_runtime_tool python3; "$python3_bin" "$@"; }
 for command in node python3 stat id mktemp flock sync ln timeout; do command -v "$command" >/dev/null; done
 EVIDENCE_ROOT="$ROOT/evidence"
 DIRECTORY="$EVIDENCE_ROOT/native-preactivation"

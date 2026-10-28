@@ -1,0 +1,33 @@
+ETAPA 1375 — BOUNDARY ESTÁVEL PARA HASH DE ARQUIVOS
+Data: 2026-10-26
+
+Problema
+
+Nove leituras `sha256sum` dos pacotes, configurações e baselines eram diretas.
+Embora seus resultados fossem comparados depois, o subprocesso não tinha
+deadline nem teto e o arquivo não era reatestado ao redor da leitura.
+
+Correção
+
+Todas passam por `sha256_file`. O helper rejeita symlink e não regular, captura
+dispositivo/inode/tamanho/tempos/UID/modo/links antes da leitura, executa
+`sha256sum` com deadline foreground TERM/KILL de 120 segundos e lê somente os
+66 bytes necessários ao digest mais o separador. Ele exige SHA-256 minúsculo
+canônico e reatesta os metadados depois antes de devolver apenas os 64 dígitos.
+
+Uma regressão de inventário exige que exista somente a invocação interna e
+limitada de `sha256sum`: quatro usos de `sha256_file` no depósito e cinco no
+resgate. Falha, timeout, excesso, forma inválida, troca de pathname ou alteração
+observável durante a leitura abortam antes de assinatura, publicação ou
+evidência terminal.
+
+Validação offline
+
+- Sintaxe Bash dos dois executores: aprovada.
+- Suíte focal dos executores e conservação: 15/15 aprovada.
+- Suíte ampla closed-mainnet/pilot/preflight: 76/76 aprovada.
+- Inventário: 9/9 hashes usam o helper; zero `sha256sum` direto permanece.
+- `git diff --check`: aprovado.
+
+Nenhuma rede real, Ledger, assinatura, deploy, transmissão, fundo, Rust,
+Solidity, Cargo, Forge, commit ou push foi executado ou alterado nesta etapa.
